@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $defaultRuntimeDir = Join-Path $toolRoot "runtime-data\autopush"
 $startupLauncherPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\GitAutoPushWatcher.cmd"
+$watcherScriptPath = Join-Path $toolRoot "scripts\watch_git_versions_and_push.ps1"
 
 if (-not $StatePath) {
     $StatePath = Join-Path $defaultRuntimeDir "git-autopush-state.json"
@@ -61,7 +62,21 @@ function Get-OptionalTailLine {
     return "$line".Trim()
 }
 
+function Get-WatcherProcesses {
+    param([string]$WatcherPath)
+
+    $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            ($_.Name -in @("powershell.exe", "pwsh.exe")) -and
+            -not [string]::IsNullOrWhiteSpace($_.CommandLine) -and
+            $_.CommandLine -like "*$WatcherPath*"
+        }
+
+    return @($processes)
+}
+
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+$watcherProcesses = Get-WatcherProcesses -WatcherPath $watcherScriptPath
 
 $result = [ordered]@{
     task_name             = $TaskName
@@ -73,8 +88,11 @@ $result = [ordered]@{
     scan_root             = ""
     poll_seconds          = $null
     recurse               = $false
+    launch_mode           = "inactive"
     startup_launcher_path = $startupLauncherPath
     startup_launcher_exists = Test-Path -LiteralPath $startupLauncherPath
+    watcher_process_count = @($watcherProcesses).Count
+    watcher_pids          = @($watcherProcesses | Select-Object -ExpandProperty ProcessId)
     log_path              = $LogPath
     log_exists            = Test-Path -LiteralPath $LogPath
     log_last_write_time   = $null
@@ -114,6 +132,15 @@ if ($result.state_exists) {
     $result.last_state_updated_at = "$($state.updated_at)"
 }
 
+if (-not $task -and $result.startup_launcher_exists) {
+    $launcherContent = Get-Content -LiteralPath $startupLauncherPath -Raw -ErrorAction SilentlyContinue
+    $pollSecondsValue = Get-TaskArgumentValue -Arguments $launcherContent -Name "PollSeconds"
+
+    $result.scan_root = Get-TaskArgumentValue -Arguments $launcherContent -Name "ScanRoot"
+    $result.poll_seconds = if ($pollSecondsValue) { [int]$pollSecondsValue } else { $null }
+    $result.recurse = $launcherContent -match "(^|\s)-Recurse(\s|$)"
+}
+
 if ($task) {
     $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
     $arguments = "$($task.Actions[0].Arguments)"
@@ -129,10 +156,20 @@ if ($task) {
     $result.recurse = $arguments -match "(^|\s)-Recurse(\s|$)"
 }
 
-if ($result.task_exists -and $result.task_state -eq "Running" -and $result.log_exists -and $result.poll_seconds) {
-    $freshnessThresholdSeconds = [Math]::Max(($result.poll_seconds * 3), 120)
+if ($result.task_exists -and $result.task_state -eq "Running") {
+    $result.launch_mode = "scheduled-task"
+} elseif ($result.watcher_process_count -gt 0 -and $result.startup_launcher_exists) {
+    $result.launch_mode = "startup-launcher"
+} elseif ($result.watcher_process_count -gt 0) {
+    $result.launch_mode = "manual"
+}
+
+if ($result.log_exists) {
+    $basePollSeconds = if ($result.poll_seconds) { $result.poll_seconds } else { 60 }
+    $freshnessThresholdSeconds = [Math]::Max(($basePollSeconds * 3), 120)
     $ageSeconds = ((Get-Date) - [datetime]$result.log_last_write_time).TotalSeconds
-    $result.healthy = $ageSeconds -le $freshnessThresholdSeconds
+    $hasRunner = ($result.task_exists -and $result.task_state -eq "Running") -or ($result.watcher_process_count -gt 0)
+    $result.healthy = $hasRunner -and ($ageSeconds -le $freshnessThresholdSeconds)
 }
 
 if ($AsJson) {
