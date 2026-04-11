@@ -16,8 +16,9 @@ from app.collectors.market_data import (
 )
 from app.config.settings import load_settings
 from app.features.minute_bars import aggregate_ticks_to_minute_bar, build_feature_snapshot
-from app.models.baseline import BaselineDirectionModel
+from app.models.loader import load_prediction_model
 from app.observability.logging import configure_logging
+from app.paper_trading.book import PaperPortfolioBook
 from app.paper_trading.engine import PaperTradingEngine
 from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
@@ -25,7 +26,7 @@ from app.reconciliation.service import build_placeholder_reconciliation_run
 from app.replay.service import build_placeholder_replay_run
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
 from app.storage.contracts import RiskEvent
-from app.storage.jsonl_store import JsonlArtifactStore
+from app.storage.runtime_writer import RuntimeWriter
 from app.utils.time import now_local
 
 
@@ -71,25 +72,26 @@ class KisSnapshotPipelineResult:
 def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelineResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    store = JsonlArtifactStore(settings.runtime_data_dir)
+    writer = RuntimeWriter.from_settings(settings)
+    portfolio_book = PaperPortfolioBook(
+        initial_cash=25_000_000,
+        max_open_positions=settings.strategy.max_open_positions,
+    )
 
     ticks = build_sample_ticks(symbol, timezone_name=settings.timezone)
     orderbook = build_sample_orderbook(symbol, timezone_name=settings.timezone)
     for tick in ticks:
-        store.append("raw", "market_ticks", tick.to_record(), tick.event_time)
-    store.append("raw", "orderbook_ticks", orderbook.to_record(), orderbook.event_time)
+        writer.write_market_tick(tick)
+    writer.write_orderbook_snapshot(orderbook)
 
     bar = aggregate_ticks_to_minute_bar(symbol, ticks)
     features = build_feature_snapshot(bar, orderbook, settings.feature_set_version)
-    store.append("curated", "minute_bars", bar.to_record(), bar.bar_time)
-    store.append("feature", "model_inputs", features.to_record(), features.event_time)
+    writer.write_minute_bar(bar)
+    writer.write_feature_snapshot(features)
 
-    model = BaselineDirectionModel(
-        model_version_h15=settings.model_version_h15,
-        model_version_h60=settings.model_version_h60,
-    )
+    model = load_prediction_model(settings, horizon_min=15)
     prediction = model.predict(features, horizon_min=15, prediction_id="pred-demo-15m-001")
-    store.append("serving", "predictions", prediction.to_record(), prediction.event_time)
+    writer.write_prediction(prediction)
 
     time_gate = TradingWindowGate(
         new_entry_start=settings.market_calendar.new_entry_start,
@@ -108,17 +110,19 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
         spread_gate=spread_gate,
         signal_id="signal-demo-001",
     )
-    store.append("serving", "trade_signals", signal.to_record(), signal.event_time)
+    writer.write_trade_signal(signal)
 
     allocator = PositionAllocator(
         portfolio_version=settings.strategy.portfolio_version,
         max_position_pct=settings.strategy.max_position_pct,
     )
     target = allocator.allocate(signal, last_price=bar.close, cash_balance=25_000_000, target_id="target-demo-001")
-    store.append("serving", "target_positions", target.to_record(), target.event_time)
+    writer.write_target_position(target)
+    portfolio_book.mark_price(symbol, bar.close)
 
     order_created = False
-    if signal.allowed and settings.strategy.enable_paper_execution and target.target_qty > 0:
+    can_open, open_reason = portfolio_book.can_open(symbol)
+    if signal.allowed and settings.strategy.enable_paper_execution and target.target_qty > 0 and can_open:
         engine = PaperTradingEngine(slippage_bps=settings.strategy.slippage_bps)
         order = engine.create_order(target, signal, order_id="paper-order-001")
         ack = engine.acknowledge(order, order_event_id="paper-order-event-ack-001")
@@ -129,10 +133,15 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
             order_event_id="paper-order-event-fill-001",
             fill_id="paper-fill-001",
         )
-        store.append("paper", "orders", order.to_record(), order.event_time)
-        store.append("paper", "order_events", ack.to_record(), ack.event_time)
-        store.append("paper", "order_events", fill_event.to_record(), fill_event.event_time)
-        store.append("paper", "fills", fill.to_record(), fill.event_time)
+        writer.write_paper_order(order)
+        writer.write_order_event(ack)
+        writer.write_order_event(fill_event)
+        writer.write_fill(fill)
+        portfolio_book.apply_buy_fill(symbol=symbol, fill=fill, fill_price=execution_price)
+        writer.write_paper_position(portfolio_book.to_position_record(symbol, updated_at=fill.event_time))
+        writer.write_portfolio_snapshot(
+            portfolio_book.to_portfolio_snapshot(snapshot_id="portfolio-demo-001", event_time=fill.event_time)
+        )
         order_created = True
         LOGGER.info("Demo paper order created for %s qty=%s", order.symbol, order.qty)
     else:
@@ -141,9 +150,9 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
             symbol=symbol,
             event_time=prediction.event_time,
             gate="signal_policy",
-            detail=f"signal_allowed={signal.allowed}",
+            detail=f"signal_allowed={signal.allowed};open_reason={open_reason}",
         )
-        store.append("ops", "risk_events", risk_event.to_record(), risk_event.event_time)
+        writer.write_risk_event(risk_event)
         LOGGER.info("Signal blocked for %s: %s", symbol, signal.reason)
 
     reconciliation = build_placeholder_reconciliation_run(
@@ -152,8 +161,8 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
         reconciliation_id="recon-demo-001",
     )
     replay = build_placeholder_replay_run(as_of=prediction.event_time, replay_id="replay-demo-001")
-    store.append("ops", "reconciliation_runs", reconciliation.to_record(), reconciliation.as_of)
-    store.append("ops", "replay_runs", replay.to_record(), replay.as_of)
+    writer.write_reconciliation_run(reconciliation)
+    writer.write_replay_run(replay)
 
     return DemoPipelineResult(
         symbol=symbol,
@@ -170,7 +179,7 @@ def run_kis_snapshot_pipeline(project_root: Path, symbol: str = "005930") -> Kis
     profile = get_active_kis_profile(settings)
     token_manager = KisTokenManager(profile)
     client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
-    store = JsonlArtifactStore(settings.runtime_data_dir)
+    writer = RuntimeWriter.from_settings(settings)
 
     current_quote = client.get_current_price(symbol=symbol)
     orderbook_quote = client.get_orderbook(symbol=symbol)
@@ -178,8 +187,8 @@ def run_kis_snapshot_pipeline(project_root: Path, symbol: str = "005930") -> Kis
 
     tick = market_tick_from_kis_quote(current_quote, event_time=event_time)
     orderbook = orderbook_from_kis_quote(orderbook_quote, event_time=event_time)
-    store.append("raw", "market_ticks", tick.to_record(), tick.event_time)
-    store.append("raw", "orderbook_ticks", orderbook.to_record(), orderbook.event_time)
+    writer.write_market_tick(tick)
+    writer.write_orderbook_snapshot(orderbook)
 
     LOGGER.info(
         "KIS snapshot stored for %s current=%s ask1=%s bid1=%s",

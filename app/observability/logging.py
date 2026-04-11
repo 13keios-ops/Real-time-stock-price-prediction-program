@@ -29,7 +29,9 @@ def configure_logging(settings: AppSettings) -> Path:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
-    root_logger.handlers.clear()
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+        handler.close()
 
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
 

@@ -1,5 +1,5 @@
 ﻿{
-    "enabled":  false,
+    "enabled":  true,
     "branch":  "main",
     "remote":  "origin",
     "trigger":  "version-change",

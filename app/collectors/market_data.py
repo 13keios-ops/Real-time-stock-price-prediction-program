@@ -99,3 +99,30 @@ def orderbook_from_kis_ws_record(
         ask_size=ask_size,
         source=source,
     )
+
+
+def event_time_from_kis_ws_record(
+    record: Mapping[str, str],
+    timezone_name: str = "Asia/Seoul",
+    fallback: datetime | None = None,
+) -> datetime:
+    fallback = fallback or datetime.now(tz=get_timezone(timezone_name))
+    date_text = str(record.get("BSOP_DATE", "")).strip()
+    time_text = str(record.get("STCK_CNTG_HOUR", "") or record.get("BSOP_HOUR", "")).strip()
+    if not time_text:
+        return fallback
+
+    padded_time = time_text.ljust(6, "0")[:6]
+    if date_text and len(date_text) == 8 and date_text.isdigit():
+        year = int(date_text[0:4])
+        month = int(date_text[4:6])
+        day = int(date_text[6:8])
+    else:
+        year = fallback.year
+        month = fallback.month
+        day = fallback.day
+
+    hour = int(padded_time[0:2])
+    minute = int(padded_time[2:4])
+    second = int(padded_time[4:6])
+    return fallback.replace(year=year, month=month, day=day, hour=hour, minute=minute, second=second, microsecond=0)

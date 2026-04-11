@@ -129,6 +129,30 @@ CREATE TABLE IF NOT EXISTS paper.fills (
     tax NUMERIC(18, 4) NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS paper.positions (
+    symbol TEXT PRIMARY KEY,
+    opened_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL,
+    qty BIGINT NOT NULL,
+    avg_price NUMERIC(18, 4) NOT NULL,
+    last_price NUMERIC(18, 4) NOT NULL,
+    market_value NUMERIC(18, 4) NOT NULL,
+    cost_basis NUMERIC(18, 4) NOT NULL,
+    realized_pnl NUMERIC(18, 4) NOT NULL,
+    unrealized_pnl NUMERIC(18, 4) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper.portfolio_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    event_time TIMESTAMPTZ NOT NULL,
+    cash_balance NUMERIC(18, 4) NOT NULL,
+    gross_market_value NUMERIC(18, 4) NOT NULL,
+    net_liquidation_value NUMERIC(18, 4) NOT NULL,
+    open_positions INTEGER NOT NULL,
+    realized_pnl NUMERIC(18, 4) NOT NULL,
+    unrealized_pnl NUMERIC(18, 4) NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ops.risk_events (
     risk_event_id TEXT PRIMARY KEY,
     symbol TEXT NOT NULL,

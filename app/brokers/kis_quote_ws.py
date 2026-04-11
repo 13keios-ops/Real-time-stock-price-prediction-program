@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from app.brokers.kis_auth import KisApiError, KisAuthProfile, KisTokenManager
@@ -130,6 +132,9 @@ except ImportError:  # pragma: no cover - optional runtime dependency
     websockets = None
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 @dataclass(slots=True)
 class KisWebSocketSubscription:
     tr_id: str
@@ -176,6 +181,20 @@ class KisWebSocketQuoteClient:
     def build_domestic_orderbook_subscription(self, symbol: str) -> KisWebSocketSubscription:
         return KisWebSocketSubscription(tr_id=DOMESTIC_ORDERBOOK_TR_ID, tr_key=symbol)
 
+    def build_subscriptions(
+        self,
+        symbols: list[str],
+        include_trade: bool = True,
+        include_orderbook: bool = True,
+    ) -> list[KisWebSocketSubscription]:
+        subscriptions: list[KisWebSocketSubscription] = []
+        for symbol in symbols:
+            if include_trade:
+                subscriptions.append(self.build_domestic_trade_subscription(symbol))
+            if include_orderbook:
+                subscriptions.append(self.build_domestic_orderbook_subscription(symbol))
+        return subscriptions
+
     async def subscribe(self, symbol: str, channel: str = "trade") -> list[str]:
         if websockets is None:
             raise KisApiError("WebSocket support requires the optional 'websockets' package.")
@@ -197,6 +216,70 @@ class KisWebSocketQuoteClient:
             for _ in range(2):
                 frames.append(await connection.recv())
         return frames
+
+    async def listen(
+        self,
+        symbols: list[str],
+        include_trade: bool = True,
+        include_orderbook: bool = True,
+        max_frames: int = 50,
+        max_reconnects: int = 2,
+    ):
+        if websockets is None:
+            raise KisApiError("WebSocket support requires the optional 'websockets' package.")
+        if not symbols:
+            raise KisApiError("At least one symbol is required for WebSocket listening.")
+        subscriptions = self.build_subscriptions(
+            symbols=symbols,
+            include_trade=include_trade,
+            include_orderbook=include_orderbook,
+        )
+        frames_seen = 0
+        reconnect_attempt = 0
+
+        while frames_seen < max_frames:
+            approval_key = self.issue_approval_key()
+            try:
+                async with websockets.connect(  # type: ignore[union-attr]
+                    self.profile.websocket_tryitout_url,
+                    ping_interval=20,
+                    ping_timeout=20,
+                    close_timeout=5,
+                ) as connection:
+                    LOGGER.info(
+                        "Connected to KIS WebSocket endpoint=%s symbols=%s",
+                        self.profile.websocket_tryitout_url,
+                        ",".join(symbols),
+                    )
+                    for subscription in subscriptions:
+                        await connection.send(
+                            json.dumps(
+                                subscription.to_message(
+                                    approval_key=approval_key,
+                                    customer_type=self.profile.customer_type,
+                                ),
+                                ensure_ascii=False,
+                            )
+                        )
+                    while frames_seen < max_frames:
+                        frame = await connection.recv()
+                        frames_seen += 1
+                        yield frame
+                break
+            except Exception as exc:
+                if reconnect_attempt >= max_reconnects:
+                    raise KisApiError(
+                        f"KIS WebSocket listen failed after {reconnect_attempt} reconnects: {exc}"
+                    ) from exc
+                reconnect_attempt += 1
+                LOGGER.warning(
+                    "KIS WebSocket disconnected; reconnecting in %ss (attempt %s/%s): %s",
+                    self.reconnect_backoff_seconds,
+                    reconnect_attempt,
+                    max_reconnects,
+                    exc,
+                )
+                await asyncio.sleep(self.reconnect_backoff_seconds)
 
 
 def parse_kis_ws_frame(frame: str) -> dict[str, Any]:

@@ -80,6 +80,16 @@ class FeatureSnapshot(RecordMixin):
 
 
 @dataclass(slots=True)
+class FeatureLabel(RecordMixin):
+    symbol: str
+    event_time: datetime
+    horizon_min: int
+    label: str
+    threshold_pct: float
+    future_return_pct: float
+
+
+@dataclass(slots=True)
 class Prediction(RecordMixin):
     prediction_id: str
     symbol: str
@@ -145,6 +155,32 @@ class Fill(RecordMixin):
 
 
 @dataclass(slots=True)
+class PaperPosition(RecordMixin):
+    symbol: str
+    opened_at: datetime | None
+    updated_at: datetime
+    qty: int
+    avg_price: float
+    last_price: float
+    market_value: float
+    cost_basis: float
+    realized_pnl: float
+    unrealized_pnl: float
+
+
+@dataclass(slots=True)
+class PortfolioSnapshot(RecordMixin):
+    snapshot_id: str
+    event_time: datetime
+    cash_balance: float
+    gross_market_value: float
+    net_liquidation_value: float
+    open_positions: int
+    realized_pnl: float
+    unrealized_pnl: float
+
+
+@dataclass(slots=True)
 class RiskEvent(RecordMixin):
     risk_event_id: str
     symbol: str
@@ -167,3 +203,27 @@ class ReplayRun(RecordMixin):
     as_of: datetime
     status: str
     drift_count: int
+
+
+@dataclass(slots=True)
+class TrainingRun(RecordMixin):
+    training_run_id: str
+    started_at: datetime
+    completed_at: datetime
+    model_version: str
+    feature_set_version: str
+    horizon_min: int
+    train_rows: int
+    validation_rows: int
+    training_summary: dict[str, Any]
+
+
+@dataclass(slots=True)
+class ModelEvaluation(RecordMixin):
+    evaluation_id: str
+    training_run_id: str
+    evaluated_at: datetime
+    split_name: str
+    accuracy: float
+    total_rows: int
+    metrics: dict[str, Any]
