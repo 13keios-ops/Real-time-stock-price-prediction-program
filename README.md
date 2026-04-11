@@ -1,84 +1,122 @@
-# Real-time Stock Price Prediction Program
+﻿# Real-time Stock Price Prediction Program
 
-국내 주식시장에서 실시간 가격/호가, 공시/뉴스, 검색/반응 데이터를 결합해 단기 주가 변동을 예측하는 연구·개발 프로젝트입니다.
+국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
+현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
 
-현재 저장소는 2026-04-10 기준 초기 상태였고, 기존 Markdown 문서는 존재하지 않았습니다. 그래서 먼저 프로젝트의 방향, 데이터 전략, 모델링 전략, 시스템 아키텍처를 문서화하는 방식으로 기반을 잡았습니다.
+## 핵심 문서
 
-## 현재 가정
+- `AGENTS.md`: 저장소 운영 규칙의 단일 기준
+- `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최근 기록
+- `docs/Current-Implementation.md`: 실제 구현 범위와 실행 방법
+- `docs/Versioning.md`: `VERSION` 기반 버전 관리와 watcher 기준
+- `docs/*.md`: 주제별 상세 설계와 참고 문서
 
-- 초기 버전은 `내부 연구용 의사결정 보조 시스템`을 목표로 합니다.
-- 첫 단계에서는 `자동매매`보다 `예측 점수 + 근거 신호 + 경보` 제공에 집중합니다.
-- 데이터 수집은 `공식 API 또는 사용 허가가 명확한 소스`를 우선 사용합니다.
-- 예측 대상은 전체 시장이 아니라 `유동성이 높은 국내 종목군`부터 시작합니다.
+## 현재 구현 상태
 
-## 문서 맵
+현재 저장소는 아래 기능까지 구현되어 있다.
 
-- `docs/Review-Notes.md`: 현재 저장소와 문서 상태에 대한 검토 결과
-- `docs/PRD.md`: 프로젝트 목표, 범위, 사용자 시나리오, 성공 기준
-- `docs/Data-Sources.md`: 데이터 소스 후보, 수집 원칙, 법적/운영 리스크
-- `docs/Architecture.md`: 실시간 수집부터 예측 서빙까지의 시스템 구조
-- `docs/Modeling-Strategy.md`: 그래프 분석, 심리 요인, 멀티모달 예측 전략
-- `docs/Baseline-Decisions.md`: 현재 확정된 1차 기획 기준과 선택 이유
-- `docs/Data-Schema.md`: 수집/가공/예측 로그를 위한 데이터 스키마 초안
-- `docs/Dashboard-Plan.md`: 연구용 대시보드 화면 구성과 핵심 위젯
-- `docs/Experiment-Tracking.md`: 실험, 모델 버전, 예측 로그 관리 기준
-- `docs/Machine-Learning-Operations.md`: 머신러닝 모델 계층, 학습 주기, 운영 기준
-- `docs/Paper-Trading-Validation.md`: 예측 기반 자동 모의투자 검증 절차와 리스크 통제
-- `docs/Signal-Policy.md`: 예측을 주문 신호로 바꾸는 초기 규칙과 리스크 한도
-- `docs/Execution-Assumptions.md`: 체결, 슬리피지, 거래비용의 시뮬레이션 가정
-- `docs/Account-Safety.md`: 실전/모의 계좌 분리, 비밀정보 관리, 오주문 방지 장치
-- `docs/KIS-Integration-Plan.md`: 한국투자 Open API 연동 구조와 인증/시세/주문 흐름
-- `docs/Market-Schedule-Rules.md`: 한국 주식시장 시간 규칙과 특수 일정 처리 기준
-- `docs/Runtime-Configuration.md`: 환경변수, 실행 모드, 설정 계층 구조
-- `docs/Implementation-Blueprint.md`: 개발 시작용 모듈 구조와 단계별 구현 계획
-- `docs/External-Benchmark-Review.md`: 외부 유사 구조 조사와 현재 설계의 보완점 정리
-- `docs/Portfolio-And-Reconciliation.md`: 자본 배분, 목표 포지션, 브로커/리플레이 재조정 기준
-- `docs/Order-Lifecycle.md`: 신호부터 주문/체결/취소/복구까지의 상태 머신
-- `docs/Replay-And-Recovery.md`: 재시작 복구, 워밍업, 실시간 리플레이 검증 절차
-- `docs/NLP-Event-Pipeline.md`: 뉴스/공시/반응 데이터를 특징으로 만드는 텍스트 파이프라인
-- `docs/Market-Data-Policy.md`: raw/adjusted 가격, 분봉 생성, 데이터 품질 게이트 기준
-- `docs/Universe-Freeze-Policy.md`: 종목군 산출, 월간 동결, 긴급 거래 제외 규칙
-- `docs/Codex-Augmentation-Plan.md`: Codex/CLI/API를 활용한 지속 개선 루프와 역할 분리
-- `docs/Local-Activity-Logging.md`: 로컬 활동 로그 폴더 구조와 Codex 검토 대상 산출물 정의
-- `docs/Roadmap.md`: 개발 전 기획 단계부터 운영 단계까지의 순차 로드맵
-- `docs/Realtime-Operations.md`: 실시간 수집, 지연 관리, 장애 대응, 재학습 운영 전략
-- `docs/Validation-Plan.md`: 백테스트, 온라인 모니터링, 정확도 개선 루프
+- KIS REST 현재가/호가 조회
+- KIS WebSocket 파서와 listener 준비
+- SQLite / JSONL runtime 저장
+- minute bar 생성
+- feature / label 생성
+- centroid baseline 학습
+- validation-tail backtest
+- walk-forward backtest
+- online replay 기반 paper trading 상태 기록
+- runtime / backtest / walk-forward report 생성
 
-## 현재 확정된 1차 기준
+현재 기준 버전은 `0.2.0` 이다.
 
-1. 종목군: `최근 60거래일 중앙값 거래대금 상위 30종목`
-2. 시장 범위: `KOSPI + KOSDAQ`
-3. 제외 대상: `ETF`, `ETN`, `스팩`, `우선주`, `관리종목`, `거래정지 종목`
-4. 리밸런싱: `월 1회`
-5. 예측 수평선: `15분 방향`, `60분 방향`
-6. 실시간 시세 API 1순위: `한국투자 Open API`
-7. 계좌 연동 상태: `한국투자증권 실전투자계좌용 API`, `모의투자계좌용 API` 확보
-8. 검증 방식: `백테스트 + 실시간 예측 + 자동 모의투자 병행`
-9. 보조 데이터: `KRX OPEN API`, `OpenDART`, `NAVER 검색 API`, `NAVER DataLab`
-10. 초기 라벨 임계값: `15분 ±0.35%`, `60분 ±0.8%`
-11. 초기 자동매매 방향: `모의투자 long-only`, `당일 청산 중심`
-12. 실전 주문 정책: `기본값 비활성화`, `개발 초기에는 절대 미사용`
-13. 거래비용/슬리피지 기준: `기본형을 기본 시나리오로 사용`, `낙관/보수 시나리오 동시 비교`
-14. 모의주문 규칙 기준: `기본형 진입/청산 규칙 사용`
-15. 장중 주문 시간대 기준: `개장 직후 10~15분 신규 진입 금지`, `장 마감 전 20~30분 신규 진입 금지`
-16. 계좌 안전장치 기준: `paper/live 분리`, `기본값 paper`, `실전 주문 기본 비활성화`
+## 저장소 구조
 
-## 권장 MVP 범위
+```text
+app/                애플리케이션 코드
+config/             TOML 설정, watchlist, autopush 설정
+docs/               canonical 문서와 상세 설계 문서
+migrations/         DB 스키마 초안
+runtime-data/       로그, 리포트, 모델, 캐시, 실행 산출물
+scripts/            반복 실행용 PowerShell 스크립트
+tests/              unittest 기반 검증
+.agents/skills/     저장소 전용 skill 자리
+templates/          새 저장소 시작용 운영 팩 자리
+```
 
-1. 종목 범위: KOSPI/KOSDAQ 유동성 상위 30~50개 종목
-2. 예측 수평선: `15분`, `60분`, `당일 종가 방향`
-3. 데이터: 실시간 시세/호가, 공시, 뉴스, 검색 반응
-4. 출력: 종목별 방향 점수, 신뢰도, 영향 요인, 경보
-5. 검증: 워크포워드 백테스트 + 모의 운용 로그
+## 빠른 실행
 
-## 바로 다음 작업
+전체 테스트:
 
-1. 실시간 시세용 증권사 Open API 1개를 확정합니다.
-2. 초기 종목 유니버스와 예측 수평선을 고정합니다.
-3. 수집/평가/운영 로드맵을 기준으로 1차 개발 범위를 동결합니다.
-4. 데이터 수집 스키마와 저장소 구조를 코드로 생성합니다.
-5. 베이스라인 모델과 평가 파이프라인을 먼저 구현합니다.
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
+```
 
-## 참고
+synthetic 전체 흐름:
 
-이 프로젝트는 투자 판단을 보조하는 예측 연구 시스템입니다. 실제 투자에는 거래비용, 슬리피지, 공시 지연, API 장애, 심리적 편향 등 추가 위험이 존재하므로 별도 검증이 필요합니다.
+```powershell
+python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
+python -m app --build-runtime-report
+```
+
+단순 백테스트:
+
+```powershell
+python -m app --run-backtest --horizon-min 15
+```
+
+walk-forward 백테스트:
+
+```powershell
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
+```
+
+KIS WebSocket listener:
+
+```powershell
+python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
+```
+
+## 새 기능을 어디에 둘까
+
+새 기능 위치는 아래 기준으로 판단한다.
+
+- 증권사 인증, 시세 조회, WebSocket 연결은 `app/brokers/`
+- 외부 응답을 내부 이벤트로 바꾸는 로직은 `app/collectors/`
+- 분봉, 특징 생성은 `app/features/`
+- 라벨 생성은 `app/labels/`
+- 모델 학습, 평가, 백테스트는 `app/models/`, `app/services/research.py`
+- 실시간 예측, replay, online 처리 흐름은 `app/services/streaming.py`
+- 모의주문, 포지션, 포트폴리오 상태는 `app/paper_trading/`, `app/portfolio/`
+- 리스크 게이트는 `app/risk/`
+- 리포트 생성은 `app/services/reporting.py`
+- 운영 문서는 `AGENTS.md`, `docs/logbook.md`, `docs/Versioning.md`, 주제별 `docs/*.md`
+
+새 기능이 두 영역에 걸치면 먼저 `입력`, `가공`, `판단`, `기록` 중 어느 책임이 중심인지 확인하고 그 레이어에 둔다.
+
+## 버전 관리와 watcher
+
+이 저장소는 root `VERSION` 파일을 release-ready 신호로 사용한다.
+
+- 버전 변경 스크립트: `scripts/bump_version.ps1`
+- watcher 설정: `autopush.json`
+- watcher 상태: `runtime-data/autopush/git-autopush-state.json`
+- watcher 로그: `runtime-data/autopush/git-autopush.log`
+
+버전은 작업 마지막에 바꾸고, watcher가 그 변화를 감지해 자동 commit/push 또는 기존 release commit push를 수행한다.
+
+## Canonical 문서와 Reference 문서
+
+이 저장소는 문서를 아래처럼 구분한다.
+
+- canonical 문서
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/logbook.md`
+  - `docs/Versioning.md`
+  - `docs/Current-Implementation.md`
+- reference 문서
+  - `docs/Architecture.md`
+  - `docs/Implementation-Blueprint.md`
+  - `docs/KIS-Integration-Plan.md`
+  - 그 외 주제별 상세 설계 문서
+
+current truth는 canonical 문서에 남기고, 상세 설계와 배경 설명은 reference 문서에 둔다.

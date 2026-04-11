@@ -86,6 +86,20 @@ To flip one repository after it becomes safe:
 
 The enable script refuses dirty or non-`main` repositories unless you explicitly opt into overrides.
 
+## 4.1 How Version Detection Works In Practice
+
+For an opted-in repository, the watcher does not guess release timing from arbitrary file changes.
+
+It checks:
+
+- `autopush.json` exists
+- `enabled` is `true`
+- current branch matches the configured branch
+- `VERSION` exists
+- current `VERSION` differs from the last pushed version stored in `runtime-data/autopush/git-autopush-state.json`
+
+Only then does it move on to stage, commit, and push logic.
+
 ## 5. Per-Repository Config
 
 Each repository that should be auto-managed needs a file named `autopush.json` in the repository root.
