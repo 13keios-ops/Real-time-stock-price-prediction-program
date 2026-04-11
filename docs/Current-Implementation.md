@@ -18,7 +18,9 @@ The project now has a working local foundation for:
 - Runtime and backtest report generation
 - KIS WebSocket listening with reconnect handling and control-frame skipping
 - KIS WebSocket verification report generation
+- KIS verification separation between connection readiness and market-data flow
 - Root `.env` auto-loading for local execution
+- Paper account product code defaulting for 8-digit account numbers
 
 ## Recommended Dev Flow
 
@@ -94,6 +96,8 @@ This now checks:
 - `websockets` package availability
 - approval key issuance
 - live listen attempt when prerequisites are met
+- separation between `connection_ready` and `market_data_flow_ok`
+- session-aware interpretation for weekend / pre-open / post-close runs
 - verification report generation
 
 ### 7. Challenger review
@@ -153,3 +157,12 @@ The main remaining step is true intraday KIS WebSocket validation in an environm
 - the `websockets` Python package installed
 
 The challenger framework is now in place, so the best follow-up after live verification is adding stronger challenger models on top of the current baseline, linear-score, and centroid comparison flow.
+
+## KIS Paper Account Note
+
+For paper mode, if the account information is only available as an 8-digit account number, the settings loader now treats `KIS_PRODUCT_CODE_PAPER` as `01` by default.
+
+If the account is written like `12345678-01`, the loader will split it into:
+
+- `KIS_ACCOUNT_NO_PAPER=12345678`
+- `KIS_PRODUCT_CODE_PAPER=01`

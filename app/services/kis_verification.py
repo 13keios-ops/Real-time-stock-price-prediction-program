@@ -12,7 +12,7 @@ from app.config.settings import load_settings
 from app.observability.logging import configure_logging
 from app.services.streaming import OnlinePipelineResult, run_kis_ws_listener_sync
 from app.universe.watchlist import load_watchlist
-from app.utils.time import now_local
+from app.utils.time import now_local, parse_hhmm
 
 
 @dataclass(slots=True)
@@ -21,6 +21,11 @@ class KisWsVerificationResult:
     trading_mode: str
     endpoint: str
     symbols: list[str]
+    connection_ready: bool
+    market_data_flow_ok: bool
+    market_data_expected: bool
+    session_status: str
+    status_note: str
     dotenv_present: bool
     websockets_available: bool
     credentials_ready: bool
@@ -45,6 +50,11 @@ class KisWsVerificationResult:
             "trading_mode": self.trading_mode,
             "endpoint": self.endpoint,
             "symbols": self.symbols,
+            "connection_ready": self.connection_ready,
+            "market_data_flow_ok": self.market_data_flow_ok,
+            "market_data_expected": self.market_data_expected,
+            "session_status": self.session_status,
+            "status_note": self.status_note,
             "dotenv_present": self.dotenv_present,
             "websockets_available": self.websockets_available,
             "credentials_ready": self.credentials_ready,
@@ -65,6 +75,21 @@ class KisWsVerificationResult:
         }
 
 
+def _market_session_context(settings, timestamp) -> tuple[str, bool, str]:
+    if timestamp.weekday() >= 5:
+        return "weekend", False, "Weekend or holiday-like timing. Control frames without market data can be normal."
+
+    session_open = parse_hhmm(settings.market_calendar.session_open)
+    session_close = parse_hhmm(settings.market_calendar.session_close)
+    current_time = timestamp.timetz().replace(tzinfo=None)
+
+    if current_time < session_open:
+        return "pre-open", False, "Before the regular session open. Market data flow may not be active yet."
+    if current_time > session_close:
+        return "post-close", False, "After the regular session close. Control frames only can be normal."
+    return "regular-session", True, "Regular session window. Trade or orderbook events should normally appear."
+
+
 def verify_kis_websocket_runtime(
     project_root: Path,
     symbols: list[str] | None = None,
@@ -76,6 +101,8 @@ def verify_kis_websocket_runtime(
     configure_logging(settings)
     profile = get_active_kis_profile(settings)
     resolved_symbols = symbols or load_watchlist(project_root=project_root, watchlist_path=watchlist_path)
+    timestamp = now_local(settings.timezone)
+    session_status, market_data_expected, status_note = _market_session_context(settings, timestamp)
     missing_requirements: list[str] = []
     dotenv_present = (project_root / ".env").exists()
     websockets_available = websockets is not None
@@ -116,16 +143,26 @@ def verify_kis_websocket_runtime(
 
     report_dir = settings.runtime_data_dir / "reports" / "kis-ws"
     report_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = now_local(settings.timezone)
     markdown_path = report_dir / "latest-verification.md"
     json_path = report_dir / "latest-verification.json"
-    ok = pipeline_result is not None and error is None and not missing_requirements and pipeline_result.frames_received > 0
+    connection_ready = pipeline_result is not None and error is None and not missing_requirements and pipeline_result.frames_received > 0
+    market_data_flow_ok = connection_ready and (
+        (pipeline_result.raw_trade_events > 0) or (pipeline_result.raw_orderbook_events > 0)
+    )
+    if connection_ready and not market_data_flow_ok and market_data_expected:
+        status_note = "Connected during the regular session, but no trade or orderbook events were parsed."
+    ok = connection_ready
     payload = {
         "verified_at": timestamp.isoformat(),
         "ok": ok,
         "trading_mode": settings.trading_mode,
         "endpoint": profile.websocket_tryitout_url,
         "symbols": resolved_symbols,
+        "connection_ready": connection_ready,
+        "market_data_flow_ok": market_data_flow_ok,
+        "market_data_expected": market_data_expected,
+        "session_status": session_status,
+        "status_note": status_note,
         "dotenv_present": dotenv_present,
         "websockets_available": websockets_available,
         "credentials_ready": credentials_ready,
@@ -151,6 +188,10 @@ def verify_kis_websocket_runtime(
         f"- `trading_mode`: {settings.trading_mode}",
         f"- `endpoint`: {profile.websocket_tryitout_url}",
         f"- `symbols`: {resolved_symbols}",
+        f"- `connection_ready`: {connection_ready}",
+        f"- `market_data_flow_ok`: {market_data_flow_ok}",
+        f"- `market_data_expected`: {market_data_expected}",
+        f"- `session_status`: {session_status}",
         f"- `dotenv_present`: {dotenv_present}",
         f"- `websockets_available`: {websockets_available}",
         f"- `credentials_ready`: {credentials_ready}",
@@ -171,7 +212,7 @@ def verify_kis_websocket_runtime(
         markdown_lines.extend(f"- {item}" for item in missing_requirements)
     else:
         markdown_lines.append("- none")
-    markdown_lines.extend(["", "## Error", ""])
+    markdown_lines.extend(["", "## Interpretation", "", f"- {status_note}", "", "## Error", ""])
     markdown_lines.append(f"- {error}" if error else "- none")
 
     markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
@@ -182,6 +223,11 @@ def verify_kis_websocket_runtime(
         trading_mode=settings.trading_mode,
         endpoint=profile.websocket_tryitout_url,
         symbols=resolved_symbols,
+        connection_ready=connection_ready,
+        market_data_flow_ok=market_data_flow_ok,
+        market_data_expected=market_data_expected,
+        session_status=session_status,
+        status_note=status_note,
         dotenv_present=dotenv_present,
         websockets_available=websockets_available,
         credentials_ready=credentials_ready,
@@ -200,4 +246,3 @@ def verify_kis_websocket_runtime(
         report_markdown_path=markdown_path,
         report_json_path=json_path,
     )
-

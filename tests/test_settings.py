@@ -50,6 +50,34 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.kis_paper.app_secret, "test-paper-secret")
         self.assertTrue(str(settings.database_url).endswith("dotenv.db"))
 
+    def test_paper_product_code_defaults_to_01_when_blank(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        settings = load_settings(
+            project_root=root,
+            env={
+                "KIS_ACCOUNT_NO_PAPER": "12345678",
+                "KIS_PRODUCT_CODE_PAPER": "",
+            },
+        )
+
+        self.assertEqual(settings.kis_paper.account_no, "12345678")
+        self.assertEqual(settings.kis_paper.product_code, "01")
+
+    def test_account_number_can_split_product_code_from_hyphenated_text(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        settings = load_settings(
+            project_root=root,
+            env={
+                "KIS_ACCOUNT_NO_PAPER": "12345678-03",
+                "KIS_PRODUCT_CODE_PAPER": "",
+            },
+        )
+
+        self.assertEqual(settings.kis_paper.account_no, "12345678")
+        self.assertEqual(settings.kis_paper.product_code, "03")
+
 
 if __name__ == "__main__":
     unittest.main()

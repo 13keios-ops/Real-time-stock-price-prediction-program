@@ -125,12 +125,30 @@ def _env_path(project_root: Path, env: dict[str, str], key: str, default: str) -
     return project_root / path
 
 
+def _normalize_account_credentials(account_no: str, product_code: str, *, prefix: str) -> tuple[str, str]:
+    raw_account = account_no.strip()
+    raw_product = product_code.strip()
+    if "-" in raw_account:
+        account_part, _, product_part = raw_account.partition("-")
+        raw_account = account_part.strip()
+        if not raw_product:
+            raw_product = product_part.strip()
+    if prefix == "PAPER" and raw_account and not raw_product:
+        raw_product = "01"
+    return raw_account, raw_product
+
+
 def _build_kis_credential_set(env: dict[str, str], prefix: str) -> KisCredentialSet:
+    account_no, product_code = _normalize_account_credentials(
+        account_no=env.get(f"KIS_ACCOUNT_NO_{prefix}", ""),
+        product_code=env.get(f"KIS_PRODUCT_CODE_{prefix}", ""),
+        prefix=prefix,
+    )
     return KisCredentialSet(
         app_key=env.get(f"KIS_APP_KEY_{prefix}", ""),
         app_secret=env.get(f"KIS_APP_SECRET_{prefix}", ""),
-        account_no=env.get(f"KIS_ACCOUNT_NO_{prefix}", ""),
-        product_code=env.get(f"KIS_PRODUCT_CODE_{prefix}", ""),
+        account_no=account_no,
+        product_code=product_code,
     )
 
 

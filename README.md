@@ -27,6 +27,7 @@
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
+- paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 
 현재 기준 버전은 `0.2.0` 이다.
 
@@ -88,6 +89,8 @@ KIS WebSocket 검증:
 ```powershell
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```
+
+이 검증은 이제 `연결 준비 완료`와 `실제 장중 데이터 수신 확인`을 분리해서 기록한다.
 
 ## 새 기능을 어디에 둘까
 

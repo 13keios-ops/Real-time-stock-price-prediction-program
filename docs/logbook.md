@@ -48,7 +48,7 @@
 
 ## Latest Verified Results
 
-- 전체 테스트: `33 tests OK`
+- 전체 테스트: `36 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -62,8 +62,11 @@
   - recommended action: `promote`
   - candidates compared: `4`
 - 최신 KIS verification:
-  - `ok=false`
-  - missing requirements: `KIS credentials`, `python websockets package`
+  - `connection_ready=true`
+  - `market_data_flow_ok=false`
+  - `session_status=weekend`
+  - `frames_received=5`
+  - `control_frames=5`
 
 ## Recent Log
 
@@ -80,7 +83,10 @@
   - 실제 장중 검증은 현재 환경에 `.env`와 `websockets`가 없어 아직 미완료 상태다.
 - `2026-04-12`
   - challenger 승격 추천 규칙과 leaderboard 기록을 추가했다.
-  - 오늘 기준 환경에도 root `.env`와 `websockets`가 없어 실제 장중 KIS 검증은 계속 대기 상태다.
+  - root `.env`와 `websockets` 준비가 완료되어 KIS WebSocket 연결 준비 검증은 통과했다.
+  - `2026-04-12 00:54 KST` 검증은 일요일 야간이라 control frame만 들어왔고 시장 데이터 수신 검증은 아직 남아 있다.
+  - paper 계좌번호만 8자리일 때 상품코드 `01`을 기본값으로 쓰도록 설정 로더를 보강했다.
+  - KIS verification report는 이제 `connection_ready` 와 `market_data_flow_ok` 를 분리해서 기록한다.
 
 ## Next Commands
 
