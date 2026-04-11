@@ -55,6 +55,8 @@ This avoids pushing half-finished work from unrelated projects.
 - `scripts/bootstrap_git_autopush_targets.ps1`
 - `scripts/install_git_autopush_startup_launcher.ps1`
 - `scripts/remove_git_autopush_startup_launcher.ps1`
+- `scripts/audit_git_autopush_targets.ps1`
+- `scripts/set_git_autopush_enabled.ps1`
 
 The watcher keeps its own state and logs under `runtime-data/autopush/`.
 
@@ -69,6 +71,20 @@ Bootstrap defaults:
 - `enabled = true` only when the repository is on `main`, has an `origin`, and is currently clean
 - dirty or non-`main` repositories get a prepared config with `enabled = false`
 - missing `VERSION` files are initialized to `0.1.0`
+
+To audit which repositories are currently safe to enable:
+
+```powershell
+.\scripts\audit_git_autopush_targets.ps1 -ScanRoot 'J:\GitHub'
+```
+
+To flip one repository after it becomes safe:
+
+```powershell
+.\scripts\set_git_autopush_enabled.ps1 -RepoPath 'J:\GitHub\Instargram Card News' -Enable
+```
+
+The enable script refuses dirty or non-`main` repositories unless you explicitly opt into overrides.
 
 ## 5. Per-Repository Config
 
