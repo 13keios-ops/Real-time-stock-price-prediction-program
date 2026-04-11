@@ -29,9 +29,9 @@
 - [x] walk-forward backtest 구현
 - [x] runtime report 구현
 - [x] VERSION 기반 watcher opt-in 정리
+- [x] README와 logbook 기준으로 오래된 주제 문서 역할 재정리
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 - [ ] 다중 모델 challenger 비교
-- [ ] README와 logbook 기준으로 오래된 주제 문서 역할 재정리
 
 ## Version And Watcher
 
@@ -61,7 +61,8 @@
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.
   - walk-forward backtest와 KIS WebSocket reconnect 준비를 추가했다.
   - SQLite `paper_positions.opened_at` 호환성 보강을 넣었다.
-  - canonical 운영 문서 세트를 `AGENTS / README / logbook / Versioning` 기준으로 재정리하기 시작했다.
+  - canonical 운영 문서 세트를 `AGENTS / README / logbook / Versioning` 기준으로 재정리했다.
+  - 깨진 legacy `docs/*.md`를 UTF-8 기준의 reference 문서로 전면 정리했다.
 
 ## Next Commands
 
