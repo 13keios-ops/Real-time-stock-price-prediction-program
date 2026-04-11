@@ -13,8 +13,9 @@ from app.collectors.market_data import orderbook_from_kis_ws_record
 from app.config.settings import load_settings
 from app.features.minute_bars import build_feature_snapshot
 from app.labels.thresholds import classify_return
+from app.models.baseline import BaselineDirectionModel
 from app.models.centroid import CentroidArtifact, CentroidDirectionModel
-from app.models.loader import load_prediction_model
+from app.models.loader import load_named_builtin_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.observability.logging import configure_logging
 from app.storage.contracts import FeatureLabel, FeatureSnapshot, MinuteBar, ModelEvaluation, OrderbookSnapshot, TrainingRun
@@ -148,6 +149,64 @@ class WalkForwardBacktestResult:
         }
 
 
+@dataclass(slots=True)
+class ChallengerCandidateResult:
+    rank: int
+    candidate_name: str
+    model_version: str
+    model_kind: str
+    training_run_id: str
+    promotable: bool
+    overall_accuracy: float
+    trade_hit_rate: float
+    win_rate: float
+    average_net_return_pct: float
+    cumulative_net_return_pct: float
+    trades_taken: int
+    rows_evaluated: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "rank": self.rank,
+            "candidate_name": self.candidate_name,
+            "model_version": self.model_version,
+            "model_kind": self.model_kind,
+            "training_run_id": self.training_run_id,
+            "promotable": self.promotable,
+            "overall_accuracy": round(self.overall_accuracy, 6),
+            "trade_hit_rate": round(self.trade_hit_rate, 6),
+            "win_rate": round(self.win_rate, 6),
+            "average_net_return_pct": round(self.average_net_return_pct, 6),
+            "cumulative_net_return_pct": round(self.cumulative_net_return_pct, 6),
+            "trades_taken": self.trades_taken,
+            "rows_evaluated": self.rows_evaluated,
+        }
+
+
+@dataclass(slots=True)
+class ChallengerRunResult:
+    challenger_run_id: str
+    horizon_min: int
+    best_model_version: str
+    best_candidate_name: str
+    promoted_model_version: str | None
+    report_markdown_path: Path
+    report_json_path: Path
+    candidates: list[ChallengerCandidateResult]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "challenger_run_id": self.challenger_run_id,
+            "horizon_min": self.horizon_min,
+            "best_model_version": self.best_model_version,
+            "best_candidate_name": self.best_candidate_name,
+            "promoted_model_version": self.promoted_model_version,
+            "report_markdown_path": str(self.report_markdown_path),
+            "report_json_path": str(self.report_json_path),
+            "candidates": [candidate.to_dict() for candidate in self.candidates],
+        }
+
+
 def _minute_floor(timestamp: datetime) -> datetime:
     return timestamp.replace(second=0, microsecond=0)
 
@@ -236,6 +295,38 @@ def _fit_centroid_model(
         centroids=centroids,
     )
     return CentroidDirectionModel(artifact)
+
+
+def _write_centroid_artifact(
+    *,
+    runtime_root: Path,
+    model: CentroidDirectionModel,
+) -> Path:
+    artifact_dir = runtime_root / "ml" / "models"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / f"{model.artifact.model_version}.json"
+    artifact_payload = {
+        "model_version": model.artifact.model_version,
+        "feature_set_version": model.artifact.feature_set_version,
+        "horizon_min": model.artifact.horizon_min,
+        "feature_names": model.artifact.feature_names,
+        "centroids": model.artifact.centroids,
+    }
+    artifact_path.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return artifact_path
+
+
+def _challenger_sort_key(candidate: dict[str, object]) -> tuple[float, ...]:
+    trades_taken = int(candidate["trades_taken"])
+    has_trades = 1.0 if trades_taken > 0 else 0.0
+    return (
+        has_trades,
+        float(candidate["cumulative_net_return_pct"]),
+        float(candidate["trade_hit_rate"]),
+        float(candidate["overall_accuracy"]),
+        float(trades_taken),
+        float(candidate["average_net_return_pct"]),
+    )
 
 
 def _evaluate_rows_with_model(
@@ -477,23 +568,14 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
     training_run_id = f"train-centroid-h{horizon_min}-{started_at.strftime('%Y%m%d%H%M%S')}"
     evaluation_id = f"eval-centroid-h{horizon_min}-{started_at.strftime('%Y%m%d%H%M%S')}"
 
-    artifact_dir = settings.runtime_data_dir / "ml" / "models"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_dir / f"{model_version}.json"
-    artifact_payload = {
-        "model_version": model_version,
-        "feature_set_version": settings.feature_set_version,
-        "horizon_min": horizon_min,
-        "feature_names": feature_names,
-        "centroids": model.artifact.centroids,
-    }
-    artifact_path.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    artifact_path = _write_centroid_artifact(runtime_root=settings.runtime_data_dir, model=model)
     ModelRegistry(settings.runtime_data_dir).set_active_model(
         ModelRegistryEntry(
             horizon_min=horizon_min,
             model_version=model_version,
             artifact_path=str(artifact_path),
             feature_set_version=settings.feature_set_version,
+            model_kind="centroid_artifact",
         )
     )
 
@@ -838,4 +920,265 @@ def run_walk_forward_backtest_from_sqlite(
         cumulative_net_return_pct=aggregate_net,
         report_markdown_path=markdown_path,
         report_json_path=json_path,
+    )
+
+
+def run_model_challenger_review_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    promote_best: bool = False,
+) -> ChallengerRunResult:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = get_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for challenger evaluation.")
+
+    feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
+    train_rows, validation_rows = _split_dataset(dataset)
+    if not validation_rows:
+        raise ValueError("Not enough validation rows are available for challenger evaluation.")
+
+    review_time = now_local(settings.timezone)
+    challenger_run_id = f"challenger-h{horizon_min}-{review_time.strftime('%Y%m%d%H%M%S')}"
+    writer = RuntimeWriter.from_settings(settings)
+    registry = ModelRegistry(settings.runtime_data_dir)
+
+    candidates: list[dict[str, object]] = []
+    active_model = load_prediction_model(settings, horizon_min=horizon_min)
+    active_model_version = getattr(getattr(active_model, "artifact", None), "model_version", None)
+    if active_model_version is None:
+        prediction = active_model.predict(
+            feature_snapshot=FeatureSnapshot(
+                symbol=str(validation_rows[0]["symbol"]),
+                event_time=validation_rows[0]["event_time"],
+                feature_set_version=settings.feature_set_version,
+                values=dict(validation_rows[0]["values"]),
+            ),
+            horizon_min=horizon_min,
+            prediction_id="candidate-version-probe",
+        )
+        active_model_version = prediction.model_version
+    active_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=active_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="challenger-active",
+    )
+    candidates.append(
+        {
+            "candidate_name": "active_model",
+            "model_version": str(active_model_version),
+            "model_kind": "active_runtime",
+            "training_run_id": _resolve_training_run_id(sqlite_store, str(active_model_version), horizon_min),
+            "promotable": False,
+            "promotion_entry": None,
+            **active_metrics,
+        }
+    )
+
+    baseline_model = BaselineDirectionModel(
+        model_version_h15=settings.model_version_h15,
+        model_version_h60=settings.model_version_h60,
+    )
+    baseline_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=baseline_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="challenger-baseline",
+    )
+    baseline_version = settings.model_version_h60 if horizon_min >= 60 else settings.model_version_h15
+    candidates.append(
+        {
+            "candidate_name": "baseline_builtin",
+            "model_version": baseline_version,
+            "model_kind": "builtin",
+            "training_run_id": f"builtin-{baseline_version}",
+            "promotable": True,
+            "promotion_entry": ModelRegistryEntry(
+                horizon_min=horizon_min,
+                model_version=baseline_version,
+                artifact_path="",
+                feature_set_version=settings.feature_set_version,
+                model_kind="builtin",
+                builtin_name="baseline",
+            ),
+            **baseline_metrics,
+        }
+    )
+
+    linear_model = load_named_builtin_model(settings, horizon_min=horizon_min, builtin_name="linear_score")
+    linear_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=linear_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="challenger-linear",
+    )
+    linear_version = linear_model.config.model_version
+    candidates.append(
+        {
+            "candidate_name": "linear_score_builtin",
+            "model_version": linear_version,
+            "model_kind": "builtin",
+            "training_run_id": f"builtin-{linear_version}",
+            "promotable": True,
+            "promotion_entry": ModelRegistryEntry(
+                horizon_min=horizon_min,
+                model_version=linear_version,
+                artifact_path="",
+                feature_set_version=settings.feature_set_version,
+                model_kind="builtin",
+                builtin_name="linear_score",
+            ),
+            **linear_metrics,
+        }
+    )
+
+    fresh_centroid_version = f"centroid-challenger-h{horizon_min}-v1"
+    fresh_centroid_model = _fit_centroid_model(
+        train_rows=train_rows,
+        feature_names=feature_names,
+        feature_set_version=settings.feature_set_version,
+        horizon_min=horizon_min,
+        model_version=fresh_centroid_version,
+    )
+    centroid_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=fresh_centroid_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="challenger-centroid",
+    )
+    centroid_artifact_path = _write_centroid_artifact(
+        runtime_root=settings.runtime_data_dir,
+        model=fresh_centroid_model,
+    )
+    candidates.append(
+        {
+            "candidate_name": "fresh_centroid",
+            "model_version": fresh_centroid_version,
+            "model_kind": "centroid_artifact",
+            "training_run_id": _resolve_training_run_id(sqlite_store, f"centroid-h{horizon_min}-v1", horizon_min),
+            "promotable": True,
+            "promotion_entry": ModelRegistryEntry(
+                horizon_min=horizon_min,
+                model_version=fresh_centroid_version,
+                artifact_path=str(centroid_artifact_path),
+                feature_set_version=settings.feature_set_version,
+                model_kind="centroid_artifact",
+            ),
+            **centroid_metrics,
+        }
+    )
+
+    for candidate in candidates:
+        split_name = f"challenger_validation_h{horizon_min}_{candidate['candidate_name']}"
+        writer.write_model_evaluation(
+            ModelEvaluation(
+                evaluation_id=f"{challenger_run_id}-{candidate['candidate_name']}",
+                training_run_id=str(candidate["training_run_id"]),
+                evaluated_at=review_time,
+                split_name=split_name,
+                accuracy=float(candidate["overall_accuracy"]),
+                total_rows=int(candidate["rows_evaluated"]),
+                metrics={
+                    "candidate_name": candidate["candidate_name"],
+                    "model_version": candidate["model_version"],
+                    "model_kind": candidate["model_kind"],
+                    "dataset_scope": "validation_tail_20pct",
+                    "horizon_min": horizon_min,
+                    "promotable": bool(candidate["promotable"]),
+                    "trade_cost_pct": float(candidate["trade_cost_pct"]),
+                    "trade_hit_rate": float(candidate["trade_hit_rate"]),
+                    "win_rate": float(candidate["win_rate"]),
+                    "average_confidence": float(candidate["average_confidence"]),
+                    "average_net_return_pct": float(candidate["average_net_return_pct"]),
+                    "cumulative_net_return_pct": float(candidate["cumulative_net_return_pct"]),
+                    "trades_taken": int(candidate["trades_taken"]),
+                    "rows_evaluated": int(candidate["rows_evaluated"]),
+                    "actual_label_counts": dict(candidate["actual_label_counts"]),
+                    "predicted_label_counts": dict(candidate["predicted_label_counts"]),
+                },
+            )
+        )
+
+    ranked = sorted(candidates, key=_challenger_sort_key, reverse=True)
+    candidate_results: list[ChallengerCandidateResult] = []
+    for index, candidate in enumerate(ranked, start=1):
+        candidate_results.append(
+            ChallengerCandidateResult(
+                rank=index,
+                candidate_name=str(candidate["candidate_name"]),
+                model_version=str(candidate["model_version"]),
+                model_kind=str(candidate["model_kind"]),
+                training_run_id=str(candidate["training_run_id"]),
+                promotable=bool(candidate["promotable"]),
+                overall_accuracy=float(candidate["overall_accuracy"]),
+                trade_hit_rate=float(candidate["trade_hit_rate"]),
+                win_rate=float(candidate["win_rate"]),
+                average_net_return_pct=float(candidate["average_net_return_pct"]),
+                cumulative_net_return_pct=float(candidate["cumulative_net_return_pct"]),
+                trades_taken=int(candidate["trades_taken"]),
+                rows_evaluated=int(candidate["rows_evaluated"]),
+            )
+        )
+
+    best_candidate = ranked[0]
+    promoted_model_version: str | None = None
+    if promote_best:
+        if best_candidate.get("promotable"):
+            promotion_entry = best_candidate.get("promotion_entry")
+            if isinstance(promotion_entry, ModelRegistryEntry):
+                registry.set_active_model(promotion_entry)
+                promoted_model_version = promotion_entry.model_version
+        else:
+            promoted_model_version = str(best_candidate["model_version"])
+
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    markdown_path = report_dir / f"latest-challengers-h{horizon_min}.md"
+    json_path = report_dir / f"latest-challengers-h{horizon_min}.json"
+    payload = {
+        "challenger_run_id": challenger_run_id,
+        "evaluated_at": review_time.isoformat(),
+        "horizon_min": horizon_min,
+        "best_candidate_name": best_candidate["candidate_name"],
+        "best_model_version": best_candidate["model_version"],
+        "promoted_model_version": promoted_model_version,
+        "candidates": [candidate.to_dict() for candidate in candidate_results],
+    }
+    markdown_lines = [
+        f"# Challenger Review H{horizon_min}",
+        "",
+        "## Summary",
+        "",
+        f"- `best_candidate_name`: {best_candidate['candidate_name']}",
+        f"- `best_model_version`: {best_candidate['model_version']}",
+        f"- `promoted_model_version`: {promoted_model_version or 'none'}",
+        "",
+        "## Candidates",
+        "",
+    ]
+    for candidate in candidate_results:
+        markdown_lines.append(
+            f"- `rank {candidate.rank}` {candidate.candidate_name} "
+            f"model={candidate.model_version} kind={candidate.model_kind} "
+            f"trades={candidate.trades_taken} accuracy={candidate.overall_accuracy:.4f} "
+            f"net={candidate.cumulative_net_return_pct:.4f}"
+        )
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return ChallengerRunResult(
+        challenger_run_id=challenger_run_id,
+        horizon_min=horizon_min,
+        best_model_version=str(best_candidate["model_version"]),
+        best_candidate_name=str(best_candidate["candidate_name"]),
+        promoted_model_version=promoted_model_version,
+        report_markdown_path=markdown_path,
+        report_json_path=json_path,
+        candidates=candidate_results,
     )

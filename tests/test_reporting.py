@@ -28,9 +28,11 @@ class ReportingTests(unittest.TestCase):
             self.assertGreater(report.summary["training_runs"], 0)
             self.assertGreater(report.summary["backtests"], 0)
             self.assertGreater(report.summary["walk_forward_runs"], 0)
+            self.assertGreater(report.summary["challenger_runs"], 0)
             report_text = report.report_markdown_path.read_text(encoding="utf-8")
             self.assertIn("Latest Backtest", report_text)
             self.assertIn("Latest Walk-Forward", report_text)
+            self.assertIn("Latest Challenger", report_text)
 
 
 if __name__ == "__main__":

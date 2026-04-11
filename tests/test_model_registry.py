@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.models.loader import load_prediction_model
-from app.models.registry import ModelRegistry
+from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.services.orchestrator import run_synthetic_dev_cycle
 
 
@@ -33,6 +33,27 @@ class ModelRegistryTests(unittest.TestCase):
             artifact_path = Path(active_models["15"]["artifact_path"])
             artifact_payload = json.loads(artifact_path.read_text(encoding="utf-8"))
             self.assertEqual(model.artifact.model_version, artifact_payload["model_version"])
+
+    def test_registry_can_store_builtin_model_entry(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "registry-builtin" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+
+        registry = ModelRegistry(runtime_root)
+        registry.set_active_model(
+            ModelRegistryEntry(
+                horizon_min=15,
+                model_version="linear-score-h15-v1",
+                artifact_path="",
+                feature_set_version="feature-set-v1",
+                model_kind="builtin",
+                builtin_name="linear_score",
+            )
+        )
+        payload = registry.load()
+
+        self.assertEqual(payload["active_models"]["15"]["model_kind"], "builtin")
+        self.assertEqual(payload["active_models"]["15"]["builtin_name"], "linear_score")
 
 
 if __name__ == "__main__":

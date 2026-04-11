@@ -6,7 +6,9 @@ import uuid
 from unittest.mock import patch
 
 from app.config.settings import load_settings
+from app.models.baseline import BaselineDirectionModel
 from app.models.loader import load_prediction_model
+from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.storage.contracts import FeatureSnapshot
 from app.utils.time import now_local
 
@@ -66,6 +68,28 @@ class ModelLoaderTests(unittest.TestCase):
 
             self.assertEqual(prediction.model_version, "centroid-h15-v1")
             self.assertGreater(prediction.probability_up, prediction.probability_down)
+
+    def test_load_prediction_model_supports_builtin_registry_entry(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "model-loader-builtin" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+
+        with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
+            registry = ModelRegistry(runtime_root)
+            registry.set_active_model(
+                ModelRegistryEntry(
+                    horizon_min=15,
+                    model_version="baseline-h15-v1",
+                    artifact_path="",
+                    feature_set_version="feature-set-v1",
+                    model_kind="builtin",
+                    builtin_name="baseline",
+                )
+            )
+            settings = load_settings(project_root=root)
+            model = load_prediction_model(settings, horizon_min=15)
+
+            self.assertIsInstance(model, BaselineDirectionModel)
 
 
 if __name__ == "__main__":

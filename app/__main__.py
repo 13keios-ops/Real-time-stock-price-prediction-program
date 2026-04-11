@@ -12,11 +12,13 @@ from app.brokers.kis_quote_rest import KisRestQuoteClient
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
+from app.services.kis_verification import verify_kis_websocket_runtime
 from app.services.orchestrator import run_kis_dev_cycle, run_synthetic_dev_cycle
 from app.services.reporting import build_runtime_report
 from app.services.research import (
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
+    run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
     train_centroid_baseline_from_sqlite,
@@ -38,9 +40,12 @@ def main() -> int:
     parser.add_argument("--train-baseline", action="store_true", help="Train the local centroid baseline using SQLite feature rows.")
     parser.add_argument("--run-backtest", action="store_true", help="Run the validation-tail backtest using the active prediction model.")
     parser.add_argument("--run-walk-forward", action="store_true", help="Run an expanding-window walk-forward backtest.")
+    parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
+    parser.add_argument("--promote-best-challenger", action="store_true", help="Promote the best challenger to the active registry entry.")
     parser.add_argument("--seed-synthetic-data", action="store_true", help="Seed synthetic intraday market data into JSONL and SQLite.")
     parser.add_argument("--replay-sample-ws", action="store_true", help="Replay sample WebSocket frames through the online pipeline.")
     parser.add_argument("--kis-ws-listen", action="store_true", help="Listen to KIS WebSocket frames and run the online pipeline.")
+    parser.add_argument("--verify-kis-ws", action="store_true", help="Verify KIS WebSocket readiness and optionally attempt live listening.")
     parser.add_argument("--run-synthetic-dev-cycle", action="store_true", help="Run seed -> bars -> features -> training in one command.")
     parser.add_argument("--run-kis-dev-cycle", action="store_true", help="Run KIS polling -> bars -> features -> optional training in one command.")
     parser.add_argument("--build-runtime-report", action="store_true", help="Build a Markdown and JSON runtime report from SQLite.")
@@ -102,6 +107,15 @@ def main() -> int:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
+    if args.run_challengers:
+        result = run_model_challenger_review_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            promote_best=args.promote_best_challenger,
+        )
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
     if args.seed_synthetic_data:
         result = seed_synthetic_intraday_data(project_root=project_root, symbol=args.symbol, minutes=args.minutes)
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
@@ -145,6 +159,7 @@ def main() -> int:
         or args.kis_watchlist_snapshot
         or args.kis_watchlist_poll
         or args.kis_ws_listen
+        or args.verify_kis_ws
         or args.kis_current_price
         or args.kis_orderbook
         or args.kis_approval_key
@@ -153,7 +168,7 @@ def main() -> int:
         profile = get_active_kis_profile(settings)
         token_manager = KisTokenManager(profile)
 
-        if not profile.is_ready_for_quotes:
+        if not profile.is_ready_for_quotes and not args.verify_kis_ws:
             parser.error("KIS credentials are not configured. Fill .env values before using KIS commands.")
 
         try:
@@ -198,6 +213,18 @@ def main() -> int:
                 print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
                 return 0
 
+            if args.verify_kis_ws:
+                resolved_symbols = parse_symbol_list(args.symbols)
+                result = verify_kis_websocket_runtime(
+                    project_root=project_root,
+                    symbols=resolved_symbols or None,
+                    watchlist_path=args.watchlist_file,
+                    max_frames=args.max_frames,
+                    max_reconnects=args.max_reconnects,
+                )
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+                return 0
+
             if args.kis_current_price:
                 client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
                 quote = client.get_current_price(symbol=args.symbol)
@@ -226,7 +253,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --run-backtest, --run-walk-forward, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --kis-current-price, --kis-orderbook, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
     )
     return 2
 

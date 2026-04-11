@@ -23,7 +23,9 @@
 - centroid baseline 학습
 - validation-tail backtest
 - walk-forward backtest
+- challenger model 비교 보고서
 - online replay 기반 paper trading 상태 기록
+- KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 
 현재 기준 버전은 `0.2.0` 이다.
@@ -69,10 +71,22 @@ walk-forward 백테스트:
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 ```
 
+challenger 비교:
+
+```powershell
+python -m app --run-challengers --horizon-min 15
+```
+
 KIS WebSocket listener:
 
 ```powershell
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
+```
+
+KIS WebSocket 검증:
+
+```powershell
+python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```
 
 ## 새 기능을 어디에 둘까
@@ -100,6 +114,7 @@ python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 - watcher 설정: `autopush.json`
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
+- 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
 
 버전은 작업 마지막에 바꾸고, watcher가 그 변화를 감지해 자동 commit/push 또는 기존 release commit push를 수행한다.
 

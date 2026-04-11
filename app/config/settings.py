@@ -87,6 +87,19 @@ def _read_toml(path: Path) -> dict:
         return tomllib.load(handle)
 
 
+def _read_dotenv(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    env_map: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env_map[key.strip()] = value.strip().strip('"').strip("'")
+    return env_map
+
+
 def _env_bool(env: dict[str, str], key: str, default: bool) -> bool:
     value = env.get(key)
     if value is None:
@@ -125,7 +138,11 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
     """Load settings from config TOML files plus environment overrides."""
 
     root = Path(project_root or Path(__file__).resolve().parents[2]).resolve()
-    env_map = dict(os.environ if env is None else env)
+    if env is None:
+        env_map = _read_dotenv(root / ".env")
+        env_map.update(os.environ)
+    else:
+        env_map = dict(env)
 
     app_conf = _read_toml(root / "config" / "app.toml")
     strategy_conf = _read_toml(root / "config" / "strategy.toml")

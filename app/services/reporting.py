@@ -36,6 +36,7 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
     evaluation_rows = sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")
     backtest_rows = [row for row in evaluation_rows if str(row["split_name"]).startswith("backtest_")]
     walk_forward_rows = [row for row in evaluation_rows if str(row["split_name"]).startswith("walk_forward_")]
+    challenger_rows = [row for row in evaluation_rows if str(row["split_name"]).startswith("challenger_")]
 
     summary = {
         "raw_market_ticks": sqlite_store.count_rows("raw_market_ticks"),
@@ -53,15 +54,23 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "evaluations": sqlite_store.count_rows("ml_model_evaluations"),
         "backtests": len(backtest_rows),
         "walk_forward_runs": len(walk_forward_rows),
+        "challenger_runs": len(challenger_rows),
     }
 
     latest_training = sqlite_store.fetch_latest_row("ml_training_runs", "completed_at")
     latest_evaluation = sqlite_store.fetch_latest_row("ml_model_evaluations", "evaluated_at")
     latest_backtest = backtest_rows[-1] if backtest_rows else None
     latest_walk_forward = walk_forward_rows[-1] if walk_forward_rows else None
+    latest_challenger = challenger_rows[-1] if challenger_rows else None
     latest_snapshot = sqlite_store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
     latest_position_rows = sqlite_store.fetch_all_rows("paper_positions", "symbol")
     registry_payload = ModelRegistry(settings.runtime_data_dir).load()
+    latest_challenger_report_path = settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json"
+    latest_challenger_report = (
+        json.loads(latest_challenger_report_path.read_text(encoding="utf-8"))
+        if latest_challenger_report_path.exists()
+        else None
+    )
 
     def serialize_evaluation(row):
         if row is None:
@@ -77,6 +86,8 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "latest_evaluation": serialize_evaluation(latest_evaluation),
         "latest_backtest": serialize_evaluation(latest_backtest),
         "latest_walk_forward": serialize_evaluation(latest_walk_forward),
+        "latest_challenger": serialize_evaluation(latest_challenger),
+        "latest_challenger_report": latest_challenger_report,
         "latest_portfolio_snapshot": dict(latest_snapshot) if latest_snapshot else None,
         "positions": [dict(row) for row in latest_position_rows],
     }
@@ -124,6 +135,17 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
             markdown_lines.append(f"- `{key}`: {value}")
     else:
         markdown_lines.append("- No walk-forward evaluations recorded.")
+
+    markdown_lines.extend(["", "## Latest Challenger", ""])
+    if latest_challenger_report:
+        for key, value in latest_challenger_report.items():
+            markdown_lines.append(f"- `{key}`: {value}")
+    elif latest_challenger:
+        challenger_payload = serialize_evaluation(latest_challenger) or {}
+        for key, value in challenger_payload.items():
+            markdown_lines.append(f"- `{key}`: {value}")
+    else:
+        markdown_lines.append("- No challenger evaluations recorded.")
 
     markdown_lines.extend(["", "## Latest Portfolio Snapshot", ""])
     if latest_snapshot:

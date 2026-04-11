@@ -10,6 +10,7 @@ from app.config.settings import load_settings
 from app.services.research import (
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
+    run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
     train_centroid_baseline_from_sqlite,
@@ -71,6 +72,11 @@ class ResearchPipelineTests(unittest.TestCase):
                 test_window_rows=10,
                 step_rows=10,
             )
+            challenger_result = run_model_challenger_review_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                promote_best=True,
+            )
             sqlite_store = get_sqlite_store(settings)
 
             self.assertIsNotNone(sqlite_store)
@@ -85,11 +91,15 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(walk_forward_result.report_markdown_path.exists())
             self.assertTrue(walk_forward_result.report_json_path.exists())
             self.assertGreaterEqual(walk_forward_result.folds, 1)
+            self.assertTrue(challenger_result.report_markdown_path.exists())
+            self.assertTrue(challenger_result.report_json_path.exists())
+            self.assertGreaterEqual(len(challenger_result.candidates), 3)
+            self.assertIsNotNone(challenger_result.promoted_model_version)
             self.assertGreater(sqlite_store.count_rows("curated_minute_bars"), 0)
             self.assertGreater(sqlite_store.count_rows("feature_model_inputs"), 0)
             self.assertGreater(sqlite_store.count_rows("feature_labels"), 0)
             self.assertGreater(sqlite_store.count_rows("ml_training_runs"), 0)
-            self.assertGreaterEqual(sqlite_store.count_rows("ml_model_evaluations"), 3)
+            self.assertGreaterEqual(sqlite_store.count_rows("ml_model_evaluations"), 7)
             logging.shutdown()
 
 

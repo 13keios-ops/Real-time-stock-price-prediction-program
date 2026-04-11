@@ -31,6 +31,8 @@ class OrchestratorTests(unittest.TestCase):
             self.assertGreaterEqual(result.backtest["rows_evaluated"], 1)
             self.assertIsNotNone(result.walk_forward)
             self.assertGreaterEqual(result.walk_forward["folds"], 1)
+            self.assertIsNotNone(result.challengers)
+            self.assertGreaterEqual(len(result.challengers["candidates"]), 3)
 
 
 if __name__ == "__main__":
