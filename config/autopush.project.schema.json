@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enabled",
+    "branch"
+  ],
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "version-change"
+      ]
+    },
+    "version_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage_mode": {
+      "type": "string",
+      "enum": [
+        "all",
+        "tracked",
+        "version-only"
+      ]
+    },
+    "commit_message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit_body_mode": {
+      "type": "string",
+      "enum": [
+        "none",
+        "staged-summary"
+      ]
+    },
+    "commit_body_header": {
+      "type": "string",
+      "minLength": 1
+    },
+    "push_tag": {
+      "type": "boolean"
+    },
+    "tag_name": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

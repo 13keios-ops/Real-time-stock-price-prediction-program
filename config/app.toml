@@ -1,0 +1,23 @@
+[app]
+name = "real-time-stock-price-prediction-program"
+environment = "development"
+timezone = "Asia/Seoul"
+runtime_data_dir = "./runtime-data"
+artifact_store = "jsonl"
+database_url = "sqlite:///runtime-data/dev.db"
+
+[features]
+feature_set_version = "feature-set-v1"
+model_version_h15 = "baseline-h15-v1"
+model_version_h60 = "baseline-h60-v1"
+
+[universe]
+selection_rule = "median_trading_value_top_30"
+
+[kis]
+hts_id = ""
+customer_type = "P"
+rest_url_live = "https://openapi.koreainvestment.com:9443"
+rest_url_paper = "https://openapivts.koreainvestment.com:29443"
+ws_url_live = "ws://ops.koreainvestment.com:21000"
+ws_url_paper = "ws://ops.koreainvestment.com:31000"

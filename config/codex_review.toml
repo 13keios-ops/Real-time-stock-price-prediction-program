@@ -1,0 +1,4 @@
+[codex_review]
+enabled = true
+report_dir = "./runtime-data/reports/codex"
+scope = "intraday|eod|weekly"

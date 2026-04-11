@@ -1,0 +1,7 @@
+[market]
+timezone = "Asia/Seoul"
+session_open = "09:00"
+new_entry_start = "09:15"
+new_entry_end = "15:00"
+forced_flat_time = "15:20"
+session_close = "15:30"

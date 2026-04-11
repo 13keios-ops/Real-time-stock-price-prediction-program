@@ -1,0 +1,11 @@
+[strategy]
+strategy_version = "paper-long-only-v1"
+portfolio_version = "top30-long-only-v1"
+label_threshold_15 = 0.35
+label_threshold_60 = 0.80
+min_signal_confidence = 0.58
+max_position_pct = 0.08
+max_open_positions = 5
+slippage_bps = 3.0
+max_spread_bps = 15.0
+enable_paper_execution = true
