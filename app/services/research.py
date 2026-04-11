@@ -164,6 +164,7 @@ class ChallengerCandidateResult:
     cumulative_net_return_pct: float
     trades_taken: int
     rows_evaluated: int
+    ranking_score: float
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -180,6 +181,7 @@ class ChallengerCandidateResult:
             "cumulative_net_return_pct": round(self.cumulative_net_return_pct, 6),
             "trades_taken": self.trades_taken,
             "rows_evaluated": self.rows_evaluated,
+            "ranking_score": round(self.ranking_score, 6),
         }
 
 
@@ -187,22 +189,30 @@ class ChallengerCandidateResult:
 class ChallengerRunResult:
     challenger_run_id: str
     horizon_min: int
+    active_model_version: str
     best_model_version: str
     best_candidate_name: str
+    recommended_action: str
+    decision_reason: str
     promoted_model_version: str | None
     report_markdown_path: Path
     report_json_path: Path
+    leaderboard_json_path: Path
     candidates: list[ChallengerCandidateResult]
 
     def to_dict(self) -> dict[str, object]:
         return {
             "challenger_run_id": self.challenger_run_id,
             "horizon_min": self.horizon_min,
+            "active_model_version": self.active_model_version,
             "best_model_version": self.best_model_version,
             "best_candidate_name": self.best_candidate_name,
+            "recommended_action": self.recommended_action,
+            "decision_reason": self.decision_reason,
             "promoted_model_version": self.promoted_model_version,
             "report_markdown_path": str(self.report_markdown_path),
             "report_json_path": str(self.report_json_path),
+            "leaderboard_json_path": str(self.leaderboard_json_path),
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
 
@@ -327,6 +337,44 @@ def _challenger_sort_key(candidate: dict[str, object]) -> tuple[float, ...]:
         float(trades_taken),
         float(candidate["average_net_return_pct"]),
     )
+
+
+def _challenger_ranking_score(candidate: dict[str, object]) -> float:
+    trades_taken = int(candidate["trades_taken"])
+    return (
+        float(candidate["cumulative_net_return_pct"])
+        + (float(candidate["trade_hit_rate"]) * 5.0)
+        + (float(candidate["overall_accuracy"]) * 2.0)
+        + (min(trades_taken, 20) * 0.02)
+    )
+
+
+def _recommend_challenger_action(
+    *,
+    active_candidate: dict[str, object],
+    ranked_candidates: list[dict[str, object]],
+) -> tuple[str, str, str]:
+    best_promotable = next((candidate for candidate in ranked_candidates if bool(candidate["promotable"])), None)
+    if best_promotable is None:
+        return "keep_active", str(active_candidate["model_version"]), "No promotable challenger is available."
+
+    if str(best_promotable["model_version"]) == str(active_candidate["model_version"]):
+        return "keep_active", str(active_candidate["model_version"]), "The top challenger matches the current active model."
+
+    if int(best_promotable["trades_taken"]) < 5:
+        return "keep_active", str(active_candidate["model_version"]), "The top challenger does not have enough trades."
+
+    active_net = float(active_candidate["cumulative_net_return_pct"])
+    best_net = float(best_promotable["cumulative_net_return_pct"])
+    if best_net < active_net + 0.25:
+        return "keep_active", str(active_candidate["model_version"]), "Net return improvement is too small."
+
+    active_accuracy = float(active_candidate["overall_accuracy"])
+    best_accuracy = float(best_promotable["overall_accuracy"])
+    if best_accuracy + 0.05 < active_accuracy:
+        return "keep_active", str(active_candidate["model_version"]), "Accuracy regression is too large."
+
+    return "promote", str(best_promotable["model_version"]), "Promote the challenger based on return and trade coverage."
 
 
 def _evaluate_rows_with_model(
@@ -966,17 +1014,16 @@ def run_model_challenger_review_from_sqlite(
         horizon_min=horizon_min,
         prediction_prefix="challenger-active",
     )
-    candidates.append(
-        {
-            "candidate_name": "active_model",
-            "model_version": str(active_model_version),
-            "model_kind": "active_runtime",
-            "training_run_id": _resolve_training_run_id(sqlite_store, str(active_model_version), horizon_min),
-            "promotable": False,
-            "promotion_entry": None,
-            **active_metrics,
-        }
-    )
+    active_candidate = {
+        "candidate_name": "active_model",
+        "model_version": str(active_model_version),
+        "model_kind": "active_runtime",
+        "training_run_id": _resolve_training_run_id(sqlite_store, str(active_model_version), horizon_min),
+        "promotable": False,
+        "promotion_entry": None,
+        **active_metrics,
+    }
+    candidates.append(active_candidate)
 
     baseline_model = BaselineDirectionModel(
         model_version_h15=settings.model_version_h15,
@@ -1123,40 +1170,78 @@ def run_model_challenger_review_from_sqlite(
                 cumulative_net_return_pct=float(candidate["cumulative_net_return_pct"]),
                 trades_taken=int(candidate["trades_taken"]),
                 rows_evaluated=int(candidate["rows_evaluated"]),
+                ranking_score=_challenger_ranking_score(candidate),
             )
         )
 
     best_candidate = ranked[0]
+    recommended_action, recommended_model_version, decision_reason = _recommend_challenger_action(
+        active_candidate=active_candidate,
+        ranked_candidates=ranked,
+    )
     promoted_model_version: str | None = None
     if promote_best:
-        if best_candidate.get("promotable"):
-            promotion_entry = best_candidate.get("promotion_entry")
+        if recommended_action == "promote":
+            promotion_candidate = next(
+                candidate for candidate in ranked if str(candidate["model_version"]) == recommended_model_version
+            )
+            promotion_entry = promotion_candidate.get("promotion_entry")
             if isinstance(promotion_entry, ModelRegistryEntry):
                 registry.set_active_model(promotion_entry)
                 promoted_model_version = promotion_entry.model_version
         else:
-            promoted_model_version = str(best_candidate["model_version"])
+            promoted_model_version = recommended_model_version
 
     report_dir = settings.runtime_data_dir / "reports" / "challengers"
     report_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = report_dir / f"latest-challengers-h{horizon_min}.md"
     json_path = report_dir / f"latest-challengers-h{horizon_min}.json"
+    leaderboard_path = report_dir / f"leaderboard-h{horizon_min}.json"
+    leaderboard_payload = []
+    if leaderboard_path.exists():
+        try:
+            existing = json.loads(leaderboard_path.read_text(encoding="utf-8"))
+            if isinstance(existing, list):
+                leaderboard_payload = existing
+        except json.JSONDecodeError:
+            leaderboard_payload = []
     payload = {
         "challenger_run_id": challenger_run_id,
         "evaluated_at": review_time.isoformat(),
         "horizon_min": horizon_min,
+        "active_model_version": str(active_candidate["model_version"]),
         "best_candidate_name": best_candidate["candidate_name"],
         "best_model_version": best_candidate["model_version"],
+        "recommended_action": recommended_action,
+        "recommended_model_version": recommended_model_version,
+        "decision_reason": decision_reason,
         "promoted_model_version": promoted_model_version,
         "candidates": [candidate.to_dict() for candidate in candidate_results],
     }
+    leaderboard_payload.append(
+        {
+            "challenger_run_id": challenger_run_id,
+            "evaluated_at": review_time.isoformat(),
+            "active_model_version": str(active_candidate["model_version"]),
+            "best_candidate_name": str(best_candidate["candidate_name"]),
+            "best_model_version": str(best_candidate["model_version"]),
+            "recommended_action": recommended_action,
+            "recommended_model_version": recommended_model_version,
+            "decision_reason": decision_reason,
+        }
+    )
+    leaderboard_payload = leaderboard_payload[-20:]
     markdown_lines = [
         f"# Challenger Review H{horizon_min}",
         "",
         "## Summary",
         "",
+        f"- `active_model_version`: {active_candidate['model_version']}",
         f"- `best_candidate_name`: {best_candidate['candidate_name']}",
         f"- `best_model_version`: {best_candidate['model_version']}",
+        f"- `recommended_action`: {recommended_action}",
+        f"- `recommended_model_version`: {recommended_model_version}",
+        f"- `decision_reason`: {decision_reason}",
         f"- `promoted_model_version`: {promoted_model_version or 'none'}",
         "",
         "## Candidates",
@@ -1167,18 +1252,23 @@ def run_model_challenger_review_from_sqlite(
             f"- `rank {candidate.rank}` {candidate.candidate_name} "
             f"model={candidate.model_version} kind={candidate.model_kind} "
             f"trades={candidate.trades_taken} accuracy={candidate.overall_accuracy:.4f} "
-            f"net={candidate.cumulative_net_return_pct:.4f}"
+            f"net={candidate.cumulative_net_return_pct:.4f} score={candidate.ranking_score:.4f}"
         )
     markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    leaderboard_path.write_text(json.dumps(leaderboard_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return ChallengerRunResult(
         challenger_run_id=challenger_run_id,
         horizon_min=horizon_min,
+        active_model_version=str(active_candidate["model_version"]),
         best_model_version=str(best_candidate["model_version"]),
         best_candidate_name=str(best_candidate["candidate_name"]),
+        recommended_action=recommended_action,
+        decision_reason=decision_reason,
         promoted_model_version=promoted_model_version,
         report_markdown_path=markdown_path,
         report_json_path=json_path,
+        leaderboard_json_path=leaderboard_path,
         candidates=candidate_results,
     )

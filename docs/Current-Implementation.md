@@ -13,6 +13,7 @@ The project now has a working local foundation for:
 - Validation-tail backtesting with trading-cost assumptions
 - Expanding-window walk-forward backtesting
 - Multi-model challenger evaluation and ranking
+- Conservative challenger promotion recommendation and leaderboard history
 - Paper-trading state updates for replay and online flows
 - Runtime and backtest report generation
 - KIS WebSocket listening with reconnect handling and control-frame skipping
@@ -107,6 +108,7 @@ This compares:
 - baseline builtin model
 - linear-score builtin model
 - freshly fitted centroid challenger
+- recommendation, reason, and leaderboard history
 
 ## Useful CLI Commands
 
@@ -136,6 +138,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - Walk-forward report JSON: `runtime-data/reports/backtests/latest-walk-forward-h15.json`
 - Challenger report: `runtime-data/reports/challengers/latest-challengers-h15.md`
 - Challenger report JSON: `runtime-data/reports/challengers/latest-challengers-h15.json`
+- Challenger leaderboard JSON: `runtime-data/reports/challengers/leaderboard-h15.json`
 - KIS verification report: `runtime-data/reports/kis-ws/latest-verification.md`
 - KIS verification report JSON: `runtime-data/reports/kis-ws/latest-verification.json`
 - Model registry: `runtime-data/ml/registry.json`

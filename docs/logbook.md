@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-11`
+- date: `2026-04-12`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -18,6 +18,7 @@
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
 - baseline / linear-score / centroid를 비교하는 challenger 구조가 추가되었다.
+- challenger 추천 action과 leaderboard 기록이 추가되었다.
 - runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 
@@ -58,6 +59,7 @@
 - 최신 challenger review:
   - best candidate: `baseline_builtin`
   - best model version: `baseline-h15-v1`
+  - recommended action: `promote`
   - candidates compared: `4`
 - 최신 KIS verification:
   - `ok=false`
@@ -76,6 +78,9 @@
   - challenger review CLI와 report 경로를 추가했다.
   - KIS WebSocket verification CLI와 report 경로를 추가했다.
   - 실제 장중 검증은 현재 환경에 `.env`와 `websockets`가 없어 아직 미완료 상태다.
+- `2026-04-12`
+  - challenger 승격 추천 규칙과 leaderboard 기록을 추가했다.
+  - 오늘 기준 환경에도 root `.env`와 `websockets`가 없어 실제 장중 KIS 검증은 계속 대기 상태다.
 
 ## Next Commands
 
