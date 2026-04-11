@@ -53,6 +53,8 @@ This avoids pushing half-finished work from unrelated projects.
 - `config/autopush.project.schema.json`
 - `config/autopush.project.example.json`
 - `scripts/bootstrap_git_autopush_targets.ps1`
+- `scripts/install_git_autopush_startup_launcher.ps1`
+- `scripts/remove_git_autopush_startup_launcher.ps1`
 
 The watcher keeps its own state and logs under `runtime-data/autopush/`.
 
@@ -191,7 +193,19 @@ Manual task control scripts:
 
 These scripts are useful for direct operations and for Codex automations that should check health or restart the watcher.
 
-If `Register-ScheduledTask` returns `Access is denied`, run the registration step once from a regular or elevated PowerShell session outside Codex, depending on your Windows policy.
+If `Register-ScheduledTask` returns `Access is denied`, use the Startup-folder launcher instead:
+
+```powershell
+.\scripts\install_git_autopush_startup_launcher.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60
+```
+
+Remove it later with:
+
+```powershell
+.\scripts\remove_git_autopush_startup_launcher.ps1
+```
+
+This avoids Task Scheduler permission issues and still starts the watcher at Windows logon for the current user.
 
 ## 10. State And Logs
 

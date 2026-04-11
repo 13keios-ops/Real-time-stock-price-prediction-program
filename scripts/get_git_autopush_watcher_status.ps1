@@ -16,6 +16,7 @@ $ErrorActionPreference = "Stop"
 
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $defaultRuntimeDir = Join-Path $toolRoot "runtime-data\autopush"
+$startupLauncherPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\GitAutoPushWatcher.cmd"
 
 if (-not $StatePath) {
     $StatePath = Join-Path $defaultRuntimeDir "git-autopush-state.json"
@@ -72,6 +73,8 @@ $result = [ordered]@{
     scan_root             = ""
     poll_seconds          = $null
     recurse               = $false
+    startup_launcher_path = $startupLauncherPath
+    startup_launcher_exists = Test-Path -LiteralPath $startupLauncherPath
     log_path              = $LogPath
     log_exists            = Test-Path -LiteralPath $LogPath
     log_last_write_time   = $null

@@ -36,12 +36,22 @@ $action = New-ScheduledTaskAction -Execute $powershellPath -Argument ($arguments
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
 
-Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Action $action `
-    -Trigger $trigger `
-    -Principal $principal `
-    -Description "Watch opted-in Git repositories and auto commit/push when VERSION changes." `
-    -Force | Out-Null
+try {
+    Register-ScheduledTask `
+        -TaskName $TaskName `
+        -Action $action `
+        -Trigger $trigger `
+        -Principal $principal `
+        -Description "Watch opted-in Git repositories and auto commit/push when VERSION changes." `
+        -Force `
+        -ErrorAction Stop | Out-Null
+} catch {
+    throw "Failed to register scheduled task '$TaskName' for $userId. $($_.Exception.Message) If this machine blocks scheduled task creation, use install_git_autopush_startup_launcher.ps1 instead."
+}
+
+$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $task) {
+    throw "Scheduled task '$TaskName' still does not exist after registration."
+}
 
 Write-Output "Registered scheduled task '$TaskName' for $userId"
