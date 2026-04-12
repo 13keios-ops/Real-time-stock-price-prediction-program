@@ -156,6 +156,22 @@ python -m app --build-dashboard
 
 실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
 
+로컬 대시보드 background 시작 / 상태 / 중지:
+
+```powershell
+.\scripts\start_dashboard_background.ps1
+.\scripts\get_dashboard_status.ps1
+.\scripts\stop_dashboard.ps1
+```
+
+월요일 시작 루틴 1회 실행:
+
+```powershell
+.\scripts\start_monday_runtime.ps1
+```
+
+이 스크립트는 대시보드를 띄우고, shadow ML 갱신과 KIS 사전 점검을 순서대로 수행한 뒤 현재 active 모델과 주요 리포트 상태를 요약한다.
+
 Hourly Repo Audit 1회 실행:
 
 ```powershell

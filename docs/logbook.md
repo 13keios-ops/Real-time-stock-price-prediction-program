@@ -52,6 +52,8 @@
 - [x] Hourly Repo Audit progress 배열 정합성 보강
 - [x] LightGBM 학습 파이프라인 추가
 - [x] 로컬 모니터링 dashboard 추가
+- [x] dashboard background start/status/stop 스크립트 추가
+- [x] monday runtime starter 스크립트 추가
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -143,6 +145,8 @@
   - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
   - dashboard 전용 테스트 2건을 추가했고 전체 테스트는 `40 tests OK`로 다시 확인했다.
   - `run_dashboard.ps1`의 PowerShell 예약 변수 `$Host` 충돌을 수정해 기본 실행이 바로 되도록 보정했다.
+  - dashboard background start/status/stop 스크립트를 추가해 장중에 서버를 따로 띄우고 상태를 확인하거나 중지할 수 있게 했다.
+  - `start_monday_runtime.ps1`를 추가해 대시보드 시작, shadow ML 갱신, KIS 사전 점검, runtime/dashboard 리포트 갱신을 한 번에 묶었다.
 
 ## Next Commands
 
@@ -159,6 +163,10 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 python -m app --build-runtime-report
 python -m app --build-dashboard
 .\scripts\run_dashboard.ps1
+.\scripts\start_dashboard_background.ps1
+.\scripts\get_dashboard_status.ps1
+.\scripts\stop_dashboard.ps1
+.\scripts\start_monday_runtime.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1
 .\scripts\bump_version.ps1 -Version 0.2.1

@@ -216,6 +216,14 @@ This serves:
 
 - `http://127.0.0.1:8765`
 
+Background start / status / stop:
+
+```powershell
+.\scripts\start_dashboard_background.ps1
+.\scripts\get_dashboard_status.ps1
+.\scripts\stop_dashboard.ps1
+```
+
 The dashboard currently shows:
 
 - active model and latest training summary
@@ -223,6 +231,20 @@ The dashboard currently shows:
 - latest portfolio snapshot and recorded positions
 - recent predictions, signals, orders, fills, minute bars
 - latest automation backlog and next actions
+
+### 10. Monday runtime starter
+
+```powershell
+.\scripts\start_monday_runtime.ps1
+```
+
+This currently:
+
+- starts the dashboard server when it is not already running
+- refreshes runtime report and dashboard snapshot
+- runs shadow ML refresh unless skipped
+- runs KIS verification unless skipped
+- prints a compact JSON summary for Monday startup checks
 
 ## Useful CLI Commands
 
