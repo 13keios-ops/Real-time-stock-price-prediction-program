@@ -47,21 +47,15 @@ if (Test-Path -LiteralPath $statePath) {
 }
 
 $scriptPath = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
+$escapedScriptPath = $scriptPath.Replace("'", "''")
+$dashboardCommand = "& '$escapedScriptPath' -DashboardHost '$DashboardHost' -Port $Port -RefreshSeconds $RefreshSeconds -RecentLimit $RecentLimit"
 $process = Start-Process powershell.exe `
     -ArgumentList @(
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
-        "-File",
-        $scriptPath,
-        "-DashboardHost",
-        $DashboardHost,
-        "-Port",
-        $Port,
-        "-RefreshSeconds",
-        $RefreshSeconds,
-        "-RecentLimit",
-        $RecentLimit
+        "-Command",
+        $dashboardCommand
     ) `
     -WorkingDirectory $WorkspaceRoot `
     -RedirectStandardOutput $stdoutPath `

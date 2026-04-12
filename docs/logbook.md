@@ -147,6 +147,7 @@
   - `run_dashboard.ps1`의 PowerShell 예약 변수 `$Host` 충돌을 수정해 기본 실행이 바로 되도록 보정했다.
   - dashboard background start/status/stop 스크립트를 추가해 장중에 서버를 따로 띄우고 상태를 확인하거나 중지할 수 있게 했다.
   - `start_monday_runtime.ps1`를 추가해 대시보드 시작, shadow ML 갱신, KIS 사전 점검, runtime/dashboard 리포트 갱신을 한 번에 묶었다.
+  - `start_dashboard_background.ps1`의 공백 포함 경로 전달 방식을 `-File` 에서 `-Command` 호출로 바꿔, `J:\GitHub\Real-time stock price prediction program` 같은 경로에서도 dashboard server가 정상 시작되도록 수정했다.
 
 ## Next Commands
 
