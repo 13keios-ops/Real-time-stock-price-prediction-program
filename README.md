@@ -32,6 +32,7 @@
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
+- 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - KIS REST rate-limit backoff 재시도
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
@@ -155,6 +156,13 @@ python -m app --build-dashboard
 ```
 
 실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
+
+대시보드는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외하고 실제 KIS 기반 운용 데이터만 보여준다.
+기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
+
+```powershell
+.\scripts\cleanup_runtime_test_data.ps1
+```
 
 로컬 대시보드 background 시작 / 상태 / 중지:
 

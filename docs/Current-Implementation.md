@@ -229,8 +229,15 @@ The dashboard currently shows:
 - active model and latest training summary
 - KIS connection readiness and session note
 - latest portfolio snapshot and recorded positions
-- recent predictions, signals, orders, fills, minute bars
+- actual-runtime-only recent predictions, signals, orders, fills, minute bars
 - latest automation backlog and next actions
+
+The dashboard now filters out `sample`, `synthetic`, and `demo` runtime rows by default.
+If older test-serving rows are already mixed into SQLite, clean them first:
+
+```powershell
+.\scripts\cleanup_runtime_test_data.ps1
+```
 
 ### 10. Monday runtime starter
 

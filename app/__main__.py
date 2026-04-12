@@ -12,6 +12,7 @@ from app.brokers.kis_quote_rest import KisRestQuoteClient
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
+from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.kis_verification import verify_kis_websocket_runtime
 from app.services.orchestrator import run_kis_dev_cycle, run_synthetic_dev_cycle
@@ -56,6 +57,7 @@ def main() -> int:
     parser.add_argument("--build-runtime-report", action="store_true", help="Build a Markdown and JSON runtime report from SQLite.")
     parser.add_argument("--build-dashboard", action="store_true", help="Build the latest dashboard HTML and JSON snapshot.")
     parser.add_argument("--serve-dashboard", action="store_true", help="Serve the local monitoring dashboard over HTTP.")
+    parser.add_argument("--cleanup-runtime-test-data", action="store_true", help="Delete non-actual serving and paper rows from SQLite.")
     parser.add_argument("--kis-current-price", action="store_true", help="Fetch domestic stock current price via KIS REST.")
     parser.add_argument("--kis-orderbook", action="store_true", help="Fetch domestic stock orderbook via KIS REST.")
     parser.add_argument("--kis-approval-key", action="store_true", help="Issue a KIS WebSocket approval key.")
@@ -176,6 +178,11 @@ def main() -> int:
 
     if args.build_runtime_report:
         result = build_runtime_report(project_root=project_root)
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.cleanup_runtime_test_data:
+        result = cleanup_non_actual_runtime_rows(project_root=project_root)
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
@@ -309,7 +316,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
     )
     return 2
 

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 from pathlib import Path
 import threading
@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.orchestrator import run_synthetic_dev_cycle
+from app.services.runtime import run_demo_pipeline
 
 
 class DashboardTests(unittest.TestCase):
@@ -87,9 +88,10 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(snapshot.snapshot_json_path.exists())
         self.assertIn("runtime_summary", snapshot.payload)
         self.assertIn("active_model", snapshot.payload)
+        self.assertTrue(snapshot.payload["dashboard_scope"]["actual_runtime_only"])
         html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
-        self.assertIn("실시간 주식 예측 운영 대시보드", html)
-        self.assertIn("최근 예측", html)
+        self.assertIn("Realtime Stock Runtime Dashboard", html)
+        self.assertIn("actual KIS-based runtime data", html)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -117,7 +119,21 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn('"ok": true', health.lower())
         self.assertIn('"runtime_summary"', payload)
-        self.assertIn("실시간 주식 예측 운영 대시보드", html)
+        self.assertIn("Realtime Stock Runtime Dashboard", html)
+
+    def test_dashboard_hides_demo_runtime_rows(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            run_demo_pipeline(project_root=root, symbol="005930")
+            self._seed_dashboard_inputs(runtime_root)
+            snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+
+        self.assertEqual(snapshot.payload["runtime_summary"]["predictions"], 0)
+        self.assertEqual(snapshot.payload["runtime_summary"]["orders"], 0)
+        self.assertIsNone(snapshot.payload["latest_portfolio_snapshot"])
+        self.assertEqual(snapshot.payload["recent_predictions"], [])
+        self.assertEqual(snapshot.payload["recent_orders"], [])
 
 
 if __name__ == "__main__":

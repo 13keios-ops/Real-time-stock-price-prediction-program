@@ -54,6 +54,7 @@
 - [x] 로컬 모니터링 dashboard 추가
 - [x] dashboard background start/status/stop 스크립트 추가
 - [x] monday runtime starter 스크립트 추가
+- [x] dashboard 실제 운용 데이터 전용 필터와 test runtime cleanup
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -68,7 +69,7 @@
 
 ## Latest Verified Results
 
-- 전체 테스트: `40 tests OK`
+- dashboard/runtime cleanup targeted tests: `4 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -143,6 +144,9 @@
   - KIS REST 연속 호출에서 보이던 `EGW00201` rate-limit 오류를 collector retry/backoff로 완화했고, 이후 single-symbol `run-kis-dev-cycle`이 `success=1 failure=0`으로 통과했다.
   - 월요일 운영 중 화면으로 볼 수 있도록 `latest-dashboard.html/json` 생성과 `run_dashboard.ps1` 기반 로컬 HTTP 대시보드를 추가했다.
   - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
+  - dashboard는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외한 실제 KIS 기반 운용 데이터만 보여준다.
+  - `scripts/cleanup_runtime_test_data.ps1` 와 `python -m app --cleanup-runtime-test-data` 를 추가해 기존 SQLite의 test serving/paper 흔적을 정리할 수 있게 했다.
+  - 현재 root runtime 데이터 정리 결과 demo prediction/signal/order/fill/portfolio snapshot/reconciliation/replay 항목은 제거됐고, 실제 시간대와 맞는 항목만 남겼다.
   - dashboard 전용 테스트 2건을 추가했고 전체 테스트는 `40 tests OK`로 다시 확인했다.
   - `run_dashboard.ps1`의 PowerShell 예약 변수 `$Host` 충돌을 수정해 기본 실행이 바로 되도록 보정했다.
   - dashboard background start/status/stop 스크립트를 추가해 장중에 서버를 따로 띄우고 상태를 확인하거나 중지할 수 있게 했다.
