@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import logging
+import math
 import os
 from pathlib import Path
 import unittest
@@ -13,7 +14,9 @@ from app.services.research import (
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
+    set_builtin_model_active,
     train_centroid_baseline_from_sqlite,
+    train_lightgbm_from_sqlite,
 )
 from app.storage.contracts import MarketTickEvent, OrderbookSnapshot
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
@@ -39,7 +42,7 @@ class ResearchPipelineTests(unittest.TestCase):
             base_time = datetime(2026, 4, 11, 9, 15, tzinfo=kst)
             for minute_index in range(0, 80):
                 event_time = base_time + timedelta(minutes=minute_index)
-                price = 70000 + (minute_index * 10)
+                price = 70000 + int(math.sin(minute_index / 5) * 140) + (minute_index * 2)
                 writer.write_market_tick(
                     MarketTickEvent(
                         symbol="005930",
@@ -63,7 +66,9 @@ class ResearchPipelineTests(unittest.TestCase):
 
             bar_result = build_minute_bars_from_sqlite(project_root=root)
             feature_result = build_feature_dataset_from_sqlite(project_root=root)
-            training_result = train_centroid_baseline_from_sqlite(project_root=root, horizon_min=15)
+            baseline_training_result = train_centroid_baseline_from_sqlite(project_root=root, horizon_min=15)
+            active_result = set_builtin_model_active(project_root=root, horizon_min=15, builtin_name="baseline")
+            training_result = train_lightgbm_from_sqlite(project_root=root, horizon_min=15)
             backtest_result = run_signal_backtest_from_sqlite(project_root=root, horizon_min=15)
             walk_forward_result = run_walk_forward_backtest_from_sqlite(
                 project_root=root,
@@ -88,8 +93,13 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertEqual(bar_result.bars_written, 80)
             self.assertGreater(feature_result.features_written, 0)
             self.assertGreater(feature_result.labels_written, 0)
+            self.assertTrue(baseline_training_result.artifact_path.exists())
+            self.assertTrue(baseline_training_result.activation_applied)
+            self.assertEqual(active_result.model_version, "baseline-h15-v1")
             self.assertTrue(training_result.artifact_path.exists())
             self.assertGreaterEqual(training_result.validation_accuracy, 0.0)
+            self.assertTrue(training_result.model_version.startswith("lightgbm-h15-"))
+            self.assertFalse(training_result.activation_applied)
             self.assertTrue(backtest_result.report_markdown_path.exists())
             self.assertTrue(backtest_result.report_json_path.exists())
             self.assertGreaterEqual(backtest_result.rows_evaluated, 1)
@@ -102,6 +112,7 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(challenger_result.report_json_path.exists())
             self.assertTrue(challenger_result.leaderboard_json_path.exists())
             self.assertGreaterEqual(len(challenger_result.candidates), 3)
+            self.assertTrue(any(candidate.candidate_name == "latest_lightgbm" for candidate in challenger_result.candidates))
             self.assertIn(challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
             self.assertIsNotNone(challenger_result.recommended_model_version)
             self.assertIn(challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})

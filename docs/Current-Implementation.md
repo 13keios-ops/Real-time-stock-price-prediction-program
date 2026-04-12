@@ -10,10 +10,13 @@ The project now has a working local foundation for:
 - Minute-bar generation
 - Feature and label generation
 - Centroid baseline training
+- LightGBM artifact training
 - Validation-tail backtesting with trading-cost assumptions
 - Gap/max-train aware walk-forward backtesting
 - Multi-model challenger evaluation and ranking
 - Walk-forward-gated challenger recommendation and leaderboard history
+- Explicit active-model registry with builtin baseline fallback
+- LightGBM challenger evaluation without automatic promotion
 - Paper-trading state updates for replay and online flows
 - Runtime and backtest report generation
 - KIS WebSocket listening with reconnect handling and control-frame skipping
@@ -36,7 +39,8 @@ This now runs:
 - synthetic data seeding
 - minute-bar creation
 - feature/label creation
-- centroid training
+- LightGBM training first
+- centroid fallback training when LightGBM cannot train
 - validation-tail backtest
 - walk-forward backtest
 - runtime report generation
@@ -70,11 +74,35 @@ This runs:
 - watchlist polling
 - minute-bar creation
 - feature/label creation
-- training when enough labels exist
+- LightGBM training when enough labels exist
+- centroid fallback training when LightGBM cannot train
 - validation-tail backtest when training succeeds
 - walk-forward backtest when training succeeds
 - challenger review when training succeeds
 - runtime report generation
+
+### 4-1. Safe active-model reset
+
+```powershell
+python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
+```
+
+Use this when we want Monday runtime prediction and paper trading to stay on the stable builtin baseline while newer ML challengers are still being evaluated.
+
+### 4-2. Shadow ML refresh
+
+```powershell
+.\scripts\run_ml_shadow_cycle.ps1
+```
+
+This runs:
+
+- safe baseline activation
+- LightGBM training artifact refresh
+- active-model backtest
+- walk-forward refresh
+- challenger comparison
+- runtime report update
 
 ### 5. KIS WebSocket live listener
 
@@ -118,6 +146,7 @@ This compares:
 - current active model
 - baseline builtin model
 - linear-score builtin model
+- latest LightGBM artifact challenger
 - freshly fitted centroid challenger
 - recommendation, reason, walk-forward gate status, and leaderboard history
 
@@ -171,6 +200,8 @@ python -m app --kis-watchlist-poll --iterations 5 --interval-seconds 5
 python -m app --build-minute-bars
 python -m app --build-feature-dataset
 python -m app --train-baseline --horizon-min 15
+python -m app --train-lightgbm --horizon-min 15
+python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-challengers --horizon-min 15
@@ -220,6 +251,13 @@ The agreed next ML direction is:
 - support models: `baseline`, `centroid`, `linear-score`
 - operating window: `recent 60 trading days + today`
 - runtime mode: `intraday inference`, `end-of-day retraining`
+
+The current operational posture is:
+
+- `baseline-h15-v1` remains the active runtime model
+- `lightgbm-h15-v1` is trained and stored as a challenger artifact
+- challenger reports now include `latest_lightgbm` even when baseline stays active
+- automatic activation from a newly written LightGBM artifact is intentionally disabled
 
 This does not mean older data should be deleted. The rolling 60-day window is for active training, while older data should stay available for replay, drift checks, regime comparison, and challenger validation.
 

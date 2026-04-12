@@ -100,18 +100,26 @@
 
 ## 추천 확장 순서
 
-1. LightGBM 학습 파이프라인 추가
-2. 15분용 / 60분용 모델 분리
-3. feature importance 기록
-4. drift 감지
-5. 텍스트 이벤트 특징 추가 강화
-6. 필요 시 더 복잡한 시계열 딥러닝 검토
+1. 15분용 / 60분용 모델 분리
+2. feature importance 기록
+3. drift 감지
+4. 텍스트 이벤트 특징 추가 강화
+5. 필요 시 더 복잡한 시계열 딥러닝 검토
 
 ## 다음 확장 후보
 
-- LightGBM 구현
+- LightGBM 15분 학습 파이프라인 구현 완료
+- LightGBM 승격 기준 고도화
+- LightGBM 전용 walk-forward 비교
 - 다중 challenger 비교
 - feature 중요도 기록
 - drift 감지
 - 재학습 주기 자동화
 - paper trading 결과와 학습 결과 연결 리포트
+
+## 현재 구현 메모
+
+- `python -m app --train-lightgbm --horizon-min 15` 로 LightGBM artifact를 만들 수 있다.
+- 이 학습은 현재 기본값으로 active model을 자동 교체하지 않는다.
+- active model은 `python -m app --set-active-builtin --builtin-model baseline --horizon-min 15` 같은 명시적 명령이나 challenger promotion으로만 바뀐다.
+- 따라서 현재 운영 posture는 `baseline active + latest LightGBM challenger` 이다.

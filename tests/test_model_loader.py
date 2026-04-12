@@ -14,7 +14,7 @@ from app.utils.time import now_local
 
 
 class ModelLoaderTests(unittest.TestCase):
-    def test_load_prediction_model_prefers_centroid_artifact(self) -> None:
+    def test_load_prediction_model_defaults_to_baseline_without_registry(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "model-loader" / str(uuid.uuid4())
         model_dir = runtime_root / "ml" / "models"
@@ -66,7 +66,7 @@ class ModelLoaderTests(unittest.TestCase):
                 prediction_id="pred-test",
             )
 
-            self.assertEqual(prediction.model_version, "centroid-h15-v1")
+            self.assertEqual(prediction.model_version, "baseline-h15-v1")
             self.assertGreater(prediction.probability_up, prediction.probability_down)
 
     def test_load_prediction_model_supports_builtin_registry_entry(self) -> None:

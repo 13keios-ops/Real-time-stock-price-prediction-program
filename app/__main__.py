@@ -21,7 +21,9 @@ from app.services.research import (
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
+    set_builtin_model_active,
     train_centroid_baseline_from_sqlite,
+    train_lightgbm_from_sqlite,
 )
 from app.services.streaming import build_sample_ws_frames, replay_ws_frames, run_kis_ws_listener_sync
 from app.services.synthetic import seed_synthetic_intraday_data
@@ -38,6 +40,8 @@ def main() -> int:
     parser.add_argument("--build-minute-bars", action="store_true", help="Build minute bars from raw ticks stored in SQLite.")
     parser.add_argument("--build-feature-dataset", action="store_true", help="Build feature snapshots and labels from SQLite minute bars.")
     parser.add_argument("--train-baseline", action="store_true", help="Train the local centroid baseline using SQLite feature rows.")
+    parser.add_argument("--train-lightgbm", action="store_true", help="Train the LightGBM model using SQLite feature rows.")
+    parser.add_argument("--set-active-builtin", action="store_true", help="Set a builtin model as the active runtime model.")
     parser.add_argument("--run-backtest", action="store_true", help="Run the validation-tail backtest using the active prediction model.")
     parser.add_argument("--run-walk-forward", action="store_true", help="Run an expanding-window walk-forward backtest.")
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
@@ -58,6 +62,7 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=1, help="Iteration count for polling commands.")
     parser.add_argument("--interval-seconds", type=float, default=0.0, help="Sleep interval between polling iterations.")
     parser.add_argument("--horizon-min", type=int, default=15, help="Prediction horizon in minutes for training commands.")
+    parser.add_argument("--builtin-model", default="baseline", choices=("baseline", "linear_score"), help="Builtin model name for active-registry commands.")
     parser.add_argument("--walk-forward-min-train-rows", type=int, default=30, help="Initial training rows for walk-forward backtests.")
     parser.add_argument("--walk-forward-test-rows", type=int, default=10, help="Per-fold test rows for walk-forward backtests.")
     parser.add_argument("--walk-forward-step-rows", type=int, default=10, help="Fold step size for walk-forward backtests.")
@@ -90,6 +95,20 @@ def main() -> int:
 
     if args.train_baseline:
         result = train_centroid_baseline_from_sqlite(project_root=project_root, horizon_min=args.horizon_min)
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.train_lightgbm:
+        result = train_lightgbm_from_sqlite(project_root=project_root, horizon_min=args.horizon_min, set_active=False)
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.set_active_builtin:
+        result = set_builtin_model_active(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            builtin_name=args.builtin_model,
+        )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
@@ -257,7 +276,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
     )
     return 2
 

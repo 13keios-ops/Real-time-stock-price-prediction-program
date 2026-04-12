@@ -17,9 +17,12 @@
 - KIS WebSocket readiness / verification report 경로가 추가되어 있다.
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
+- LightGBM 학습 artifact 저장이 된다.
 - gap_rows / max_train_rows 를 받는 walk-forward backtest가 된다.
 - baseline / linear-score / centroid를 비교하는 challenger 구조가 추가되었다.
+- latest LightGBM challenger 비교가 추가되었다.
 - challenger 추천 action, walk-forward gate, leaderboard 기록이 추가되었다.
+- active model은 registry로만 명시하고, registry가 없으면 baseline builtin으로 fallback 한다.
 - runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 - Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
@@ -45,7 +48,7 @@
 - [x] Hourly Repo Audit 상태 이어받기 재실행 검증
 - [x] Hourly Repo Audit 백그라운드 runner 시작
 - [x] Hourly Repo Audit progress 배열 정합성 보강
-- [ ] LightGBM 학습 파이프라인 추가
+- [x] LightGBM 학습 파이프라인 추가
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -60,7 +63,7 @@
 
 ## Latest Verified Results
 
-- 전체 테스트: `36 tests OK`
+- 전체 테스트: `37 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -71,12 +74,17 @@
   - walk-forward trades: `26`
   - walk-forward cumulative net return pct: `30.874830`
 - 최신 challenger review:
-  - best candidate: `baseline_builtin`
+  - active model version: `baseline-h15-v1`
+  - best candidate: `active_model`
   - best model version: `baseline-h15-v1`
-  - recommended action: `review_required`
+  - recommended action: `keep_active`
   - walk-forward gate status: `needs_review`
-  - decision reason: `Walk-forward overall accuracy is too low (0.5000).`
-  - candidates compared: `4`
+  - decision reason: `The top challenger matches the current active model.`
+  - candidates compared: `5`
+- 최신 LightGBM training:
+  - model version: `lightgbm-h15-v1`
+  - validation accuracy: `0.0`
+  - activation applied: `false`
 - 최신 KIS verification:
   - `connection_ready=true`
   - `market_data_flow_ok=false`
@@ -117,12 +125,20 @@
   - Hourly Repo Audit 재실행으로 `AUD-006` 은 resolved 로 내려갔고, 새 문서 동기화 항목 `AUD-007` 이 확인되었다.
   - ML 운영 방향을 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM`, `보조 모델 baseline/centroid/linear-score` 로 확정했다.
   - `최근 60거래일 + 오늘 데이터` 는 운영용 학습창 기준이며, 더 오래된 데이터는 drift 점검, 구간 비교, 회귀 검증, challenger 평가용으로 계속 보관하는 방향으로 정리했다.
+  - LightGBM 학습 파이프라인을 실제 코드로 추가했다.
+  - LightGBM artifact는 이제 자동으로 active model이 되지 않고 shadow challenger로 남는다.
+  - active runtime model을 명시적으로 `baseline-h15-v1` 로 되돌렸다.
+  - challenger report는 이제 `latest_lightgbm` 후보를 함께 기록한다.
+  - 현재 기준으로는 월요일 runtime/paper 운용은 `baseline active + LightGBM shadow` 조합이 가장 안전하다.
 
 ## Next Commands
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
+python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
+python -m app --train-lightgbm --horizon-min 15
+.\scripts\run_ml_shadow_cycle.ps1
 python -m app --run-challengers --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2

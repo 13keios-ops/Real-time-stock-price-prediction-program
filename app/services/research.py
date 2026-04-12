@@ -9,12 +9,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from lightgbm import LGBMClassifier
+import numpy as np
+
 from app.collectors.market_data import orderbook_from_kis_ws_record
 from app.config.settings import load_settings
 from app.features.minute_bars import build_feature_snapshot
 from app.labels.thresholds import classify_return
 from app.models.baseline import BaselineDirectionModel
 from app.models.centroid import CentroidArtifact, CentroidDirectionModel
+from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel, find_latest_lightgbm_artifact
 from app.models.loader import load_named_builtin_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.observability.logging import configure_logging
@@ -63,6 +67,7 @@ class BaselineTrainingResult:
     validation_rows: int
     validation_accuracy: float
     artifact_path: Path
+    activation_applied: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -74,6 +79,27 @@ class BaselineTrainingResult:
             "validation_rows": self.validation_rows,
             "validation_accuracy": round(self.validation_accuracy, 6),
             "artifact_path": str(self.artifact_path),
+            "activation_applied": self.activation_applied,
+        }
+
+
+@dataclass(slots=True)
+class ActiveModelSetResult:
+    horizon_min: int
+    model_version: str
+    model_kind: str
+    builtin_name: str | None
+    artifact_path: Path | None
+    registry_path: Path
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "horizon_min": self.horizon_min,
+            "model_version": self.model_version,
+            "model_kind": self.model_kind,
+            "builtin_name": self.builtin_name,
+            "artifact_path": str(self.artifact_path) if self.artifact_path else None,
+            "registry_path": str(self.registry_path),
         }
 
 
@@ -340,6 +366,67 @@ def _write_centroid_artifact(
     }
     artifact_path.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return artifact_path
+
+
+def _fit_lightgbm_model(
+    *,
+    train_rows: list[dict[str, object]],
+    feature_names: list[str],
+    feature_set_version: str,
+    horizon_min: int,
+    model_version: str,
+) -> LightGbmDirectionModel:
+    labels_seen = sorted({str(row["label"]) for row in train_rows})
+    if len(labels_seen) < 2:
+        raise ValueError("LightGBM training requires at least two distinct labels.")
+
+    min_child_samples = max(4, min(20, len(train_rows) // 8 or 4))
+    model = LGBMClassifier(
+        boosting_type="gbdt",
+        objective="multiclass",
+        n_estimators=140 if horizon_min >= 60 else 100,
+        learning_rate=0.05,
+        num_leaves=31,
+        max_depth=5,
+        min_child_samples=min_child_samples,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        random_state=42,
+        verbose=-1,
+        force_col_wise=True,
+    )
+    model.fit(
+        np.asarray([row["features"] for row in train_rows], dtype=float),
+        np.asarray([str(row["label"]) for row in train_rows], dtype=object),
+    )
+    artifact = LightGbmArtifact(
+        model_version=model_version,
+        feature_set_version=feature_set_version,
+        horizon_min=horizon_min,
+        feature_names=feature_names,
+        class_labels=[str(label) for label in model.classes_],
+    )
+    return LightGbmDirectionModel(model=model, artifact=artifact)
+
+
+def _write_lightgbm_artifact(
+    *,
+    runtime_root: Path,
+    model: LightGbmDirectionModel,
+) -> Path:
+    artifact_dir = runtime_root / "ml" / "models"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / f"{model.artifact.model_version}.joblib"
+    model.save(artifact_path)
+    return artifact_path
+
+
+def _resolve_builtin_model_version(settings, horizon_min: int, builtin_name: str) -> str:
+    if builtin_name == "baseline":
+        return settings.model_version_h60 if horizon_min >= 60 else settings.model_version_h15
+    if builtin_name == "linear_score":
+        return f"linear-score-h{horizon_min}-v1"
+    raise ValueError(f"Unsupported builtin model name: {builtin_name}")
 
 
 def _challenger_sort_key(candidate: dict[str, object]) -> tuple[float, ...]:
@@ -686,7 +773,11 @@ def build_feature_dataset_from_sqlite(project_root: Path, horizons: tuple[int, .
     )
 
 
-def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 15) -> BaselineTrainingResult:
+def train_centroid_baseline_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    set_active: bool = True,
+) -> BaselineTrainingResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     sqlite_store = get_sqlite_store(settings)
@@ -719,15 +810,16 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
     evaluation_id = f"eval-centroid-h{horizon_min}-{timestamp_token}"
 
     artifact_path = _write_centroid_artifact(runtime_root=settings.runtime_data_dir, model=model)
-    ModelRegistry(settings.runtime_data_dir).set_active_model(
-        ModelRegistryEntry(
-            horizon_min=horizon_min,
-            model_version=model_version,
-            artifact_path=str(artifact_path),
-            feature_set_version=settings.feature_set_version,
-            model_kind="centroid_artifact",
+    if set_active:
+        ModelRegistry(settings.runtime_data_dir).set_active_model(
+            ModelRegistryEntry(
+                horizon_min=horizon_min,
+                model_version=model_version,
+                artifact_path=str(artifact_path),
+                feature_set_version=settings.feature_set_version,
+                model_kind="centroid_artifact",
+            )
         )
-    )
 
     writer = RuntimeWriter.from_settings(settings)
     writer.write_training_run(
@@ -743,6 +835,7 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
             training_summary={
                 "labels_seen": sorted({str(row["label"]) for row in dataset}),
                 "feature_names": feature_names,
+                "activation_applied": set_active,
             },
         )
     )
@@ -760,6 +853,7 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
                 "actual_label_counts": validation_metrics["actual_label_counts"],
                 "trade_hit_rate": validation_metrics["trade_hit_rate"],
                 "win_rate": validation_metrics["win_rate"],
+                "activation_applied": set_active,
             },
         )
     )
@@ -773,6 +867,143 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
         validation_rows=len(validation_rows),
         validation_accuracy=accuracy,
         artifact_path=artifact_path,
+        activation_applied=set_active,
+    )
+
+
+def train_lightgbm_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    set_active: bool = False,
+) -> BaselineTrainingResult:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = get_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for training.")
+
+    feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
+    train_rows, validation_rows = _split_dataset(dataset)
+
+    model_version = f"lightgbm-h{horizon_min}-v1"
+    model = _fit_lightgbm_model(
+        train_rows=train_rows,
+        feature_names=feature_names,
+        feature_set_version=settings.feature_set_version,
+        horizon_min=horizon_min,
+        model_version=model_version,
+    )
+    validation_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="train-lightgbm-validation",
+    )
+    accuracy = float(validation_metrics["overall_accuracy"])
+    started_at = now_local(settings.timezone)
+    completed_at = now_local(settings.timezone)
+    timestamp_token = started_at.strftime("%Y%m%d%H%M%S%f")
+    training_run_id = f"train-lightgbm-h{horizon_min}-{timestamp_token}"
+    evaluation_id = f"eval-lightgbm-h{horizon_min}-{timestamp_token}"
+
+    artifact_path = _write_lightgbm_artifact(runtime_root=settings.runtime_data_dir, model=model)
+    if set_active:
+        ModelRegistry(settings.runtime_data_dir).set_active_model(
+            ModelRegistryEntry(
+                horizon_min=horizon_min,
+                model_version=model_version,
+                artifact_path=str(artifact_path),
+                feature_set_version=settings.feature_set_version,
+                model_kind="lightgbm_artifact",
+                metadata={
+                    "framework": "lightgbm",
+                    "class_labels": model.artifact.class_labels,
+                },
+            ),
+        )
+
+    writer = RuntimeWriter.from_settings(settings)
+    writer.write_training_run(
+        TrainingRun(
+            training_run_id=training_run_id,
+            started_at=started_at,
+            completed_at=completed_at,
+            model_version=model_version,
+            feature_set_version=settings.feature_set_version,
+            horizon_min=horizon_min,
+            train_rows=len(train_rows),
+            validation_rows=len(validation_rows),
+            training_summary={
+                "framework": "lightgbm",
+                "labels_seen": sorted({str(row["label"]) for row in dataset}),
+                "class_labels": model.artifact.class_labels,
+                "feature_names": feature_names,
+                "training_window": "recent_60_trading_days_plus_today",
+                "activation_applied": set_active,
+            },
+        )
+    )
+    writer.write_model_evaluation(
+        ModelEvaluation(
+            evaluation_id=evaluation_id,
+            training_run_id=training_run_id,
+            evaluated_at=completed_at,
+            split_name="validation",
+            accuracy=accuracy,
+            total_rows=len(validation_rows),
+            metrics={
+                "framework": "lightgbm",
+                "correct": validation_metrics["overall_correct"],
+                "predicted_label_counts": validation_metrics["predicted_label_counts"],
+                "actual_label_counts": validation_metrics["actual_label_counts"],
+                "trade_hit_rate": validation_metrics["trade_hit_rate"],
+                "win_rate": validation_metrics["win_rate"],
+                "class_labels": model.artifact.class_labels,
+                "activation_applied": set_active,
+            },
+        )
+    )
+
+    return BaselineTrainingResult(
+        training_run_id=training_run_id,
+        evaluation_id=evaluation_id,
+        model_version=model_version,
+        horizon_min=horizon_min,
+        train_rows=len(train_rows),
+        validation_rows=len(validation_rows),
+        validation_accuracy=accuracy,
+        artifact_path=artifact_path,
+        activation_applied=set_active,
+    )
+
+
+def set_builtin_model_active(
+    project_root: Path,
+    horizon_min: int = 15,
+    builtin_name: str = "baseline",
+) -> ActiveModelSetResult:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    registry = ModelRegistry(settings.runtime_data_dir)
+    model_version = _resolve_builtin_model_version(settings, horizon_min=horizon_min, builtin_name=builtin_name)
+    registry.set_active_model(
+        ModelRegistryEntry(
+            horizon_min=horizon_min,
+            model_version=model_version,
+            artifact_path="",
+            feature_set_version=settings.feature_set_version,
+            model_kind="builtin",
+            builtin_name=builtin_name,
+        )
+    )
+    return ActiveModelSetResult(
+        horizon_min=horizon_min,
+        model_version=model_version,
+        model_kind="builtin",
+        builtin_name=builtin_name,
+        artifact_path=None,
+        registry_path=registry.registry_path,
     )
 
 
@@ -1209,6 +1440,40 @@ def run_model_challenger_review_from_sqlite(
             **linear_metrics,
         }
     )
+
+    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    if latest_lightgbm_artifact is not None:
+        latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+        latest_lightgbm_version = latest_lightgbm_model.artifact.model_version
+        if latest_lightgbm_version != str(active_candidate["model_version"]):
+            lightgbm_metrics = _evaluate_rows_with_model(
+                rows=validation_rows,
+                model=latest_lightgbm_model,
+                settings=settings,
+                horizon_min=horizon_min,
+                prediction_prefix="challenger-lightgbm",
+            )
+            candidates.append(
+                {
+                    "candidate_name": "latest_lightgbm",
+                    "model_version": latest_lightgbm_version,
+                    "model_kind": "lightgbm_artifact",
+                    "training_run_id": _resolve_training_run_id(sqlite_store, latest_lightgbm_version, horizon_min),
+                    "promotable": True,
+                    "promotion_entry": ModelRegistryEntry(
+                        horizon_min=horizon_min,
+                        model_version=latest_lightgbm_version,
+                        artifact_path=str(latest_lightgbm_artifact),
+                        feature_set_version=settings.feature_set_version,
+                        model_kind="lightgbm_artifact",
+                        metadata={
+                            "framework": "lightgbm",
+                            "class_labels": latest_lightgbm_model.artifact.class_labels,
+                        },
+                    ),
+                    **lightgbm_metrics,
+                }
+            )
 
     fresh_centroid_version = f"centroid-challenger-h{horizon_min}-v1"
     fresh_centroid_model = _fit_centroid_model(

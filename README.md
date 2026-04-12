@@ -22,9 +22,12 @@
 - minute bar 생성
 - feature / label 생성
 - centroid baseline 학습
+- LightGBM 학습 artifact 저장
 - validation-tail backtest
 - gap/max-train 제어가 가능한 walk-forward backtest
 - walk-forward gate를 반영하는 challenger model 비교 보고서
+- active model 명시 registry와 builtin baseline fallback
+- LightGBM shadow challenger 비교
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
@@ -103,6 +106,26 @@ python -m app --run-challengers --horizon-min 15
 
 이제 challenger는 validation 구간 성능만 보지 않고 최신 walk-forward 결과를 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다.
 
+active model을 안전하게 baseline으로 고정:
+
+```powershell
+python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
+```
+
+LightGBM shadow 학습:
+
+```powershell
+python -m app --train-lightgbm --horizon-min 15
+```
+
+이 명령은 이제 artifact와 평가 기록만 만들고, active model을 자동으로 교체하지 않는다.
+
+월요일 전 shadow ML 갱신 일괄 실행:
+
+```powershell
+.\scripts\run_ml_shadow_cycle.ps1
+```
+
 KIS WebSocket listener:
 
 ```powershell
@@ -173,6 +196,14 @@ Hourly Repo Audit 상태 확인:
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 
 버전은 작업 마지막에 바꾸고, watcher가 그 변화를 감지해 자동 commit/push 또는 기존 release commit push를 수행한다.
+
+## 현재 ML 운용 기준
+
+현재 `15분` 기준 active model은 builtin `baseline-h15-v1` 이다.
+
+- 이유 1: 최근 synthetic/runtime 검증에서 active baseline이 가장 안정적이었다.
+- 이유 2: 최신 LightGBM 학습은 정상 동작하지만, 현재 validation accuracy와 challenger 결과가 아직 약하다.
+- 이유 3: 따라서 LightGBM은 월요일 전까지 `shadow challenger`로 계속 학습하고, 검증 통과 전에는 active model로 승격하지 않는다.
 
 ## Canonical 문서와 Reference 문서
 
