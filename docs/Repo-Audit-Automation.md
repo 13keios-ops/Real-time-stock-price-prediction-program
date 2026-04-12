@@ -25,6 +25,13 @@ Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 �
 - `scripts/stop_hourly_repo_audit.ps1`
   - 현재 runner 중지
 
+## 권장 실행 방식
+
+- 1순위는 Codex 자동화다.
+- Codex 자동화로 등록하면 앱 UI에서 즉시 중지할 수 있다.
+- PowerShell background runner는 Codex 자동화가 없을 때만 쓰는 fallback 으로 본다.
+- 상태 스크립트는 저장된 pid 가 죽어 있으면 `stale` 로 보여준다.
+
 ## 출력 경로
 
 - `runtime-data/reports/codex/automation/history/YYYY-MM-DD/HHMM-review.md`

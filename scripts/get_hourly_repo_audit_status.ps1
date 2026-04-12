@@ -27,9 +27,14 @@ if ($runnerState.pid) {
     $pidExists = $null -ne (Get-Process -Id $runnerState.pid -ErrorAction SilentlyContinue)
 }
 
+$effectiveStatus = $runnerState.status
+if ((@("starting", "running", "waiting") -contains [string]$runnerState.status) -and (-not $pidExists)) {
+    $effectiveStatus = "stale"
+}
+
 $summary = [ordered]@{
     automation_name = $runnerState.automation_name
-    status = $runnerState.status
+    status = $effectiveStatus
     pid = $runnerState.pid
     process_running = $pidExists
     started_at = $runnerState.started_at
@@ -39,6 +44,7 @@ $summary = [ordered]@{
     last_review_path = $runnerState.last_review_path
     latest_progress_path = $progressPath
     latest_context_path = $contextPath
+    raw_runner_status = $runnerState.status
 }
 
 $summary | ConvertTo-Json -Depth 10

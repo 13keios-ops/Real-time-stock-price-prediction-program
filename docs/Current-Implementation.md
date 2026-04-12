@@ -127,6 +127,12 @@ Background runner:
 .\scripts\start_hourly_repo_audit_background.ps1
 ```
 
+Recommended scheduler:
+
+- prefer Codex automations for hourly scheduling
+- use the PowerShell background runner only as a fallback
+- Codex automations are easier to stop from the app UI
+
 Status:
 
 ```powershell
@@ -148,6 +154,7 @@ This automation now:
 - stores all state under `runtime-data/reports/codex/automation/`
 - carries forward stable open item ids across repeated runs
 - has a dedicated background launcher that leaves runner state in `runtime-data/reports/codex/automation/state/runner-state.json`
+- reports `stale` when the saved runner pid is no longer alive
 
 ## Useful CLI Commands
 

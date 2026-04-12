@@ -100,7 +100,12 @@ Hourly Repo Audit 1회 실행:
 .\scripts\run_hourly_repo_audit_iteration.ps1
 ```
 
-Hourly Repo Audit 백그라운드 시작:
+Hourly Repo Audit Codex 자동화 권장:
+
+- Codex 자동화로 등록하면 앱 UI에서 바로 중지할 수 있다.
+- 아래 PowerShell background runner는 Codex 자동화가 없을 때만 쓰는 fallback 이다.
+
+Hourly Repo Audit 백그라운드 시작(fallback):
 
 ```powershell
 .\scripts\start_hourly_repo_audit_background.ps1
@@ -111,6 +116,8 @@ Hourly Repo Audit 상태 확인:
 ```powershell
 .\scripts\get_hourly_repo_audit_status.ps1
 ```
+
+프로세스가 죽었는데 상태가 `waiting` 으로 남아 있으면 이 스크립트는 `stale` 로 해석해서 보여준다.
 
 ## 새 기능을 어디에 둘까
 

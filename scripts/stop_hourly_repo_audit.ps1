@@ -27,7 +27,20 @@ if (-not $runnerState.pid) {
 
 $process = Get-Process -Id $runnerState.pid -ErrorAction SilentlyContinue
 if ($null -eq $process) {
-    Write-Output "Hourly Repo Audit runner process is not running."
+    $payload = [ordered]@{
+        automation_name = $runnerState.automation_name
+        status = "stale"
+        pid = $runnerState.pid
+        stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+        workspace_root = $WorkspaceRoot
+        runtime_data_dir = $RuntimeDataDir
+        last_run_label = $runnerState.last_run_label
+        last_review_path = $runnerState.last_review_path
+        error = "Runner process was already not running when stop was requested."
+    }
+
+    $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $runnerStatePath -Encoding UTF8
+    Write-Output "Hourly Repo Audit runner process was already not running. Marked state as stale."
     exit 0
 }
 
