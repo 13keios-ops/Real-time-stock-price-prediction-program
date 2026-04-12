@@ -17,11 +17,13 @@
 - KIS WebSocket readiness / verification report 경로가 추가되어 있다.
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
+- gap_rows / max_train_rows 를 받는 walk-forward backtest가 된다.
 - baseline / linear-score / centroid를 비교하는 challenger 구조가 추가되었다.
-- challenger 추천 action과 leaderboard 기록이 추가되었다.
+- challenger 추천 action, walk-forward gate, leaderboard 기록이 추가되었다.
 - runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 - Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
+- audit progress 상태 파일의 배열 정합성 방어가 추가되었다.
 
 ## Active Checklist
 
@@ -35,9 +37,12 @@
 - [x] VERSION 기반 watcher opt-in 정리
 - [x] README와 logbook 기준으로 오래된 주제 문서 역할 재정리
 - [x] 다중 모델 challenger 비교 구조
+- [x] challenger 추천과 실제 승격 상태 분리
+- [x] challenger walk-forward gate
 - [x] Hourly Repo Audit 자동화 기본 구조
 - [x] Hourly Repo Audit 상태 이어받기 재실행 검증
 - [x] Hourly Repo Audit 백그라운드 runner 시작
+- [x] Hourly Repo Audit progress 배열 정합성 보강
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -57,13 +62,17 @@
   - training accuracy: `0.866667`
   - backtest trades: `13`
   - backtest cumulative net return pct: `25.870005`
-  - walk-forward folds: `4`
-  - walk-forward trades: `21`
-  - walk-forward cumulative net return pct: `16.040505`
+  - walk-forward folds: `3`
+  - walk-forward gap rows: `15`
+  - walk-forward max train rows: `40`
+  - walk-forward trades: `26`
+  - walk-forward cumulative net return pct: `30.874830`
 - 최신 challenger review:
   - best candidate: `baseline_builtin`
   - best model version: `baseline-h15-v1`
-  - recommended action: `promote`
+  - recommended action: `review_required`
+  - walk-forward gate status: `needs_review`
+  - decision reason: `Walk-forward overall accuracy is too low (0.5000).`
   - candidates compared: `4`
 - 최신 KIS verification:
   - `connection_ready=true`
@@ -87,6 +96,7 @@
   - 실제 장중 검증은 현재 환경에 `.env`와 `websockets`가 없어 아직 미완료 상태다.
 - `2026-04-12`
   - challenger 승격 추천 규칙과 leaderboard 기록을 추가했다.
+  - challenger 리포트는 이제 `recommended_model_version`, `promotion_requested`, `promotion_applied`, `promoted_model_version`, `active_model_version_after_run` 를 분리 기록한다.
   - root `.env`와 `websockets` 준비가 완료되어 KIS WebSocket 연결 준비 검증은 통과했다.
   - `2026-04-12 00:54 KST` 검증은 일요일 야간이라 control frame만 들어왔고 시장 데이터 수신 검증은 아직 남아 있다.
   - paper 계좌번호만 8자리일 때 상품코드 `01`을 기본값으로 쓰도록 설정 로더를 보강했다.
@@ -98,6 +108,10 @@
   - background 시작용 `scripts/start_hourly_repo_audit_background.ps1` 를 추가했고 runner 상태는 `runtime-data/reports/codex/automation/state/runner-state.json` 으로 확인한다.
   - `2026-04-12 09:40 KST` background runner를 실제로 시작했고 첫 즉시 실행이 진행 중이다.
   - 이후 확인 결과 자체 background runner는 `09:40` 회차까지만 완료했고 `10:00` 회차까지 유지되지 않았다. 앞으로는 Codex 자동화를 우선 스케줄러로 쓰고, 상태 스크립트는 죽은 pid 를 `stale` 로 해석한다.
+  - walk-forward는 `gap_rows=15` 와 `max_train_rows` 를 지원하도록 확장했다.
+  - `max_train_rows=30/40/50` 실험을 실제로 돌렸고, `30`은 성능이 크게 악화됐고 `40`은 현재 최고값과 같아 최신 기준선으로 유지했다.
+  - 최신 challenger는 validation 성능이 좋아도 walk-forward gate가 약하면 `review_required` 로 남기도록 바뀌었다.
+  - Hourly Repo Audit 재실행으로 `AUD-006` 은 resolved 로 내려갔고, 새 문서 동기화 항목 `AUD-007` 이 확인되었다.
 
 ## Next Commands
 
@@ -105,6 +119,7 @@
 python -m unittest discover -s tests -p "test_*.py"
 python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
 python -m app --run-challengers --horizon-min 15
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 python -m app --build-runtime-report

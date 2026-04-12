@@ -33,7 +33,8 @@ class OrchestratorTests(unittest.TestCase):
             self.assertGreaterEqual(result.walk_forward["folds"], 1)
             self.assertIsNotNone(result.challengers)
             self.assertGreaterEqual(len(result.challengers["candidates"]), 3)
-            self.assertIn(result.challengers["recommended_action"], {"promote", "keep_active"})
+            self.assertIn(result.challengers["recommended_action"], {"promote", "keep_active", "review_required"})
+            self.assertIn(result.challengers["walk_forward_gate_status"], {"pass", "needs_review", "missing"})
 
 
 if __name__ == "__main__":

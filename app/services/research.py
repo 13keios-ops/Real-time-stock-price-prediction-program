@@ -127,6 +127,8 @@ class WalkForwardBacktestResult:
     win_rate: float
     average_net_return_pct: float
     cumulative_net_return_pct: float
+    gap_rows: int
+    max_train_rows: int | None
     report_markdown_path: Path
     report_json_path: Path
 
@@ -144,6 +146,8 @@ class WalkForwardBacktestResult:
             "win_rate": round(self.win_rate, 6),
             "average_net_return_pct": round(self.average_net_return_pct, 6),
             "cumulative_net_return_pct": round(self.cumulative_net_return_pct, 6),
+            "gap_rows": self.gap_rows,
+            "max_train_rows": self.max_train_rows,
             "report_markdown_path": str(self.report_markdown_path),
             "report_json_path": str(self.report_json_path),
         }
@@ -193,8 +197,14 @@ class ChallengerRunResult:
     best_model_version: str
     best_candidate_name: str
     recommended_action: str
+    recommended_model_version: str
     decision_reason: str
+    walk_forward_gate_status: str
+    walk_forward_gate_reason: str
+    promotion_requested: bool
+    promotion_applied: bool
     promoted_model_version: str | None
+    active_model_version_after_run: str
     report_markdown_path: Path
     report_json_path: Path
     leaderboard_json_path: Path
@@ -208,8 +218,14 @@ class ChallengerRunResult:
             "best_model_version": self.best_model_version,
             "best_candidate_name": self.best_candidate_name,
             "recommended_action": self.recommended_action,
+            "recommended_model_version": self.recommended_model_version,
             "decision_reason": self.decision_reason,
+            "walk_forward_gate_status": self.walk_forward_gate_status,
+            "walk_forward_gate_reason": self.walk_forward_gate_reason,
+            "promotion_requested": self.promotion_requested,
+            "promotion_applied": self.promotion_applied,
             "promoted_model_version": self.promoted_model_version,
+            "active_model_version_after_run": self.active_model_version_after_run,
             "report_markdown_path": str(self.report_markdown_path),
             "report_json_path": str(self.report_json_path),
             "leaderboard_json_path": str(self.leaderboard_json_path),
@@ -353,6 +369,7 @@ def _recommend_challenger_action(
     *,
     active_candidate: dict[str, object],
     ranked_candidates: list[dict[str, object]],
+    walk_forward_gate: dict[str, object] | None = None,
 ) -> tuple[str, str, str]:
     best_promotable = next((candidate for candidate in ranked_candidates if bool(candidate["promotable"])), None)
     if best_promotable is None:
@@ -374,7 +391,91 @@ def _recommend_challenger_action(
     if best_accuracy + 0.05 < active_accuracy:
         return "keep_active", str(active_candidate["model_version"]), "Accuracy regression is too large."
 
+    if walk_forward_gate:
+        gate_status = str(walk_forward_gate.get("status", "missing"))
+        gate_reason = str(walk_forward_gate.get("reason", "Walk-forward gate status is unavailable."))
+        if gate_status != "pass":
+            return "review_required", str(best_promotable["model_version"]), gate_reason
+
     return "promote", str(best_promotable["model_version"]), "Promote the challenger based on return and trade coverage."
+
+
+def _load_latest_walk_forward_report(runtime_root: Path, horizon_min: int) -> dict[str, object] | None:
+    report_path = runtime_root / "reports" / "backtests" / f"latest-walk-forward-h{horizon_min}.json"
+    if not report_path.exists():
+        return None
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _build_walk_forward_gate(payload: dict[str, object] | None) -> dict[str, object]:
+    if not payload:
+        return {
+            "status": "missing",
+            "reason": "No latest walk-forward report is available.",
+        }
+
+    overall_accuracy = float(payload.get("overall_accuracy", 0.0))
+    cumulative_net = float(payload.get("cumulative_net_return_pct", 0.0))
+    gap_rows = int(payload.get("gap_rows", 0) or 0)
+    max_train_rows = payload.get("max_train_rows")
+    fold_summaries = payload.get("fold_summaries", [])
+
+    weakest_fold_accuracy = None
+    if isinstance(fold_summaries, list) and fold_summaries:
+        fold_accuracies = [
+            float(fold.get("overall_accuracy", 0.0))
+            for fold in fold_summaries
+            if isinstance(fold, dict)
+        ]
+        if fold_accuracies:
+            weakest_fold_accuracy = min(fold_accuracies)
+
+    if overall_accuracy < 0.55:
+        return {
+            "status": "needs_review",
+            "reason": f"Walk-forward overall accuracy is too low ({overall_accuracy:.4f}).",
+            "overall_accuracy": overall_accuracy,
+            "cumulative_net_return_pct": cumulative_net,
+            "weakest_fold_accuracy": weakest_fold_accuracy,
+            "gap_rows": gap_rows,
+            "max_train_rows": max_train_rows,
+        }
+
+    if weakest_fold_accuracy is not None and weakest_fold_accuracy <= 0.0:
+        return {
+            "status": "needs_review",
+            "reason": "At least one walk-forward fold has zero accuracy.",
+            "overall_accuracy": overall_accuracy,
+            "cumulative_net_return_pct": cumulative_net,
+            "weakest_fold_accuracy": weakest_fold_accuracy,
+            "gap_rows": gap_rows,
+            "max_train_rows": max_train_rows,
+        }
+
+    if cumulative_net <= 0.0:
+        return {
+            "status": "needs_review",
+            "reason": f"Walk-forward cumulative net return is not positive ({cumulative_net:.4f}).",
+            "overall_accuracy": overall_accuracy,
+            "cumulative_net_return_pct": cumulative_net,
+            "weakest_fold_accuracy": weakest_fold_accuracy,
+            "gap_rows": gap_rows,
+            "max_train_rows": max_train_rows,
+        }
+
+    return {
+        "status": "pass",
+        "reason": "Walk-forward gate passed.",
+        "overall_accuracy": overall_accuracy,
+        "cumulative_net_return_pct": cumulative_net,
+        "weakest_fold_accuracy": weakest_fold_accuracy,
+        "gap_rows": gap_rows,
+        "max_train_rows": max_train_rows,
+    }
 
 
 def _evaluate_rows_with_model(
@@ -613,8 +714,9 @@ def train_centroid_baseline_from_sqlite(project_root: Path, horizon_min: int = 1
     accuracy = float(validation_metrics["overall_accuracy"])
     started_at = now_local(settings.timezone)
     completed_at = now_local(settings.timezone)
-    training_run_id = f"train-centroid-h{horizon_min}-{started_at.strftime('%Y%m%d%H%M%S')}"
-    evaluation_id = f"eval-centroid-h{horizon_min}-{started_at.strftime('%Y%m%d%H%M%S')}"
+    timestamp_token = started_at.strftime("%Y%m%d%H%M%S%f")
+    training_run_id = f"train-centroid-h{horizon_min}-{timestamp_token}"
+    evaluation_id = f"eval-centroid-h{horizon_min}-{timestamp_token}"
 
     artifact_path = _write_centroid_artifact(runtime_root=settings.runtime_data_dir, model=model)
     ModelRegistry(settings.runtime_data_dir).set_active_model(
@@ -688,7 +790,7 @@ def run_signal_backtest_from_sqlite(project_root: Path, horizon_min: int = 15) -
 
     model = load_prediction_model(settings, horizon_min=horizon_min)
     evaluation_time = now_local(settings.timezone)
-    evaluation_id = f"backtest-h{horizon_min}-{evaluation_time.strftime('%Y%m%d%H%M%S')}"
+    evaluation_id = f"backtest-h{horizon_min}-{evaluation_time.strftime('%Y%m%d%H%M%S%f')}"
     metrics = _evaluate_rows_with_model(
         rows=validation_rows,
         model=model,
@@ -785,6 +887,8 @@ def run_walk_forward_backtest_from_sqlite(
     min_train_rows: int = 30,
     test_window_rows: int = 10,
     step_rows: int | None = None,
+    gap_rows: int | None = None,
+    max_train_rows: int | None = None,
 ) -> WalkForwardBacktestResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -795,13 +899,17 @@ def run_walk_forward_backtest_from_sqlite(
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
     if step_rows is None:
         step_rows = test_window_rows
-    if min_train_rows <= 0 or test_window_rows <= 0 or step_rows <= 0:
+    if gap_rows is None:
+        gap_rows = horizon_min
+    if min_train_rows <= 0 or test_window_rows <= 0 or step_rows <= 0 or gap_rows < 0:
         raise ValueError("Walk-forward parameters must be positive integers.")
-    if len(dataset) < min_train_rows + test_window_rows:
+    if max_train_rows is not None and max_train_rows < min_train_rows:
+        raise ValueError("max_train_rows must be greater than or equal to min_train_rows.")
+    if len(dataset) < min_train_rows + gap_rows + test_window_rows:
         raise ValueError("Not enough labeled feature rows are available for walk-forward backtesting.")
 
     evaluation_time = now_local(settings.timezone)
-    evaluation_id = f"walk-forward-h{horizon_min}-{evaluation_time.strftime('%Y%m%d%H%M%S')}"
+    evaluation_id = f"walk-forward-h{horizon_min}-{evaluation_time.strftime('%Y%m%d%H%M%S%f')}"
     model_version = f"walk-forward-centroid-h{horizon_min}-v1"
     fold_summaries: list[dict[str, object]] = []
     aggregate_rows = 0
@@ -816,9 +924,16 @@ def run_walk_forward_backtest_from_sqlite(
     aggregate_predicted: Counter[str] = Counter()
 
     fold_count = 0
-    for fold_index, train_end in enumerate(range(min_train_rows, len(dataset) - test_window_rows + 1, step_rows), start=1):
-        train_rows = dataset[:train_end]
-        test_rows = dataset[train_end : train_end + test_window_rows]
+    max_train_end = len(dataset) - gap_rows - test_window_rows
+    for fold_index, train_end in enumerate(range(min_train_rows, max_train_end + 1, step_rows), start=1):
+        train_start = 0
+        if max_train_rows is not None:
+            train_start = max(0, train_end - max_train_rows)
+        train_rows = dataset[train_start:train_end]
+        test_start = train_end + gap_rows
+        test_rows = dataset[test_start : test_start + test_window_rows]
+        if len(train_rows) < min_train_rows:
+            continue
         if not test_rows:
             continue
         model = _fit_centroid_model(
@@ -853,8 +968,13 @@ def run_walk_forward_backtest_from_sqlite(
         fold_summaries.append(
             {
                 "fold": fold_index,
+                "train_start_row": train_start,
+                "train_end_row": train_end - 1,
+                "test_start_row": test_start,
+                "test_end_row": (test_start + rows_evaluated - 1),
                 "train_rows": len(train_rows),
                 "test_rows": rows_evaluated,
+                "gap_rows": gap_rows,
                 "train_end_event_time": train_rows[-1]["event_time"].isoformat(),
                 "test_start_event_time": test_rows[0]["event_time"].isoformat(),
                 "test_end_event_time": test_rows[-1]["event_time"].isoformat(),
@@ -878,7 +998,7 @@ def run_walk_forward_backtest_from_sqlite(
     training_run_id = _resolve_training_run_id(sqlite_store, f"centroid-h{horizon_min}-v1", horizon_min)
 
     metrics = {
-        "dataset_scope": "walk_forward_expanding_window",
+        "dataset_scope": "walk_forward_windowed_gap",
         "model_version": model_version,
         "horizon_min": horizon_min,
         "folds": fold_count,
@@ -899,6 +1019,8 @@ def run_walk_forward_backtest_from_sqlite(
         "min_train_rows": min_train_rows,
         "test_window_rows": test_window_rows,
         "step_rows": step_rows,
+        "gap_rows": gap_rows,
+        "max_train_rows": max_train_rows,
         "fold_summaries": fold_summaries,
     }
 
@@ -939,6 +1061,8 @@ def run_walk_forward_backtest_from_sqlite(
         f"- `win_rate`: {win_rate:.4f}",
         f"- `average_net_return_pct`: {average_net_return_pct:.4f}",
         f"- `cumulative_net_return_pct`: {aggregate_net:.4f}",
+        f"- `gap_rows`: {gap_rows}",
+        f"- `max_train_rows`: {max_train_rows if max_train_rows is not None else 'full-history'}",
         "",
         "## Fold Summary",
         "",
@@ -946,7 +1070,7 @@ def run_walk_forward_backtest_from_sqlite(
     for fold in fold_summaries:
         markdown_lines.append(
             f"- `fold {fold['fold']}` train={fold['train_rows']} test={fold['test_rows']} "
-            f"accuracy={float(fold['overall_accuracy']):.4f} trades={fold['trades_taken']} "
+            f"gap={fold['gap_rows']} accuracy={float(fold['overall_accuracy']):.4f} trades={fold['trades_taken']} "
             f"net={float(fold['cumulative_net_return_pct']):.4f}"
         )
 
@@ -966,6 +1090,8 @@ def run_walk_forward_backtest_from_sqlite(
         win_rate=win_rate,
         average_net_return_pct=average_net_return_pct,
         cumulative_net_return_pct=aggregate_net,
+        gap_rows=gap_rows,
+        max_train_rows=max_train_rows,
         report_markdown_path=markdown_path,
         report_json_path=json_path,
     )
@@ -988,7 +1114,7 @@ def run_model_challenger_review_from_sqlite(
         raise ValueError("Not enough validation rows are available for challenger evaluation.")
 
     review_time = now_local(settings.timezone)
-    challenger_run_id = f"challenger-h{horizon_min}-{review_time.strftime('%Y%m%d%H%M%S')}"
+    challenger_run_id = f"challenger-h{horizon_min}-{review_time.strftime('%Y%m%d%H%M%S%f')}"
     writer = RuntimeWriter.from_settings(settings)
     registry = ModelRegistry(settings.runtime_data_dir)
 
@@ -1175,11 +1301,15 @@ def run_model_challenger_review_from_sqlite(
         )
 
     best_candidate = ranked[0]
+    walk_forward_reference = _load_latest_walk_forward_report(settings.runtime_data_dir, horizon_min)
+    walk_forward_gate = _build_walk_forward_gate(walk_forward_reference)
     recommended_action, recommended_model_version, decision_reason = _recommend_challenger_action(
         active_candidate=active_candidate,
         ranked_candidates=ranked,
+        walk_forward_gate=walk_forward_gate,
     )
     promoted_model_version: str | None = None
+    promotion_applied = False
     if promote_best:
         if recommended_action == "promote":
             promotion_candidate = next(
@@ -1189,8 +1319,8 @@ def run_model_challenger_review_from_sqlite(
             if isinstance(promotion_entry, ModelRegistryEntry):
                 registry.set_active_model(promotion_entry)
                 promoted_model_version = promotion_entry.model_version
-        else:
-            promoted_model_version = recommended_model_version
+                promotion_applied = True
+    active_model_version_after_run = promoted_model_version or str(active_candidate["model_version"])
 
     report_dir = settings.runtime_data_dir / "reports" / "challengers"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -1215,7 +1345,17 @@ def run_model_challenger_review_from_sqlite(
         "recommended_action": recommended_action,
         "recommended_model_version": recommended_model_version,
         "decision_reason": decision_reason,
+        "walk_forward_gate_status": walk_forward_gate["status"],
+        "walk_forward_gate_reason": walk_forward_gate["reason"],
+        "walk_forward_gate_reference": (
+            f"runtime-data/reports/backtests/latest-walk-forward-h{horizon_min}.json"
+            if walk_forward_reference
+            else None
+        ),
+        "promotion_requested": promote_best,
+        "promotion_applied": promotion_applied,
         "promoted_model_version": promoted_model_version,
+        "active_model_version_after_run": active_model_version_after_run,
         "candidates": [candidate.to_dict() for candidate in candidate_results],
     }
     leaderboard_payload.append(
@@ -1228,6 +1368,12 @@ def run_model_challenger_review_from_sqlite(
             "recommended_action": recommended_action,
             "recommended_model_version": recommended_model_version,
             "decision_reason": decision_reason,
+            "walk_forward_gate_status": walk_forward_gate["status"],
+            "walk_forward_gate_reason": walk_forward_gate["reason"],
+            "promotion_requested": promote_best,
+            "promotion_applied": promotion_applied,
+            "promoted_model_version": promoted_model_version,
+            "active_model_version_after_run": active_model_version_after_run,
         }
     )
     leaderboard_payload = leaderboard_payload[-20:]
@@ -1242,7 +1388,12 @@ def run_model_challenger_review_from_sqlite(
         f"- `recommended_action`: {recommended_action}",
         f"- `recommended_model_version`: {recommended_model_version}",
         f"- `decision_reason`: {decision_reason}",
+        f"- `walk_forward_gate_status`: {walk_forward_gate['status']}",
+        f"- `walk_forward_gate_reason`: {walk_forward_gate['reason']}",
+        f"- `promotion_requested`: {promote_best}",
+        f"- `promotion_applied`: {promotion_applied}",
         f"- `promoted_model_version`: {promoted_model_version or 'none'}",
+        f"- `active_model_version_after_run`: {active_model_version_after_run}",
         "",
         "## Candidates",
         "",
@@ -1265,8 +1416,14 @@ def run_model_challenger_review_from_sqlite(
         best_model_version=str(best_candidate["model_version"]),
         best_candidate_name=str(best_candidate["candidate_name"]),
         recommended_action=recommended_action,
+        recommended_model_version=recommended_model_version,
         decision_reason=decision_reason,
+        walk_forward_gate_status=str(walk_forward_gate["status"]),
+        walk_forward_gate_reason=str(walk_forward_gate["reason"]),
+        promotion_requested=promote_best,
+        promotion_applied=promotion_applied,
         promoted_model_version=promoted_model_version,
+        active_model_version_after_run=active_model_version_after_run,
         report_markdown_path=markdown_path,
         report_json_path=json_path,
         leaderboard_json_path=leaderboard_path,

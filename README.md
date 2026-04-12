@@ -23,13 +23,14 @@
 - feature / label 생성
 - centroid baseline 학습
 - validation-tail backtest
-- walk-forward backtest
-- challenger model 비교 보고서
+- gap/max-train 제어가 가능한 walk-forward backtest
+- walk-forward gate를 반영하는 challenger model 비교 보고서
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
+- audit progress JSON 배열 정합성 보강
 
 현재 기준 버전은 `0.2.0` 이다.
 
@@ -74,11 +75,19 @@ walk-forward 백테스트:
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 ```
 
+최근 실험 기준 추천 조합:
+
+```powershell
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+```
+
 challenger 비교:
 
 ```powershell
 python -m app --run-challengers --horizon-min 15
 ```
+
+이제 challenger는 validation 구간 성능만 보지 않고 최신 walk-forward 결과를 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다.
 
 KIS WebSocket listener:
 

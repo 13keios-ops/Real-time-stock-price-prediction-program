@@ -11,9 +11,9 @@ The project now has a working local foundation for:
 - Feature and label generation
 - Centroid baseline training
 - Validation-tail backtesting with trading-cost assumptions
-- Expanding-window walk-forward backtesting
+- Gap/max-train aware walk-forward backtesting
 - Multi-model challenger evaluation and ranking
-- Conservative challenger promotion recommendation and leaderboard history
+- Walk-forward-gated challenger recommendation and leaderboard history
 - Paper-trading state updates for replay and online flows
 - Runtime and backtest report generation
 - KIS WebSocket listening with reconnect handling and control-frame skipping
@@ -51,6 +51,12 @@ This now runs:
 
 ```powershell
 .\scripts\run_walk_forward_backtest.ps1
+```
+
+Recommended variant for the current dataset:
+
+```powershell
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 ```
 
 ### 4. KIS REST development cycle
@@ -113,7 +119,7 @@ This compares:
 - baseline builtin model
 - linear-score builtin model
 - freshly fitted centroid challenger
-- recommendation, reason, and leaderboard history
+- recommendation, reason, walk-forward gate status, and leaderboard history
 
 ### 8. Hourly repository audit automation
 
@@ -205,6 +211,8 @@ The main remaining step is true intraday KIS WebSocket validation in an environm
 - the `websockets` Python package installed
 
 The challenger framework is now in place, so the best follow-up after live verification is adding stronger challenger models on top of the current baseline, linear-score, and centroid comparison flow.
+
+At the moment, challenger output can deliberately stop at `review_required` when the latest walk-forward report is still weak even if the best candidate beats the active model on the validation slice.
 
 ## KIS Paper Account Note
 

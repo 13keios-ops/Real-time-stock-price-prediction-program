@@ -129,11 +129,15 @@ function Convert-ToJsonArray {
         return @($Value)
     }
 
-    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string]) -and -not ($Value -is [pscustomobject])) {
+    if ($Value -is [pscustomobject]) {
+        return @($Value)
+    }
+
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
         return @($Value | ForEach-Object { $_ })
     }
 
-    return @()
+    return @($Value)
 }
 
 function Invoke-CodexReport {

@@ -61,6 +61,8 @@ def main() -> int:
     parser.add_argument("--walk-forward-min-train-rows", type=int, default=30, help="Initial training rows for walk-forward backtests.")
     parser.add_argument("--walk-forward-test-rows", type=int, default=10, help="Per-fold test rows for walk-forward backtests.")
     parser.add_argument("--walk-forward-step-rows", type=int, default=10, help="Fold step size for walk-forward backtests.")
+    parser.add_argument("--walk-forward-gap-rows", type=int, default=None, help="Gap rows between train and test windows for walk-forward backtests.")
+    parser.add_argument("--walk-forward-max-train-rows", type=int, default=None, help="Maximum rolling training rows for walk-forward backtests.")
     parser.add_argument("--minutes", type=int, default=80, help="Minute count for synthetic data seeding.")
     parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume.")
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
@@ -103,6 +105,8 @@ def main() -> int:
             min_train_rows=args.walk_forward_min_train_rows,
             test_window_rows=args.walk_forward_test_rows,
             step_rows=args.walk_forward_step_rows,
+            gap_rows=args.walk_forward_gap_rows,
+            max_train_rows=args.walk_forward_max_train_rows,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0

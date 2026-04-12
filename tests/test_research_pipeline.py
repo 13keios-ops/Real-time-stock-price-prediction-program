@@ -75,6 +75,11 @@ class ResearchPipelineTests(unittest.TestCase):
             challenger_result = run_model_challenger_review_from_sqlite(
                 project_root=root,
                 horizon_min=15,
+                promote_best=False,
+            )
+            promoted_challenger_result = run_model_challenger_review_from_sqlite(
+                project_root=root,
+                horizon_min=15,
                 promote_best=True,
             )
             sqlite_store = get_sqlite_store(settings)
@@ -91,17 +96,44 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(walk_forward_result.report_markdown_path.exists())
             self.assertTrue(walk_forward_result.report_json_path.exists())
             self.assertGreaterEqual(walk_forward_result.folds, 1)
+            self.assertEqual(walk_forward_result.gap_rows, 15)
+            self.assertIsNone(walk_forward_result.max_train_rows)
             self.assertTrue(challenger_result.report_markdown_path.exists())
             self.assertTrue(challenger_result.report_json_path.exists())
             self.assertTrue(challenger_result.leaderboard_json_path.exists())
             self.assertGreaterEqual(len(challenger_result.candidates), 3)
-            self.assertIn(challenger_result.recommended_action, {"promote", "keep_active"})
-            self.assertIsNotNone(challenger_result.promoted_model_version)
+            self.assertIn(challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
+            self.assertIsNotNone(challenger_result.recommended_model_version)
+            self.assertIn(challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})
+            self.assertTrue(challenger_result.walk_forward_gate_reason)
+            self.assertFalse(challenger_result.promotion_requested)
+            self.assertFalse(challenger_result.promotion_applied)
+            self.assertIsNone(challenger_result.promoted_model_version)
+            self.assertEqual(challenger_result.active_model_version_after_run, challenger_result.active_model_version)
+            self.assertTrue(promoted_challenger_result.report_markdown_path.exists())
+            self.assertIn(promoted_challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
+            self.assertIn(promoted_challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})
+            self.assertTrue(promoted_challenger_result.promotion_requested)
+            if promoted_challenger_result.promotion_applied:
+                self.assertEqual(
+                    promoted_challenger_result.promoted_model_version,
+                    promoted_challenger_result.recommended_model_version,
+                )
+                self.assertEqual(
+                    promoted_challenger_result.active_model_version_after_run,
+                    promoted_challenger_result.promoted_model_version,
+                )
+            else:
+                self.assertIsNone(promoted_challenger_result.promoted_model_version)
+                self.assertEqual(
+                    promoted_challenger_result.active_model_version_after_run,
+                    promoted_challenger_result.active_model_version,
+                )
             self.assertGreater(sqlite_store.count_rows("curated_minute_bars"), 0)
             self.assertGreater(sqlite_store.count_rows("feature_model_inputs"), 0)
             self.assertGreater(sqlite_store.count_rows("feature_labels"), 0)
             self.assertGreater(sqlite_store.count_rows("ml_training_runs"), 0)
-            self.assertGreaterEqual(sqlite_store.count_rows("ml_model_evaluations"), 7)
+            self.assertGreaterEqual(sqlite_store.count_rows("ml_model_evaluations"), 11)
             logging.shutdown()
 
 
