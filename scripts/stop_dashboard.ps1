@@ -20,12 +20,33 @@ if (-not (Test-Path -LiteralPath $statePath)) {
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-if (-not $state.pid) {
+if (-not $state.pid -and -not $state.port) {
     Write-Output "Dashboard server pid is not recorded."
     exit 0
 }
 
-$process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+$process = $null
+if ($state.pid) {
+    $process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+}
+
+if ($null -eq $process -and $state.port) {
+    $tcpConnection = Get-NetTCPConnection -LocalPort $state.port -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -eq "Listen" } |
+        Select-Object -First 1
+    if ($null -ne $tcpConnection) {
+        try {
+            $healthUrl = "{0}/health" -f ([string]$state.url).TrimEnd("/")
+            $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
+            if ($health.Content -match '"service"\s*:\s*"dashboard"') {
+                $process = Get-Process -Id $tcpConnection.OwningProcess -ErrorAction SilentlyContinue
+                $state.pid = $tcpConnection.OwningProcess
+            }
+        } catch {
+        }
+    }
+}
+
 if ($null -eq $process) {
     $payload = [ordered]@{
         status = "stale"
@@ -47,11 +68,11 @@ if ($null -eq $process) {
     exit 0
 }
 
-Stop-Process -Id $state.pid -Force
+Stop-Process -Id $process.Id -Force
 
 $payload = [ordered]@{
     status = "stopped"
-    pid = $state.pid
+    pid = $process.Id
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     host = $state.host
     port = $state.port
@@ -65,4 +86,4 @@ $payload = [ordered]@{
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
-Write-Output "Stopped dashboard server pid $($state.pid)."
+Write-Output "Stopped dashboard server pid $($process.Id)."

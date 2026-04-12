@@ -10,6 +10,7 @@ from unittest.mock import patch
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.orchestrator import run_synthetic_dev_cycle
 from app.services.runtime import run_demo_pipeline
+from app.services.streaming import build_sample_ws_frames, replay_ws_frames
 
 
 class DashboardTests(unittest.TestCase):
@@ -132,6 +133,19 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(snapshot.payload["runtime_summary"]["predictions"], 0)
         self.assertEqual(snapshot.payload["runtime_summary"]["orders"], 0)
         self.assertIsNone(snapshot.payload["latest_portfolio_snapshot"])
+        self.assertEqual(snapshot.payload["recent_predictions"], [])
+        self.assertEqual(snapshot.payload["recent_orders"], [])
+
+    def test_dashboard_hides_replay_runtime_rows(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+            self._seed_dashboard_inputs(runtime_root)
+            snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+
+        self.assertEqual(snapshot.payload["runtime_summary"]["predictions"], 0)
+        self.assertEqual(snapshot.payload["runtime_summary"]["orders"], 0)
         self.assertEqual(snapshot.payload["recent_predictions"], [])
         self.assertEqual(snapshot.payload["recent_orders"], [])
 

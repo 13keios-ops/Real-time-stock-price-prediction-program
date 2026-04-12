@@ -31,19 +31,34 @@ if ((@("starting", "running") -contains [string]$state.status) -and (-not $proce
 }
 
 $tcpConnection = $null
+$portOwnerPid = $null
+$dashboardResponding = $false
 if ($state.port) {
     $tcpConnection = Get-NetTCPConnection -LocalPort $state.port -ErrorAction SilentlyContinue |
         Where-Object { $_.State -eq "Listen" } |
         Select-Object -First 1
+    if ($null -ne $tcpConnection) {
+        $portOwnerPid = $tcpConnection.OwningProcess
+        try {
+            $healthUrl = "{0}/health" -f ([string]$state.url).TrimEnd("/")
+            $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
+            $dashboardResponding = ($health.Content -match '"service"\s*:\s*"dashboard"')
+        } catch {
+            $dashboardResponding = $false
+        }
+    }
 }
 
 if ($processRunning -and $null -ne $tcpConnection) {
     $effectiveStatus = "running"
+} elseif ((-not $processRunning) -and $null -ne $tcpConnection -and $dashboardResponding) {
+    $effectiveStatus = "running"
+    $processRunning = $true
 }
 
 [ordered]@{
     status = $effectiveStatus
-    pid = $state.pid
+    pid = if ($processRunning -and $null -ne $portOwnerPid) { $portOwnerPid } else { $state.pid }
     process_running = $processRunning
     port_bound = ($null -ne $tcpConnection)
     host = $state.host
@@ -54,5 +69,7 @@ if ($processRunning -and $null -ne $tcpConnection) {
     stderr_log_path = $state.stderr_log_path
     snapshot_html_path = $state.snapshot_html_path
     snapshot_json_path = $state.snapshot_json_path
+    port_owner_pid = $portOwnerPid
+    dashboard_responding = $dashboardResponding
     raw_status = $state.status
 } | ConvertTo-Json -Depth 10

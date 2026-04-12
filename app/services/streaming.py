@@ -78,10 +78,14 @@ class OnlinePipelineProcessor:
         settings: AppSettings,
         starting_cash_balance: float = 25_000_000,
         max_hold_minutes: int = 20,
+        id_namespace: str = "online",
+        raw_source: str = "kis-ws",
     ) -> None:
         self.settings = settings
         self.writer = RuntimeWriter.from_settings(settings)
         self.model = load_prediction_model(settings, horizon_min=15)
+        self.id_namespace = id_namespace
+        self.raw_source = raw_source
         self.signal_policy = SignalPolicy(
             strategy_version=settings.strategy.strategy_version,
             min_confidence=settings.strategy.min_signal_confidence,
@@ -115,6 +119,9 @@ class OnlinePipelineProcessor:
         self._sequence += 1
         return f"{prefix}-{self._sequence:06d}"
 
+    def _next_scoped_id(self, prefix_root: str) -> str:
+        return self._next_id(f"{prefix_root}-{self.id_namespace}")
+
     @staticmethod
     def _minute_floor(timestamp: datetime) -> datetime:
         return timestamp.replace(second=0, microsecond=0)
@@ -124,13 +131,22 @@ class OnlinePipelineProcessor:
             self.states[symbol] = OnlineSymbolState(symbol=symbol)
         return self.states[symbol]
 
-    def process_trade_record(self, record: dict[str, str], event_time: datetime | None = None) -> None:
+    def process_trade_record(
+        self,
+        record: dict[str, str],
+        event_time: datetime | None = None,
+        source: str | None = None,
+    ) -> None:
         event_time = event_time or event_time_from_kis_ws_record(
             record,
             timezone_name=self.settings.timezone,
             fallback=now_local(self.settings.timezone),
         )
-        tick = market_tick_from_kis_ws_record(record, event_time=event_time)
+        tick = market_tick_from_kis_ws_record(
+            record,
+            event_time=event_time,
+            source=source or self.raw_source,
+        )
         if not tick.symbol:
             return
         self.writer.write_market_tick(tick)
@@ -146,13 +162,22 @@ class OnlinePipelineProcessor:
             state.ticks.clear()
         state.ticks.append(tick)
 
-    def process_orderbook_record(self, record: dict[str, str], event_time: datetime | None = None) -> None:
+    def process_orderbook_record(
+        self,
+        record: dict[str, str],
+        event_time: datetime | None = None,
+        source: str | None = None,
+    ) -> None:
         event_time = event_time or event_time_from_kis_ws_record(
             record,
             timezone_name=self.settings.timezone,
             fallback=now_local(self.settings.timezone),
         )
-        snapshot = orderbook_from_kis_ws_record(record, event_time=event_time)
+        snapshot = orderbook_from_kis_ws_record(
+            record,
+            event_time=event_time,
+            source=source or self.raw_source,
+        )
         if not snapshot.symbol:
             return
         self.writer.write_orderbook_snapshot(snapshot)
@@ -171,7 +196,7 @@ class OnlinePipelineProcessor:
         prediction = self.model.predict(
             feature_snapshot=features,
             horizon_min=15,
-            prediction_id=self._next_id("pred-online"),
+            prediction_id=self._next_scoped_id("pred"),
         )
         time_decision = self.time_gate.evaluate(prediction.event_time)
         spread_decision = self.spread_gate.evaluate(state.latest_orderbook)
@@ -180,13 +205,13 @@ class OnlinePipelineProcessor:
             orderbook=state.latest_orderbook,
             time_gate=time_decision,
             spread_gate=spread_decision,
-            signal_id=self._next_id("signal-online"),
+            signal_id=self._next_scoped_id("signal"),
         )
         target = self.allocator.allocate(
             signal=signal,
             last_price=bar.close,
             cash_balance=self.portfolio_book.cash_balance,
-            target_id=self._next_id("target-online"),
+            target_id=self._next_scoped_id("target"),
         )
 
         self.writer.write_minute_bar(bar)
@@ -203,14 +228,14 @@ class OnlinePipelineProcessor:
             can_open = False
             open_reason = close_reason
         if signal.allowed and self.settings.strategy.enable_paper_execution and target.target_qty > 0 and can_open:
-            order = self.engine.create_order(target, signal, order_id=self._next_id("paper-order-online"))
-            ack = self.engine.acknowledge(order, order_event_id=self._next_id("order-event-online"))
+            order = self.engine.create_order(target, signal, order_id=self._next_scoped_id("paper-order"))
+            ack = self.engine.acknowledge(order, order_event_id=self._next_scoped_id("order-event"))
             execution_price = order.limit_price * (1 + (self.settings.strategy.slippage_bps / 10_000))
             fill_event, fill = self.engine.fill(
                 order,
                 fill_price=execution_price,
-                order_event_id=self._next_id("order-event-online"),
-                fill_id=self._next_id("fill-online"),
+                order_event_id=self._next_scoped_id("order-event"),
+                fill_id=self._next_scoped_id("fill"),
             )
             self.writer.write_paper_order(order)
             self.writer.write_order_event(ack)
@@ -222,14 +247,14 @@ class OnlinePipelineProcessor:
             )
             self.writer.write_portfolio_snapshot(
                 self.portfolio_book.to_portfolio_snapshot(
-                    snapshot_id=self._next_id("portfolio-online"),
+                    snapshot_id=self._next_scoped_id("portfolio"),
                     event_time=fill.event_time,
                 )
             )
             self.orders_written += 1
         else:
             risk_event = RiskEvent(
-                risk_event_id=self._next_id("risk-online"),
+                risk_event_id=self._next_scoped_id("risk"),
                 symbol=state.symbol,
                 event_time=prediction.event_time,
                 gate="online_signal_policy",
@@ -247,10 +272,10 @@ class OnlinePipelineProcessor:
         if hold_minutes < self.max_hold_minutes and not is_forced_flat:
             return None
 
-        order_id = self._next_id("paper-order-close")
-        order_event_id = self._next_id("order-event-close")
-        fill_event_id = self._next_id("order-event-close")
-        fill_id = self._next_id("fill-close")
+        order_id = self._next_scoped_id("paper-order-close")
+        order_event_id = self._next_scoped_id("order-event-close")
+        fill_event_id = self._next_scoped_id("order-event-close")
+        fill_id = self._next_scoped_id("fill-close")
         target_qty = state.qty
         if target_qty <= 0:
             return
@@ -281,7 +306,7 @@ class OnlinePipelineProcessor:
         self.writer.write_paper_position(self.portfolio_book.to_position_record(symbol, updated_at=event_time))
         self.writer.write_portfolio_snapshot(
             self.portfolio_book.to_portfolio_snapshot(
-                snapshot_id=self._next_id("portfolio-close"),
+                snapshot_id=self._next_scoped_id("portfolio-close"),
                 event_time=event_time,
             )
         )
@@ -308,7 +333,12 @@ class OnlinePipelineProcessor:
 def replay_ws_frames(project_root: Path, frames: list[str], max_hold_minutes: int = 20) -> OnlinePipelineResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    processor = OnlinePipelineProcessor(settings, max_hold_minutes=max_hold_minutes)
+    processor = OnlinePipelineProcessor(
+        settings,
+        max_hold_minutes=max_hold_minutes,
+        id_namespace="replay",
+        raw_source="kis-ws-replay",
+    )
     frames_received = 0
     control_frames = 0
 

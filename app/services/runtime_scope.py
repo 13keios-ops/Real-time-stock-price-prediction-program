@@ -8,7 +8,7 @@ from typing import Any
 from app.storage.sqlite_store import SQLiteRuntimeStore
 
 ACTUAL_RAW_SOURCES = frozenset({"kis-rest", "kis-ws"})
-TEST_ID_MARKERS = ("demo",)
+TEST_ID_MARKERS = ("demo", "replay")
 
 
 def minute_key(value: str | None) -> str | None:
@@ -34,11 +34,18 @@ class RuntimeScope:
 def build_runtime_scope(sqlite_store: SQLiteRuntimeStore) -> RuntimeScope:
     raw_market_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_market_ticks", "event_time")]
     raw_orderbook_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_orderbook_ticks", "event_time")]
+    symbol_minute_sources: dict[tuple[str, str], set[str]] = {}
+    for row in [*raw_market_rows, *raw_orderbook_rows]:
+        minute = minute_key(row.get("event_time"))
+        if minute is None:
+            continue
+        key = (str(row["symbol"]), minute)
+        symbol_minute_sources.setdefault(key, set()).add(str(row.get("source", "")).lower())
+
     actual_symbol_minutes = {
-        (str(row["symbol"]), minute)
-        for row in [*raw_market_rows, *raw_orderbook_rows]
-        if str(row.get("source", "")).lower() in ACTUAL_RAW_SOURCES
-        if (minute := minute_key(row.get("event_time"))) is not None
+        key
+        for key, sources in symbol_minute_sources.items()
+        if sources and sources.issubset(ACTUAL_RAW_SOURCES)
     }
     actual_global_minutes = {minute for _, minute in actual_symbol_minutes}
 

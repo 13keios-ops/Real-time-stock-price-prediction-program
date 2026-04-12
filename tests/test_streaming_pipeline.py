@@ -37,6 +37,12 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertGreater(sqlite_store.count_rows("serving_predictions"), 0)
             self.assertGreaterEqual(sqlite_store.count_rows("paper_positions"), 1)
             self.assertGreaterEqual(sqlite_store.count_rows("paper_portfolio_snapshots"), 1)
+            latest_tick = sqlite_store.fetch_latest_row("raw_market_ticks", "event_time")
+            latest_prediction = sqlite_store.fetch_latest_row("serving_predictions", "event_time")
+            self.assertIsNotNone(latest_tick)
+            self.assertIsNotNone(latest_prediction)
+            self.assertEqual(latest_tick["source"], "kis-ws-replay")
+            self.assertTrue(str(latest_prediction["prediction_id"]).startswith("pred-replay-"))
 
     def test_replay_can_close_positions_on_short_hold(self) -> None:
         root = Path(__file__).resolve().parents[1]

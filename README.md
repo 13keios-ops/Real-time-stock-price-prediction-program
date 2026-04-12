@@ -33,6 +33,9 @@
 - runtime / backtest / walk-forward report 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
+- 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
+- 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
+- 대시보드 start/status/stop 스크립트의 포트 점유 프로세스 추적 보강
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - KIS REST rate-limit backoff 재시도
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
@@ -158,6 +161,7 @@ python -m app --build-dashboard
 실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
 
 대시보드는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외하고 실제 KIS 기반 운용 데이터만 보여준다.
+샘플 WebSocket 재생 결과도 이제 `replay` 계열로 따로 저장되어 실제 운용 데이터 범위에 들어오지 않는다.
 기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
 
 ```powershell

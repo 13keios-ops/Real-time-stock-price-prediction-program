@@ -33,6 +33,52 @@ $stderrPath = Join-Path $logDir "dashboard-server.stderr.log"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
+function Get-ListeningConnection {
+    param([int]$LocalPort)
+    return Get-NetTCPConnection -LocalPort $LocalPort -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -eq "Listen" } |
+        Select-Object -First 1
+}
+
+function Test-DashboardHealth {
+    param([string]$BaseUrl)
+    try {
+        $healthUrl = "{0}/health" -f $BaseUrl.TrimEnd("/")
+        $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
+        return ($health.Content -match '"service"\s*:\s*"dashboard"')
+    } catch {
+        return $false
+    }
+}
+
+$existingListener = Get-ListeningConnection -LocalPort $Port
+if ($null -ne $existingListener) {
+    $existingUrl = "http://{0}:{1}" -f $DashboardHost, $Port
+    if (Test-DashboardHealth -BaseUrl $existingUrl) {
+        $payload = [ordered]@{
+            status = "running"
+            pid = $existingListener.OwningProcess
+            host = $DashboardHost
+            port = $Port
+            url = $existingUrl
+            refresh_seconds = $RefreshSeconds
+            recent_limit = $RecentLimit
+            workspace_root = $WorkspaceRoot
+            runtime_data_dir = $RuntimeDataDir
+            stdout_log_path = $stdoutPath
+            stderr_log_path = $stderrPath
+            started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+            snapshot_html_path = (Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.html")
+            snapshot_json_path = (Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json")
+            process_running = $true
+            port_bound = $true
+        }
+        $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
+        $payload | ConvertTo-Json -Depth 10
+        exit 0
+    }
+}
+
 if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
@@ -47,15 +93,21 @@ if (Test-Path -LiteralPath $statePath) {
 }
 
 $scriptPath = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
-$escapedScriptPath = $scriptPath.Replace("'", "''")
-$dashboardCommand = "& '$escapedScriptPath' -DashboardHost '$DashboardHost' -Port $Port -RefreshSeconds $RefreshSeconds -RecentLimit $RecentLimit"
 $process = Start-Process powershell.exe `
     -ArgumentList @(
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
-        "-Command",
-        $dashboardCommand
+        "-File",
+        $scriptPath,
+        "-DashboardHost",
+        $DashboardHost,
+        "-Port",
+        "$Port",
+        "-RefreshSeconds",
+        "$RefreshSeconds",
+        "-RecentLimit",
+        "$RecentLimit"
     ) `
     -WorkingDirectory $WorkspaceRoot `
     -RedirectStandardOutput $stdoutPath `
@@ -64,9 +116,7 @@ $process = Start-Process powershell.exe `
 
 Start-Sleep -Seconds 3
 $process.Refresh()
-$tcpConnection = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
-    Where-Object { $_.State -eq "Listen" } |
-    Select-Object -First 1
+$tcpConnection = Get-ListeningConnection -LocalPort $Port
 $status = if ($process.HasExited) { "failed" } elseif ($null -ne $tcpConnection) { "running" } else { "starting" }
 
 $payload = [ordered]@{

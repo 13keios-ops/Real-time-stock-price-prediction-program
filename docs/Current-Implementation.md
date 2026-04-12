@@ -23,6 +23,8 @@ The project now has a working local foundation for:
 - KIS WebSocket verification report generation
 - KIS verification separation between connection readiness and market-data flow
 - Local monitoring dashboard snapshot generation and HTTP serving
+- Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
+- Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
 - KIS REST snapshot retry/backoff for short rate-limit bursts
@@ -233,11 +235,14 @@ The dashboard currently shows:
 - latest automation backlog and next actions
 
 The dashboard now filters out `sample`, `synthetic`, and `demo` runtime rows by default.
+It also excludes replay-scoped runtime rows and mixed minutes that contain both actual and non-actual sources.
 If older test-serving rows are already mixed into SQLite, clean them first:
 
 ```powershell
 .\scripts\cleanup_runtime_test_data.ps1
 ```
+
+If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 
 ### 10. Monday runtime starter
 

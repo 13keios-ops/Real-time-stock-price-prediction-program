@@ -55,6 +55,7 @@
 - [x] dashboard background start/status/stop 스크립트 추가
 - [x] monday runtime starter 스크립트 추가
 - [x] dashboard 실제 운용 데이터 전용 필터와 test runtime cleanup
+- [x] replay 데이터를 실제 운용 데이터와 분리하고 old dashboard port-owner 추적 보강
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -69,7 +70,8 @@
 
 ## Latest Verified Results
 
-- dashboard/runtime cleanup targeted tests: `4 tests OK`
+- dashboard/runtime cleanup targeted tests: `6 tests OK`
+- streaming replay isolation tests: `3 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -145,13 +147,17 @@
   - 월요일 운영 중 화면으로 볼 수 있도록 `latest-dashboard.html/json` 생성과 `run_dashboard.ps1` 기반 로컬 HTTP 대시보드를 추가했다.
   - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
   - dashboard는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외한 실제 KIS 기반 운용 데이터만 보여준다.
+  - sample WebSocket replay는 이제 `kis-ws-replay` 출처와 `pred-replay-*`, `paper-order-replay-*` 같은 replay 전용 ID를 사용한다.
+  - dashboard actual-runtime 필터는 실제 출처만 존재하는 minute만 허용하고, 실제/테스트 출처가 섞인 minute는 제외하도록 강화했다.
   - `scripts/cleanup_runtime_test_data.ps1` 와 `python -m app --cleanup-runtime-test-data` 를 추가해 기존 SQLite의 test serving/paper 흔적을 정리할 수 있게 했다.
   - 현재 root runtime 데이터 정리 결과 demo prediction/signal/order/fill/portfolio snapshot/reconciliation/replay 항목은 제거됐고, 실제 시간대와 맞는 항목만 남겼다.
+  - replay/online legacy serving rows를 다시 정리했고, 최신 dashboard JSON/API 기준 최근 prediction/signal/order/fill은 `0` 건으로 확인됐다.
   - dashboard 전용 테스트 2건을 추가했고 전체 테스트는 `40 tests OK`로 다시 확인했다.
   - `run_dashboard.ps1`의 PowerShell 예약 변수 `$Host` 충돌을 수정해 기본 실행이 바로 되도록 보정했다.
   - dashboard background start/status/stop 스크립트를 추가해 장중에 서버를 따로 띄우고 상태를 확인하거나 중지할 수 있게 했다.
   - `start_monday_runtime.ps1`를 추가해 대시보드 시작, shadow ML 갱신, KIS 사전 점검, runtime/dashboard 리포트 갱신을 한 번에 묶었다.
   - `start_dashboard_background.ps1`의 공백 포함 경로 전달 방식을 `-File` 에서 `-Command` 호출로 바꿔, `J:\GitHub\Real-time stock price prediction program` 같은 경로에서도 dashboard server가 정상 시작되도록 수정했다.
+  - 이후 남아 있던 오래된 dashboard port owner 문제를 정리했고, `start_dashboard_background.ps1`, `get_dashboard_status.ps1`, `stop_dashboard.ps1`가 이제 상태 파일 pid뿐 아니라 실제 `8765` 포트 점유 프로세스와 `/health` 응답을 함께 확인한다.
 
 ## Next Commands
 
