@@ -32,6 +32,7 @@
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
+- KIS REST rate-limit backoff 재시도
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 - audit progress JSON 배열 정합성 보강
 

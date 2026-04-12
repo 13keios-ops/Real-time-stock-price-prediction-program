@@ -24,6 +24,7 @@
 - challenger 추천 action, walk-forward gate, leaderboard 기록이 추가되었다.
 - active model은 registry로만 명시하고, registry가 없으면 baseline builtin으로 fallback 한다.
 - runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
+- KIS REST collector는 짧은 rate-limit burst에 대해 retry/backoff를 한다.
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 - Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
 - audit progress 상태 파일의 배열 정합성 방어가 추가되었다.
@@ -89,8 +90,12 @@
   - `connection_ready=true`
   - `market_data_flow_ok=false`
   - `session_status=weekend`
-  - `frames_received=5`
-  - `control_frames=5`
+  - `frames_received=10`
+  - `control_frames=10`
+- 최신 KIS REST preflight:
+  - current price 조회: `ok`
+  - orderbook 조회: `ok`
+  - single-symbol KIS dev cycle: `success_events=1`, `failure_events=0`
 
 ## Recent Log
 
@@ -130,6 +135,8 @@
   - active runtime model을 명시적으로 `baseline-h15-v1` 로 되돌렸다.
   - challenger report는 이제 `latest_lightgbm` 후보를 함께 기록한다.
   - 현재 기준으로는 월요일 runtime/paper 운용은 `baseline active + LightGBM shadow` 조합이 가장 안전하다.
+  - 월요일 전 preflight로 `run_ml_shadow_cycle`, KIS WebSocket verification, KIS 현재가/호가 조회를 다시 실행했다.
+  - KIS REST 연속 호출에서 보이던 `EGW00201` rate-limit 오류를 collector retry/backoff로 완화했고, 이후 single-symbol `run-kis-dev-cycle`이 `success=1 failure=0`으로 통과했다.
 
 ## Next Commands
 

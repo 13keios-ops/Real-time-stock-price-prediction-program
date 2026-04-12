@@ -18,6 +18,9 @@ from app.utils.time import now_local
 
 
 LOGGER = logging.getLogger(__name__)
+REST_BETWEEN_REQUESTS_SECONDS = 0.35
+RATE_LIMIT_RETRY_COUNT = 2
+RATE_LIMIT_BACKOFF_SECONDS = 1.2
 
 
 @dataclass(slots=True)
@@ -56,6 +59,35 @@ class WatchlistPollingResult:
         }
 
 
+def _is_rate_limit_error(exc: KisApiError) -> bool:
+    message = str(exc)
+    return "EGW00201" in message or "초당 거래건수를 초과" in message
+
+
+def _call_kis_with_retry(fetch, *, symbol: str, request_name: str):
+    last_exc: KisApiError | None = None
+    for attempt in range(RATE_LIMIT_RETRY_COUNT + 1):
+        try:
+            return fetch()
+        except KisApiError as exc:
+            last_exc = exc
+            if not _is_rate_limit_error(exc) or attempt >= RATE_LIMIT_RETRY_COUNT:
+                raise
+            delay_seconds = RATE_LIMIT_BACKOFF_SECONDS * (attempt + 1)
+            LOGGER.warning(
+                "KIS %s rate-limited for %s on attempt %s/%s. Retrying after %.2fs.",
+                request_name,
+                symbol,
+                attempt + 1,
+                RATE_LIMIT_RETRY_COUNT + 1,
+                delay_seconds,
+            )
+            time.sleep(delay_seconds)
+    if last_exc is not None:
+        raise last_exc
+    raise KisApiError(f"KIS {request_name} call did not return a result for {symbol}.")
+
+
 def collect_kis_watchlist_snapshots(
     project_root: Path,
     symbols: list[str] | None = None,
@@ -75,10 +107,19 @@ def collect_kis_watchlist_snapshots(
     succeeded: list[str] = []
     failed: list[dict[str, str]] = []
 
-    for symbol in resolved_symbols:
+    for symbol_index, symbol in enumerate(resolved_symbols):
         try:
-            current_quote = client.get_current_price(symbol=symbol)
-            orderbook_quote = client.get_orderbook(symbol=symbol)
+            current_quote = _call_kis_with_retry(
+                lambda: client.get_current_price(symbol=symbol),
+                symbol=symbol,
+                request_name="current_price",
+            )
+            time.sleep(REST_BETWEEN_REQUESTS_SECONDS)
+            orderbook_quote = _call_kis_with_retry(
+                lambda: client.get_orderbook(symbol=symbol),
+                symbol=symbol,
+                request_name="orderbook",
+            )
             event_time = now_local(settings.timezone)
 
             tick = market_tick_from_kis_quote(current_quote, event_time=event_time)
@@ -96,6 +137,8 @@ def collect_kis_watchlist_snapshots(
         except KisApiError as exc:
             failed.append({"symbol": symbol, "error": str(exc)})
             LOGGER.warning("Watchlist snapshot failed for %s: %s", symbol, exc)
+        if symbol_index < len(resolved_symbols) - 1:
+            time.sleep(REST_BETWEEN_REQUESTS_SECONDS)
 
     return WatchlistSnapshotResult(
         symbols_requested=resolved_symbols,

@@ -24,6 +24,7 @@ The project now has a working local foundation for:
 - KIS verification separation between connection readiness and market-data flow
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
+- KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 
 ## Recommended Dev Flow
@@ -80,6 +81,8 @@ This runs:
 - walk-forward backtest when training succeeds
 - challenger review when training succeeds
 - runtime report generation
+
+The collector now adds a short gap between current-price and orderbook requests and retries short KIS rate-limit bursts instead of failing immediately.
 
 ### 4-1. Safe active-model reset
 
