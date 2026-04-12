@@ -12,6 +12,7 @@ from app.brokers.kis_quote_rest import KisRestQuoteClient
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
+from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.kis_verification import verify_kis_websocket_runtime
 from app.services.orchestrator import run_kis_dev_cycle, run_synthetic_dev_cycle
 from app.services.reporting import build_runtime_report
@@ -53,6 +54,8 @@ def main() -> int:
     parser.add_argument("--run-synthetic-dev-cycle", action="store_true", help="Run seed -> bars -> features -> training in one command.")
     parser.add_argument("--run-kis-dev-cycle", action="store_true", help="Run KIS polling -> bars -> features -> optional training in one command.")
     parser.add_argument("--build-runtime-report", action="store_true", help="Build a Markdown and JSON runtime report from SQLite.")
+    parser.add_argument("--build-dashboard", action="store_true", help="Build the latest dashboard HTML and JSON snapshot.")
+    parser.add_argument("--serve-dashboard", action="store_true", help="Serve the local monitoring dashboard over HTTP.")
     parser.add_argument("--kis-current-price", action="store_true", help="Fetch domestic stock current price via KIS REST.")
     parser.add_argument("--kis-orderbook", action="store_true", help="Fetch domestic stock orderbook via KIS REST.")
     parser.add_argument("--kis-approval-key", action="store_true", help="Issue a KIS WebSocket approval key.")
@@ -73,6 +76,10 @@ def main() -> int:
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
     parser.add_argument("--no-trade-channel", action="store_true", help="Disable trade-channel subscriptions for WebSocket listening.")
     parser.add_argument("--no-orderbook-channel", action="store_true", help="Disable orderbook-channel subscriptions for WebSocket listening.")
+    parser.add_argument("--dashboard-host", default="127.0.0.1", help="Host for the local dashboard server.")
+    parser.add_argument("--dashboard-port", type=int, default=8765, help="Port for the local dashboard server.")
+    parser.add_argument("--dashboard-refresh-seconds", type=int, default=5, help="Browser auto-refresh interval for the dashboard.")
+    parser.add_argument("--dashboard-recent-limit", type=int, default=10, help="Recent item count shown in the dashboard.")
     parser.add_argument("--project-root", default=".", help="Project root for config and runtime paths.")
     args = parser.parse_args()
 
@@ -170,6 +177,32 @@ def main() -> int:
     if args.build_runtime_report:
         result = build_runtime_report(project_root=project_root)
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.build_dashboard:
+        result = build_dashboard_snapshot(
+            project_root=project_root,
+            refresh_seconds=args.dashboard_refresh_seconds,
+            recent_limit=args.dashboard_recent_limit,
+        )
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.serve_dashboard:
+        server, info = prepare_dashboard_server(
+            project_root=project_root,
+            host=args.dashboard_host,
+            port=args.dashboard_port,
+            refresh_seconds=args.dashboard_refresh_seconds,
+            recent_limit=args.dashboard_recent_limit,
+        )
+        print(json.dumps(info.to_dict(), ensure_ascii=False, indent=2))
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
         return 0
 
     if args.replay_sample_ws:
@@ -276,7 +309,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
     )
     return 2
 

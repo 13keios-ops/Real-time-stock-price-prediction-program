@@ -603,6 +603,11 @@ class SQLiteRuntimeStore:
         with self._connect() as connection:
             return list(connection.execute(query))
 
+    def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:
+        query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT ?"
+        with self._connect() as connection:
+            return list(connection.execute(query, (limit,)))
+
     def count_rows(self, table_name: str) -> int:
         with self._connect() as connection:
             row = connection.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()

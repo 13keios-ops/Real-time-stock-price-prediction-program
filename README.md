@@ -31,6 +31,7 @@
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
+- 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - KIS REST rate-limit backoff 재시도
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
@@ -140,6 +141,20 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```
 
 이 검증은 이제 `연결 준비 완료`와 `실제 장중 데이터 수신 확인`을 분리해서 기록한다.
+
+로컬 대시보드 snapshot 생성:
+
+```powershell
+python -m app --build-dashboard
+```
+
+로컬 대시보드 실행:
+
+```powershell
+.\scripts\run_dashboard.ps1
+```
+
+실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
 
 Hourly Repo Audit 1회 실행:
 

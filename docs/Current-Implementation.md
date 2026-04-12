@@ -22,6 +22,7 @@ The project now has a working local foundation for:
 - KIS WebSocket listening with reconnect handling and control-frame skipping
 - KIS WebSocket verification report generation
 - KIS verification separation between connection readiness and market-data flow
+- Local monitoring dashboard snapshot generation and HTTP serving
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
 - KIS REST snapshot retry/backoff for short rate-limit bursts
@@ -194,6 +195,35 @@ This automation now:
 - has a dedicated background launcher that leaves runner state in `runtime-data/reports/codex/automation/state/runner-state.json`
 - reports `stale` when the saved runner pid is no longer alive
 
+### 9. Local monitoring dashboard
+
+```powershell
+python -m app --build-dashboard
+```
+
+This writes:
+
+- `runtime-data/reports/dashboard/latest-dashboard.html`
+- `runtime-data/reports/dashboard/latest-dashboard.json`
+
+Live server:
+
+```powershell
+.\scripts\run_dashboard.ps1
+```
+
+This serves:
+
+- `http://127.0.0.1:8765`
+
+The dashboard currently shows:
+
+- active model and latest training summary
+- KIS connection readiness and session note
+- latest portfolio snapshot and recorded positions
+- recent predictions, signals, orders, fills, minute bars
+- latest automation backlog and next actions
+
 ## Useful CLI Commands
 
 ```powershell
@@ -233,6 +263,8 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - Hourly audit context: `runtime-data/reports/codex/automation/state/latest-context.md`
 - Hourly audit progress JSON: `runtime-data/reports/codex/automation/state/latest-progress.json`
 - Hourly audit backlog JSON: `runtime-data/reports/codex/automation/backlog/latest-priority-backlog.json`
+- Dashboard snapshot HTML: `runtime-data/reports/dashboard/latest-dashboard.html`
+- Dashboard snapshot JSON: `runtime-data/reports/dashboard/latest-dashboard.json`
 - Model registry: `runtime-data/ml/registry.json`
 - Centroid artifacts: `runtime-data/ml/models/`
 

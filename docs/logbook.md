@@ -24,6 +24,7 @@
 - challenger 추천 action, walk-forward gate, leaderboard 기록이 추가되었다.
 - active model은 registry로만 명시하고, registry가 없으면 baseline builtin으로 fallback 한다.
 - runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
+- 로컬 운영용 dashboard snapshot과 HTTP serving이 추가되었다.
 - KIS REST collector는 짧은 rate-limit burst에 대해 retry/backoff를 한다.
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 - Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
@@ -50,6 +51,7 @@
 - [x] Hourly Repo Audit 백그라운드 runner 시작
 - [x] Hourly Repo Audit progress 배열 정합성 보강
 - [x] LightGBM 학습 파이프라인 추가
+- [x] 로컬 모니터링 dashboard 추가
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -64,7 +66,7 @@
 
 ## Latest Verified Results
 
-- 전체 테스트: `37 tests OK`
+- 전체 테스트: `40 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -137,6 +139,9 @@
   - 현재 기준으로는 월요일 runtime/paper 운용은 `baseline active + LightGBM shadow` 조합이 가장 안전하다.
   - 월요일 전 preflight로 `run_ml_shadow_cycle`, KIS WebSocket verification, KIS 현재가/호가 조회를 다시 실행했다.
   - KIS REST 연속 호출에서 보이던 `EGW00201` rate-limit 오류를 collector retry/backoff로 완화했고, 이후 single-symbol `run-kis-dev-cycle`이 `success=1 failure=0`으로 통과했다.
+  - 월요일 운영 중 화면으로 볼 수 있도록 `latest-dashboard.html/json` 생성과 `run_dashboard.ps1` 기반 로컬 HTTP 대시보드를 추가했다.
+  - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
+  - dashboard 전용 테스트 2건을 추가했고 전체 테스트는 `40 tests OK`로 다시 확인했다.
 
 ## Next Commands
 
@@ -151,6 +156,8 @@ python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 python -m app --build-runtime-report
+python -m app --build-dashboard
+.\scripts\run_dashboard.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1
 .\scripts\bump_version.ps1 -Version 0.2.1
