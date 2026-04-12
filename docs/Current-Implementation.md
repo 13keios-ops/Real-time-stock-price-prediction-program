@@ -214,6 +214,15 @@ The challenger framework is now in place, so the best follow-up after live verif
 
 At the moment, challenger output can deliberately stop at `review_required` when the latest walk-forward report is still weak even if the best candidate beats the active model on the validation slice.
 
+The agreed next ML direction is:
+
+- main model: `LightGBM`
+- support models: `baseline`, `centroid`, `linear-score`
+- operating window: `recent 60 trading days + today`
+- runtime mode: `intraday inference`, `end-of-day retraining`
+
+This does not mean older data should be deleted. The rolling 60-day window is for active training, while older data should stay available for replay, drift checks, regime comparison, and challenger validation.
+
 ## KIS Paper Account Note
 
 For paper mode, if the account information is only available as an 8-digit account number, the settings loader now treats `KIS_PRODUCT_CODE_PAPER` as `01` by default.

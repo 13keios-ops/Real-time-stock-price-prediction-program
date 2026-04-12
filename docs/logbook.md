@@ -24,6 +24,8 @@
 - synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
 - Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
 - audit progress 상태 파일의 배열 정합성 방어가 추가되었다.
+- 다음 ML 운영 기준은 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM` 으로 확정됐다.
+- 과거 데이터는 학습창 밖으로 밀리더라도 삭제하지 않고 warm/cold 비교 자산으로 보관한다.
 
 ## Active Checklist
 
@@ -43,6 +45,7 @@
 - [x] Hourly Repo Audit 상태 이어받기 재실행 검증
 - [x] Hourly Repo Audit 백그라운드 runner 시작
 - [x] Hourly Repo Audit progress 배열 정합성 보강
+- [ ] LightGBM 학습 파이프라인 추가
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -112,6 +115,8 @@
   - `max_train_rows=30/40/50` 실험을 실제로 돌렸고, `30`은 성능이 크게 악화됐고 `40`은 현재 최고값과 같아 최신 기준선으로 유지했다.
   - 최신 challenger는 validation 성능이 좋아도 walk-forward gate가 약하면 `review_required` 로 남기도록 바뀌었다.
   - Hourly Repo Audit 재실행으로 `AUD-006` 은 resolved 로 내려갔고, 새 문서 동기화 항목 `AUD-007` 이 확인되었다.
+  - ML 운영 방향을 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM`, `보조 모델 baseline/centroid/linear-score` 로 확정했다.
+  - `최근 60거래일 + 오늘 데이터` 는 운영용 학습창 기준이며, 더 오래된 데이터는 drift 점검, 구간 비교, 회귀 검증, challenger 평가용으로 계속 보관하는 방향으로 정리했다.
 
 ## Next Commands
 
