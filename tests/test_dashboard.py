@@ -95,6 +95,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("1. 거래 현황", html)
         self.assertIn("2. 학습 현황", html)
         self.assertIn("3. 그 외", html)
+        self.assertIn("학습 데이터 해석", html)
+        self.assertIn("오프라인 연구 결과", html)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -137,6 +139,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(snapshot.payload["latest_portfolio_snapshot"])
         self.assertEqual(snapshot.payload["recent_predictions"], [])
         self.assertEqual(snapshot.payload["recent_orders"], [])
+        self.assertEqual(snapshot.payload["learning_context"]["mode"], "offline_research")
 
     def test_dashboard_hides_replay_runtime_rows(self) -> None:
         root = Path(__file__).resolve().parents[1]

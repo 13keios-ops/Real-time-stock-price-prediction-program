@@ -127,6 +127,18 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
     recent_orders = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope)[-recent_limit:]
     recent_fills = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope)[-recent_limit:]
     recent_bars = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)[-recent_limit:]
+    actual_labels = runtime_summary.get("labels", 0)
+    learning_mode = "actual_runtime" if actual_labels > 0 else "offline_research"
+    learning_note = (
+        "현재 실제 운용 라벨이 있어 학습 현황을 실운용 데이터 기준으로 해석할 수 있습니다."
+        if learning_mode == "actual_runtime"
+        else "현재 실제 운용 라벨이 0건이라, 아래 학습·챌린저 값은 저장된 연구용 오프라인 평가 결과입니다."
+    )
+    active_status_note = (
+        "최신 학습 모델은 LightGBM 후보이지만, 승격 검증을 통과하지 못해 아직 활성 모델이 아닙니다."
+        if active_model_entry.get("model_version") != (latest_training or {}).get("model_version")
+        else "최신 학습 모델과 현재 활성 모델이 같습니다."
+    )
 
     return {
         "generated_at": datetime.now().astimezone().isoformat(),
@@ -143,6 +155,12 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
         },
         "runtime_summary": runtime_summary,
         "active_model": active_model_entry,
+        "learning_context": {
+            "mode": learning_mode,
+            "actual_runtime_labels": actual_labels,
+            "note": learning_note,
+            "active_status_note": active_status_note,
+        },
         "latest_training": latest_training,
         "latest_evaluation": latest_evaluation,
         "latest_backtest_report": _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json"),
@@ -213,6 +231,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     latest_evaluation = payload.get("latest_evaluation", {}) or {}
     latest_backtest = payload.get("latest_backtest_report", {}) or {}
     latest_walk_forward = payload.get("latest_walk_forward_report", {}) or {}
+    learning_context = payload.get("learning_context", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
     scope = payload.get("dashboard_scope", {})
@@ -408,6 +427,14 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     <section id="tab-learning" class="tab-panel">
       <section class="cols">
         <div class="stack">
+          <div class="card">
+            <h2>학습 데이터 해석</h2>
+            <div class="pillrow">
+              <span class="pill">표시 기준: {'실운용 데이터' if learning_context.get('mode') == 'actual_runtime' else '오프라인 연구 결과'}</span>
+              <span class="pill">실운용 라벨 수: {_esc(learning_context.get('actual_runtime_labels'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}</div>
+          </div>
           <div class="card">
             <h2>모델 및 검증 상태</h2>
             <div class="pillrow">
