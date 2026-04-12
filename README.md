@@ -9,6 +9,7 @@
 - `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최근 기록
 - `docs/Current-Implementation.md`: 실제 구현 범위와 실행 방법
 - `docs/Versioning.md`: `VERSION` 기반 버전 관리와 watcher 기준
+- `docs/Repo-Audit-Automation.md`: 매시간 저장소 전체 점검 자동화 기준
 - `docs/*.md`: 주제별 상세 설계와 참고 문서
 
 ## 현재 구현 상태
@@ -28,6 +29,7 @@
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
+- 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 
 현재 기준 버전은 `0.2.0` 이다.
 
@@ -92,6 +94,24 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 
 이 검증은 이제 `연결 준비 완료`와 `실제 장중 데이터 수신 확인`을 분리해서 기록한다.
 
+Hourly Repo Audit 1회 실행:
+
+```powershell
+.\scripts\run_hourly_repo_audit_iteration.ps1
+```
+
+Hourly Repo Audit 백그라운드 시작:
+
+```powershell
+.\scripts\start_hourly_repo_audit_background.ps1
+```
+
+Hourly Repo Audit 상태 확인:
+
+```powershell
+.\scripts\get_hourly_repo_audit_status.ps1
+```
+
 ## 새 기능을 어디에 둘까
 
 새 기능 위치는 아래 기준으로 판단한다.
@@ -114,10 +134,13 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 이 저장소는 root `VERSION` 파일을 release-ready 신호로 사용한다.
 
 - 버전 변경 스크립트: `scripts/bump_version.ps1`
+- 자동 점검 스크립트: `scripts\run_hourly_repo_audit_iteration.ps1`, `scripts\start_hourly_repo_audit.ps1`, `scripts\start_hourly_repo_audit_background.ps1`
 - watcher 설정: `autopush.json`
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
 - 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
+
+자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 
 버전은 작업 마지막에 바꾸고, watcher가 그 변화를 감지해 자동 commit/push 또는 기존 release commit push를 수행한다.
 

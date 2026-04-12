@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_markdown",
+    "research_markdown",
+    "draft_markdown",
+    "context_markdown",
+    "last_run_summary",
+    "open_items",
+    "resolved_items",
+    "next_actions",
+    "latest_source_links",
+    "backlog_items"
+  ],
+  "properties": {
+    "review_markdown": { "type": "string" },
+    "research_markdown": { "type": "string" },
+    "draft_markdown": { "type": "string" },
+    "context_markdown": { "type": "string" },
+    "last_run_summary": { "type": "string" },
+    "open_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "category",
+          "title",
+          "summary",
+          "last_seen",
+          "source_files",
+          "confidence"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "deferred"] },
+          "category": { "type": "string" },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "last_seen": { "type": "string" },
+          "source_files": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number" }
+        }
+      }
+    },
+    "resolved_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "title", "resolution", "last_seen"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["resolved"] },
+          "title": { "type": "string" },
+          "resolution": { "type": "string" },
+          "last_seen": { "type": "string" }
+        }
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "latest_source_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "url", "source_type", "published_at", "reviewed_at"],
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "source_type": { "type": "string" },
+          "published_at": { "type": ["string", "null"] },
+          "reviewed_at": { "type": "string" }
+        }
+      }
+    },
+    "backlog_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "priority",
+          "category",
+          "problem",
+          "recommended_change",
+          "reason",
+          "source_files",
+          "confidence",
+          "status",
+          "last_seen"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+          "category": { "type": "string" },
+          "problem": { "type": "string" },
+          "recommended_change": { "type": "string" },
+          "reason": { "type": "string" },
+          "source_files": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number" },
+          "status": { "type": "string", "enum": ["open", "resolved", "deferred"] },
+          "last_seen": { "type": "string" }
+        }
+      }
+    }
+  }
+}

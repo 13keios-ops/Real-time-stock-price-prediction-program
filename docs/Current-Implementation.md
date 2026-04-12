@@ -21,6 +21,7 @@ The project now has a working local foundation for:
 - KIS verification separation between connection readiness and market-data flow
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
+- Hourly repository audit automation with carry-forward state files
 
 ## Recommended Dev Flow
 
@@ -114,6 +115,40 @@ This compares:
 - freshly fitted centroid challenger
 - recommendation, reason, and leaderboard history
 
+### 8. Hourly repository audit automation
+
+```powershell
+.\scripts\run_hourly_repo_audit_iteration.ps1
+```
+
+Background runner:
+
+```powershell
+.\scripts\start_hourly_repo_audit_background.ps1
+```
+
+Status:
+
+```powershell
+.\scripts\get_hourly_repo_audit_status.ps1
+```
+
+Stop:
+
+```powershell
+.\scripts\stop_hourly_repo_audit.ps1
+```
+
+This automation now:
+
+- rereads canonical docs every run
+- inspects repo structure, runtime-data, and git status
+- optionally runs KIS verification only during regular session hours
+- asks Codex CLI to produce review, web notes, draft, context, progress, and backlog outputs
+- stores all state under `runtime-data/reports/codex/automation/`
+- carries forward stable open item ids across repeated runs
+- has a dedicated background launcher that leaves runner state in `runtime-data/reports/codex/automation/state/runner-state.json`
+
 ## Useful CLI Commands
 
 ```powershell
@@ -145,6 +180,12 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - Challenger leaderboard JSON: `runtime-data/reports/challengers/leaderboard-h15.json`
 - KIS verification report: `runtime-data/reports/kis-ws/latest-verification.md`
 - KIS verification report JSON: `runtime-data/reports/kis-ws/latest-verification.json`
+- Hourly audit review history: `runtime-data/reports/codex/automation/history/`
+- Hourly audit research notes: `runtime-data/reports/codex/automation/research/`
+- Hourly audit draft: `runtime-data/reports/codex/automation/drafts/latest-improvement-draft.md`
+- Hourly audit context: `runtime-data/reports/codex/automation/state/latest-context.md`
+- Hourly audit progress JSON: `runtime-data/reports/codex/automation/state/latest-progress.json`
+- Hourly audit backlog JSON: `runtime-data/reports/codex/automation/backlog/latest-priority-backlog.json`
 - Model registry: `runtime-data/ml/registry.json`
 - Centroid artifacts: `runtime-data/ml/models/`
 

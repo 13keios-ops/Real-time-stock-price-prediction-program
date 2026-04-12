@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["date", "generated_at", "items", "error"],
+  "properties": {
+    "date": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "priority",
+          "category",
+          "problem",
+          "recommended_change",
+          "reason",
+          "source_files",
+          "confidence",
+          "status",
+          "last_seen"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+          "category": { "type": "string" },
+          "problem": { "type": "string" },
+          "recommended_change": { "type": "string" },
+          "reason": { "type": "string" },
+          "source_files": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "number" },
+          "status": { "type": "string", "enum": ["open", "resolved", "deferred"] },
+          "last_seen": { "type": "string" }
+        }
+      }
+    },
+    "error": { "type": ["string", "null"] }
+  }
+}
