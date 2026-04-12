@@ -56,6 +56,7 @@
 - [x] monday runtime starter 스크립트 추가
 - [x] dashboard 실제 운용 데이터 전용 필터와 test runtime cleanup
 - [x] replay 데이터를 실제 운용 데이터와 분리하고 old dashboard port-owner 추적 보강
+- [x] dashboard 한글 기본 UI와 3탭 전환 구조
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -72,6 +73,7 @@
 
 - dashboard/runtime cleanup targeted tests: `6 tests OK`
 - streaming replay isolation tests: `3 tests OK`
+- dashboard korean tab UI tests: `4 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -158,6 +160,7 @@
   - `start_monday_runtime.ps1`를 추가해 대시보드 시작, shadow ML 갱신, KIS 사전 점검, runtime/dashboard 리포트 갱신을 한 번에 묶었다.
   - `start_dashboard_background.ps1`의 공백 포함 경로 전달 방식을 `-File` 에서 `-Command` 호출로 바꿔, `J:\GitHub\Real-time stock price prediction program` 같은 경로에서도 dashboard server가 정상 시작되도록 수정했다.
   - 이후 남아 있던 오래된 dashboard port owner 문제를 정리했고, `start_dashboard_background.ps1`, `get_dashboard_status.ps1`, `stop_dashboard.ps1`가 이제 상태 파일 pid뿐 아니라 실제 `8765` 포트 점유 프로세스와 `/health` 응답을 함께 확인한다.
+  - dashboard 기본 언어를 한글로 바꿨고, 본문을 `거래 현황`, `학습 현황`, `그 외` 3개 탭으로 나눠 클릭 시 화면 전환되도록 정리했다.
 
 ## Next Commands
 

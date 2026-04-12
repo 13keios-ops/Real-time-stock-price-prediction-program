@@ -32,6 +32,7 @@
 - KIS WebSocket readiness / verification report
 - runtime / backtest / walk-forward report 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
+- 대시보드 기본 언어 한글화와 `거래 현황 / 학습 현황 / 그 외` 3탭 전환 UI
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
 - 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter

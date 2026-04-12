@@ -178,6 +178,15 @@ def _money(value: Any) -> str:
         return _esc(value)
 
 
+def _pct(value: Any, digits: int = 2) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return _esc(value)
+
+
 def _table(headers: list[str], rows: list[list[Any]], empty_text: str) -> str:
     if not rows:
         return f'<div class="empty">{_esc(empty_text)}</div>'
@@ -200,6 +209,10 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     challenger = payload.get("latest_challenger_report", {}) or {}
     kis = payload.get("latest_kis_verification", {}) or {}
     portfolio = payload.get("latest_portfolio_snapshot", {}) or {}
+    latest_training = payload.get("latest_training", {}) or {}
+    latest_evaluation = payload.get("latest_evaluation", {}) or {}
+    latest_backtest = payload.get("latest_backtest_report", {}) or {}
+    latest_walk_forward = payload.get("latest_walk_forward_report", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
     scope = payload.get("dashboard_scope", {})
@@ -229,19 +242,60 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         [row["symbol"], row["qty"], _money(row.get("avg_price")), _money(row.get("last_price")), _money(row.get("unrealized_pnl"))]
         for row in payload.get("positions", [])
     ]
+    challenger_rows = [
+        [
+            row.get("rank"),
+            row.get("candidate_name"),
+            row.get("model_version"),
+            _pct(row.get("overall_accuracy"), 4),
+            _pct(row.get("trade_hit_rate"), 4),
+            _pct(row.get("cumulative_net_return_pct"), 4),
+        ]
+        for row in challenger.get("candidates", [])
+    ]
+    walk_forward_rows = [
+        [
+            row.get("fold"),
+            _pct(row.get("overall_accuracy"), 4),
+            row.get("trades_taken"),
+            _pct(row.get("trade_hit_rate"), 4),
+            _pct(row.get("cumulative_net_return_pct"), 4),
+        ]
+        for row in latest_walk_forward.get("fold_summaries", [])
+    ]
+    runtime_detail_rows = [
+        ["원시 체결", runtime.get("raw_market_ticks", 0)],
+        ["원시 호가", runtime.get("raw_orderbook_ticks", 0)],
+        ["분봉", runtime.get("minute_bars", 0)],
+        ["특징 행", runtime.get("feature_rows", 0)],
+        ["라벨", runtime.get("labels", 0)],
+        ["학습 실행", runtime.get("training_runs", 0)],
+        ["평가 실행", runtime.get("evaluations", 0)],
+        ["백테스트", runtime.get("backtests", 0)],
+        ["워크포워드", runtime.get("walk_forward_runs", 0)],
+        ["챌린저 비교", runtime.get("challenger_runs", 0)],
+    ]
+    project_rows = [
+        ["프로젝트", payload.get("project", {}).get("name")],
+        ["환경", payload.get("project", {}).get("environment")],
+        ["운영 모드", payload.get("project", {}).get("trading_mode")],
+        ["런타임 폴더", payload.get("project", {}).get("runtime_data_dir")],
+        ["실데이터 minute 수", scope.get("actual_symbol_minutes")],
+        ["실제 주문 ID 수", scope.get("actual_order_ids")],
+    ]
     backlog_items = [
-        f"<strong>{_esc(item.get('id'))}</strong> / {_esc(item.get('priority'))} / {_esc(item.get('status'))}<br>{_esc(item.get('problem'))}<br><span class=\"muted\">Suggested change: {_esc(item.get('recommended_change'))}</span>"
+        f"<strong>{_esc(item.get('id'))}</strong> / {_esc(item.get('priority'))} / {_esc(item.get('status'))}<br>{_esc(item.get('problem'))}<br><span class=\"muted\">권장 조치: {_esc(item.get('recommended_change'))}</span>"
         for item in (audit_backlog.get("items") or [])[:5]
     ]
     next_actions = [_esc(item) for item in (audit_progress.get("next_actions") or [])]
 
     return f"""<!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {refresh_meta}
-  <title>Realtime Stock Runtime Dashboard</title>
+  <title>실시간 주가 예측 대시보드</title>
   <style>
     body {{ margin:0; font-family:"Segoe UI",sans-serif; background:#f7f3ea; color:#1f2933; }}
     .wrap {{ max-width:1280px; margin:0 auto; padding:24px; }}
@@ -254,10 +308,16 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     .eyebrow {{ display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(13,92,99,.12); color:#0d5c63; font-size:12px; font-weight:700; text-transform:uppercase; }}
     h1 {{ margin:14px 0 8px; font-size:32px; }}
     h2 {{ margin:0 0 12px; font-size:19px; }}
+    h3 {{ margin:16px 0 8px; font-size:15px; }}
     .muted {{ color:#5f6c7b; font-size:14px; line-height:1.6; }}
     .pillrow {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }}
     .pill {{ padding:8px 10px; border-radius:999px; background:#fff; border:1px solid rgba(31,41,51,.12); font-size:13px; }}
     .metric {{ font-size:28px; font-weight:700; margin-top:6px; }}
+    .tabs {{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }}
+    .tab-button {{ appearance:none; border:none; cursor:pointer; padding:12px 16px; border-radius:14px; background:rgba(255,252,246,.94); color:#5f6c7b; font-size:15px; font-weight:700; box-shadow:0 10px 24px rgba(31,41,51,.08); }}
+    .tab-button.is-active {{ background:#0d5c63; color:#fff; }}
+    .tab-panel {{ display:none; }}
+    .tab-panel.is-active {{ display:block; }}
     table {{ width:100%; border-collapse:collapse; font-size:13px; }}
     th,td {{ text-align:left; padding:10px 8px; border-top:1px solid rgba(31,41,51,.12); vertical-align:top; }}
     th {{ color:#5f6c7b; font-size:12px; text-transform:uppercase; }}
@@ -272,74 +332,198 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
   <div class="wrap">
     <section class="hero">
       <div class="card">
-        <span class="eyebrow">Actual Runtime Only</span>
-        <h1>Realtime Stock Runtime Dashboard</h1>
-        <div class="muted">Sample, synthetic, and demo rows are excluded by default. This view keeps only actual KIS-based runtime data.</div>
+        <span class="eyebrow">실운용 데이터 기준</span>
+        <h1>실시간 주가 예측 대시보드</h1>
+        <div class="muted">샘플, synthetic, demo, replay 데이터는 기본적으로 제외합니다. 현재 화면은 실제 KIS 기반 운용 데이터만 보여줍니다.</div>
       </div>
       <div class="card">
         <div class="pillrow">
-          <span class="pill">Mode: {_esc(payload.get('project', {}).get('trading_mode'))}</span>
-          <span class="pill">Active: {_esc(active_model.get('model_version'))}</span>
-          <span class="pill">Session: {_esc(kis.get('session_status'))}</span>
+          <span class="pill">운영 모드: {_esc(payload.get('project', {}).get('trading_mode'))}</span>
+          <span class="pill">활성 모델: {_esc(active_model.get('model_version'))}</span>
+          <span class="pill">장 상태: {_esc(kis.get('session_status'))}</span>
         </div>
-        <div class="muted" style="margin-top:12px;">Updated: {_esc(payload.get('generated_at'))}<br>Actual-only filter: {'on' if scope.get('actual_runtime_only') else 'off'}<br>Actual minute keys: {_esc(scope.get('actual_symbol_minutes'))}</div>
+        <div class="muted" style="margin-top:12px;">업데이트 시각: {_esc(payload.get('generated_at'))}<br>실운용 필터: {'켜짐' if scope.get('actual_runtime_only') else '꺼짐'}<br>실데이터 minute 수: {_esc(scope.get('actual_symbol_minutes'))}</div>
       </div>
     </section>
     <section class="grid">
-      <div class="card"><div class="muted">Predictions</div><div class="metric">{_esc(runtime.get('predictions', 0))}</div></div>
-      <div class="card"><div class="muted">Signals</div><div class="metric">{_esc(runtime.get('signals', 0))}</div></div>
-      <div class="card"><div class="muted">Orders</div><div class="metric">{_esc(runtime.get('orders', 0))}</div></div>
-      <div class="card"><div class="muted">Equity</div><div class="metric">{_money(portfolio.get('net_liquidation_value'))}</div></div>
+      <div class="card"><div class="muted">예측 건수</div><div class="metric">{_esc(runtime.get('predictions', 0))}</div></div>
+      <div class="card"><div class="muted">신호 건수</div><div class="metric">{_esc(runtime.get('signals', 0))}</div></div>
+      <div class="card"><div class="muted">주문 건수</div><div class="metric">{_esc(runtime.get('orders', 0))}</div></div>
+      <div class="card"><div class="muted">평가 금액</div><div class="metric">{_money(portfolio.get('net_liquidation_value'))}</div></div>
     </section>
-    <section class="cols">
-      <div class="stack">
-        <div class="card">
-          <h2>Model and validation state</h2>
-          <div class="pillrow">
-            <span class="pill">Active model: {_esc(active_model.get('model_version'))}</span>
-            <span class="pill">Latest training: {_esc((payload.get('latest_training') or {}).get('model_version'))}</span>
-            <span class="pill">Recommended action: {_esc(challenger.get('recommended_action'))}</span>
-            <span class="pill">Walk-forward gate: {_esc(challenger.get('walk_forward_gate_status'))}</span>
+
+    <section class="tabs" role="tablist" aria-label="대시보드 탭">
+      <button class="tab-button is-active" type="button" data-tab-target="tab-trading" aria-selected="true">1. 거래 현황</button>
+      <button class="tab-button" type="button" data-tab-target="tab-learning" aria-selected="false">2. 학습 현황</button>
+      <button class="tab-button" type="button" data-tab-target="tab-other" aria-selected="false">3. 그 외</button>
+    </section>
+
+    <section id="tab-trading" class="tab-panel is-active">
+      <section class="cols">
+        <div class="stack">
+          <div class="card">
+            <h2>최근 예측</h2>
+            {_table(['시각','종목','모델','가장 높은 확률'], prediction_rows, '최근 실제 운용 예측이 없습니다.')}
           </div>
-          <div class="muted" style="margin-top:12px;">{_esc(challenger.get('walk_forward_gate_reason'))}</div>
-        </div>
-        <div class="card"><h2>Recent predictions</h2>{_table(['Time','Symbol','Model','Top probability'], prediction_rows, 'No recent actual-runtime predictions.')}</div>
-        <div class="card"><h2>Recent signals</h2>{_table(['Time','Symbol','Side','Allowed'], signal_rows, 'No recent actual-runtime signals.')}</div>
-        <div class="card"><h2>Recent orders</h2>{_table(['Time','Symbol','Side','Qty','Status'], order_rows, 'No recent actual-runtime orders.')}</div>
-        <div class="card"><h2>Recent fills and minute bars</h2>{_table(['Time','Order','Fill price','Qty'], fill_rows, 'No recent actual-runtime fills.')}<div style="height:10px"></div>{_table(['Time','Symbol','Close','Volume'], bar_rows, 'No recent actual-runtime minute bars.')}</div>
-      </div>
-      <div class="stack">
-        <div class="card">
-          <h2>Portfolio</h2>
-          <div class="pillrow">
-            <span class="pill">Equity {_money(portfolio.get('net_liquidation_value'))}</span>
-            <span class="pill">Cash {_money(portfolio.get('cash_balance'))}</span>
-            <span class="pill">Unrealized {_money(portfolio.get('unrealized_pnl'))}</span>
-            <span class="pill">Realized {_money(portfolio.get('realized_pnl'))}</span>
+          <div class="card">
+            <h2>최근 신호</h2>
+            {_table(['시각','종목','방향','허용 여부'], signal_rows, '최근 실제 운용 신호가 없습니다.')}
           </div>
-          <div class="muted" style="margin-top:12px;">Latest snapshot time: {_esc(portfolio.get('event_time'))}</div>
-          <div style="margin-top:12px;">{_table(['Symbol','Qty','Average','Last','Unrealized PnL'], position_rows, 'No live portfolio position is currently recorded.')}</div>
-        </div>
-        <div class="card">
-          <h2>KIS connection state</h2>
-          <div class="pillrow">
-            <span class="pill">Connection ready: {'yes' if kis.get('connection_ready') else 'no'}</span>
-            <span class="pill">Live data flow: {'yes' if kis.get('market_data_flow_ok') else 'no'}</span>
-            <span class="pill">Approval key: {'issued' if kis.get('approval_key_issued') else 'missing'}</span>
+          <div class="card">
+            <h2>최근 주문</h2>
+            {_table(['시각','종목','방향','수량','상태'], order_rows, '최근 실제 운용 주문이 없습니다.')}
           </div>
-          <div class="muted" style="margin-top:12px;">Session: {_esc(kis.get('session_status'))}<br>Note: {_esc(kis.get('status_note'))}<br>Frames: {_esc(kis.get('frames_received'))} / control: {_esc(kis.get('control_frames'))}</div>
+          <div class="card">
+            <h2>최근 체결과 분봉</h2>
+            {_table(['시각','주문 ID','체결가','수량'], fill_rows, '최근 실제 운용 체결이 없습니다.')}
+            <div style="height:10px"></div>
+            {_table(['시각','종목','종가','거래량'], bar_rows, '최근 실제 운용 분봉이 없습니다.')}
+          </div>
         </div>
-        <div class="card">
-          <h2>Automation backlog</h2>
-          <div class="muted">{_esc(audit_progress.get('last_run_summary') or 'No automation summary yet.')}</div>
-          <h3 style="margin:16px 0 8px;">Priority backlog</h3>
-          {_list(backlog_items, 'No backlog items to display.')}
-          <h3 style="margin:16px 0 8px;">Next actions</h3>
-          {_list(next_actions, 'No next action is currently recorded.')}
+        <div class="stack">
+          <div class="card">
+            <h2>거래 계좌 현황</h2>
+            <div class="pillrow">
+              <span class="pill">평가 금액 {_money(portfolio.get('net_liquidation_value'))}</span>
+              <span class="pill">현금 {_money(portfolio.get('cash_balance'))}</span>
+              <span class="pill">미실현 손익 {_money(portfolio.get('unrealized_pnl'))}</span>
+              <span class="pill">실현 손익 {_money(portfolio.get('realized_pnl'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">최근 스냅샷 시각: {_esc(portfolio.get('event_time'))}</div>
+            <div style="margin-top:12px;">{_table(['종목','수량','평균 단가','현재가','미실현 손익'], position_rows, '현재 기록된 포지션이 없습니다.')}</div>
+          </div>
+          <div class="card">
+            <h2>KIS 연결 상태</h2>
+            <div class="pillrow">
+              <span class="pill">연결 준비: {'예' if kis.get('connection_ready') else '아니오'}</span>
+              <span class="pill">실데이터 수신: {'예' if kis.get('market_data_flow_ok') else '아니오'}</span>
+              <span class="pill">승인 키: {'발급됨' if kis.get('approval_key_issued') else '없음'}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">장 상태: {_esc(kis.get('session_status'))}<br>상태 메모: {_esc(kis.get('status_note'))}<br>수신 프레임: {_esc(kis.get('frames_received'))} / 제어 프레임: {_esc(kis.get('control_frames'))}</div>
+          </div>
         </div>
-      </div>
+      </section>
+    </section>
+
+    <section id="tab-learning" class="tab-panel">
+      <section class="cols">
+        <div class="stack">
+          <div class="card">
+            <h2>모델 및 검증 상태</h2>
+            <div class="pillrow">
+              <span class="pill">활성 모델: {_esc(active_model.get('model_version'))}</span>
+              <span class="pill">최신 학습 모델: {_esc(latest_training.get('model_version'))}</span>
+              <span class="pill">권장 조치: {_esc(challenger.get('recommended_action'))}</span>
+              <span class="pill">워크포워드 게이트: {_esc(challenger.get('walk_forward_gate_status'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">{_esc(challenger.get('walk_forward_gate_reason'))}</div>
+          </div>
+          <div class="card">
+            <h2>챌린저 비교</h2>
+            {_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
+          </div>
+          <div class="card">
+            <h2>워크포워드 fold 요약</h2>
+            {_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 fold 요약이 없습니다.')}
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h2>최신 학습 요약</h2>
+            <div class="pillrow">
+              <span class="pill">모델 버전: {_esc(latest_training.get('model_version'))}</span>
+              <span class="pill">학습 행 수: {_esc(latest_training.get('train_rows'))}</span>
+              <span class="pill">검증 행 수: {_esc(latest_training.get('validation_rows'))}</span>
+              <span class="pill">특징 세트: {_esc(latest_training.get('feature_set_version'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">완료 시각: {_esc(latest_training.get('completed_at'))}</div>
+          </div>
+          <div class="card">
+            <h2>최신 평가 요약</h2>
+            <div class="pillrow">
+              <span class="pill">분할 이름: {_esc(latest_evaluation.get('split_name'))}</span>
+              <span class="pill">정확도: {_pct(latest_evaluation.get('accuracy'), 4)}</span>
+              <span class="pill">평가 행 수: {_esc(latest_evaluation.get('total_rows'))}</span>
+            </div>
+          </div>
+          <div class="card">
+            <h2>백테스트 요약</h2>
+            <div class="pillrow">
+              <span class="pill">정확도: {_pct(latest_backtest.get('overall_accuracy'), 4)}</span>
+              <span class="pill">거래 수: {_esc(latest_backtest.get('trades_taken'))}</span>
+              <span class="pill">평균 순수익률: {_pct(latest_backtest.get('average_net_return_pct'), 4)}</span>
+              <span class="pill">누적 순수익률: {_pct(latest_backtest.get('cumulative_net_return_pct'), 4)}</span>
+            </div>
+          </div>
+          <div class="card">
+            <h2>워크포워드 요약</h2>
+            <div class="pillrow">
+              <span class="pill">fold 수: {_esc(latest_walk_forward.get('folds'))}</span>
+              <span class="pill">정확도: {_pct(latest_walk_forward.get('overall_accuracy'), 4)}</span>
+              <span class="pill">거래 수: {_esc(latest_walk_forward.get('trades_taken'))}</span>
+              <span class="pill">누적 순수익률: {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 4)}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section id="tab-other" class="tab-panel">
+      <section class="cols">
+        <div class="stack">
+          <div class="card">
+            <h2>프로젝트 및 데이터 범위</h2>
+            {_table(['항목','값'], project_rows, '표시할 프로젝트 정보가 없습니다.')}
+          </div>
+          <div class="card">
+            <h2>상세 집계</h2>
+            {_table(['항목','값'], runtime_detail_rows, '상세 집계가 없습니다.')}
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h2>자동 점검 요약</h2>
+            <div class="muted">{_esc(audit_progress.get('last_run_summary') or '자동 점검 요약이 아직 없습니다.')}</div>
+            <h3>우선순위 backlog</h3>
+            {_list(backlog_items, '표시할 backlog 항목이 없습니다.')}
+            <h3>다음 작업</h3>
+            {_list(next_actions, '기록된 다음 작업이 없습니다.')}
+          </div>
+          <div class="card">
+            <h2>대시보드 안내</h2>
+            <div class="muted">이 화면은 실제 KIS 기반 운용 데이터만 보여줍니다. 샘플, synthetic, demo, replay 경로에서 만들어진 데이터는 기본적으로 제외됩니다.</div>
+          </div>
+        </div>
+      </section>
     </section>
   </div>
+  <script>
+    (() => {{
+      const buttons = Array.from(document.querySelectorAll('[data-tab-target]'));
+      const panels = Array.from(document.querySelectorAll('.tab-panel'));
+      const activate = (targetId) => {{
+        const fallbackId = 'tab-trading';
+        const nextId = document.getElementById(targetId) ? targetId : fallbackId;
+        buttons.forEach((button) => {{
+          const active = button.dataset.tabTarget === nextId;
+          button.classList.toggle('is-active', active);
+          button.setAttribute('aria-selected', active ? 'true' : 'false');
+        }});
+        panels.forEach((panel) => {{
+          panel.classList.toggle('is-active', panel.id === nextId);
+        }});
+        if (window.location.hash !== `#${{nextId}}`) {{
+          history.replaceState(null, '', `#${{nextId}}`);
+        }}
+      }};
+      buttons.forEach((button) => {{
+        button.addEventListener('click', () => activate(button.dataset.tabTarget));
+      }});
+      const initialHash = window.location.hash ? window.location.hash.slice(1) : 'tab-trading';
+      activate(initialHash);
+      window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
+    }})();
+  </script>
 </body>
 </html>"""
 

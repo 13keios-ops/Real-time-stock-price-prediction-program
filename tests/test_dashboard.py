@@ -91,8 +91,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("active_model", snapshot.payload)
         self.assertTrue(snapshot.payload["dashboard_scope"]["actual_runtime_only"])
         html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
-        self.assertIn("Realtime Stock Runtime Dashboard", html)
-        self.assertIn("actual KIS-based runtime data", html)
+        self.assertIn("실시간 주가 예측 대시보드", html)
+        self.assertIn("1. 거래 현황", html)
+        self.assertIn("2. 학습 현황", html)
+        self.assertIn("3. 그 외", html)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -120,7 +122,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn('"ok": true', health.lower())
         self.assertIn('"runtime_summary"', payload)
-        self.assertIn("Realtime Stock Runtime Dashboard", html)
+        self.assertIn("실시간 주가 예측 대시보드", html)
 
     def test_dashboard_hides_demo_runtime_rows(self) -> None:
         root = Path(__file__).resolve().parents[1]

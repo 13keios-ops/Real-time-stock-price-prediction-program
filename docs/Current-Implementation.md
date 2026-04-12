@@ -228,11 +228,12 @@ Background start / status / stop:
 
 The dashboard currently shows:
 
-- active model and latest training summary
-- KIS connection readiness and session note
-- latest portfolio snapshot and recorded positions
-- actual-runtime-only recent predictions, signals, orders, fills, minute bars
-- latest automation backlog and next actions
+- `거래 현황` 탭
+  - 최근 예측, 최근 신호, 최근 주문, 최근 체결과 분봉, 계좌 현황, KIS 연결 상태
+- `학습 현황` 탭
+  - 활성 모델, 최신 학습, 최신 평가, 백테스트, 워크포워드, 챌린저 비교
+- `그 외` 탭
+  - 프로젝트 정보, 상세 집계, 자동 점검 backlog 와 다음 작업
 
 The dashboard now filters out `sample`, `synthetic`, and `demo` runtime rows by default.
 It also excludes replay-scoped runtime rows and mixed minutes that contain both actual and non-actual sources.
