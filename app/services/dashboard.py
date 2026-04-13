@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import html
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -91,8 +91,75 @@ def _translate_signal_side(side: str) -> str:
     }.get(str(side), str(side))
 
 
-def _prediction_result_text(label: str, confidence: float) -> str:
-    return f"{_translate_prediction_label(label)} ({confidence:.4f})"
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _format_signed_change(amount: float | None, pct: float | None) -> str:
+    if amount is None or pct is None:
+        return "-"
+    if abs(amount) < 0.5:
+        amount_text = "0원"
+    else:
+        amount_text = f"{amount:+,.0f}원"
+    if abs(pct) < 0.005:
+        pct_text = "0.00%"
+    else:
+        pct_text = f"{pct:+.2f}%"
+    return f"{amount_text} ({pct_text})"
+
+
+def _prediction_move_text(label: str, amount: float | None, pct: float | None) -> str:
+    direction = _translate_prediction_label(label)
+    if amount is None or pct is None:
+        return f"{direction} 우세 / 기준가 없음"
+    return f"{direction} 우세 / {_format_signed_change(amount, pct)}"
+
+
+def _actual_move_text(
+    amount: float | None,
+    pct: float | None,
+    *,
+    target_time_reached: bool,
+    has_actual_value: bool,
+) -> str:
+    if has_actual_value:
+        return _format_signed_change(amount, pct)
+    return "결과 없음" if target_time_reached else "대기 중"
+
+
+def _prediction_threshold_pct(settings, horizon_min: int) -> float:
+    if int(horizon_min) == 60:
+        return float(settings.strategy.label_threshold_60)
+    return float(settings.strategy.label_threshold_15)
+
+
+def _build_bar_lookup(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[str, datetime]]:
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    latest_by_symbol: dict[str, datetime] = {}
+    for row in rows:
+        symbol = str(row.get("symbol", ""))
+        bar_time = str(row.get("bar_time", ""))
+        lookup[(symbol, bar_time)] = row
+        parsed = _parse_iso_datetime(bar_time)
+        if parsed is None:
+            continue
+        existing = latest_by_symbol.get(symbol)
+        if existing is None or parsed > existing:
+            latest_by_symbol[symbol] = parsed
+    return lookup, latest_by_symbol
+
+
+def _build_label_lookup(rows: list[dict[str, Any]]) -> dict[tuple[str, str, int], dict[str, Any]]:
+    return {
+        (str(row.get("symbol", "")), str(row.get("event_time", "")), int(row.get("horizon_min", 0))): row
+        for row in rows
+    }
 
 
 def _signal_reason_summary(row: dict[str, Any]) -> str:
@@ -147,7 +214,16 @@ def _latest_time(rows: list[dict[str, Any]], field_name: str) -> str | None:
     return str(rows[-1].get(field_name)) if rows[-1].get(field_name) else None
 
 
-def _prediction_view(rows: list[dict[str, Any]], symbol_names: dict[str, str]) -> list[dict[str, Any]]:
+def _prediction_view(
+    rows: list[dict[str, Any]],
+    symbol_names: dict[str, str],
+    *,
+    minute_bar_rows: list[dict[str, Any]],
+    feature_label_rows: list[dict[str, Any]],
+    settings,
+) -> list[dict[str, Any]]:
+    bar_lookup, latest_bar_time_by_symbol = _build_bar_lookup(minute_bar_rows)
+    label_lookup = _build_label_lookup(feature_label_rows)
     rendered: list[dict[str, Any]] = []
     for row in rows:
         probabilities = {
@@ -156,18 +232,57 @@ def _prediction_view(rows: list[dict[str, Any]], symbol_names: dict[str, str]) -
             "down": float(row["probability_down"]),
         }
         top_label, top_confidence = max(probabilities.items(), key=lambda item: item[1])
+        symbol = str(row["symbol"])
+        event_time_text = str(row["event_time"])
+        horizon_min = int(row["horizon_min"])
+        threshold_pct = _prediction_threshold_pct(settings, horizon_min)
+        event_time = _parse_iso_datetime(event_time_text)
+        base_bar = bar_lookup.get((symbol, event_time_text))
+        base_close = float(base_bar["close"]) if base_bar and base_bar.get("close") is not None else None
+        expected_return_pct = threshold_pct * (probabilities["up"] - probabilities["down"])
+        expected_change_amount = (base_close * expected_return_pct / 100.0) if base_close is not None else None
+
+        actual_change_amount: float | None = None
+        actual_return_pct: float | None = None
+        target_time_reached = False
+        if event_time is not None:
+            target_time = event_time + timedelta(minutes=horizon_min)
+            future_bar = bar_lookup.get((symbol, target_time.isoformat()))
+            latest_symbol_time = latest_bar_time_by_symbol.get(symbol)
+            target_time_reached = latest_symbol_time is not None and latest_symbol_time >= target_time
+            if future_bar and base_close not in (None, 0):
+                future_close = float(future_bar["close"])
+                actual_change_amount = future_close - base_close
+                actual_return_pct = ((future_close / base_close) - 1.0) * 100.0
+            else:
+                label_row = label_lookup.get((symbol, event_time_text, horizon_min))
+                if label_row and base_close not in (None, 0):
+                    actual_return_pct = float(label_row.get("future_return_pct", 0.0))
+                    actual_change_amount = base_close * actual_return_pct / 100.0
+
         rendered.append(
             {
                 "prediction_id": row["prediction_id"],
-                "symbol": row["symbol"],
-                "symbol_name": resolve_symbol_name(str(row["symbol"]), symbol_names),
-                "symbol_label": resolve_symbol_label(str(row["symbol"]), symbol_names),
-                "event_time": row["event_time"],
-                "horizon_min": int(row["horizon_min"]),
+                "symbol": symbol,
+                "symbol_name": resolve_symbol_name(symbol, symbol_names),
+                "symbol_label": resolve_symbol_label(symbol, symbol_names),
+                "event_time": event_time_text,
+                "horizon_min": horizon_min,
                 "model_version": row["model_version"],
                 "top_label": top_label,
                 "top_confidence": round(top_confidence, 4),
-                "prediction_result_text": _prediction_result_text(top_label, round(top_confidence, 4)),
+                "base_close": base_close,
+                "predicted_change_pct": round(expected_return_pct, 4),
+                "predicted_change_amount": expected_change_amount,
+                "predicted_change_text": _prediction_move_text(top_label, expected_change_amount, expected_return_pct),
+                "actual_change_pct": None if actual_return_pct is None else round(actual_return_pct, 4),
+                "actual_change_amount": actual_change_amount,
+                "actual_change_text": _actual_move_text(
+                    actual_change_amount,
+                    actual_return_pct,
+                    target_time_reached=target_time_reached,
+                    has_actual_value=actual_change_amount is not None and actual_return_pct is not None,
+                ),
             }
         )
     return rendered
@@ -197,6 +312,8 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
     scope = build_runtime_scope(sqlite_store, settings)
     symbol_names = load_symbol_names(project_root)
     runtime_summary = _summarize_runtime(sqlite_store, scope)
+    minute_bar_rows = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)
+    feature_label_rows = _filtered_rows(sqlite_store, "feature_labels", "event_time", scope)
     active_registry = ModelRegistry(settings.runtime_data_dir).load()
     latest_training = _parse_json_column(
         _serialize_row(sqlite_store.fetch_latest_row("ml_training_runs", "completed_at")),
@@ -229,12 +346,18 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
             "account_snapshot": None,
         }
     recent_prediction_rows = _filtered_rows(sqlite_store, "serving_predictions", "event_time", scope)[-recent_limit:]
-    recent_predictions = _prediction_view(recent_prediction_rows, symbol_names)
+    recent_predictions = _prediction_view(
+        recent_prediction_rows,
+        symbol_names,
+        minute_bar_rows=minute_bar_rows,
+        feature_label_rows=feature_label_rows,
+        settings=settings,
+    )
     recent_signal_rows = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)[-recent_limit:]
     recent_signals = _signal_view(recent_signal_rows, symbol_names)
     recent_orders = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope)[-recent_limit:]
     recent_fills = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope)[-recent_limit:]
-    recent_bars = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)[-recent_limit:]
+    recent_bars = minute_bar_rows[-recent_limit:]
     live_runtime_state = _normalize_live_runtime_state(
         _safe_load_json(settings.runtime_data_dir / "reports" / "live-runtime" / "state" / "listener-state.json")
     )
@@ -362,6 +485,13 @@ def _pct(value: Any, digits: int = 2) -> str:
         return _esc(value)
 
 
+def _refresh_interval_text(refresh_seconds: int) -> str:
+    if refresh_seconds % 60 == 0:
+        minutes = max(refresh_seconds // 60, 1)
+        return f"{minutes}분"
+    return f"{max(refresh_seconds, 1)}초"
+
+
 def _table(headers: list[str], rows: list[list[Any]], empty_text: str) -> str:
     if not rows:
         return f'<div class="empty">{_esc(empty_text)}</div>'
@@ -400,6 +530,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
     scope = payload.get("dashboard_scope", {})
     refresh_meta = f'<meta http-equiv="refresh" content="{max(refresh_seconds, 1)}">' if live_mode else ""
+    refresh_text = _refresh_interval_text(refresh_seconds)
 
     prediction_rows = [
         [
@@ -408,8 +539,9 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             row["symbol_name"],
             f'{row["horizon_min"]}분',
             row["model_version"],
-            row["prediction_result_text"],
-            row["top_confidence"],
+            _money(row.get("base_close")),
+            row["predicted_change_text"],
+            row["actual_change_text"],
         ]
         for row in payload.get("recent_predictions", [])
     ]
@@ -536,6 +668,9 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     .muted {{ color:#5f6c7b; font-size:14px; line-height:1.6; }}
     .pillrow {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }}
     .pill {{ padding:8px 10px; border-radius:999px; background:#fff; border:1px solid rgba(31,41,51,.12); font-size:13px; }}
+    .action-row {{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }}
+    .action-button {{ appearance:none; border:none; cursor:pointer; padding:10px 14px; border-radius:12px; background:#0d5c63; color:#fff; font-size:14px; font-weight:700; box-shadow:0 10px 24px rgba(13,92,99,.18); }}
+    .action-button:disabled {{ opacity:.6; cursor:wait; }}
     .metric {{ font-size:28px; font-weight:700; margin-top:6px; }}
     .tabs {{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }}
     .tab-button {{ appearance:none; border:none; cursor:pointer; padding:12px 16px; border-radius:14px; background:rgba(255,252,246,.94); color:#5f6c7b; font-size:15px; font-weight:700; box-shadow:0 10px 24px rgba(31,41,51,.08); }}
@@ -566,6 +701,10 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
           <span class="pill">활성 모델: {_esc(active_model.get('model_version'))}</span>
           <span class="pill">장 상태: {_esc(kis.get('session_status'))}</span>
           <span class="pill">실시간 수집기: {'실행 중' if live_runtime.get('status') == 'running' else '중지'}</span>
+          <span class="pill">자동 새로고침: {refresh_text}</span>
+        </div>
+        <div class="action-row">
+          <button id="refresh-dashboard-button" class="action-button" type="button">상태 업데이트</button>
         </div>
         <div class="muted" style="margin-top:12px;">업데이트 시각: {_esc(payload.get('generated_at'))}<br>실운용 필터: {'켜짐' if scope.get('actual_runtime_only') else '꺼짐'}<br>실데이터 minute 수: {_esc(scope.get('actual_symbol_minutes'))}<br>{_esc(system_status.get('operation_note'))}</div>
       </div>
@@ -593,7 +732,8 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
           </div>
           <div class="card">
             <h2>최근 예측</h2>
-            {_table(['시각','종목코드','종목명','수평선','모델','예측 결과','최고 확률'], prediction_rows, '최근 실제 운용 예측이 없습니다. 실시간 수집기가 꺼져 있으면 값이 늘어나지 않습니다.')}
+            {_table(['시각','종목코드','종목명','수평선','모델','기준가','예상 변동','실제 결과'], prediction_rows, '최근 실제 운용 예측이 없습니다. 실시간 수집기가 꺼져 있으면 값이 늘어나지 않습니다.')}
+            <div class="muted" style="margin-top:12px;">예상 변동은 현재 분 종가와 수평선별 기준 변동폭을 바탕으로 계산한 기대 금액입니다. 실제 결과는 해당 수평선 시간이 지난 뒤 같은 기준가 대비 얼마나 움직였는지 보여줍니다.</div>
           </div>
           <div class="card">
             <h2>최근 신호</h2>
@@ -780,6 +920,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     (() => {{
       const buttons = Array.from(document.querySelectorAll('[data-tab-target]'));
       const panels = Array.from(document.querySelectorAll('.tab-panel'));
+      const refreshButton = document.getElementById('refresh-dashboard-button');
       const storageKey = 'realtime-stock-dashboard-active-tab';
       const activate = (targetId) => {{
         const fallbackId = 'tab-trading';
@@ -813,6 +954,13 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
       }}
       activate(initialTab || 'tab-trading');
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
+      if (refreshButton) {{
+        refreshButton.addEventListener('click', () => {{
+          refreshButton.disabled = true;
+          refreshButton.textContent = '업데이트 중...';
+          window.location.reload();
+        }});
+      }}
     }})();
   </script>
 </body>
@@ -853,7 +1001,7 @@ class DashboardServeInfo:
         }
 
 
-def build_dashboard_snapshot(project_root: Path, *, refresh_seconds: int = 5, recent_limit: int = 10) -> DashboardSnapshotResult:
+def build_dashboard_snapshot(project_root: Path, *, refresh_seconds: int = 300, recent_limit: int = 10) -> DashboardSnapshotResult:
     settings = load_settings(project_root=project_root)
     payload = collect_dashboard_payload(project_root=project_root, recent_limit=recent_limit)
     report_dir = settings.runtime_data_dir / "reports" / "dashboard"
@@ -905,7 +1053,7 @@ def _make_dashboard_handler(project_root: Path, *, refresh_seconds: int, recent_
     return DashboardHandler
 
 
-def prepare_dashboard_server(project_root: Path, *, host: str = "127.0.0.1", port: int = 8765, refresh_seconds: int = 5, recent_limit: int = 10) -> tuple[ThreadingHTTPServer, DashboardServeInfo]:
+def prepare_dashboard_server(project_root: Path, *, host: str = "127.0.0.1", port: int = 8765, refresh_seconds: int = 300, recent_limit: int = 10) -> tuple[ThreadingHTTPServer, DashboardServeInfo]:
     snapshot = build_dashboard_snapshot(project_root=project_root, refresh_seconds=refresh_seconds, recent_limit=recent_limit)
     server = ThreadingHTTPServer((host, port), _make_dashboard_handler(project_root=project_root, refresh_seconds=refresh_seconds, recent_limit=recent_limit))
     actual_host, actual_port = server.server_address

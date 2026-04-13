@@ -12,7 +12,7 @@ param(
     [int]$Port = 8765,
 
     [Parameter(Mandatory = $false)]
-    [int]$RefreshSeconds = 5,
+    [int]$RefreshSeconds = 300,
 
     [Parameter(Mandatory = $false)]
     [int]$RecentLimit = 10

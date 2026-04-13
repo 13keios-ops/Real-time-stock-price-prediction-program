@@ -38,6 +38,8 @@ The project now has a working local foundation for:
 - Live runtime background start / status / stop scripts are available
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
 - Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
+- Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `상태 업데이트` button
+- Recent predictions now show baseline-price-relative expected move amounts and actual outcome amounts when the horizon has elapsed
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 
@@ -243,6 +245,12 @@ Live server:
 This serves:
 
 - `http://127.0.0.1:8765`
+
+Default dashboard behavior:
+
+- auto-refresh every 5 minutes
+- manual refresh from the `상태 업데이트` button
+- recent predictions show `기준가`, `예상 변동`, and `실제 결과`
 
 Background start / status / stop:
 

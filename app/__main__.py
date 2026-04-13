@@ -90,7 +90,7 @@ def main() -> int:
     parser.add_argument("--no-orderbook-channel", action="store_true", help="Disable orderbook-channel subscriptions for WebSocket listening.")
     parser.add_argument("--dashboard-host", default="127.0.0.1", help="Host for the local dashboard server.")
     parser.add_argument("--dashboard-port", type=int, default=8765, help="Port for the local dashboard server.")
-    parser.add_argument("--dashboard-refresh-seconds", type=int, default=5, help="Browser auto-refresh interval for the dashboard.")
+    parser.add_argument("--dashboard-refresh-seconds", type=int, default=300, help="Browser auto-refresh interval for the dashboard. Default is 300 seconds (5 minutes).")
     parser.add_argument("--dashboard-recent-limit", type=int, default=10, help="Recent item count shown in the dashboard.")
     parser.add_argument("--project-root", default=".", help="Project root for config and runtime paths.")
     args = parser.parse_args()
