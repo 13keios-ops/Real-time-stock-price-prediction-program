@@ -23,7 +23,12 @@ The project now has a working local foundation for:
 - KIS WebSocket verification report generation
 - KIS verification separation between connection readiness and market-data flow
 - Local monitoring dashboard snapshot generation and HTTP serving
+- Dashboard top status area and 10-tab layout for account, ML, prediction, signal/order, fills/bars, report, and misc views
+- Dashboard date / period filtering for today, specific day, recent 3/7/30 days, and all accumulated runtime data
 - Dashboard learning view separation between actual runtime status and offline research results
+- Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
+- Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
+- Dashboard daily-report view now summarizes selected-period performance, insights, and next actions
 - Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
 - Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
 - Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
@@ -251,6 +256,12 @@ Default dashboard behavior:
 - auto-refresh every 5 minutes
 - manual refresh from the `상태 업데이트` button
 - recent predictions show `기준가`, `예상 변동`, and `실제 결과`
+- top area shows current runtime state, version, and period filter
+- tabs are `모의투자 (가상)`, `모의계좌 (실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
+- `모의투자 (가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
+- `모의계좌 (실제)` and `실 운용계좌` tabs show broker account state, holdings, and account notes separately
+- `예측현황` aggregates the selected period, while the table focuses on recent rows
+- `오늘의 리포트` summarizes the selected period rather than only the latest few events
 
 Background start / status / stop:
 

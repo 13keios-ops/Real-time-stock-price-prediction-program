@@ -38,41 +38,6 @@ $stderrPath = Join-Path $logDir "dashboard-server.stderr.log"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
-function Resolve-PythonExecutable {
-    try {
-        $candidate = & py -3 -c "import sys; print(sys.executable)"
-        if ($LASTEXITCODE -eq 0 -and $candidate) {
-            return $candidate.Trim()
-        }
-    } catch {
-    }
-
-    try {
-        $candidate = & python -c "import sys; print(sys.executable)"
-        if ($LASTEXITCODE -eq 0 -and $candidate) {
-            return $candidate.Trim()
-        }
-    } catch {
-    }
-
-    throw "Python executable could not be resolved."
-}
-
-function Resolve-PythonwExecutable {
-    param([string]$PythonExecutable)
-    if (-not $PythonExecutable) {
-        return $null
-    }
-
-    $pythonDir = Split-Path $PythonExecutable -Parent
-    $pythonwPath = Join-Path $pythonDir "pythonw.exe"
-    if (Test-Path -LiteralPath $pythonwPath) {
-        return $pythonwPath
-    }
-
-    return $null
-}
-
 function Get-ListeningConnection {
     param([int]$LocalPort)
     return Get-NetTCPConnection -LocalPort $LocalPort -ErrorAction SilentlyContinue |
@@ -150,32 +115,21 @@ if (Test-Path -LiteralPath $statePath) {
     }
 }
 
-$pythonExe = Resolve-PythonExecutable
-$pythonwExe = Resolve-PythonwExecutable -PythonExecutable $pythonExe
-$backgroundExe = if ($pythonwExe) { $pythonwExe } else { $pythonExe }
+$powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+$runnerScript = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
+$runnerCommand = "& '{0}' -DashboardHost '{1}' -Port {2} -RefreshSeconds {3} -RecentLimit {4}" -f $runnerScript, $DashboardHost, $Port, $RefreshSeconds, $RecentLimit
 $startProcessArgs = @{
-    FilePath = $backgroundExe
+    FilePath = $powershellExe
     ArgumentList = @(
-        "-m",
-        "app",
-        "--serve-dashboard",
-        "--dashboard-host",
-        "$DashboardHost",
-        "--dashboard-port",
-        "$Port",
-        "--dashboard-refresh-seconds",
-        "$RefreshSeconds",
-        "--dashboard-recent-limit",
-        "$RecentLimit"
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        $runnerCommand
     )
     WorkingDirectory = $WorkspaceRoot
     WindowStyle = "Hidden"
     PassThru = $true
-}
-
-if (-not $pythonwExe) {
-    $startProcessArgs.RedirectStandardOutput = $stdoutPath
-    $startProcessArgs.RedirectStandardError = $stderrPath
 }
 
 $process = Start-Process @startProcessArgs

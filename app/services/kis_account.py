@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_profile
+from app.brokers.kis_auth import KisApiError, KisTokenManager, get_kis_profile
 from app.brokers.kis_quote_rest import KisAccountBalanceSnapshot, KisRestQuoteClient
 from app.config.settings import load_settings
 from app.observability.logging import configure_logging
@@ -43,10 +43,12 @@ class KisAccountReportResult:
         }
 
 
-def _report_paths(runtime_data_dir: Path) -> tuple[Path, Path]:
+def _report_paths(runtime_data_dir: Path, account_mode: str, *, use_legacy_name: bool) -> tuple[Path, Path]:
     report_dir = runtime_data_dir / "reports" / "kis-account"
     report_dir.mkdir(parents=True, exist_ok=True)
-    return report_dir / "latest-account.md", report_dir / "latest-account.json"
+    if use_legacy_name:
+        return report_dir / "latest-account.md", report_dir / "latest-account.json"
+    return report_dir / f"latest-account-{account_mode}.md", report_dir / f"latest-account-{account_mode}.json"
 
 
 def _load_cached_payload(json_path: Path) -> dict[str, Any] | None:
@@ -130,19 +132,22 @@ def _snapshot_to_dict(snapshot: KisAccountBalanceSnapshot) -> dict[str, Any]:
 def refresh_kis_account_report(
     project_root: Path,
     *,
+    account_mode: str | None = None,
     force_refresh: bool = False,
     max_age_seconds: int = 60,
 ) -> KisAccountReportResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    markdown_path, json_path = _report_paths(settings.runtime_data_dir)
+    resolved_mode = (account_mode or settings.trading_mode).strip().lower()
+    use_legacy_name = resolved_mode == settings.trading_mode
+    markdown_path, json_path = _report_paths(settings.runtime_data_dir, resolved_mode, use_legacy_name=use_legacy_name)
     cached_payload = _load_cached_payload(json_path)
     age_seconds = _cache_age_seconds(cached_payload, settings.timezone)
 
     if not force_refresh and cached_payload is not None and age_seconds is not None and age_seconds <= max_age_seconds:
         return KisAccountReportResult(
             ok=bool(cached_payload.get("ok")),
-            trading_mode=str(cached_payload.get("trading_mode", settings.trading_mode)),
+            trading_mode=str(cached_payload.get("trading_mode", resolved_mode)),
             fetched_at=str(cached_payload.get("fetched_at")),
             cache_used=True,
             cache_age_seconds=age_seconds,
@@ -153,24 +158,24 @@ def refresh_kis_account_report(
             report_json_path=json_path,
         )
 
-    profile = get_active_kis_profile(settings)
+    profile = get_kis_profile(settings, resolved_mode)
     fetched_at = now_local(settings.timezone).isoformat()
 
     if not profile.is_configured:
         payload = {
             "ok": False,
-            "trading_mode": settings.trading_mode,
+            "trading_mode": resolved_mode,
             "fetched_at": fetched_at,
             "cache_used": False,
             "cache_age_seconds": None,
-            "error": "KIS account credentials are not fully configured.",
+            "error": f"KIS {resolved_mode} account credentials are not fully configured.",
             "source": "kis-broker",
             "account_snapshot": None,
         }
         _write_report(markdown_path, json_path, payload)
         return KisAccountReportResult(
             ok=False,
-            trading_mode=settings.trading_mode,
+            trading_mode=resolved_mode,
             fetched_at=fetched_at,
             cache_used=False,
             cache_age_seconds=None,
@@ -186,7 +191,7 @@ def refresh_kis_account_report(
         snapshot = client.get_account_balance()
         payload = {
             "ok": True,
-            "trading_mode": settings.trading_mode,
+            "trading_mode": resolved_mode,
             "fetched_at": fetched_at,
             "cache_used": False,
             "cache_age_seconds": 0,
@@ -197,7 +202,7 @@ def refresh_kis_account_report(
         _write_report(markdown_path, json_path, payload)
         return KisAccountReportResult(
             ok=True,
-            trading_mode=settings.trading_mode,
+            trading_mode=resolved_mode,
             fetched_at=fetched_at,
             cache_used=False,
             cache_age_seconds=0,
@@ -216,7 +221,7 @@ def refresh_kis_account_report(
             _write_report(markdown_path, json_path, cached_payload)
             return KisAccountReportResult(
                 ok=bool(cached_payload.get("ok")),
-                trading_mode=str(cached_payload.get("trading_mode", settings.trading_mode)),
+                trading_mode=str(cached_payload.get("trading_mode", resolved_mode)),
                 fetched_at=str(cached_payload.get("fetched_at")),
                 cache_used=True,
                 cache_age_seconds=cached_payload.get("cache_age_seconds"),
@@ -228,7 +233,7 @@ def refresh_kis_account_report(
             )
         payload = {
             "ok": False,
-            "trading_mode": settings.trading_mode,
+            "trading_mode": resolved_mode,
             "fetched_at": fetched_at,
             "cache_used": False,
             "cache_age_seconds": None,
@@ -239,7 +244,7 @@ def refresh_kis_account_report(
         _write_report(markdown_path, json_path, payload)
         return KisAccountReportResult(
             ok=False,
-            trading_mode=settings.trading_mode,
+            trading_mode=resolved_mode,
             fetched_at=fetched_at,
             cache_used=False,
             cache_age_seconds=None,

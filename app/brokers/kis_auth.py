@@ -90,24 +90,30 @@ def _parse_expiration(payload: dict) -> datetime:
     return now_local("Asia/Seoul") + timedelta(seconds=expires_in)
 
 
-def get_active_kis_profile(settings: AppSettings) -> KisAuthProfile:
-    credential: KisCredentialSet = settings.kis_live if settings.trading_mode == "live" else settings.kis_paper
+def get_kis_profile(settings: AppSettings, mode: str | None = None) -> KisAuthProfile:
+    resolved_mode = (mode or settings.trading_mode).strip().lower()
+    if resolved_mode not in {"paper", "live"}:
+        raise ValueError("KIS mode must be either 'paper' or 'live'.")
+    credential: KisCredentialSet = settings.kis_live if resolved_mode == "live" else settings.kis_paper
     environment = settings.kis_environment
-    mode = settings.trading_mode
-    runtime_mode_dir = settings.runtime_data_dir / "cache" / "kis" / mode
+    runtime_mode_dir = settings.runtime_data_dir / "cache" / "kis" / resolved_mode
     runtime_mode_dir.mkdir(parents=True, exist_ok=True)
     return KisAuthProfile(
-        mode=mode,
+        mode=resolved_mode,
         app_key=credential.app_key,
         app_secret=credential.app_secret,
         account_no=credential.account_no,
         product_code=credential.product_code,
         hts_id=environment.hts_id,
         customer_type=environment.customer_type,
-        rest_url=environment.rest_url_live if mode == "live" else environment.rest_url_paper,
-        ws_url=environment.ws_url_live if mode == "live" else environment.ws_url_paper,
+        rest_url=environment.rest_url_live if resolved_mode == "live" else environment.rest_url_paper,
+        ws_url=environment.ws_url_live if resolved_mode == "live" else environment.ws_url_paper,
         token_cache_path=runtime_mode_dir / "access_token.json",
     )
+
+
+def get_active_kis_profile(settings: AppSettings) -> KisAuthProfile:
+    return get_kis_profile(settings, settings.trading_mode)
 
 
 class KisTokenManager:

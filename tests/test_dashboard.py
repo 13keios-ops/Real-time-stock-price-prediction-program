@@ -177,17 +177,21 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("runtime_summary", snapshot.payload)
         self.assertIn("active_model", snapshot.payload)
         self.assertTrue(snapshot.payload["dashboard_scope"]["actual_runtime_only"])
+        self.assertEqual(snapshot.payload["period_filter"]["range_key"], "today")
+        self.assertIn("account_views", snapshot.payload)
         html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
         self.assertIn("실시간 주가 예측 대시보드", html)
-        self.assertIn("1. 거래 현황", html)
-        self.assertIn("2. 학습 현황", html)
-        self.assertIn("3. 그 외", html)
-        self.assertIn("현재 프로그램 상태", html)
-        self.assertIn("실운용 학습 상태", html)
-        self.assertIn("오프라인 연구 결과", html)
+        self.assertIn("모의투자(가상)", html)
+        self.assertIn("모의계좌(실제)", html)
+        self.assertIn("실 운용계좌", html)
+        self.assertIn("머신러닝 현황", html)
+        self.assertIn("예측현황", html)
+        self.assertIn("오늘의 리포트", html)
+        self.assertIn("모의투자(가상)", html)
+        self.assertIn("조회 범위", html)
+        self.assertIn("기준 날짜", html)
         self.assertIn("localStorage.setItem", html)
-        self.assertIn("브로커 모의계좌 잔고", html)
-        self.assertIn("운용 상태", html)
+        self.assertIn("운용 방식:", html)
         self.assertIn("상태 업데이트", html)
         self.assertIn("자동 새로고침: 5분", html)
 
@@ -218,6 +222,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('"ok": true', health.lower())
         self.assertIn('"runtime_summary"', payload)
         self.assertIn("실시간 주가 예측 대시보드", html)
+        self.assertIn("모의계좌(실제)", html)
         self.assertIn('http-equiv="refresh" content="300"', html)
 
     def test_dashboard_hides_demo_runtime_rows(self) -> None:
@@ -260,8 +265,11 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("broker_account_report", snapshot.payload)
         self.assertEqual(snapshot.payload["broker_account_report"]["account_snapshot"]["account_no_masked"], "1234****")
+        self.assertIn("paper_account_report", snapshot.payload)
+        self.assertIn("live_account_report", snapshot.payload)
         html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
-        self.assertIn("브로커 모의계좌 잔고", html)
+        self.assertIn("모의계좌(실제)", html)
+        self.assertIn("실 운용계좌", html)
 
     def test_dashboard_prediction_view_includes_expected_and_actual_changes(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -278,6 +286,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(row["symbol_name"], "삼성전자")
         self.assertTrue(str(row["predicted_change_text"]).startswith("상승 우세 /"))
         self.assertEqual(row["actual_change_text"], "+700원 (+1.00%)")
+        self.assertEqual(row["success_text"], "성공")
 
 
 if __name__ == "__main__":

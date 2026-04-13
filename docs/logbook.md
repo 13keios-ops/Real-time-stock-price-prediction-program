@@ -19,6 +19,9 @@
 - 대시보드는 정규장 밖 KIS REST snapshot 분과 raw 집계를 실제 운용 데이터 범위에서 제외한다.
 - 대시보드는 마지막 탭 선택 상태를 새로고침 뒤에도 유지한다.
 - 대시보드는 기본 자동 새로고침 주기가 5분이고, 수동 `상태 업데이트` 버튼으로 즉시 갱신할 수 있다.
+- 대시보드는 상단 상태 영역과 10개 탭 구조를 사용한다.
+- 대시보드는 `조회 범위`와 `기준 날짜` 기준으로 특정일 / 최근 기간 / 전체 누적 데이터를 선택해 볼 수 있다.
+- 대시보드는 `모의투자(가상) / 모의계좌(실제) / 실 운용계좌 / 머신러닝 현황 / 상태 및 설정 / 예측현황 / 신호 & 주문현황 / 체결과 분봉 / 오늘의 리포트 / 기타` 탭을 제공한다.
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
 - LightGBM 학습 artifact 저장이 된다.
@@ -61,6 +64,8 @@
 - [x] dashboard 실제 운용 데이터 전용 필터와 test runtime cleanup
 - [x] replay 데이터를 실제 운용 데이터와 분리하고 old dashboard port-owner 추적 보강
 - [x] dashboard 한글 기본 UI와 3탭 전환 구조
+- [x] dashboard 10탭 구조와 상단 상태 영역
+- [x] dashboard 날짜 / 기간 필터
 - [x] dashboard 학습 탭의 오프라인 연구 결과 / 실운용 데이터 해석 구분
 - [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
 - [x] 실제 KIS WebSocket 장중 수신 검증
@@ -82,11 +87,13 @@
 ## Latest Verified Results
 
 - dashboard/runtime cleanup targeted tests: `6 tests OK`
+- redesigned dashboard tests: `6 tests OK`
 - runtime scope out-of-session filter test: `1 test OK`
 - streaming replay isolation tests: `3 tests OK`
 - dashboard korean tab UI tests: `4 tests OK`
 - targeted streaming tests: `3 tests OK`
 - targeted dashboard tests: `5 tests OK`
+- full test suite: `49 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -206,6 +213,15 @@
   - `최근 체결과 분봉`에는 실제 장중 KIS 데이터 기반 분봉이라는 설명을 추가했고, 주문/체결이 없어도 시장 데이터만으로 분봉이 생길 수 있음을 명시했다.
   - 대시보드 기본 자동 새로고침 주기를 `5분`으로 조정했고, 상단에 수동 `상태 업데이트` 버튼을 추가했다.
   - 최근 예측 표는 이제 `예측 결과/최고 확률` 대신 `기준가`, `예상 변동`, `실제 결과`를 표시한다.
+  - 대시보드를 상단 상태 영역 + `모의투자(가상) / 모의계좌(실제) / 실 운용계좌 / 머신러닝 현황 / 상태 및 설정 / 예측현황 / 신호 & 주문현황 / 체결과 분봉 / 오늘의 리포트 / 기타` 10탭 구조로 재설계했다.
+  - 대시보드 상단에 `조회 범위`와 `기준 날짜` 필터를 추가해 특정일, 최근 3일/7일/30일, 전체 누적 데이터를 선택해서 볼 수 있게 했다.
+  - 로컬 모의운용 계좌는 현재 보유 수량이 `0`인 종료 포지션을 제외하고 실제 보유 종목만 보이도록 정리했다.
+  - 대시보드 전용 테스트를 새 10탭 구조와 기간 필터 기준으로 갱신했고 `tests.test_dashboard` 전체가 다시 통과했다.
+  - 예측현황 탭은 이제 선택 기간 전체 기준으로 `예측 건수 / 확정 건수 / 성공률 / 수평선별 집계`를 계산하고, 최근 표에는 기준가·예상 변동·실제 결과·성공 여부를 함께 보여준다.
+  - 신호 & 주문현황 탭은 신호, 주문, 체결을 묶어서 보여주고, `매도 신호`는 현재 매수 전용 전략에서 차단된 원시 신호일 수 있음을 설명한다.
+  - 오늘의 리포트 탭은 선택 기간 기준 예측 성공률, 체결 수, 실현 손익, 고찰, 다음 접근 방향을 자동 요약한다.
+  - background dashboard 시작 스크립트는 공백 경로가 있는 저장소에서도 안정적으로 서버를 띄우고 `/health` 확인 뒤 `running` 상태를 기록하도록 다시 보강했다.
+  - 전체 테스트 `49 tests OK`를 다시 확인했다.
 
 ## Next Commands
 
