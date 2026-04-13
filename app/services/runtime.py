@@ -74,7 +74,7 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
     configure_logging(settings)
     writer = RuntimeWriter.from_settings(settings)
     portfolio_book = PaperPortfolioBook(
-        initial_cash=25_000_000,
+        initial_cash=settings.strategy.paper_initial_cash,
         max_open_positions=settings.strategy.max_open_positions,
     )
 
@@ -116,7 +116,12 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
         portfolio_version=settings.strategy.portfolio_version,
         max_position_pct=settings.strategy.max_position_pct,
     )
-    target = allocator.allocate(signal, last_price=bar.close, cash_balance=25_000_000, target_id="target-demo-001")
+    target = allocator.allocate(
+        signal,
+        last_price=bar.close,
+        cash_balance=settings.strategy.paper_initial_cash,
+        target_id="target-demo-001",
+    )
     writer.write_target_position(target)
     portfolio_book.mark_price(symbol, bar.close)
 

@@ -236,8 +236,9 @@ class KisWebSocketQuoteClient:
         )
         frames_seen = 0
         reconnect_attempt = 0
+        unbounded = max_frames <= 0
 
-        while frames_seen < max_frames:
+        while unbounded or frames_seen < max_frames:
             approval_key = self.issue_approval_key()
             try:
                 async with websockets.connect(  # type: ignore[union-attr]
@@ -261,7 +262,7 @@ class KisWebSocketQuoteClient:
                                 ensure_ascii=False,
                             )
                         )
-                    while frames_seen < max_frames:
+                    while unbounded or frames_seen < max_frames:
                         frame = await connection.recv()
                         frames_seen += 1
                         yield frame

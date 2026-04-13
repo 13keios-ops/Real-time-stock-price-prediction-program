@@ -9,3 +9,5 @@ max_open_positions = 5
 slippage_bps = 3.0
 max_spread_bps = 15.0
 enable_paper_execution = true
+paper_initial_cash = 25000000
+max_hold_minutes = 20

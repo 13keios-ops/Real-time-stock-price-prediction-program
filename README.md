@@ -36,6 +36,8 @@
 - 학습 탭에서 `실운용 학습 상태`와 `오프라인 연구 결과`를 분리해 보여주는 구조
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
 - KIS 브로커 모의계좌 잔고 조회와 대시보드 반영
+- 실시간 수집기 background 실행과 상태 확인 스크립트
+- 장중에는 15분·60분 예측을 함께 기록하고, 신호와 주문은 15분 기준으로만 생성
 - 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
 - 정규장 밖 KIS REST snapshot 분과 raw 집계를 대시보드 actual runtime 범위에서 제외
@@ -214,7 +216,22 @@ python -m app --kis-account-balance
 ```
 
 이 스크립트는 대시보드를 띄우고, shadow ML 갱신과 KIS 사전 점검을 순서대로 수행한 뒤 현재 active 모델과 주요 리포트 상태를 요약한다.
-이제 여기에 `KIS 브로커 모의계좌 잔고 갱신`도 포함된다.
+이제 여기에 `실시간 수집기 background 시작`, `KIS 브로커 모의계좌 잔고 갱신`도 포함된다.
+
+실시간 수집기 background 시작 / 상태 / 중지:
+
+```powershell
+.\scripts\start_live_runtime_background.ps1
+.\scripts\get_live_runtime_status.ps1
+.\scripts\stop_live_runtime.ps1
+```
+
+실시간 수집기가 켜져 있으면:
+
+- watchlist 종목을 계속 수집한다.
+- 새 분이 닫힐 때마다 15분과 60분 예측을 함께 기록한다.
+- 신호와 주문 판단은 15분 기준으로만 수행한다.
+- 대시보드 상단 `현재 프로그램 상태`와 `로컬 모의운용 계좌`가 `운용 중`으로 바뀐다.
 
 Hourly Repo Audit 1회 실행:
 

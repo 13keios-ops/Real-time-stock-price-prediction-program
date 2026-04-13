@@ -18,10 +18,16 @@ param(
     [switch]$SkipMlShadow,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipLiveRuntime,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipKisVerification,
 
     [Parameter(Mandatory = $false)]
-    [switch]$ForceDashboardRestart
+    [switch]$ForceDashboardRestart,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceLiveRuntimeRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +48,19 @@ Start-Sleep -Seconds 2
 $dashboardState = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
     -WorkspaceRoot $WorkspaceRoot `
     -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+
+$liveRuntimeState = $null
+if (-not $SkipLiveRuntime) {
+    $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
+        -WorkspaceRoot $WorkspaceRoot `
+        -RuntimeDataDir $RuntimeDataDir `
+        -Symbols $VerifySymbols `
+        -ForceRestart:$ForceLiveRuntimeRestart
+    Start-Sleep -Seconds 2
+    $liveRuntimeState = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+        -WorkspaceRoot $WorkspaceRoot `
+        -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+}
 
 if (-not $SkipMlShadow) {
     & (Join-Path $WorkspaceRoot "scripts\run_ml_shadow_cycle.ps1")
@@ -78,6 +97,7 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
 [ordered]@{
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     dashboard = $dashboardState
+    live_runtime = $liveRuntimeState
     active_model_version = $registry.active_models.'15'.model_version
     challenger_recommended_action = $challenger.recommended_action
     challenger_walk_forward_gate_status = $challenger.walk_forward_gate_status
@@ -87,5 +107,6 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     latest_kis_verification = $kisVerification
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_ml_shadow = [bool]$SkipMlShadow
+    skipped_live_runtime = [bool]$SkipLiveRuntime
     skipped_kis_verification = [bool]$SkipKisVerification
 } | ConvertTo-Json -Depth 10

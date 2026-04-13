@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-12`
+- date: `2026-04-13`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -64,6 +64,8 @@
 - [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
 - [x] 실제 KIS WebSocket 장중 수신 검증
 - [x] KIS 브로커 모의계좌 잔고 조회와 dashboard 반영
+- [x] 실시간 수집기 background 실행과 상태 확인 스크립트
+- [x] 장중 15분·60분 예측 동시 기록과 15분 신호 기준 대시보드 반영
 
 ## Version And Watcher
 
@@ -81,6 +83,8 @@
 - runtime scope out-of-session filter test: `1 test OK`
 - streaming replay isolation tests: `3 tests OK`
 - dashboard korean tab UI tests: `4 tests OK`
+- targeted streaming tests: `3 tests OK`
+- targeted dashboard tests: `5 tests OK`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -191,6 +195,13 @@
   - 가능하면 `pythonw.exe` 를 우선 사용해 콘솔 종료 영향 없이 background 대시보드가 더 안정적으로 유지되도록 보강했다.
   - dashboard background 시작 후 `/health` 응답을 기다린 뒤 상태 파일을 `running` 으로 기록하도록 보강했다.
   - 장중 기준으로 `start_dashboard_background -> 25초 유지 -> get_dashboard_status -> /health -> /` 재검증이 성공했고, 포트 `8765`의 실제 소유 PID와 상태 파일 PID가 일치하는 것을 확인했다.
+  - 실시간 수집기 background 제어 스크립트 `start_live_runtime_background / get_live_runtime_status / stop_live_runtime` 를 추가했다.
+  - 실시간 수집기는 현재 watchlist 10종목을 상시 수집 중이며, 장중 기준으로 15분·60분 예측을 함께 기록하고 신호는 15분 기준으로만 생성한다.
+  - `2026-04-13 13:48 KST` 이후 live runtime 을 실제로 시작했고, `running` 상태와 KIS WebSocket 연결을 다시 확인했다.
+  - `2026-04-13 13:52 KST` 기준 collect_dashboard_payload 직접 확인 결과 `raw_market_ticks=804`, `raw_orderbook_ticks=857`, `minute_bars=15`, `predictions=29`, `signals=16`, `orders=5`, `fills=5`, `positions=5` 로 증가한 것을 확인했다.
+  - 대시보드 거래 탭은 이제 종목 이름, 예측 결과, 차단된 매도 신호 설명, 로컬 모의운용 상태, 현재 프로그램 상태를 함께 표시한다.
+  - `최근 신호`의 `매도`는 실제 매도 주문이 아니라 하락 확률 우세에 따른 raw 신호이며, 현재 매수 전용 전략 때문에 차단된다는 설명을 화면에 추가했다.
+  - `최근 체결과 분봉`에는 실제 장중 KIS 데이터 기반 분봉이라는 설명을 추가했고, 주문/체결이 없어도 시장 데이터만으로 분봉이 생길 수 있음을 명시했다.
 
 ## Next Commands
 
@@ -211,6 +222,9 @@ python -m app --build-dashboard
 .\scripts\get_dashboard_status.ps1
 .\scripts\stop_dashboard.ps1
 .\scripts\start_monday_runtime.ps1
+.\scripts\start_live_runtime_background.ps1
+.\scripts\get_live_runtime_status.ps1
+.\scripts\stop_live_runtime.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1
 .\scripts\bump_version.ps1 -Version 0.2.1

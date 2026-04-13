@@ -35,6 +35,9 @@ The project now has a working local foundation for:
 - KIS broker paper-account balance refresh and cached report generation
 - Dashboard trading tab now separates local paper-engine state and broker paper-account balance
 - Local paper-engine state and broker paper-account balance are intentionally shown as separate account views
+- Live runtime background start / status / stop scripts are available
+- Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
+- Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 
@@ -131,6 +134,21 @@ This uses:
 - reconnect attempts
 - control-frame skipping
 - online pipeline processing into runtime storage
+
+Background runtime helpers:
+
+```powershell
+.\scripts\start_live_runtime_background.ps1
+.\scripts\get_live_runtime_status.ps1
+.\scripts\stop_live_runtime.ps1
+```
+
+When the live runtime is running:
+
+- watchlist symbols are streamed continuously
+- 15-minute and 60-minute predictions are both written
+- signals and order gating remain 15-minute only
+- the dashboard trading tab should move from `대기 중` to `운용 중`
 
 ### 6. KIS WebSocket readiness and live verification
 
@@ -237,6 +255,7 @@ Background start / status / stop:
 The dashboard currently shows:
 
 - `거래 현황` 탭
+  - 현재 프로그램 상태
   - 최근 예측, 최근 신호, 최근 주문, 최근 체결과 분봉
   - 로컬 모의운용 계좌, 브로커 모의계좌 잔고, KIS 연결 상태
 - `학습 현황` 탭
@@ -272,8 +291,10 @@ The background launcher now prefers `pythonw.exe` when available, falls back to 
 This currently:
 
 - starts the dashboard server when it is not already running
+- starts the live runtime listener when it is not already running
 - refreshes runtime report and dashboard snapshot
 - runs shadow ML refresh unless skipped
+- refreshes the broker paper-account cache
 - runs KIS verification unless skipped
 - prints a compact JSON summary for Monday startup checks
 

@@ -31,7 +31,7 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result.raw_trade_events, 3)
             self.assertGreaterEqual(result.raw_orderbook_events, 2)
             self.assertGreaterEqual(result.minute_bars_written, 1)
-            self.assertGreaterEqual(result.predictions_written, 1)
+            self.assertGreaterEqual(result.predictions_written, 2)
             self.assertGreaterEqual(result.signals_written, 1)
             self.assertGreater(sqlite_store.count_rows("raw_market_ticks"), 0)
             self.assertGreater(sqlite_store.count_rows("serving_predictions"), 0)
@@ -39,10 +39,14 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(sqlite_store.count_rows("paper_portfolio_snapshots"), 1)
             latest_tick = sqlite_store.fetch_latest_row("raw_market_ticks", "event_time")
             latest_prediction = sqlite_store.fetch_latest_row("serving_predictions", "event_time")
+            prediction_rows = sqlite_store.fetch_all_rows("serving_predictions", "event_time")
+            horizons = {int(row["horizon_min"]) for row in prediction_rows}
             self.assertIsNotNone(latest_tick)
             self.assertIsNotNone(latest_prediction)
             self.assertEqual(latest_tick["source"], "kis-ws-replay")
-            self.assertTrue(str(latest_prediction["prediction_id"]).startswith("pred-replay-"))
+            self.assertIn("-replay-", str(latest_prediction["prediction_id"]))
+            self.assertIn(15, horizons)
+            self.assertIn(60, horizons)
 
     def test_replay_can_close_positions_on_short_hold(self) -> None:
         root = Path(__file__).resolve().parents[1]

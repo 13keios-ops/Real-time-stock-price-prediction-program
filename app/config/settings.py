@@ -40,6 +40,8 @@ class StrategySettings:
     slippage_bps: float
     max_spread_bps: float
     enable_paper_execution: bool
+    paper_initial_cash: float
+    max_hold_minutes: int
 
 
 @dataclass(slots=True)
@@ -208,11 +210,17 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
         slippage_bps=_env_float(env_map, "SLIPPAGE_BPS", strategy_block["slippage_bps"]),
         max_spread_bps=_env_float(env_map, "MAX_SPREAD_BPS", strategy_block["max_spread_bps"]),
         enable_paper_execution=_env_bool(env_map, "ENABLE_PAPER_EXECUTION", strategy_block["enable_paper_execution"]),
+        paper_initial_cash=_env_float(env_map, "PAPER_INITIAL_CASH", strategy_block["paper_initial_cash"]),
+        max_hold_minutes=_env_int(env_map, "MAX_HOLD_MINUTES", strategy_block["max_hold_minutes"]),
     )
     if not 0 < strategy.max_position_pct <= 1:
         raise ValueError("MAX_POSITION_PCT must be within (0, 1].")
     if strategy.max_open_positions <= 0:
         raise ValueError("MAX_OPEN_POSITIONS must be positive.")
+    if strategy.paper_initial_cash <= 0:
+        raise ValueError("PAPER_INITIAL_CASH must be positive.")
+    if strategy.max_hold_minutes <= 0:
+        raise ValueError("MAX_HOLD_MINUTES must be positive.")
 
     market = MarketCalendarSettings(
         timezone=env_map.get("APP_TIMEZONE", market_block["timezone"]),

@@ -76,14 +76,23 @@ class OnlinePipelineProcessor:
     def __init__(
         self,
         settings: AppSettings,
-        starting_cash_balance: float = 25_000_000,
-        max_hold_minutes: int = 20,
+        starting_cash_balance: float | None = None,
+        max_hold_minutes: int | None = None,
+        prediction_horizons: tuple[int, ...] = (15, 60),
+        trading_horizon_min: int = 15,
         id_namespace: str = "online",
         raw_source: str = "kis-ws",
     ) -> None:
         self.settings = settings
         self.writer = RuntimeWriter.from_settings(settings)
-        self.model = load_prediction_model(settings, horizon_min=15)
+        self.prediction_horizons = tuple(sorted({int(horizon) for horizon in prediction_horizons if int(horizon) > 0}))
+        if not self.prediction_horizons:
+            self.prediction_horizons = (15,)
+        self.trading_horizon_min = trading_horizon_min if trading_horizon_min in self.prediction_horizons else self.prediction_horizons[0]
+        self.models = {
+            horizon: load_prediction_model(settings, horizon_min=horizon)
+            for horizon in self.prediction_horizons
+        }
         self.id_namespace = id_namespace
         self.raw_source = raw_source
         self.signal_policy = SignalPolicy(
@@ -96,10 +105,10 @@ class OnlinePipelineProcessor:
         )
         self.engine = PaperTradingEngine(slippage_bps=settings.strategy.slippage_bps)
         self.portfolio_book = PaperPortfolioBook(
-            initial_cash=starting_cash_balance,
+            initial_cash=starting_cash_balance if starting_cash_balance is not None else settings.strategy.paper_initial_cash,
             max_open_positions=settings.strategy.max_open_positions,
         )
-        self.max_hold_minutes = max_hold_minutes
+        self.max_hold_minutes = max_hold_minutes if max_hold_minutes is not None else settings.strategy.max_hold_minutes
         self.forced_flat_time = parse_hhmm(settings.market_calendar.forced_flat_time)
         self.time_gate = TradingWindowGate(
             new_entry_start=settings.market_calendar.new_entry_start,
@@ -193,11 +202,17 @@ class OnlinePipelineProcessor:
         self.portfolio_book.mark_price(state.symbol, bar.close)
         close_reason = self._maybe_close_position(state.symbol, bar.close, bar.bar_time)
         features = build_feature_snapshot(bar, state.latest_orderbook, self.settings.feature_set_version)
-        prediction = self.model.predict(
-            feature_snapshot=features,
-            horizon_min=15,
-            prediction_id=self._next_scoped_id("pred"),
-        )
+        predictions = []
+        prediction_by_horizon = {}
+        for horizon in self.prediction_horizons:
+            prediction = self.models[horizon].predict(
+                feature_snapshot=features,
+                horizon_min=horizon,
+                prediction_id=self._next_scoped_id(f"pred-h{horizon}"),
+            )
+            predictions.append(prediction)
+            prediction_by_horizon[horizon] = prediction
+        prediction = prediction_by_horizon[self.trading_horizon_min]
         time_decision = self.time_gate.evaluate(prediction.event_time)
         spread_decision = self.spread_gate.evaluate(state.latest_orderbook)
         signal = self.signal_policy.evaluate(
@@ -216,11 +231,12 @@ class OnlinePipelineProcessor:
 
         self.writer.write_minute_bar(bar)
         self.writer.write_feature_snapshot(features)
-        self.writer.write_prediction(prediction)
+        for prediction_row in predictions:
+            self.writer.write_prediction(prediction_row)
         self.writer.write_trade_signal(signal)
         self.writer.write_target_position(target)
         self.minute_bars_written += 1
-        self.predictions_written += 1
+        self.predictions_written += len(predictions)
         self.signals_written += 1
 
         can_open, open_reason = self.portfolio_book.can_open(state.symbol)

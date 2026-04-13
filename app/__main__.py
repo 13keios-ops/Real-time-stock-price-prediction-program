@@ -84,7 +84,7 @@ def main() -> int:
     parser.add_argument("--walk-forward-gap-rows", type=int, default=None, help="Gap rows between train and test windows for walk-forward backtests.")
     parser.add_argument("--walk-forward-max-train-rows", type=int, default=None, help="Maximum rolling training rows for walk-forward backtests.")
     parser.add_argument("--minutes", type=int, default=80, help="Minute count for synthetic data seeding.")
-    parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume.")
+    parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume. Use 0 for unlimited listening.")
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
     parser.add_argument("--no-trade-channel", action="store_true", help="Disable trade-channel subscriptions for WebSocket listening.")
     parser.add_argument("--no-orderbook-channel", action="store_true", help="Disable orderbook-channel subscriptions for WebSocket listening.")
