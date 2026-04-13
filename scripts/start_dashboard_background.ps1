@@ -64,7 +64,7 @@ function Stop-PortOwnerIfPresent {
     }
     $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
     if ($null -ne $process) {
-        Stop-Process -Id $process.Id -Force
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
         return $true
     }

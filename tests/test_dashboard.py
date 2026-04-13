@@ -190,6 +190,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("모의투자(가상)", html)
         self.assertIn("조회 범위", html)
         self.assertIn("기준 날짜", html)
+        self.assertIn("상태 설명", html)
+        self.assertIn("보유 종목", html)
+        self.assertIn("매수/매도 및 체결현황", html)
+        self.assertIn("최근 종료 포지션", html)
+        self.assertIn("매수 주문", html)
+        self.assertIn("매도 주문", html)
+        self.assertIn("최근 신호", html)
         self.assertIn("localStorage.setItem", html)
         self.assertIn("운용 방식:", html)
         self.assertIn("상태 업데이트", html)
@@ -224,6 +231,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("실시간 주가 예측 대시보드", html)
         self.assertIn("모의계좌(실제)", html)
         self.assertIn('http-equiv="refresh" content="300"', html)
+        self.assertIn("data-subtab-group", html)
 
     def test_dashboard_hides_demo_runtime_rows(self) -> None:
         root = Path(__file__).resolve().parents[1]

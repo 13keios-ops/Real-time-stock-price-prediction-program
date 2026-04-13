@@ -29,6 +29,9 @@ The project now has a working local foundation for:
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
 - Dashboard daily-report view now summarizes selected-period performance, insights, and next actions
+- Virtual-paper account view now uses vertical subtabs for overview, holdings, and trade activity
+- Virtual-paper holdings now show recent closed positions when no open positions remain
+- Virtual-paper trade activity now expands into buy-order, sell-order, fill, and recent-signal subtabs
 - Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
 - Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
 - Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
@@ -259,6 +262,7 @@ Default dashboard behavior:
 - top area shows current runtime state, version, and period filter
 - tabs are `모의투자 (가상)`, `모의계좌 (실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
 - `모의투자 (가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
+- the virtual-paper tab now uses a left-side vertical selector instead of stacking all sections at once
 - `모의계좌 (실제)` and `실 운용계좌` tabs show broker account state, holdings, and account notes separately
 - `예측현황` aggregates the selected period, while the table focuses on recent rows
 - `오늘의 리포트` summarizes the selected period rather than only the latest few events

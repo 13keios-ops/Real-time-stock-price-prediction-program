@@ -523,6 +523,7 @@ def _build_local_account_summary(
     *,
     latest_snapshot: dict[str, Any] | None,
     positions: list[dict[str, Any]],
+    all_positions: list[dict[str, Any]],
     orders: list[dict[str, Any]],
     fills: list[dict[str, Any]],
     settings,
@@ -531,6 +532,15 @@ def _build_local_account_summary(
     order_summary = _build_signal_order_summary([], orders, fills)
     gross_market_value = float((latest_snapshot or {}).get("gross_market_value") or 0.0)
     net_liquidation_value = float((latest_snapshot or {}).get("net_liquidation_value") or 0.0)
+    closed_positions = sorted(
+        [
+            row
+            for row in all_positions
+            if int(row.get("qty", 0) or 0) <= 0 and (abs(float(row.get("realized_pnl", 0) or 0.0)) > 0 or row.get("updated_at"))
+        ],
+        key=lambda row: _row_time(row, "updated_at", "opened_at") or datetime.min.replace(tzinfo=get_timezone(settings.timezone)),
+        reverse=True,
+    )
     return {
         "status": "운용 중" if live_runtime_state.get("status") == "running" else "대기 중",
         "status_note": (
@@ -546,6 +556,8 @@ def _build_local_account_summary(
         "unrealized_pnl": (latest_snapshot or {}).get("unrealized_pnl"),
         "open_positions": len(positions),
         "positions": positions,
+        "closed_positions_count": len(closed_positions),
+        "recent_closed_positions": closed_positions[:10],
         "buy_orders": order_summary.get("order_buy", 0),
         "sell_orders": order_summary.get("order_sell", 0),
         "orders_total": order_summary.get("orders_total", 0),
@@ -789,6 +801,7 @@ def collect_dashboard_payload(
     local_account_state = _build_local_account_summary(
         latest_snapshot=latest_portfolio_snapshot,
         positions=positions,
+        all_positions=position_rows_all,
         orders=order_rows,
         fills=fill_rows,
         settings=settings,
@@ -1009,6 +1022,18 @@ def _tab_button(target: str, label: str, *, active: bool = False) -> str:
     class_name = "tab-button is-active" if active else "tab-button"
     aria_selected = "true" if active else "false"
     return f'<button class="{class_name}" type="button" data-tab-target="{_esc(target)}" aria-selected="{aria_selected}">{_esc(label)}</button>'
+
+
+def _subtab_button(group: str, target: str, label: str, *, active: bool = False, vertical: bool = False) -> str:
+    class_name = "subtab-button is-active" if active else "subtab-button"
+    if vertical:
+        class_name += " is-vertical"
+    aria_selected = "true" if active else "false"
+    return (
+        f'<button class="{class_name}" type="button" '
+        f'data-subtab-group="{_esc(group)}" data-subtab-target="{_esc(target)}" aria-selected="{aria_selected}">'
+        f"{_esc(label)}</button>"
+    )
 
 
 def _account_table_rows(account_view: dict[str, Any]) -> list[list[Any]]:
@@ -1562,6 +1587,33 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         [row.get("symbol"), row.get("qty"), _money(row.get("avg_price")), _money(row.get("last_price")), _money(row.get("market_value")), _money(row.get("unrealized_pnl"))]
         for row in virtual_account.get("positions", [])
     ]
+    virtual_closed_position_rows = [
+        [
+            row.get("updated_at"),
+            row.get("symbol"),
+            _money(row.get("last_price")),
+            _money(row.get("realized_pnl")),
+        ]
+        for row in virtual_account.get("recent_closed_positions", [])
+    ]
+    virtual_buy_order_rows = [
+        [row.get("event_time"), row.get("symbol"), row.get("qty"), _money(row.get("limit_price")), row.get("status")]
+        for row in payload.get("recent_orders", [])
+        if str(row.get("side", "")).lower() == "buy"
+    ]
+    virtual_sell_order_rows = [
+        [row.get("event_time"), row.get("symbol"), row.get("qty"), _money(row.get("limit_price")), row.get("status")]
+        for row in payload.get("recent_orders", [])
+        if str(row.get("side", "")).lower() == "sell"
+    ]
+    virtual_fill_activity_rows = [
+        [row.get("event_time"), row.get("order_id"), _money(row.get("fill_price")), row.get("fill_qty"), _money(row.get("commission"))]
+        for row in payload.get("recent_fills", [])
+    ]
+    virtual_signal_activity_rows = [
+        [row.get("event_time"), row.get("symbol_name"), row.get("side_label"), row.get("allowed_text"), row.get("signal_summary")]
+        for row in payload.get("recent_signals", [])
+    ]
     paper_position_rows = _account_table_rows(paper_account)
     live_position_rows = _account_table_rows(live_account)
     model_rows = [
@@ -1742,6 +1794,17 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     .tab-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
     .tab-panel {{ display:none; }}
     .tab-panel.is-active {{ display:block; }}
+    .subtab-shell {{ display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; }}
+    .subtab-nav {{ display:grid; gap:10px; align-content:start; }}
+    .subtab-button {{ appearance:none; width:100%; border:1px solid rgba(21,33,45,.18); border-radius:14px; background:#fff; padding:14px 12px; font-size:15px; font-weight:700; text-align:left; cursor:pointer; }}
+    .subtab-button.is-active {{ background:#15212d; color:#fff; border-color:#15212d; }}
+    .subtab-panel {{ display:none; }}
+    .subtab-panel.is-active {{ display:block; }}
+    .expand-tabs {{ display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 16px; }}
+    .expand-button {{ appearance:none; border:1px solid rgba(21,33,45,.18); border-radius:999px; background:#fff; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer; }}
+    .expand-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
+    .expand-panel {{ display:none; }}
+    .expand-panel.is-active {{ display:block; }}
     .layout-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
     .stack {{ display:grid; gap:16px; }}
     table {{ width:100%; border-collapse:collapse; font-size:14px; }}
@@ -1750,7 +1813,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     .empty {{ color:#5e6b79; font-size:14px; padding:8px 0; }}
     ul {{ margin:0; padding-left:18px; }}
     li {{ margin:8px 0; }}
-    @media (max-width: 1200px) {{ .hero,.layout-2,.metrics,.tabs {{ grid-template-columns:1fr; }} }}
+    @media (max-width: 1200px) {{ .hero,.layout-2,.metrics,.tabs,.subtab-shell {{ grid-template-columns:1fr; }} }}
   </style>
 </head>
 <body>
@@ -1780,7 +1843,61 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     <section class="metrics">{metrics_html}</section>
     <section class="tabs" role="tablist" aria-label="대시보드 탭">{tab_buttons}</section>
 
-    <section id="tab-virtual-paper" class="tab-panel is-active"><div class="layout-2"><div class="stack"><div class="card"><h2>모의투자(가상)</h2>{_pill_row(virtual_account_pills)}<div class="muted" style="margin-top:12px;">{_esc(virtual_account.get('status_note'))}<br>운용 방식: {_esc(virtual_account.get('strategy_summary'))}<br>최근 스냅샷 시각: {_esc(virtual_account.get('latest_snapshot_time'))}</div></div><div class="card"><h3>보유 종목</h3>{_table(['종목','수량','평균 단가','현재가','평가 금액','미실현 손익'], virtual_position_rows, '현재 기록된 가상 포지션이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>매수/매도 및 체결 현황</h3>{_pill_row([f"총 주문: {virtual_account.get('orders_total', 0)}건", f"매수 주문: {virtual_account.get('buy_orders', 0)}건", f"매도 주문: {virtual_account.get('sell_orders', 0)}건", f"체결: {virtual_account.get('fills', 0)}건", f"체결 수량: {virtual_account.get('fill_qty', 0)}주", f"포지션 비중: {_ratio_pct(virtual_account.get('capital_in_market_ratio'), 1)}"])}<div class="muted" style="margin-top:12px;">이 계좌는 프로그램 내부의 가상 장부입니다. 실제 장중 데이터로 신호를 만들고, 우리 규칙에 따라 모의주문과 모의체결을 기록합니다.</div></div><div class="card"><h3>설명</h3><div class="muted">브로커 계좌와는 별도로, 전략 자체가 어떤 주문을 냈는지 추적하기 위한 내부 기준 계좌입니다. 실제 브로커 모의계좌와 값이 달라도 이상이 아닙니다.</div></div></div></div></section>
+    <section id="tab-virtual-paper" class="tab-panel is-active">
+      <div class="card">
+        <h2>모의투자(가상)</h2>
+        <div class="subtab-shell">
+          <div class="subtab-nav" role="tablist" aria-label="모의투자 가상 세부 탭">
+            {_subtab_button("virtual-paper", "virtual-overview", "상태 설명", active=True, vertical=True)}
+            {_subtab_button("virtual-paper", "virtual-holdings", "보유 종목", vertical=True)}
+            {_subtab_button("virtual-paper", "virtual-activity", "매수/매도 및 체결현황", vertical=True)}
+          </div>
+          <div>
+            <div id="virtual-overview" class="subtab-panel is-active" data-subtab-panel="virtual-paper">
+              {_pill_row(virtual_account_pills)}
+              <div class="muted" style="margin-top:12px;">{_esc(virtual_account.get('status_note'))}<br>운용 방식: {_esc(virtual_account.get('strategy_summary'))}<br>최근 스냅샷 시각: {_esc(virtual_account.get('latest_snapshot_time'))}</div>
+              <div class="pillrow" style="margin-top:12px;">
+                <span class="pill">열린 포지션: {virtual_account.get('open_positions', 0)}건</span>
+                <span class="pill">최근 종료 포지션: {virtual_account.get('closed_positions_count', 0)}건</span>
+                <span class="pill">총 주문: {virtual_account.get('orders_total', 0)}건</span>
+                <span class="pill">체결률: {_ratio_pct(virtual_account.get('fill_rate'), 1)}</span>
+              </div>
+              <div class="muted" style="margin-top:12px;">이 계좌는 프로그램 내부의 가상 장부입니다. 실제 장중 데이터로 신호를 만들고, 우리 규칙에 따라 모의주문과 모의체결을 기록합니다. 브로커 모의계좌와 값이 다를 수 있어도 이상이 아닙니다.</div>
+            </div>
+            <div id="virtual-holdings" class="subtab-panel" data-subtab-panel="virtual-paper">
+              <h3>현재 보유 종목</h3>
+              {_table(['종목','수량','평균 단가','현재가','평가 금액','미실현 손익'], virtual_position_rows, '현재 열린 가상 포지션은 없습니다. 아래 최근 종료 포지션을 함께 확인해 주세요.')}
+              <div style="margin-top:18px;">
+                <h3>최근 종료 포지션</h3>
+                {_table(['종료 시각','종목','마지막 가격','실현 손익'], virtual_closed_position_rows, '기록된 최근 종료 포지션이 없습니다.')}
+              </div>
+            </div>
+            <div id="virtual-activity" class="subtab-panel" data-subtab-panel="virtual-paper">
+              {_pill_row([f"총 주문: {virtual_account.get('orders_total', 0)}건", f"매수 주문: {virtual_account.get('buy_orders', 0)}건", f"매도 주문: {virtual_account.get('sell_orders', 0)}건", f"체결: {virtual_account.get('fills', 0)}건", f"체결 수량: {virtual_account.get('fill_qty', 0)}주", f"포지션 비중: {_ratio_pct(virtual_account.get('capital_in_market_ratio'), 1)}"])}
+              <div class="expand-tabs" role="tablist" aria-label="모의투자 가상 거래 세부 탭">
+                {_subtab_button("virtual-activity", "virtual-activity-buy", f"매수 주문 {len(virtual_buy_order_rows)}건", active=True)}
+                {_subtab_button("virtual-activity", "virtual-activity-sell", f"매도 주문 {len(virtual_sell_order_rows)}건")}
+                {_subtab_button("virtual-activity", "virtual-activity-fills", f"체결 {len(virtual_fill_activity_rows)}건")}
+                {_subtab_button("virtual-activity", "virtual-activity-signals", f"최근 신호 {len(virtual_signal_activity_rows)}건")}
+              </div>
+              <div id="virtual-activity-buy" class="expand-panel is-active" data-subtab-panel="virtual-activity">
+                {_table(['시각','종목','수량','지정가','상태'], virtual_buy_order_rows, '최근 매수 주문이 없습니다.')}
+              </div>
+              <div id="virtual-activity-sell" class="expand-panel" data-subtab-panel="virtual-activity">
+                {_table(['시각','종목','수량','지정가','상태'], virtual_sell_order_rows, '최근 매도 주문이 없습니다.')}
+              </div>
+              <div id="virtual-activity-fills" class="expand-panel" data-subtab-panel="virtual-activity">
+                {_table(['시각','주문 ID','체결가','수량','수수료'], virtual_fill_activity_rows, '최근 체결이 없습니다.')}
+              </div>
+              <div id="virtual-activity-signals" class="expand-panel" data-subtab-panel="virtual-activity">
+                {_table(['시각','종목','방향','허용 여부','설명'], virtual_signal_activity_rows, '최근 신호가 없습니다.')}
+              </div>
+              <div class="muted" style="margin-top:12px;">매도 주문과 매도 신호는 실제 숏 전략이 아니라, 보유 종목 청산 또는 하락 우세 판단에서 나온 내부 기록일 수 있습니다.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
     <section id="tab-paper-broker" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>모의계좌(실제)</h2>{_pill_row(paper_account_pills)}<div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(paper_account.get('fetched_at'))}<br>조회 메모: {_esc(paper_account.get('account_note'))}<br>오류: {_esc(paper_account.get('error') or '없음')}</div></div><div class="card"><h3>보유 종목</h3>{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], paper_position_rows, '브로커 모의계좌 보유 종목이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>매수/매도 현황 안내</h3><div class="muted">현재 브로커 계좌 탭은 잔고와 보유 종목 중심으로 표시합니다. 브로커 주문·체결 내역을 별도 조회하는 기능은 아직 연결하지 않았습니다.</div></div><div class="card"><h3>설명</h3><div class="muted">한국투자 모의투자 계좌에서 직접 조회한 실제 잔고입니다. 로컬 모의운용 계좌와 값이 다를 수 있습니다.</div></div></div></div></section>
     <section id="tab-live-broker" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>실 운용계좌</h2>{_pill_row(live_account_pills)}<div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(live_account.get('fetched_at'))}<br>조회 메모: {_esc(live_account.get('account_note'))}<br>오류: {_esc(live_account.get('error') or '없음')}</div></div><div class="card"><h3>보유 종목</h3>{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], live_position_rows, '실 운용계좌 정보가 없거나 아직 조회되지 않았습니다.')}</div></div><div class="stack"><div class="card"><h3>매수/매도 현황 안내</h3><div class="muted">실전 계좌는 현재 조회 위주로만 표시합니다. 실전 자격정보를 넣지 않았거나 조회를 일부러 막아둔 경우 빈 상태가 정상입니다.</div></div><div class="card"><h3>설명</h3><div class="muted">실전 계좌가 연결되면 보유 종목과 잔고를 같은 틀로 비교할 수 있습니다. 현재는 실전 주문 기능을 켜지 않았습니다.</div></div></div></div></section>
     <section id="tab-ml" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>머신러닝 현황</h2>{_pill_row(ml_status_pills)}<div class="muted" style="margin-top:12px;">{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}</div></div><div class="card"><h3>모델별 상태</h3>{_table(['구분','모델 버전','종류','상태','평가 점수','메모'], model_rows, '표시할 모델 상태가 없습니다.')}</div><div class="card"><h3>선택 기간 학습 결과</h3>{_table(['완료 시각','모델 버전','학습 행 수','검증 행 수','특징 세트'], today_training_rows, '현재 범위에 학습 기록이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>선택 기간 평가 결과</h3>{_table(['평가 시각','분할 이름','정확도','행 수'], today_evaluation_rows, '현재 범위에 평가 기록이 없습니다.')}</div><div class="card"><h3>최신 검증 요약</h3>{_pill_row([f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}", f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}", f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}", f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}"])}</div><div class="card"><h3>챌린저 비교</h3>{_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}</div><div class="card"><h3>워크포워드 상세</h3>{_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 상세 결과가 없습니다.')}</div></div></div></section>
@@ -1797,6 +1914,20 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       const panels = Array.from(document.querySelectorAll('.tab-panel'));
       const refreshButton = document.getElementById('refresh-dashboard-button');
       const storageKey = 'realtime-stock-dashboard-active-tab';
+      const activateSubtabGroup = (group, targetId) => {{
+        const buttonsInGroup = Array.from(document.querySelectorAll(`[data-subtab-group="${{group}}"]`));
+        const panelsInGroup = Array.from(document.querySelectorAll(`[data-subtab-panel="${{group}}"]`));
+        const fallbackId = panelsInGroup.length ? panelsInGroup[0].id : '';
+        const nextId = document.getElementById(targetId) ? targetId : fallbackId;
+        buttonsInGroup.forEach((button) => {{
+          const active = button.dataset.subtabTarget === nextId;
+          button.classList.toggle('is-active', active);
+          button.setAttribute('aria-selected', active ? 'true' : 'false');
+        }});
+        panelsInGroup.forEach((panel) => {{
+          panel.classList.toggle('is-active', panel.id === nextId);
+        }});
+      }};
       const activate = (targetId) => {{
         const fallbackId = 'tab-virtual-paper';
         const nextId = document.getElementById(targetId) ? targetId : fallbackId;
@@ -1814,6 +1945,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         }} catch (error) {{}}
       }};
       buttons.forEach((button) => button.addEventListener('click', () => activate(button.dataset.tabTarget)));
+      Array.from(document.querySelectorAll('[data-subtab-group]')).forEach((button) => {{
+        button.addEventListener('click', () => activateSubtabGroup(button.dataset.subtabGroup, button.dataset.subtabTarget));
+      }});
       let initialTab = window.location.hash ? window.location.hash.slice(1) : '';
       if (!initialTab) {{
         try {{
@@ -1823,6 +1957,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         }}
       }}
       activate(initialTab || 'tab-virtual-paper');
+      activateSubtabGroup('virtual-paper', 'virtual-overview');
+      activateSubtabGroup('virtual-activity', 'virtual-activity-buy');
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
       if (refreshButton) {{
         refreshButton.addEventListener('click', () => {{
