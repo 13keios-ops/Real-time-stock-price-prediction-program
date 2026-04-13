@@ -58,6 +58,21 @@ function Resolve-PythonExecutable {
     throw "Python executable could not be resolved."
 }
 
+function Resolve-PythonwExecutable {
+    param([string]$PythonExecutable)
+    if (-not $PythonExecutable) {
+        return $null
+    }
+
+    $pythonDir = Split-Path $PythonExecutable -Parent
+    $pythonwPath = Join-Path $pythonDir "pythonw.exe"
+    if (Test-Path -LiteralPath $pythonwPath) {
+        return $pythonwPath
+    }
+
+    return $null
+}
+
 function Get-ListeningConnection {
     param([int]$LocalPort)
     return Get-NetTCPConnection -LocalPort $LocalPort -ErrorAction SilentlyContinue |
@@ -136,8 +151,11 @@ if (Test-Path -LiteralPath $statePath) {
 }
 
 $pythonExe = Resolve-PythonExecutable
-$process = Start-Process $pythonExe `
-    -ArgumentList @(
+$pythonwExe = Resolve-PythonwExecutable -PythonExecutable $pythonExe
+$backgroundExe = if ($pythonwExe) { $pythonwExe } else { $pythonExe }
+$startProcessArgs = @{
+    FilePath = $backgroundExe
+    ArgumentList = @(
         "-m",
         "app",
         "--serve-dashboard",
@@ -149,11 +167,18 @@ $process = Start-Process $pythonExe `
         "$RefreshSeconds",
         "--dashboard-recent-limit",
         "$RecentLimit"
-    ) `
-    -WorkingDirectory $WorkspaceRoot `
-    -RedirectStandardOutput $stdoutPath `
-    -RedirectStandardError $stderrPath `
-    -PassThru
+    )
+    WorkingDirectory = $WorkspaceRoot
+    WindowStyle = "Hidden"
+    PassThru = $true
+}
+
+if (-not $pythonwExe) {
+    $startProcessArgs.RedirectStandardOutput = $stdoutPath
+    $startProcessArgs.RedirectStandardError = $stderrPath
+}
+
+$process = Start-Process @startProcessArgs
 
 Start-Sleep -Seconds 3
 $process.Refresh()

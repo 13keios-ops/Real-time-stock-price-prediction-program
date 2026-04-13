@@ -34,6 +34,14 @@ from app.services.runtime import run_demo_pipeline, run_kis_snapshot_pipeline
 from app.universe.watchlist import parse_symbol_list
 
 
+def _safe_print_json(payload: dict[str, object]) -> None:
+    try:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    except Exception:
+        # Background dashboard runs may use pythonw.exe where stdout/stderr are unavailable.
+        return
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Realtime stock prediction program foundation runner.")
     parser.add_argument("--demo", action="store_true", help="Run the local demo pipeline.")
@@ -205,7 +213,7 @@ def main() -> int:
             refresh_seconds=args.dashboard_refresh_seconds,
             recent_limit=args.dashboard_recent_limit,
         )
-        print(json.dumps(info.to_dict(), ensure_ascii=False, indent=2))
+        _safe_print_json(info.to_dict())
         try:
             server.serve_forever()
         except KeyboardInterrupt:

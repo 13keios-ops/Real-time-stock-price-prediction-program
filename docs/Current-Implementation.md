@@ -258,7 +258,7 @@ python -m app --kis-account-balance
 ```
 
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
-The background launcher now starts the real Python executable directly and waits for `/health` before marking the server as running.
+The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
 
 ### 10. Monday runtime starter
 
