@@ -998,20 +998,27 @@ def _refresh_interval_text(refresh_seconds: int) -> str:
     return f"{max(refresh_seconds, 1)}초"
 
 
-def _table(headers: list[str], rows: list[list[Any]], empty_text: str) -> str:
+def _scroll_box(content: str, *, max_height: int = 380, css_class: str = "data-scroll") -> str:
+    return f'<div class="{css_class}" style="max-height:{max_height}px;">{content}</div>'
+
+
+def _table(headers: list[str], rows: list[list[Any]], empty_text: str, *, scroll_height: int = 380) -> str:
     if not rows:
         return f'<div class="empty">{_esc(empty_text)}</div>'
     header_html = "".join(f"<th>{_esc(header)}</th>" for header in headers)
     row_html = []
     for row in rows:
         row_html.append("<tr>" + "".join(f"<td>{_esc(cell)}</td>" for cell in row) + "</tr>")
-    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>"
+    return _scroll_box(
+        f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>",
+        max_height=scroll_height,
+    )
 
 
-def _list(items: list[str], empty_text: str) -> str:
+def _list(items: list[str], empty_text: str, *, scroll_height: int = 320) -> str:
     if not items:
         return f'<div class="empty">{_esc(empty_text)}</div>'
-    return "<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>"
+    return _scroll_box("<ul>" + "".join(f"<li>{item}</li>" for item in items) + "</ul>", max_height=scroll_height)
 
 
 def _pill_row(items: list[str]) -> str:
@@ -1033,6 +1040,32 @@ def _subtab_button(group: str, target: str, label: str, *, active: bool = False,
         f'<button class="{class_name}" type="button" '
         f'data-subtab-group="{_esc(group)}" data-subtab-target="{_esc(target)}" aria-selected="{aria_selected}">'
         f"{_esc(label)}</button>"
+    )
+
+
+def _section_card(title: str, body: str, *, note: str | None = None) -> str:
+    note_html = f'<div class="muted" style="margin-top:12px;">{note}</div>' if note else ""
+    return f'<div class="card card-embedded"><h3>{_esc(title)}</h3>{body}{note_html}</div>'
+
+
+def _stack_cards(*cards: str) -> str:
+    return '<div class="stack">' + "".join(cards) + "</div>"
+
+
+def _render_subtab_shell(title: str, group: str, sections: list[tuple[str, str, str]]) -> str:
+    nav_html = []
+    panel_html = []
+    for index, (target, label, content) in enumerate(sections):
+        active = index == 0
+        nav_html.append(_subtab_button(group, target, label, active=active, vertical=True))
+        panel_html.append(
+            f'<div id="{_esc(target)}" class="subtab-panel{" is-active" if active else ""}" '
+            f'data-subtab-panel="{_esc(group)}">{content}</div>'
+        )
+    return (
+        f'<div class="card"><h2>{_esc(title)}</h2><div class="subtab-shell">'
+        f'<div class="subtab-nav" role="tablist" aria-label="{_esc(title)} 세부 탭">{"".join(nav_html)}</div>'
+        f'<div>{"".join(panel_html)}</div></div></div>'
     )
 
 
@@ -1757,6 +1790,396 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             _tab_button("tab-other", "기타"),
         ]
     )
+    paper_compare_rows = [
+        ["브로커 상태", paper_account.get("status_text") or "-"],
+        ["브로커 예수금", _money(paper_account.get("cash_balance"))],
+        ["보유 종목 수", len(paper_account.get("positions") or [])],
+        ["로컬 가상계좌와 차이", "브로커 실제 모의투자 계좌 값은 프로그램 내부 가상 장부와 다를 수 있습니다."],
+    ]
+    live_compare_rows = [
+        ["연결 상태", live_account.get("status_text") or "-"],
+        ["실전 주문 허용", "예" if project.get("allow_live_orders") else "아니오"],
+        ["보유 종목 수", len(live_account.get("positions") or [])],
+        ["안내", "실 운용계좌는 현재 조회 중심이며, 주문 기능은 기본 비활성화 상태입니다."],
+    ]
+    signal_fill_rows = [
+        [row.get("event_time"), row.get("order_id"), _money(row.get("fill_price")), row.get("fill_qty"), _money(row.get("commission"))]
+        for row in payload.get("recent_fills", [])
+    ]
+    virtual_tab_html = _render_subtab_shell(
+        "모의투자(가상)",
+        "virtual-paper",
+        [
+            (
+                "virtual-overview",
+                "상태 설명",
+                _stack_cards(
+                    _section_card(
+                        "운용 상태 요약",
+                        _pill_row(virtual_account_pills)
+                        + '<div class="pillrow" style="margin-top:12px;">'
+                        + f'<span class="pill">열린 포지션: {virtual_account.get("open_positions", 0)}건</span>'
+                        + f'<span class="pill">최근 종료 포지션: {virtual_account.get("closed_positions_count", 0)}건</span>'
+                        + f'<span class="pill">총 주문: {virtual_account.get("orders_total", 0)}건</span>'
+                        + f'<span class="pill">체결률: {_ratio_pct(virtual_account.get("fill_rate"), 1)}</span>'
+                        + "</div>",
+                        note=(
+                            f"{_esc(virtual_account.get('status_note'))}<br>"
+                            f"운용 방식: {_esc(virtual_account.get('strategy_summary'))}<br>"
+                            f"최근 스냅샷 시각: {_esc(virtual_account.get('latest_snapshot_time'))}"
+                        ),
+                    ),
+                    _section_card(
+                        "설명",
+                        '<div class="muted">이 계좌는 프로그램 내부의 가상 장부입니다. 실제 장중 데이터로 신호를 만들고, 우리 규칙에 따라 모의주문과 모의체결을 기록합니다. 브로커 모의계좌와 값이 다를 수 있어도 이상이 아닙니다.</div>',
+                    ),
+                ),
+            ),
+            (
+                "virtual-holdings",
+                "보유 종목",
+                _stack_cards(
+                    _section_card(
+                        "현재 보유 종목",
+                        _table(
+                            ["종목", "수량", "평균 단가", "현재가", "평가 금액", "미실현 손익"],
+                            virtual_position_rows,
+                            "현재 열린 가상 포지션은 없습니다. 아래 최근 종료 포지션을 함께 확인해 주세요.",
+                        ),
+                    ),
+                    _section_card(
+                        "최근 종료 포지션",
+                        _table(
+                            ["종료 시각", "종목", "마지막 가격", "실현 손익"],
+                            virtual_closed_position_rows,
+                            "기록된 최근 종료 포지션이 없습니다.",
+                        ),
+                    ),
+                ),
+            ),
+            (
+                "virtual-activity",
+                "매수/매도 및 체결현황",
+                _pill_row(
+                    [
+                        f"총 주문: {virtual_account.get('orders_total', 0)}건",
+                        f"매수 주문: {virtual_account.get('buy_orders', 0)}건",
+                        f"매도 주문: {virtual_account.get('sell_orders', 0)}건",
+                        f"체결: {virtual_account.get('fills', 0)}건",
+                        f"체결 수량: {virtual_account.get('fill_qty', 0)}주",
+                        f"포지션 비중: {_ratio_pct(virtual_account.get('capital_in_market_ratio'), 1)}",
+                    ]
+                )
+                + '<div class="expand-tabs" role="tablist" aria-label="모의투자 가상 거래 세부 탭">'
+                + _subtab_button("virtual-activity", "virtual-activity-buy", f"매수 주문 {len(virtual_buy_order_rows)}건", active=True)
+                + _subtab_button("virtual-activity", "virtual-activity-sell", f"매도 주문 {len(virtual_sell_order_rows)}건")
+                + _subtab_button("virtual-activity", "virtual-activity-fills", f"체결 {len(virtual_fill_activity_rows)}건")
+                + _subtab_button("virtual-activity", "virtual-activity-signals", f"최근 신호 {len(virtual_signal_activity_rows)}건")
+                + "</div>"
+                + f'<div id="virtual-activity-buy" class="expand-panel is-active" data-subtab-panel="virtual-activity">{_table(["시각", "종목", "수량", "지정가", "상태"], virtual_buy_order_rows, "최근 매수 주문이 없습니다.")}</div>'
+                + f'<div id="virtual-activity-sell" class="expand-panel" data-subtab-panel="virtual-activity">{_table(["시각", "종목", "수량", "지정가", "상태"], virtual_sell_order_rows, "최근 매도 주문이 없습니다.")}</div>'
+                + f'<div id="virtual-activity-fills" class="expand-panel" data-subtab-panel="virtual-activity">{_table(["시각", "주문 ID", "체결가", "수량", "수수료"], virtual_fill_activity_rows, "최근 체결이 없습니다.")}</div>'
+                + f'<div id="virtual-activity-signals" class="expand-panel" data-subtab-panel="virtual-activity">{_table(["시각", "종목", "방향", "허용 여부", "설명"], virtual_signal_activity_rows, "최근 신호가 없습니다.")}</div>'
+                + '<div class="muted" style="margin-top:12px;">매도 주문과 매도 신호는 실제 숏 전략이 아니라, 보유 종목 청산 또는 하락 우세 판단에서 나온 내부 기록일 수 있습니다.</div>',
+            ),
+        ],
+    )
+    paper_tab_html = _render_subtab_shell(
+        "모의계좌(실제)",
+        "paper-broker",
+        [
+            (
+                "paper-broker-overview",
+                "상태 설명",
+                _stack_cards(
+                    _section_card(
+                        "계좌 요약",
+                        _pill_row(paper_account_pills),
+                        note=(
+                            f"최근 조회 시각: {_esc(paper_account.get('fetched_at'))}<br>"
+                            f"조회 메모: {_esc(paper_account.get('account_note'))}<br>"
+                            f"오류: {_esc(paper_account.get('error') or '없음')}"
+                        ),
+                    ),
+                    _section_card(
+                        "설명",
+                        '<div class="muted">한국투자 모의투자 계좌에서 직접 조회한 실제 잔고입니다. 로컬 모의운용 계좌와 값이 다를 수 있습니다.</div>',
+                    ),
+                ),
+            ),
+            (
+                "paper-broker-holdings",
+                "보유 종목",
+                _section_card(
+                    "보유 종목",
+                    _table(
+                        ["종목", "종목명", "보유수량", "현재가", "평가금액", "평가손익"],
+                        paper_position_rows,
+                        "브로커 모의계좌 보유 종목이 없습니다.",
+                    ),
+                ),
+            ),
+            (
+                "paper-broker-activity",
+                "매수/매도 및 체결현황",
+                _stack_cards(
+                    _section_card("현재 제공 범위", _table(["항목", "값"], paper_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
+                    _section_card(
+                        "안내",
+                        '<div class="muted">현재 브로커 계좌 탭은 잔고와 보유 종목 중심으로 표시합니다. 브로커 주문·체결 내역을 별도 조회하는 기능은 아직 연결하지 않았습니다.</div>',
+                    ),
+                ),
+            ),
+        ],
+    )
+    live_tab_html = _render_subtab_shell(
+        "실 운용계좌",
+        "live-broker",
+        [
+            (
+                "live-broker-overview",
+                "상태 설명",
+                _stack_cards(
+                    _section_card(
+                        "계좌 요약",
+                        _pill_row(live_account_pills),
+                        note=(
+                            f"최근 조회 시각: {_esc(live_account.get('fetched_at'))}<br>"
+                            f"조회 메모: {_esc(live_account.get('account_note'))}<br>"
+                            f"오류: {_esc(live_account.get('error') or '없음')}"
+                        ),
+                    ),
+                    _section_card(
+                        "설명",
+                        '<div class="muted">실전 계좌가 연결되면 보유 종목과 잔고를 같은 틀로 비교할 수 있습니다. 현재는 실전 주문 기능을 켜지 않았습니다.</div>',
+                    ),
+                ),
+            ),
+            (
+                "live-broker-holdings",
+                "보유 종목",
+                _section_card(
+                    "보유 종목",
+                    _table(
+                        ["종목", "종목명", "보유수량", "현재가", "평가금액", "평가손익"],
+                        live_position_rows,
+                        "실 운용계좌 정보가 없거나 아직 조회되지 않았습니다.",
+                    ),
+                ),
+            ),
+            (
+                "live-broker-activity",
+                "매수/매도 및 체결현황",
+                _stack_cards(
+                    _section_card("현재 제공 범위", _table(["항목", "값"], live_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
+                    _section_card(
+                        "안내",
+                        '<div class="muted">실전 계좌는 현재 조회 위주로만 표시합니다. 실전 자격정보를 넣지 않았거나 조회를 일부러 막아둔 경우 빈 상태가 정상입니다.</div>',
+                    ),
+                ),
+            ),
+        ],
+    )
+    ml_tab_html = _render_subtab_shell(
+        "머신러닝 현황",
+        "ml",
+        [
+            (
+                "ml-overview",
+                "현재 운용",
+                _stack_cards(
+                    _section_card(
+                        "실운용 학습 상태",
+                        _pill_row(ml_status_pills),
+                        note=f"{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}",
+                    ),
+                    _section_card("모델별 상태", _table(["구분", "모델 버전", "종류", "상태", "평가 점수", "메모"], model_rows, "표시할 모델 상태가 없습니다.")),
+                ),
+            ),
+            (
+                "ml-training",
+                "학습 및 평가",
+                _stack_cards(
+                    _section_card("선택 기간 학습 결과", _table(["완료 시각", "모델 버전", "학습 행 수", "검증 행 수", "특징 세트"], today_training_rows, "현재 범위에 학습 기록이 없습니다.")),
+                    _section_card("선택 기간 평가 결과", _table(["평가 시각", "분할 이름", "정확도", "행 수"], today_evaluation_rows, "현재 범위에 평가 기록이 없습니다.")),
+                    _section_card(
+                        "최신 검증 요약",
+                        _pill_row(
+                            [
+                                f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
+                                f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}",
+                                f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}",
+                                f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}",
+                            ]
+                        ),
+                    ),
+                ),
+            ),
+            (
+                "ml-challenger",
+                "챌린저 및 워크포워드",
+                _stack_cards(
+                    _section_card("챌린저 비교", _table(["순위", "후보", "모델 버전", "정확도", "거래 적중률", "누적 순수익률"], challenger_rows, "챌린저 비교 결과가 없습니다.")),
+                    _section_card("워크포워드 상세", _table(["fold", "정확도", "거래 수", "거래 적중률", "누적 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
+                ),
+            ),
+        ],
+    )
+    status_tab_html = _render_subtab_shell(
+        "상태 및 설정",
+        "status",
+        [
+            (
+                "status-program",
+                "현재 프로그램 상태",
+                _section_card("현재 프로그램 상태", _table(["항목", "값"], status_rows, "상태 정보가 없습니다.", scroll_height=330), note=f"{_esc(system_status.get('operation_note'))}<br>{_esc(live_runtime.get('status_note'))}"),
+            ),
+            (
+                "status-kis-settings",
+                "연결 및 설정",
+                _stack_cards(
+                    _section_card(
+                        "KIS 연결 상태",
+                        _pill_row(
+                            [
+                                f"연결 준비: {'예' if latest_kis.get('connection_ready') else '아니오'}",
+                                f"실데이터 수신: {'예' if latest_kis.get('market_data_flow_ok') else '아니오'}",
+                                f"승인 키 발급: {'예' if latest_kis.get('approval_key_issued') else '아니오'}",
+                                f"수신 프레임: {latest_kis.get('frames_received', 0)}",
+                                f"제어 프레임: {latest_kis.get('control_frames', 0)}",
+                            ]
+                        ),
+                        note=f"상태 메모: {_esc(latest_kis.get('status_note') or '-')}",
+                    ),
+                    _section_card("운용 및 설정", _table(["항목", "값"], setting_rows, "표시할 설정이 없습니다.", scroll_height=330)),
+                ),
+            ),
+            (
+                "status-runtime",
+                "집계 현황",
+                _section_card("집계 현황", _table(["항목", "값"], runtime_rows, "표시할 집계가 없습니다.", scroll_height=330)),
+            ),
+        ],
+    )
+    predictions_tab_html = _render_subtab_shell(
+        "예측현황",
+        "predictions",
+        [
+            (
+                "predictions-overview",
+                "요약",
+                _stack_cards(
+                    _section_card("예측 요약", _pill_row(prediction_status_pills + [f"최근 예측 시각: {prediction_summary.get('latest_prediction_time') or '-'}"]), note="예측 성공률은 실제 결과가 확정된 예측만 기준으로 계산합니다. 선택 기간 전체 기준으로 집계합니다."),
+                    _section_card(
+                        "수평선별 집계",
+                        _pill_row(
+                            [f"{key}분: {value}건" for key, value in (prediction_summary.get("horizon_counts") or {}).items()]
+                            + [
+                                f"상승 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('up', 0)}건",
+                                f"하락 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('down', 0)}건",
+                                f"보합 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('flat', 0)}건",
+                            ]
+                        ),
+                    ),
+                ),
+            ),
+            (
+                "predictions-detail",
+                "예측 상세",
+                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다.")),
+            ),
+            (
+                "predictions-notes",
+                "해석 메모",
+                _section_card("예측 해석 메모", '<div class="muted">예측 결과는 기준가 대비 예상 변동 금액과 실제 결과를 함께 보여줍니다. 아직 목표 시점이 지나지 않은 예측은 실제 결과가 대기 중으로 표시됩니다. 실제 결과가 확정되면 성공/실패 판정이 함께 갱신됩니다.</div>'),
+            ),
+        ],
+    )
+    signal_orders_tab_html = _render_subtab_shell(
+        "신호 & 주문현황",
+        "signal-orders",
+        [
+            (
+                "signal-orders-overview",
+                "요약",
+                _section_card(
+                    "신호 & 주문 요약",
+                    _pill_row(
+                        signal_status_pills
+                        + [
+                            f"최근 신호 시각: {signal_order_summary.get('latest_signal_time') or '-'}",
+                            f"최근 주문 시각: {signal_order_summary.get('latest_order_time') or '-'}",
+                            f"최근 체결 시각: {signal_order_summary.get('latest_fill_time') or '-'}",
+                        ]
+                    ),
+                    note="매도는 실제 매도 주문이라기보다, 모델이 하락 확률을 높게 본 원시 신호일 수 있습니다. 현재 기본 정책은 매수 전용이라 이런 매도 신호는 차단되는 것이 정상입니다.",
+                ),
+            ),
+            (
+                "signal-orders-signals",
+                "신호 기록",
+                _section_card("신호 기록", _table(["시각", "종목코드", "종목명", "기준", "방향", "허용 여부", "설명"], signal_rows, "현재 범위에 신호 기록이 없습니다.")),
+            ),
+            (
+                "signal-orders-orders",
+                "주문 및 체결",
+                _stack_cards(
+                    _section_card("주문 기록", _table(["시각", "종목코드", "방향", "수량", "지정가", "상태"], order_rows, "현재 범위에 주문 기록이 없습니다.")),
+                    _section_card("체결 기록", _table(["시각", "주문 ID", "체결가", "수량", "수수료"], signal_fill_rows, "현재 범위에 체결 기록이 없습니다.")),
+                ),
+            ),
+        ],
+    )
+    fills_bars_tab_html = _render_subtab_shell(
+        "체결과 분봉",
+        "fills-bars",
+        [
+            ("fills-bars-fills", "최근 체결", _section_card("최근 체결", _table(["시각", "주문 ID", "체결가", "수량", "수수료"], fill_rows, "현재 범위에 실제 체결 기록이 없습니다."))),
+            ("fills-bars-bars", "최근 분봉", _section_card("최근 분봉", _table(["시각", "종목", "시가", "고가", "저가", "종가", "거래량"], bar_rows, "현재 범위에 분봉 기록이 없습니다."), note=_esc(system_status.get("minute_note")))),
+            ("fills-bars-notes", "해석 메모", _section_card("해석 메모", '<div class="muted">최근 분봉은 실제 KIS 장중 데이터 기준으로 집계됩니다. 주문이나 체결이 없어도 시장 데이터만 들어오면 분봉은 계속 생성될 수 있습니다.</div>')),
+        ],
+    )
+    daily_report_tab_html = _render_subtab_shell(
+        "오늘의 리포트",
+        "daily-report",
+        [
+            (
+                "daily-report-summary",
+                "요약",
+                _section_card(
+                    "오늘의 리포트",
+                    _pill_row(
+                        [
+                            f"리포트 기준: {today_report.get('headline') or '-'}",
+                            f"실현 손익: {_money(virtual_account.get('realized_pnl'))}",
+                            f"브로커 예수금: {_money(paper_account.get('cash_balance'))}",
+                            f"체결: {signal_order_summary.get('fills', 0)}건",
+                            f"예측 성공률: {_ratio_pct(prediction_summary.get('success_rate'), 1)}",
+                        ]
+                    ),
+                    note=_esc(today_report.get("summary")),
+                ),
+            ),
+            ("daily-report-insights", "분석과 고찰", _section_card("분석과 고찰", _list([_esc(item) for item in today_report.get("insights", [])], "기록된 분석이 없습니다."))),
+            ("daily-report-next", "향후 접근 방향", _section_card("향후 접근 방향", _list([_esc(item) for item in today_report.get("next_steps", [])], "기록된 다음 방향이 없습니다."))),
+        ],
+    )
+    other_tab_html = _render_subtab_shell(
+        "기타",
+        "other",
+        [
+            ("other-summary", "자동 점검 요약", _section_card("자동 점검 요약", f'<div class="muted">{_esc(audit_progress.get("last_run_summary") or "자동 점검 요약이 아직 없습니다.")}</div>')),
+            (
+                "other-backlog",
+                "우선순위 backlog",
+                _stack_cards(
+                    _section_card("우선순위 backlog", _list(backlog_items, "표시할 backlog 항목이 없습니다.")),
+                    _section_card("다음 작업", _list(next_actions, "기록된 다음 작업이 없습니다.")),
+                ),
+            ),
+            ("other-guide", "안내", _section_card("안내", '<div class="muted">이 화면은 실제 KIS 기반 운용 데이터만 보여줍니다. 샘플, synthetic, demo, replay 데이터는 제외됩니다. 조회 범위를 바꾸면 특정 날짜나 최근 기간 기준으로 데이터를 다시 볼 수 있습니다.</div>')),
+        ],
+    )
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -1800,9 +2223,12 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     .subtab-button.is-active {{ background:#15212d; color:#fff; border-color:#15212d; }}
     .subtab-panel {{ display:none; }}
     .subtab-panel.is-active {{ display:block; }}
+    .card.card-embedded {{ background:#fff; border-radius:18px; box-shadow:none; }}
+    .data-scroll {{ overflow:auto; padding-right:6px; }}
+    .data-scroll table {{ min-width:100%; }}
     .expand-tabs {{ display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 16px; }}
-    .expand-button {{ appearance:none; border:1px solid rgba(21,33,45,.18); border-radius:999px; background:#fff; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer; }}
-    .expand-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
+    .expand-tabs .subtab-button {{ width:auto; border-radius:999px; padding:10px 14px; font-size:14px; }}
+    .expand-tabs .subtab-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
     .expand-panel {{ display:none; }}
     .expand-panel.is-active {{ display:block; }}
     .layout-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
@@ -1843,70 +2269,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     <section class="metrics">{metrics_html}</section>
     <section class="tabs" role="tablist" aria-label="대시보드 탭">{tab_buttons}</section>
 
-    <section id="tab-virtual-paper" class="tab-panel is-active">
-      <div class="card">
-        <h2>모의투자(가상)</h2>
-        <div class="subtab-shell">
-          <div class="subtab-nav" role="tablist" aria-label="모의투자 가상 세부 탭">
-            {_subtab_button("virtual-paper", "virtual-overview", "상태 설명", active=True, vertical=True)}
-            {_subtab_button("virtual-paper", "virtual-holdings", "보유 종목", vertical=True)}
-            {_subtab_button("virtual-paper", "virtual-activity", "매수/매도 및 체결현황", vertical=True)}
-          </div>
-          <div>
-            <div id="virtual-overview" class="subtab-panel is-active" data-subtab-panel="virtual-paper">
-              {_pill_row(virtual_account_pills)}
-              <div class="muted" style="margin-top:12px;">{_esc(virtual_account.get('status_note'))}<br>운용 방식: {_esc(virtual_account.get('strategy_summary'))}<br>최근 스냅샷 시각: {_esc(virtual_account.get('latest_snapshot_time'))}</div>
-              <div class="pillrow" style="margin-top:12px;">
-                <span class="pill">열린 포지션: {virtual_account.get('open_positions', 0)}건</span>
-                <span class="pill">최근 종료 포지션: {virtual_account.get('closed_positions_count', 0)}건</span>
-                <span class="pill">총 주문: {virtual_account.get('orders_total', 0)}건</span>
-                <span class="pill">체결률: {_ratio_pct(virtual_account.get('fill_rate'), 1)}</span>
-              </div>
-              <div class="muted" style="margin-top:12px;">이 계좌는 프로그램 내부의 가상 장부입니다. 실제 장중 데이터로 신호를 만들고, 우리 규칙에 따라 모의주문과 모의체결을 기록합니다. 브로커 모의계좌와 값이 다를 수 있어도 이상이 아닙니다.</div>
-            </div>
-            <div id="virtual-holdings" class="subtab-panel" data-subtab-panel="virtual-paper">
-              <h3>현재 보유 종목</h3>
-              {_table(['종목','수량','평균 단가','현재가','평가 금액','미실현 손익'], virtual_position_rows, '현재 열린 가상 포지션은 없습니다. 아래 최근 종료 포지션을 함께 확인해 주세요.')}
-              <div style="margin-top:18px;">
-                <h3>최근 종료 포지션</h3>
-                {_table(['종료 시각','종목','마지막 가격','실현 손익'], virtual_closed_position_rows, '기록된 최근 종료 포지션이 없습니다.')}
-              </div>
-            </div>
-            <div id="virtual-activity" class="subtab-panel" data-subtab-panel="virtual-paper">
-              {_pill_row([f"총 주문: {virtual_account.get('orders_total', 0)}건", f"매수 주문: {virtual_account.get('buy_orders', 0)}건", f"매도 주문: {virtual_account.get('sell_orders', 0)}건", f"체결: {virtual_account.get('fills', 0)}건", f"체결 수량: {virtual_account.get('fill_qty', 0)}주", f"포지션 비중: {_ratio_pct(virtual_account.get('capital_in_market_ratio'), 1)}"])}
-              <div class="expand-tabs" role="tablist" aria-label="모의투자 가상 거래 세부 탭">
-                {_subtab_button("virtual-activity", "virtual-activity-buy", f"매수 주문 {len(virtual_buy_order_rows)}건", active=True)}
-                {_subtab_button("virtual-activity", "virtual-activity-sell", f"매도 주문 {len(virtual_sell_order_rows)}건")}
-                {_subtab_button("virtual-activity", "virtual-activity-fills", f"체결 {len(virtual_fill_activity_rows)}건")}
-                {_subtab_button("virtual-activity", "virtual-activity-signals", f"최근 신호 {len(virtual_signal_activity_rows)}건")}
-              </div>
-              <div id="virtual-activity-buy" class="expand-panel is-active" data-subtab-panel="virtual-activity">
-                {_table(['시각','종목','수량','지정가','상태'], virtual_buy_order_rows, '최근 매수 주문이 없습니다.')}
-              </div>
-              <div id="virtual-activity-sell" class="expand-panel" data-subtab-panel="virtual-activity">
-                {_table(['시각','종목','수량','지정가','상태'], virtual_sell_order_rows, '최근 매도 주문이 없습니다.')}
-              </div>
-              <div id="virtual-activity-fills" class="expand-panel" data-subtab-panel="virtual-activity">
-                {_table(['시각','주문 ID','체결가','수량','수수료'], virtual_fill_activity_rows, '최근 체결이 없습니다.')}
-              </div>
-              <div id="virtual-activity-signals" class="expand-panel" data-subtab-panel="virtual-activity">
-                {_table(['시각','종목','방향','허용 여부','설명'], virtual_signal_activity_rows, '최근 신호가 없습니다.')}
-              </div>
-              <div class="muted" style="margin-top:12px;">매도 주문과 매도 신호는 실제 숏 전략이 아니라, 보유 종목 청산 또는 하락 우세 판단에서 나온 내부 기록일 수 있습니다.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-    <section id="tab-paper-broker" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>모의계좌(실제)</h2>{_pill_row(paper_account_pills)}<div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(paper_account.get('fetched_at'))}<br>조회 메모: {_esc(paper_account.get('account_note'))}<br>오류: {_esc(paper_account.get('error') or '없음')}</div></div><div class="card"><h3>보유 종목</h3>{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], paper_position_rows, '브로커 모의계좌 보유 종목이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>매수/매도 현황 안내</h3><div class="muted">현재 브로커 계좌 탭은 잔고와 보유 종목 중심으로 표시합니다. 브로커 주문·체결 내역을 별도 조회하는 기능은 아직 연결하지 않았습니다.</div></div><div class="card"><h3>설명</h3><div class="muted">한국투자 모의투자 계좌에서 직접 조회한 실제 잔고입니다. 로컬 모의운용 계좌와 값이 다를 수 있습니다.</div></div></div></div></section>
-    <section id="tab-live-broker" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>실 운용계좌</h2>{_pill_row(live_account_pills)}<div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(live_account.get('fetched_at'))}<br>조회 메모: {_esc(live_account.get('account_note'))}<br>오류: {_esc(live_account.get('error') or '없음')}</div></div><div class="card"><h3>보유 종목</h3>{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], live_position_rows, '실 운용계좌 정보가 없거나 아직 조회되지 않았습니다.')}</div></div><div class="stack"><div class="card"><h3>매수/매도 현황 안내</h3><div class="muted">실전 계좌는 현재 조회 위주로만 표시합니다. 실전 자격정보를 넣지 않았거나 조회를 일부러 막아둔 경우 빈 상태가 정상입니다.</div></div><div class="card"><h3>설명</h3><div class="muted">실전 계좌가 연결되면 보유 종목과 잔고를 같은 틀로 비교할 수 있습니다. 현재는 실전 주문 기능을 켜지 않았습니다.</div></div></div></div></section>
-    <section id="tab-ml" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>머신러닝 현황</h2>{_pill_row(ml_status_pills)}<div class="muted" style="margin-top:12px;">{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}</div></div><div class="card"><h3>모델별 상태</h3>{_table(['구분','모델 버전','종류','상태','평가 점수','메모'], model_rows, '표시할 모델 상태가 없습니다.')}</div><div class="card"><h3>선택 기간 학습 결과</h3>{_table(['완료 시각','모델 버전','학습 행 수','검증 행 수','특징 세트'], today_training_rows, '현재 범위에 학습 기록이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>선택 기간 평가 결과</h3>{_table(['평가 시각','분할 이름','정확도','행 수'], today_evaluation_rows, '현재 범위에 평가 기록이 없습니다.')}</div><div class="card"><h3>최신 검증 요약</h3>{_pill_row([f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}", f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}", f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}", f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}"])}</div><div class="card"><h3>챌린저 비교</h3>{_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}</div><div class="card"><h3>워크포워드 상세</h3>{_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 상세 결과가 없습니다.')}</div></div></div></section>
-    <section id="tab-status" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>현재 프로그램 상태</h2>{_table(['항목','값'], status_rows, '상태 정보가 없습니다.')}<div class="muted" style="margin-top:12px;">{_esc(system_status.get('operation_note'))}<br>{_esc(live_runtime.get('status_note'))}</div></div><div class="card"><h3>KIS 연결 상태</h3>{_pill_row([f"연결 준비: {'예' if latest_kis.get('connection_ready') else '아니오'}", f"실데이터 수신: {'예' if latest_kis.get('market_data_flow_ok') else '아니오'}", f"승인 키 발급: {'예' if latest_kis.get('approval_key_issued') else '아니오'}", f"수신 프레임: {latest_kis.get('frames_received', 0)}", f"제어 프레임: {latest_kis.get('control_frames', 0)}"])}<div class="muted" style="margin-top:12px;">상태 메모: {_esc(latest_kis.get('status_note') or '-')}</div></div></div><div class="stack"><div class="card"><h3>운용 및 설정</h3>{_table(['항목','값'], setting_rows, '표시할 설정이 없습니다.')}</div><div class="card"><h3>집계 현황</h3>{_table(['항목','값'], runtime_rows, '표시할 집계가 없습니다.')}</div></div></div></section>
-    <section id="tab-predictions" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>예측현황</h2>{_pill_row(prediction_status_pills + [f"최근 예측 시각: {prediction_summary.get('latest_prediction_time') or '-'}"])}<div class="muted" style="margin-top:12px;">예측 성공률은 실제 결과가 확정된 예측만 기준으로 계산합니다. 선택 기간 전체 기준으로 집계하며, 아래 표는 최근 예측 위주로 보여줍니다.</div></div><div class="card"><h3>예측 상세</h3>{_table(['시각','종목','수평선','모델','기준가','예측 결과 및 예상 변동','실제 결과','성공 여부'], prediction_rows, '현재 범위에 예측 기록이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>수평선별 집계</h3>{_pill_row([f"{key}분: {value}건" for key, value in (prediction_summary.get('horizon_counts') or {}).items()] + [f"상승 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('up', 0)}건", f"하락 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('down', 0)}건", f"보합 예측: {(prediction_summary.get('predicted_label_counts') or {}).get('flat', 0)}건"] )}</div><div class="card"><h3>예측 해석 메모</h3><div class="muted">예측 결과는 기준가 대비 예상 변동 금액과 실제 결과를 함께 보여줍니다. 아직 목표 시점이 지나지 않은 예측은 실제 결과가 대기 중으로 표시됩니다. 실제 결과가 확정되면 성공/실패 판정이 함께 갱신됩니다.</div></div></div></div></section>
-    <section id="tab-signal-orders" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>신호 & 주문현황</h2>{_pill_row(signal_status_pills + [f"최근 신호 시각: {signal_order_summary.get('latest_signal_time') or '-'}", f"최근 주문 시각: {signal_order_summary.get('latest_order_time') or '-'}", f"최근 체결 시각: {signal_order_summary.get('latest_fill_time') or '-'}"])}<div class="muted" style="margin-top:12px;">매도는 실제 매도 주문이라기보다, 모델이 하락 확률을 높게 본 원시 신호일 수 있습니다. 현재 기본 정책은 매수 전용이라 이런 매도 신호는 차단되는 것이 정상입니다.</div></div><div class="card"><h3>신호 기록</h3>{_table(['시각','종목코드','종목명','기준','방향','허용 여부','설명'], signal_rows, '현재 범위에 신호 기록이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>주문 기록</h3>{_table(['시각','종목코드','방향','수량','지정가','상태'], order_rows, '현재 범위에 주문 기록이 없습니다.')}</div></div></div></section>
-    <section id="tab-fills-bars" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>최근 체결</h2>{_table(['시각','주문 ID','체결가','수량','수수료'], fill_rows, '현재 범위에 실제 체결 기록이 없습니다.')}</div></div><div class="stack"><div class="card"><h2>최근 분봉</h2>{_table(['시각','종목','시가','고가','저가','종가','거래량'], bar_rows, '현재 범위에 분봉 기록이 없습니다.')}<div class="muted" style="margin-top:12px;">{_esc(system_status.get('minute_note'))}</div></div></div></div></section>
-    <section id="tab-daily-report" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>오늘의 리포트</h2>{_pill_row([f"리포트 기준: {today_report.get('headline') or '-'}", f"실현 손익: {_money(virtual_account.get('realized_pnl'))}", f"브로커 예수금: {_money(paper_account.get('cash_balance'))}", f"체결: {signal_order_summary.get('fills', 0)}건", f"예측 성공률: {_ratio_pct(prediction_summary.get('success_rate'), 1)}"])}<div class="muted" style="margin-top:12px;">{_esc(today_report.get('summary'))}</div></div><div class="card"><h3>분석과 고찰</h3>{_list([_esc(item) for item in today_report.get('insights', [])], '기록된 분석이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>향후 접근 방향</h3>{_list([_esc(item) for item in today_report.get('next_steps', [])], '기록된 다음 방향이 없습니다.')}</div></div></div></section>
-    <section id="tab-other" class="tab-panel"><div class="layout-2"><div class="stack"><div class="card"><h2>자동 점검 요약</h2><div class="muted">{_esc(audit_progress.get('last_run_summary') or '자동 점검 요약이 아직 없습니다.')}</div><h3 style="margin-top:14px;">우선순위 backlog</h3>{_list(backlog_items, '표시할 backlog 항목이 없습니다.')}<h3 style="margin-top:14px;">다음 작업</h3>{_list(next_actions, '기록된 다음 작업이 없습니다.')}</div></div><div class="stack"><div class="card"><h3>안내</h3><div class="muted">이 화면은 실제 KIS 기반 운용 데이터만 보여줍니다. 샘플, synthetic, demo, replay 데이터는 제외됩니다. 조회 범위를 바꾸면 특정 날짜나 최근 기간 기준으로 데이터를 다시 볼 수 있습니다.</div></div></div></div></section>
+    <section id="tab-virtual-paper" class="tab-panel is-active">{virtual_tab_html}</section>
+    <section id="tab-paper-broker" class="tab-panel">{paper_tab_html}</section>
+    <section id="tab-live-broker" class="tab-panel">{live_tab_html}</section>
+    <section id="tab-ml" class="tab-panel">{ml_tab_html}</section>
+    <section id="tab-status" class="tab-panel">{status_tab_html}</section>
+    <section id="tab-predictions" class="tab-panel">{predictions_tab_html}</section>
+    <section id="tab-signal-orders" class="tab-panel">{signal_orders_tab_html}</section>
+    <section id="tab-fills-bars" class="tab-panel">{fills_bars_tab_html}</section>
+    <section id="tab-daily-report" class="tab-panel">{daily_report_tab_html}</section>
+    <section id="tab-other" class="tab-panel">{other_tab_html}</section>
   </div>
   <script>
     (() => {{
@@ -1914,11 +2286,15 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       const panels = Array.from(document.querySelectorAll('.tab-panel'));
       const refreshButton = document.getElementById('refresh-dashboard-button');
       const storageKey = 'realtime-stock-dashboard-active-tab';
+      const subtabStoragePrefix = 'realtime-stock-dashboard-subtab-';
       const activateSubtabGroup = (group, targetId) => {{
         const buttonsInGroup = Array.from(document.querySelectorAll(`[data-subtab-group="${{group}}"]`));
         const panelsInGroup = Array.from(document.querySelectorAll(`[data-subtab-panel="${{group}}"]`));
         const fallbackId = panelsInGroup.length ? panelsInGroup[0].id : '';
         const nextId = document.getElementById(targetId) ? targetId : fallbackId;
+        if (!nextId) {{
+          return;
+        }}
         buttonsInGroup.forEach((button) => {{
           const active = button.dataset.subtabTarget === nextId;
           button.classList.toggle('is-active', active);
@@ -1927,6 +2303,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         panelsInGroup.forEach((panel) => {{
           panel.classList.toggle('is-active', panel.id === nextId);
         }});
+        try {{
+          window.localStorage.setItem(`${{subtabStoragePrefix}}${{group}}`, nextId);
+        }} catch (error) {{}}
       }};
       const activate = (targetId) => {{
         const fallbackId = 'tab-virtual-paper';
@@ -1957,8 +2336,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         }}
       }}
       activate(initialTab || 'tab-virtual-paper');
-      activateSubtabGroup('virtual-paper', 'virtual-overview');
-      activateSubtabGroup('virtual-activity', 'virtual-activity-buy');
+      const subtabGroups = Array.from(new Set(Array.from(document.querySelectorAll('[data-subtab-group]')).map((button) => button.dataset.subtabGroup).filter(Boolean)));
+      subtabGroups.forEach((group) => {{
+        let initialSubtab = '';
+        try {{
+          initialSubtab = window.localStorage.getItem(`${{subtabStoragePrefix}}${{group}}`) || '';
+        }} catch (error) {{
+          initialSubtab = '';
+        }}
+        activateSubtabGroup(group, initialSubtab);
+      }});
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
       if (refreshButton) {{
         refreshButton.addEventListener('click', () => {{

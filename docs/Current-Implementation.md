@@ -24,6 +24,7 @@ The project now has a working local foundation for:
 - KIS verification separation between connection readiness and market-data flow
 - Local monitoring dashboard snapshot generation and HTTP serving
 - Dashboard top status area and 10-tab layout for account, ML, prediction, signal/order, fills/bars, report, and misc views
+- Every top-level dashboard tab now uses the same left-side vertical subtab layout instead of mixing layouts by tab
 - Dashboard date / period filtering for today, specific day, recent 3/7/30 days, and all accumulated runtime data
 - Dashboard learning view separation between actual runtime status and offline research results
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
@@ -32,6 +33,7 @@ The project now has a working local foundation for:
 - Virtual-paper account view now uses vertical subtabs for overview, holdings, and trade activity
 - Virtual-paper holdings now show recent closed positions when no open positions remain
 - Virtual-paper trade activity now expands into buy-order, sell-order, fill, and recent-signal subtabs
+- Long dashboard tables and lists now render inside scrollable panels so accumulated rows can be reviewed without collapsing the page layout
 - Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
 - Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
 - Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
@@ -263,9 +265,11 @@ Default dashboard behavior:
 - tabs are `모의투자 (가상)`, `모의계좌 (실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
 - `모의투자 (가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
 - the virtual-paper tab now uses a left-side vertical selector instead of stacking all sections at once
+- the other top-level tabs now follow the same vertical-selector pattern for consistency
 - `모의계좌 (실제)` and `실 운용계좌` tabs show broker account state, holdings, and account notes separately
 - `예측현황` aggregates the selected period, while the table focuses on recent rows
 - `오늘의 리포트` summarizes the selected period rather than only the latest few events
+- long tables and bullet lists use an internal scroll panel instead of forcing the whole page to grow endlessly
 
 Background start / status / stop:
 
