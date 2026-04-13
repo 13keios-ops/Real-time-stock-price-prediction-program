@@ -234,10 +234,11 @@ Background start / status / stop:
 The dashboard currently shows:
 
 - `거래 현황` 탭
-  - 최근 예측, 최근 신호, 최근 주문, 최근 체결과 분봉, 계좌 현황, KIS 연결 상태
+  - 최근 예측, 최근 신호, 최근 주문, 최근 체결과 분봉
+  - 로컬 모의운용 계좌, 브로커 모의계좌 잔고, KIS 연결 상태
 - `학습 현황` 탭
-  - 활성 모델, 최신 학습, 최신 평가, 백테스트, 워크포워드, 챌린저 비교
-  - 실제 운용 라벨이 아직 없으면 이 탭은 `오프라인 연구 결과`로 표시된다
+  - 실운용 학습 상태, 현재 운용 모델 상태
+  - 오프라인 연구 결과, 최신 학습, 최신 평가, 백테스트, 워크포워드, 챌린저 비교
 - `그 외` 탭
   - 프로젝트 정보, 상세 집계, 자동 점검 backlog 와 다음 작업
 
@@ -257,6 +258,7 @@ python -m app --kis-account-balance
 ```
 
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
+The background launcher now starts the real Python executable directly and waits for `/health` before marking the server as running.
 
 ### 10. Monday runtime starter
 

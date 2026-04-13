@@ -181,6 +181,9 @@
   - 실제 브로커 모의계좌 조회 결과 현재 예수금 `10,000,000원`, 보유 종목 `0건`이 확인됐다.
   - 대시보드 거래 탭은 이제 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`를 분리해서 보여준다.
   - `start_monday_runtime.ps1` 는 이제 KIS 브로커 모의계좌 잔고를 함께 갱신하고 요약에 포함한다.
+  - `start_dashboard_background.ps1` 는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 background 로 띄운다.
+  - dashboard background 시작 후 `/health` 응답을 기다린 뒤 상태 파일을 `running` 으로 기록하도록 보강했다.
+  - 장중 기준으로 `start_dashboard_background -> get_dashboard_status -> /health` 재검증이 성공했고, 포트 `8765`의 실제 소유 PID와 상태 파일 PID가 일치하는 것을 확인했다.
 
 ## Next Commands
 

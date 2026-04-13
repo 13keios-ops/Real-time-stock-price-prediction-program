@@ -192,6 +192,9 @@ python -m app --kis-account-balance
 .\scripts\stop_dashboard.ps1
 ```
 
+이 background 시작 스크립트는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 찾아 서버를 띄운다.
+또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
+
 월요일 시작 루틴 1회 실행:
 
 ```powershell

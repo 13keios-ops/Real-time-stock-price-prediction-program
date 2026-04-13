@@ -38,6 +38,26 @@ $stderrPath = Join-Path $logDir "dashboard-server.stderr.log"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
+function Resolve-PythonExecutable {
+    try {
+        $candidate = & py -3 -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    try {
+        $candidate = & python -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    throw "Python executable could not be resolved."
+}
+
 function Get-ListeningConnection {
     param([int]$LocalPort)
     return Get-NetTCPConnection -LocalPort $LocalPort -ErrorAction SilentlyContinue |
@@ -115,16 +135,20 @@ if (Test-Path -LiteralPath $statePath) {
     }
 }
 
-$scriptPath = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
-$commandText = "& '{0}' -DashboardHost '{1}' -Port {2} -RefreshSeconds {3} -RecentLimit {4}" -f `
-    $scriptPath, $DashboardHost, $Port, $RefreshSeconds, $RecentLimit
-$process = Start-Process powershell.exe `
+$pythonExe = Resolve-PythonExecutable
+$process = Start-Process $pythonExe `
     -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        $commandText
+        "-m",
+        "app",
+        "--serve-dashboard",
+        "--dashboard-host",
+        "$DashboardHost",
+        "--dashboard-port",
+        "$Port",
+        "--dashboard-refresh-seconds",
+        "$RefreshSeconds",
+        "--dashboard-recent-limit",
+        "$RecentLimit"
     ) `
     -WorkingDirectory $WorkspaceRoot `
     -RedirectStandardOutput $stdoutPath `
@@ -133,16 +157,18 @@ $process = Start-Process powershell.exe `
 
 Start-Sleep -Seconds 3
 $process.Refresh()
-$tcpConnection = Get-ListeningConnection -LocalPort $Port
-$healthUrl = "http://{0}:{1}/health" -f $DashboardHost, $Port
+$tcpConnection = $null
 $dashboardResponding = $false
-if ($null -ne $tcpConnection) {
-    try {
-        $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
-        $dashboardResponding = ($health.Content -match '"service"\s*:\s*"dashboard"')
-    } catch {
-        $dashboardResponding = $false
+for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    $tcpConnection = Get-ListeningConnection -LocalPort $Port
+    if ($null -ne $tcpConnection) {
+        $dashboardResponding = Test-DashboardHealth -BaseUrl ("http://{0}:{1}" -f $DashboardHost, $Port)
+        if ($dashboardResponding) {
+            break
+        }
     }
+    Start-Sleep -Seconds 1
+    $process.Refresh()
 }
 $effectivePid = if ($null -ne $tcpConnection) { $tcpConnection.OwningProcess } else { $process.Id }
 $status = if ($null -ne $tcpConnection -and $dashboardResponding) {
