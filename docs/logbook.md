@@ -16,6 +16,8 @@
 - KIS WebSocket 파서와 listener 준비가 되어 있고 reconnect 인자가 추가되어 있다.
 - KIS WebSocket readiness / verification report 경로가 추가되어 있다.
 - KIS 브로커 모의계좌 잔고 조회와 캐시 리포트 생성이 된다.
+- 대시보드는 정규장 밖 KIS REST snapshot 분과 raw 집계를 실제 운용 데이터 범위에서 제외한다.
+- 대시보드는 마지막 탭 선택 상태를 새로고침 뒤에도 유지한다.
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
 - LightGBM 학습 artifact 저장이 된다.
@@ -76,6 +78,7 @@
 ## Latest Verified Results
 
 - dashboard/runtime cleanup targeted tests: `6 tests OK`
+- runtime scope out-of-session filter test: `1 test OK`
 - streaming replay isolation tests: `3 tests OK`
 - dashboard korean tab UI tests: `4 tests OK`
 - 최신 synthetic dev cycle:
@@ -158,6 +161,9 @@
   - 월요일 운영 중 화면으로 볼 수 있도록 `latest-dashboard.html/json` 생성과 `run_dashboard.ps1` 기반 로컬 HTTP 대시보드를 추가했다.
   - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
   - dashboard는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외한 실제 KIS 기반 운용 데이터만 보여준다.
+  - dashboard actual-runtime 범위에서 정규장 밖 KIS REST snapshot 분과 raw 집계도 제외하도록 보강했다.
+  - dashboard 탭 선택 상태를 localStorage에 저장해 새로고침 뒤에도 같은 탭에 머물도록 보강했다.
+  - dashboard 거래 현황에 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`의 역할 차이를 설명 문구로 분리했다.
   - sample WebSocket replay는 이제 `kis-ws-replay` 출처와 `pred-replay-*`, `paper-order-replay-*` 같은 replay 전용 ID를 사용한다.
   - dashboard actual-runtime 필터는 실제 출처만 존재하는 minute만 허용하고, 실제/테스트 출처가 섞인 minute는 제외하도록 강화했다.
   - `scripts/cleanup_runtime_test_data.ps1` 와 `python -m app --cleanup-runtime-test-data` 를 추가해 기존 SQLite의 test serving/paper 흔적을 정리할 수 있게 했다.

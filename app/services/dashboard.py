@@ -104,7 +104,7 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for the dashboard.")
 
-    scope = build_runtime_scope(sqlite_store)
+    scope = build_runtime_scope(sqlite_store, settings)
     runtime_summary = _summarize_runtime(sqlite_store, scope)
     active_registry = ModelRegistry(settings.runtime_data_dir).load()
     latest_training = _parse_json_column(
@@ -438,6 +438,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             </div>
             <div class="muted" style="margin-top:12px;">최근 스냅샷 시각: {_esc(portfolio.get('event_time'))}</div>
             <div style="margin-top:12px;">{_table(['종목','수량','평균 단가','현재가','미실현 손익'], position_rows, '현재 기록된 포지션이 없습니다.')}</div>
+            <div class="muted" style="margin-top:12px;">프로그램 내부 모의주문 엔진이 기록한 가상 포트폴리오입니다. 우리 전략이 실제로 어떤 주문을 냈는지 추적하는 용도입니다.</div>
           </div>
           <div class="card">
             <h2>브로커 모의계좌 잔고</h2>
@@ -455,6 +456,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             </div>
             <div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(broker_account_report.get('fetched_at'))}<br>오류: {_esc(broker_account_report.get('error')) if broker_account_report.get('error') else '없음'}</div>
             <div style="margin-top:12px;">{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], broker_position_rows, '브로커 계좌 보유 종목이 없습니다.')}</div>
+            <div class="muted" style="margin-top:12px;">한국투자 모의투자 계좌에서 직접 조회한 실제 잔고입니다. 프로그램 내부 가상 포트폴리오와 다를 수 있습니다.</div>
           </div>
           <div class="card">
             <h2>KIS 연결 상태</h2>
@@ -583,6 +585,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     (() => {{
       const buttons = Array.from(document.querySelectorAll('[data-tab-target]'));
       const panels = Array.from(document.querySelectorAll('.tab-panel'));
+      const storageKey = 'realtime-stock-dashboard-active-tab';
       const activate = (targetId) => {{
         const fallbackId = 'tab-trading';
         const nextId = document.getElementById(targetId) ? targetId : fallbackId;
@@ -597,12 +600,23 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         if (window.location.hash !== `#${{nextId}}`) {{
           history.replaceState(null, '', `#${{nextId}}`);
         }}
+        try {{
+          window.localStorage.setItem(storageKey, nextId);
+        }} catch (error) {{
+        }}
       }};
       buttons.forEach((button) => {{
         button.addEventListener('click', () => activate(button.dataset.tabTarget));
       }});
-      const initialHash = window.location.hash ? window.location.hash.slice(1) : 'tab-trading';
-      activate(initialHash);
+      let initialTab = window.location.hash ? window.location.hash.slice(1) : '';
+      if (!initialTab) {{
+        try {{
+          initialTab = window.localStorage.getItem(storageKey) || '';
+        }} catch (error) {{
+          initialTab = '';
+        }}
+      }}
+      activate(initialTab || 'tab-trading');
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
     }})();
   </script>

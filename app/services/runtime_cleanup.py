@@ -37,7 +37,7 @@ def cleanup_non_actual_runtime_rows(project_root: Path) -> RuntimeCleanupResult:
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for cleanup.")
 
-    scope = build_runtime_scope(sqlite_store)
+    scope = build_runtime_scope(sqlite_store, settings)
     deleted_rows: dict[str, int] = {}
     table_order = [
         ("serving_predictions", "event_time"),

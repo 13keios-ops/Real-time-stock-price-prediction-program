@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+from app.config.settings import AppSettings
 from app.storage.sqlite_store import SQLiteRuntimeStore
+from app.utils.time import parse_hhmm
 
 ACTUAL_RAW_SOURCES = frozenset({"kis-rest", "kis-ws"})
 TEST_ID_MARKERS = ("demo", "replay")
@@ -31,11 +34,28 @@ class RuntimeScope:
     actual_position_symbols: set[str]
 
 
-def build_runtime_scope(sqlite_store: SQLiteRuntimeStore) -> RuntimeScope:
+def _is_regular_session_timestamp(timestamp_text: str | None, settings: AppSettings) -> bool:
+    if not timestamp_text:
+        return False
+    try:
+        timestamp = datetime.fromisoformat(str(timestamp_text))
+    except ValueError:
+        return False
+    if timestamp.weekday() >= 5:
+        return False
+    current_time = timestamp.timetz().replace(tzinfo=None)
+    session_open = parse_hhmm(settings.market_calendar.session_open)
+    session_close = parse_hhmm(settings.market_calendar.session_close)
+    return session_open <= current_time <= session_close
+
+
+def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings) -> RuntimeScope:
     raw_market_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_market_ticks", "event_time")]
     raw_orderbook_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_orderbook_ticks", "event_time")]
     symbol_minute_sources: dict[tuple[str, str], set[str]] = {}
     for row in [*raw_market_rows, *raw_orderbook_rows]:
+        if not _is_regular_session_timestamp(str(row.get("event_time", "")), settings):
+            continue
         minute = minute_key(row.get("event_time"))
         if minute is None:
             continue
@@ -92,7 +112,9 @@ def is_actual_row(
     table = str(table_name)
 
     if table == "raw_market_ticks" or table == "raw_orderbook_ticks":
-        return str(row.get("source", "")).lower() in ACTUAL_RAW_SOURCES
+        symbol = str(row.get("symbol", ""))
+        minute = minute_key(str(row.get("event_time", ""))) or ""
+        return str(row.get("source", "")).lower() in ACTUAL_RAW_SOURCES and (symbol, minute) in actual_symbol_minutes
 
     if table in {
         "curated_minute_bars",

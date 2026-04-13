@@ -131,6 +131,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("3. 그 외", html)
         self.assertIn("실운용 학습 상태", html)
         self.assertIn("오프라인 연구 결과", html)
+        self.assertIn("localStorage.setItem", html)
+        self.assertIn("브로커 모의계좌 잔고", html)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -26,12 +26,15 @@ The project now has a working local foundation for:
 - Dashboard learning view separation between actual runtime status and offline research results
 - Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
 - Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
+- Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
+- Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
 - Placeholder product codes such as `여기에_상품코드` are treated as blank and default to `01` for paper mode
 - KIS broker paper-account balance refresh and cached report generation
 - Dashboard trading tab now separates local paper-engine state and broker paper-account balance
+- Local paper-engine state and broker paper-account balance are intentionally shown as separate account views
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 
