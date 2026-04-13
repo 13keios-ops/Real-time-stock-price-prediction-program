@@ -95,7 +95,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("1. 거래 현황", html)
         self.assertIn("2. 학습 현황", html)
         self.assertIn("3. 그 외", html)
-        self.assertIn("학습 데이터 해석", html)
+        self.assertIn("실운용 학습 상태", html)
         self.assertIn("오프라인 연구 결과", html)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:

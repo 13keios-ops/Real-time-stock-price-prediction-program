@@ -33,7 +33,7 @@
 - runtime / backtest / walk-forward report 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
 - 대시보드 기본 언어 한글화와 `거래 현황 / 학습 현황 / 그 외` 3탭 전환 UI
-- 학습 탭에 `실운용 데이터`와 `오프라인 연구 결과`를 구분해 보여주는 해석 카드
+- 학습 탭에서 `실운용 학습 상태`와 `오프라인 연구 결과`를 분리해 보여주는 구조
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
 - 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
@@ -161,10 +161,12 @@ python -m app --build-dashboard
 ```
 
 실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
+이 스크립트는 이제 background 실행 시에도 `py -3` 또는 실제 Python executable 경로를 먼저 찾아 사용한다.
 
 대시보드는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외하고 실제 KIS 기반 운용 데이터만 보여준다.
 샘플 WebSocket 재생 결과도 이제 `replay` 계열로 따로 저장되어 실제 운용 데이터 범위에 들어오지 않는다.
-다만 학습 탭의 backtest, walk-forward, challenger는 실제 장중 데이터가 충분히 쌓이기 전까지 오프라인 연구 결과로 표시된다.
+다만 학습 탭은 `실운용 학습 상태`와 `오프라인 연구 결과`를 나눠 보여준다.
+실제 장중 데이터가 충분히 쌓이기 전까지 backtest, walk-forward, challenger는 오프라인 연구 결과로 표시된다.
 기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
 
 ```powershell

@@ -9,7 +9,29 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
-python -m app `
+function Resolve-PythonExecutable {
+    try {
+        $candidate = & py -3 -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    try {
+        $candidate = & python -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    throw "Python executable could not be resolved."
+}
+
+$pythonExe = Resolve-PythonExecutable
+
+& $pythonExe -m app `
     --serve-dashboard `
     --dashboard-host $DashboardHost `
     --dashboard-port $Port `

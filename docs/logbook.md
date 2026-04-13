@@ -58,6 +58,7 @@
 - [x] replay 데이터를 실제 운용 데이터와 분리하고 old dashboard port-owner 추적 보강
 - [x] dashboard 한글 기본 UI와 3탭 전환 구조
 - [x] dashboard 학습 탭의 오프라인 연구 결과 / 실운용 데이터 해석 구분
+- [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
 - [ ] 실제 KIS WebSocket 장중 수신 검증
 
 ## Version And Watcher
@@ -163,6 +164,8 @@
   - 이후 남아 있던 오래된 dashboard port owner 문제를 정리했고, `start_dashboard_background.ps1`, `get_dashboard_status.ps1`, `stop_dashboard.ps1`가 이제 상태 파일 pid뿐 아니라 실제 `8765` 포트 점유 프로세스와 `/health` 응답을 함께 확인한다.
   - dashboard 기본 언어를 한글로 바꿨고, 본문을 `거래 현황`, `학습 현황`, `그 외` 3개 탭으로 나눠 클릭 시 화면 전환되도록 정리했다.
   - dashboard 학습 탭에 `학습 데이터 해석` 카드를 추가해, 실제 운용 라벨이 없을 때는 현재 값이 저장된 오프라인 연구 결과라는 점을 명확히 표시하도록 보강했다.
+  - dashboard 학습 탭을 `실운용 학습 상태`와 `오프라인 연구 결과`로 다시 나눠, 활성 모델 상태와 연구용 챌린저 결과가 같은 종류의 값처럼 보이지 않도록 정리했다.
+  - background dashboard 실행이 Windows `python.exe` 앱 별칭에 막히지 않도록 `run_dashboard.ps1` 가 실제 Python executable 경로를 먼저 찾게 수정했다.
 
 ## Next Commands
 

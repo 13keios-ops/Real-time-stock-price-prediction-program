@@ -428,33 +428,35 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
       <section class="cols">
         <div class="stack">
           <div class="card">
-            <h2>학습 데이터 해석</h2>
+            <h2>실운용 학습 상태</h2>
             <div class="pillrow">
-              <span class="pill">표시 기준: {'실운용 데이터' if learning_context.get('mode') == 'actual_runtime' else '오프라인 연구 결과'}</span>
               <span class="pill">실운용 라벨 수: {_esc(learning_context.get('actual_runtime_labels'))}</span>
+              <span class="pill">실운용 특징 행 수: {_esc(runtime.get('feature_rows', 0))}</span>
+              <span class="pill">실운용 예측 건수: {_esc(runtime.get('predictions', 0))}</span>
+              <span class="pill">실데이터 수신: {'예' if kis.get('market_data_flow_ok') else '아니오'}</span>
             </div>
-            <div class="muted" style="margin-top:12px;">{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}</div>
+            <div class="muted" style="margin-top:12px;">실운용 학습 상태는 실제 장중 데이터와 그로부터 생성된 라벨을 기준으로 표시합니다.<br>{_esc(learning_context.get('note'))}</div>
           </div>
           <div class="card">
-            <h2>모델 및 검증 상태</h2>
+            <h2>현재 운용 모델 상태</h2>
             <div class="pillrow">
               <span class="pill">활성 모델: {_esc(active_model.get('model_version'))}</span>
-              <span class="pill">최신 학습 모델: {_esc(latest_training.get('model_version'))}</span>
+              <span class="pill">모델 종류: {_esc(active_model.get('model_kind'))}</span>
               <span class="pill">권장 조치: {_esc(challenger.get('recommended_action'))}</span>
               <span class="pill">워크포워드 게이트: {_esc(challenger.get('walk_forward_gate_status'))}</span>
             </div>
-            <div class="muted" style="margin-top:12px;">{_esc(challenger.get('walk_forward_gate_reason'))}</div>
-          </div>
-          <div class="card">
-            <h2>챌린저 비교</h2>
-            {_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
-          </div>
-          <div class="card">
-            <h2>워크포워드 fold 요약</h2>
-            {_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 fold 요약이 없습니다.')}
+            <div class="muted" style="margin-top:12px;">{_esc(learning_context.get('active_status_note'))}<br>{_esc(challenger.get('walk_forward_gate_reason'))}</div>
           </div>
         </div>
         <div class="stack">
+          <div class="card">
+            <h2>오프라인 연구 결과</h2>
+            <div class="pillrow">
+              <span class="pill">표시 기준: 오프라인 연구 결과</span>
+              <span class="pill">최신 학습 모델: {_esc(latest_training.get('model_version'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">백테스트, 워크포워드, 챌린저 비교는 저장된 연구용 평가 결과입니다. 실제 실운용 수익이나 장중 실시간 성과와는 구분해서 봐야 합니다.</div>
+          </div>
           <div class="card">
             <h2>최신 학습 요약</h2>
             <div class="pillrow">
@@ -490,6 +492,14 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
               <span class="pill">거래 수: {_esc(latest_walk_forward.get('trades_taken'))}</span>
               <span class="pill">누적 순수익률: {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 4)}</span>
             </div>
+          </div>
+          <div class="card">
+            <h2>챌린저 비교</h2>
+            {_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
+          </div>
+          <div class="card">
+            <h2>워크포워드 fold 요약</h2>
+            {_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 fold 요약이 없습니다.')}
           </div>
         </div>
       </section>
