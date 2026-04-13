@@ -1,4 +1,4 @@
-"""KIS REST quote client for domestic stock market data."""
+"""KIS REST quote client for domestic stock market data and account views."""
 
 from __future__ import annotations
 
@@ -15,16 +15,29 @@ CURRENT_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
 CURRENT_PRICE_TR_ID = "FHKST01010100"
 ORDERBOOK_PATH = "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
 ORDERBOOK_TR_ID = "FHKST01010200"
+ACCOUNT_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
+ACCOUNT_BALANCE_TR_ID_LIVE = "TTTC8434R"
+ACCOUNT_BALANCE_TR_ID_PAPER = "VTTC8434R"
 
 
 def _as_int(payload: dict, key: str) -> int:
-    raw = str(payload.get(key, "0")).strip() or "0"
-    return int(raw)
+    raw = str(payload.get(key, "0")).strip().replace(",", "") or "0"
+    return int(float(raw))
 
 
 def _as_float(payload: dict, key: str) -> float:
-    raw = str(payload.get(key, "0")).strip() or "0"
+    raw = str(payload.get(key, "0")).strip().replace(",", "") or "0"
     return float(raw)
+
+
+def _as_text(payload: dict, key: str) -> str:
+    return str(payload.get(key, "")).strip()
+
+
+def _mask_account(account_no: str) -> str:
+    if len(account_no) <= 4:
+        return "*" * len(account_no)
+    return f"{account_no[:4]}{'*' * max(len(account_no) - 4, 0)}"
 
 
 @dataclass(slots=True)
@@ -57,6 +70,36 @@ class KisOrderbookQuote:
     expected_match_qty: int
 
 
+@dataclass(slots=True)
+class KisBalancePosition:
+    symbol: str
+    name: str
+    holding_qty: int
+    orderable_qty: int
+    average_buy_price: float
+    buy_amount: int
+    current_price: int
+    evaluation_amount: int
+    evaluation_profit_loss_amount: int
+    evaluation_profit_loss_pct: float
+
+
+@dataclass(slots=True)
+class KisAccountBalanceSnapshot:
+    mode: str
+    account_no_masked: str
+    product_code: str
+    positions: list[KisBalancePosition]
+    cash_balance: int
+    stock_evaluation_amount: int
+    total_evaluation_amount: int
+    total_purchase_amount: int
+    total_profit_loss_amount: int
+    total_asset_amount: int
+    summary_row_count: int
+    position_row_count: int
+
+
 class KisRestQuoteClient:
     def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10) -> None:
         self.profile = profile
@@ -70,25 +113,46 @@ class KisRestQuoteClient:
             "status": "active",
         }
 
-    def _request(self, path: str, tr_id: str, query_params: dict[str, str]) -> dict:
+    def _request_response(
+        self,
+        path: str,
+        tr_id: str,
+        query_params: dict[str, str],
+        *,
+        extra_headers: dict[str, str] | None = None,
+        allow_retry: bool = True,
+    ) -> tuple[dict, dict[str, str]]:
         token = self.token_manager.get_access_token()
         encoded_query = urlencode(query_params)
+        headers = {
+            "authorization": token.authorization_header,
+            "appkey": self.profile.app_key,
+            "appsecret": self.profile.app_secret,
+            "tr_id": tr_id,
+            "custtype": self.profile.customer_type,
+        }
+        if extra_headers:
+            headers.update(extra_headers)
         request = Request(
             url=f"{self.profile.rest_url}{path}?{encoded_query}",
-            headers={
-                "authorization": token.authorization_header,
-                "appkey": self.profile.app_key,
-                "appsecret": self.profile.app_secret,
-                "tr_id": tr_id,
-                "custtype": self.profile.customer_type,
-            },
+            headers=headers,
             method="GET",
         )
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+                response_headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")
+            if allow_retry and any(code in body for code in ("EGW00121", "EGW00123")):
+                self.token_manager.get_access_token(force_refresh=True)
+                return self._request_response(
+                    path=path,
+                    tr_id=tr_id,
+                    query_params=query_params,
+                    extra_headers=extra_headers,
+                    allow_retry=False,
+                )
             raise KisApiError(f"KIS HTTP error {exc.code}: {body}") from exc
         except URLError as exc:
             raise KisApiError(f"KIS network error: {exc}") from exc
@@ -97,6 +161,10 @@ class KisRestQuoteClient:
         if rt_cd and rt_cd != "0":
             message = payload.get("msg1") or payload.get("msg_cd") or payload
             raise KisApiError(f"KIS REST quote error: {message}")
+        return payload, response_headers
+
+    def _request(self, path: str, tr_id: str, query_params: dict[str, str], *, extra_headers: dict[str, str] | None = None) -> dict:
+        payload, _ = self._request_response(path=path, tr_id=tr_id, query_params=query_params, extra_headers=extra_headers)
         return payload
 
     def get_current_price(self, symbol: str, market_code: str = "J") -> KisCurrentPriceQuote:
@@ -145,4 +213,77 @@ class KisRestQuoteClient:
             total_bid_size=_as_int(output, "total_bidp_rsqn"),
             expected_match_price=_as_int(output, "antc_cnpr"),
             expected_match_qty=_as_int(output, "antc_cnqn"),
+        )
+
+    def get_account_balance(self, *, inqr_dvsn: str = "02", max_pages: int = 10) -> KisAccountBalanceSnapshot:
+        if not self.profile.is_configured:
+            raise KisApiError("KIS account number and product code are required before requesting account balance.")
+
+        positions_payload: list[dict] = []
+        summary_payload: list[dict] = []
+        ctx_area_fk100 = ""
+        ctx_area_nk100 = ""
+        tr_cont = ""
+        tr_id = ACCOUNT_BALANCE_TR_ID_LIVE if self.profile.mode == "live" else ACCOUNT_BALANCE_TR_ID_PAPER
+
+        for _ in range(max_pages):
+            payload, response_headers = self._request_response(
+                path=ACCOUNT_BALANCE_PATH,
+                tr_id=tr_id,
+                query_params={
+                    "CANO": self.profile.account_no,
+                    "ACNT_PRDT_CD": self.profile.product_code,
+                    "AFHR_FLPR_YN": "N",
+                    "OFL_YN": "",
+                    "INQR_DVSN": inqr_dvsn,
+                    "UNPR_DVSN": "01",
+                    "FUND_STTL_ICLD_YN": "N",
+                    "FNCG_AMT_AUTO_RDPT_YN": "N",
+                    "PRCS_DVSN": "00",
+                    "CTX_AREA_FK100": ctx_area_fk100,
+                    "CTX_AREA_NK100": ctx_area_nk100,
+                },
+                extra_headers={"tr_cont": tr_cont} if tr_cont else None,
+            )
+            positions_payload.extend(list(payload.get("output1", []) or []))
+            summary_payload.extend(list(payload.get("output2", []) or []))
+            ctx_area_fk100 = _as_text(payload, "ctx_area_fk100")
+            ctx_area_nk100 = _as_text(payload, "ctx_area_nk100")
+            next_tr_cont = response_headers.get("tr_cont", "").upper()
+            if next_tr_cont in {"M", "F"} and (ctx_area_fk100 or ctx_area_nk100):
+                tr_cont = "N"
+                continue
+            break
+
+        summary = summary_payload[0] if summary_payload else {}
+        positions = [
+            KisBalancePosition(
+                symbol=_as_text(row, "pdno"),
+                name=_as_text(row, "prdt_name"),
+                holding_qty=_as_int(row, "hldg_qty"),
+                orderable_qty=_as_int(row, "ord_psbl_qty"),
+                average_buy_price=_as_float(row, "pchs_avg_pric"),
+                buy_amount=_as_int(row, "pchs_amt"),
+                current_price=_as_int(row, "prpr"),
+                evaluation_amount=_as_int(row, "evlu_amt"),
+                evaluation_profit_loss_amount=_as_int(row, "evlu_pfls_amt"),
+                evaluation_profit_loss_pct=_as_float(row, "evlu_pfls_rt"),
+            )
+            for row in positions_payload
+            if _as_text(row, "pdno")
+        ]
+
+        return KisAccountBalanceSnapshot(
+            mode=self.profile.mode,
+            account_no_masked=_mask_account(self.profile.account_no),
+            product_code=self.profile.product_code,
+            positions=positions,
+            cash_balance=_as_int(summary, "dnca_tot_amt"),
+            stock_evaluation_amount=_as_int(summary, "scts_evlu_amt") or _as_int(summary, "evlu_amt_smtl_amt"),
+            total_evaluation_amount=_as_int(summary, "tot_evlu_amt") or _as_int(summary, "evlu_amt_smtl_amt"),
+            total_purchase_amount=_as_int(summary, "pchs_amt_smtl_amt"),
+            total_profit_loss_amount=_as_int(summary, "evlu_pfls_smtl_amt"),
+            total_asset_amount=_as_int(summary, "nass_amt") or _as_int(summary, "tot_evlu_amt"),
+            summary_row_count=len(summary_payload),
+            position_row_count=len(positions),
         )

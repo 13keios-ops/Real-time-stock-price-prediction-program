@@ -29,6 +29,9 @@ The project now has a working local foundation for:
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
+- Placeholder product codes such as `여기에_상품코드` are treated as blank and default to `01` for paper mode
+- KIS broker paper-account balance refresh and cached report generation
+- Dashboard trading tab now separates local paper-engine state and broker paper-account balance
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 
@@ -246,6 +249,13 @@ If older test-serving rows are already mixed into SQLite, clean them first:
 .\scripts\cleanup_runtime_test_data.ps1
 ```
 
+Refresh only the broker paper-account cache:
+
+```powershell
+.\scripts\refresh_kis_account.ps1
+python -m app --kis-account-balance
+```
+
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 
 ### 10. Monday runtime starter
@@ -338,7 +348,21 @@ This does not mean older data should be deleted. The rolling 60-day window is fo
 
 For paper mode, if the account information is only available as an 8-digit account number, the settings loader now treats `KIS_PRODUCT_CODE_PAPER` as `01` by default.
 
+If `.env` still contains the template placeholder `여기에_상품코드`, the loader also treats that as blank and falls back to `01`.
+
 If the account is written like `12345678-01`, the loader will split it into:
 
 - `KIS_ACCOUNT_NO_PAPER=12345678`
 - `KIS_PRODUCT_CODE_PAPER=01`
+
+The broker paper-account balance can now be refreshed with:
+
+```powershell
+.\scripts\refresh_kis_account.ps1
+python -m app --kis-account-balance
+```
+
+The cached report is written to:
+
+- `runtime-data/reports/kis-account/latest-account.md`
+- `runtime-data/reports/kis-account/latest-account.json`

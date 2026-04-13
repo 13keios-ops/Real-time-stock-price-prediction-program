@@ -78,6 +78,20 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.kis_paper.account_no, "12345678")
         self.assertEqual(settings.kis_paper.product_code, "03")
 
+    def test_placeholder_product_code_is_treated_as_blank_and_defaults_to_01(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+
+        settings = load_settings(
+            project_root=root,
+            env={
+                "KIS_ACCOUNT_NO_PAPER": "12345678",
+                "KIS_PRODUCT_CODE_PAPER": "여기에_상품코드",
+            },
+        )
+
+        self.assertEqual(settings.kis_paper.account_no, "12345678")
+        self.assertEqual(settings.kis_paper.product_code, "01")
+
 
 if __name__ == "__main__":
     unittest.main()

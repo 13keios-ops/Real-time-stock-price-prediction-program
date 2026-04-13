@@ -5,7 +5,7 @@ import threading
 import unittest
 import urllib.request
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.orchestrator import run_synthetic_dev_cycle
@@ -14,6 +14,39 @@ from app.services.streaming import build_sample_ws_frames, replay_ws_frames
 
 
 class DashboardTests(unittest.TestCase):
+    def _mock_account_report(self) -> MagicMock:
+        report = MagicMock()
+        report.to_dict.return_value = {
+            "ok": True,
+            "trading_mode": "paper",
+            "fetched_at": "2026-04-13T10:50:00+09:00",
+            "cache_used": False,
+            "cache_age_seconds": 0,
+            "error": None,
+            "source": "kis-broker",
+            "account_snapshot": {
+                "account_no_masked": "1234****",
+                "product_code": "01",
+                "cash_balance": 1000000,
+                "stock_evaluation_amount": 214500,
+                "total_evaluation_amount": 1214500,
+                "total_purchase_amount": 210000,
+                "total_profit_loss_amount": 4500,
+                "total_asset_amount": 1214500,
+                "positions": [
+                    {
+                        "symbol": "005930",
+                        "name": "삼성전자",
+                        "holding_qty": 3,
+                        "current_price": 71500,
+                        "evaluation_amount": 214500,
+                        "evaluation_profit_loss_amount": 4500,
+                    }
+                ],
+            },
+        }
+        return report
+
     def _prepare_runtime_root(self) -> tuple[Path, dict[str, str]]:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "dashboard" / str(uuid.uuid4())
@@ -83,7 +116,8 @@ class DashboardTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
             self._seed_dashboard_inputs(runtime_root)
-            snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
 
         self.assertTrue(snapshot.snapshot_html_path.exists())
         self.assertTrue(snapshot.snapshot_json_path.exists())
@@ -104,23 +138,24 @@ class DashboardTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
             self._seed_dashboard_inputs(runtime_root)
-            server, info = prepare_dashboard_server(
-                project_root=root,
-                host="127.0.0.1",
-                port=0,
-                refresh_seconds=3,
-                recent_limit=4,
-            )
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                health = urllib.request.urlopen(f"{info.url}/health", timeout=5).read().decode("utf-8")
-                payload = urllib.request.urlopen(f"{info.url}/api/dashboard.json", timeout=5).read().decode("utf-8")
-                html = urllib.request.urlopen(info.url, timeout=5).read().decode("utf-8")
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=5)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                server, info = prepare_dashboard_server(
+                    project_root=root,
+                    host="127.0.0.1",
+                    port=0,
+                    refresh_seconds=3,
+                    recent_limit=4,
+                )
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    health = urllib.request.urlopen(f"{info.url}/health", timeout=5).read().decode("utf-8")
+                    payload = urllib.request.urlopen(f"{info.url}/api/dashboard.json", timeout=5).read().decode("utf-8")
+                    html = urllib.request.urlopen(info.url, timeout=5).read().decode("utf-8")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
 
         self.assertIn('"ok": true', health.lower())
         self.assertIn('"runtime_summary"', payload)
@@ -132,7 +167,8 @@ class DashboardTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             run_demo_pipeline(project_root=root, symbol="005930")
             self._seed_dashboard_inputs(runtime_root)
-            snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
 
         self.assertEqual(snapshot.payload["runtime_summary"]["predictions"], 0)
         self.assertEqual(snapshot.payload["runtime_summary"]["orders"], 0)
@@ -147,12 +183,26 @@ class DashboardTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
             self._seed_dashboard_inputs(runtime_root)
-            snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
 
         self.assertEqual(snapshot.payload["runtime_summary"]["predictions"], 0)
         self.assertEqual(snapshot.payload["runtime_summary"]["orders"], 0)
         self.assertEqual(snapshot.payload["recent_predictions"], [])
         self.assertEqual(snapshot.payload["recent_orders"], [])
+
+    def test_dashboard_includes_broker_account_section(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_dashboard_inputs(runtime_root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, refresh_seconds=5, recent_limit=5)
+
+        self.assertIn("broker_account_report", snapshot.payload)
+        self.assertEqual(snapshot.payload["broker_account_report"]["account_snapshot"]["account_no_masked"], "1234****")
+        html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
+        self.assertIn("브로커 모의계좌 잔고", html)
 
 
 if __name__ == "__main__":

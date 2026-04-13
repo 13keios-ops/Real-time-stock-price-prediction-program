@@ -15,6 +15,7 @@
 - KIS REST 현재가와 호가 조회가 구현되어 있다.
 - KIS WebSocket 파서와 listener 준비가 되어 있고 reconnect 인자가 추가되어 있다.
 - KIS WebSocket readiness / verification report 경로가 추가되어 있다.
+- KIS 브로커 모의계좌 잔고 조회와 캐시 리포트 생성이 된다.
 - SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
 - centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
 - LightGBM 학습 artifact 저장이 된다.
@@ -59,7 +60,8 @@
 - [x] dashboard 한글 기본 UI와 3탭 전환 구조
 - [x] dashboard 학습 탭의 오프라인 연구 결과 / 실운용 데이터 해석 구분
 - [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
-- [ ] 실제 KIS WebSocket 장중 수신 검증
+- [x] 실제 KIS WebSocket 장중 수신 검증
+- [x] KIS 브로커 모의계좌 잔고 조회와 dashboard 반영
 
 ## Version And Watcher
 
@@ -99,10 +101,15 @@
   - activation applied: `false`
 - 최신 KIS verification:
   - `connection_ready=true`
-  - `market_data_flow_ok=false`
-  - `session_status=weekend`
-  - `frames_received=10`
-  - `control_frames=10`
+  - `market_data_flow_ok=true`
+  - `session_status=regular-session`
+  - `frames_received=20`
+  - `control_frames=2`
+- 최신 KIS broker account:
+  - `ok=true`
+  - `cash_balance=10000000`
+  - `total_evaluation_amount=10000000`
+  - `position_row_count=0`
 - 최신 KIS REST preflight:
   - current price 조회: `ok`
   - orderbook 조회: `ok`
@@ -166,6 +173,14 @@
   - dashboard 학습 탭에 `학습 데이터 해석` 카드를 추가해, 실제 운용 라벨이 없을 때는 현재 값이 저장된 오프라인 연구 결과라는 점을 명확히 표시하도록 보강했다.
   - dashboard 학습 탭을 `실운용 학습 상태`와 `오프라인 연구 결과`로 다시 나눠, 활성 모델 상태와 연구용 챌린저 결과가 같은 종류의 값처럼 보이지 않도록 정리했다.
   - background dashboard 실행이 Windows `python.exe` 앱 별칭에 막히지 않도록 `run_dashboard.ps1` 가 실제 Python executable 경로를 먼저 찾게 수정했다.
+- `2026-04-13`
+  - `KIS 브로커 모의계좌 잔고 조회`를 추가했고 결과를 `runtime-data/reports/kis-account/latest-account.json` 과 `.md`로 남기도록 정리했다.
+  - paper 계좌의 `KIS_PRODUCT_CODE_PAPER` 가 `.env.example` placeholder 문자열이어도 자동으로 빈값으로 간주하고 `01`을 적용하도록 설정 로더를 보강했다.
+  - KIS REST 클라이언트는 이제 `EGW00121`, `EGW00123` 토큰 오류를 만나면 access token을 자동 재발급한 뒤 한 번 더 재시도한다.
+  - 실제 장중 재검증 결과 `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session` 으로 확인됐다.
+  - 실제 브로커 모의계좌 조회 결과 현재 예수금 `10,000,000원`, 보유 종목 `0건`이 확인됐다.
+  - 대시보드 거래 탭은 이제 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`를 분리해서 보여준다.
+  - `start_monday_runtime.ps1` 는 이제 KIS 브로커 모의계좌 잔고를 함께 갱신하고 요약에 포함한다.
 
 ## Next Commands
 

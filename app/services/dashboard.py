@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from app.config.settings import load_settings
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
+from app.services.kis_account import refresh_kis_account_report
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
 
@@ -122,6 +123,19 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
 
     latest_snapshot_rows = _filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope)
     positions = _filtered_rows(sqlite_store, "paper_positions", "symbol", scope)
+    try:
+        broker_account_report = refresh_kis_account_report(project_root=project_root, max_age_seconds=60).to_dict()
+    except Exception as exc:  # pragma: no cover - dashboard should stay up even if broker refresh fails
+        broker_account_report = {
+            "ok": False,
+            "trading_mode": settings.trading_mode,
+            "fetched_at": None,
+            "cache_used": False,
+            "cache_age_seconds": None,
+            "error": str(exc),
+            "source": "kis-broker",
+            "account_snapshot": None,
+        }
     recent_predictions = _prediction_view(_filtered_rows(sqlite_store, "serving_predictions", "event_time", scope)[-recent_limit:])
     recent_signals = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)[-recent_limit:]
     recent_orders = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope)[-recent_limit:]
@@ -169,6 +183,7 @@ def collect_dashboard_payload(project_root: Path, *, recent_limit: int = 10) -> 
         "latest_kis_verification": _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json"),
         "latest_portfolio_snapshot": latest_snapshot_rows[-1] if latest_snapshot_rows else None,
         "positions": positions,
+        "broker_account_report": broker_account_report,
         "recent_predictions": recent_predictions,
         "recent_signals": recent_signals,
         "recent_orders": recent_orders,
@@ -227,6 +242,8 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     challenger = payload.get("latest_challenger_report", {}) or {}
     kis = payload.get("latest_kis_verification", {}) or {}
     portfolio = payload.get("latest_portfolio_snapshot", {}) or {}
+    broker_account_report = payload.get("broker_account_report", {}) or {}
+    broker_account = broker_account_report.get("account_snapshot") or {}
     latest_training = payload.get("latest_training", {}) or {}
     latest_evaluation = payload.get("latest_evaluation", {}) or {}
     latest_backtest = payload.get("latest_backtest_report", {}) or {}
@@ -260,6 +277,17 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     position_rows = [
         [row["symbol"], row["qty"], _money(row.get("avg_price")), _money(row.get("last_price")), _money(row.get("unrealized_pnl"))]
         for row in payload.get("positions", [])
+    ]
+    broker_position_rows = [
+        [
+            row.get("symbol"),
+            row.get("name"),
+            row.get("holding_qty"),
+            _money(row.get("current_price")),
+            _money(row.get("evaluation_amount")),
+            _money(row.get("evaluation_profit_loss_amount")),
+        ]
+        for row in broker_account.get("positions", [])
     ]
     challenger_rows = [
         [
@@ -401,7 +429,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         </div>
         <div class="stack">
           <div class="card">
-            <h2>거래 계좌 현황</h2>
+            <h2>로컬 모의운용 계좌</h2>
             <div class="pillrow">
               <span class="pill">평가 금액 {_money(portfolio.get('net_liquidation_value'))}</span>
               <span class="pill">현금 {_money(portfolio.get('cash_balance'))}</span>
@@ -410,6 +438,23 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             </div>
             <div class="muted" style="margin-top:12px;">최근 스냅샷 시각: {_esc(portfolio.get('event_time'))}</div>
             <div style="margin-top:12px;">{_table(['종목','수량','평균 단가','현재가','미실현 손익'], position_rows, '현재 기록된 포지션이 없습니다.')}</div>
+          </div>
+          <div class="card">
+            <h2>브로커 모의계좌 잔고</h2>
+            <div class="pillrow">
+              <span class="pill">조회 성공: {'예' if broker_account_report.get('ok') else '아니오'}</span>
+              <span class="pill">캐시 사용: {'예' if broker_account_report.get('cache_used') else '아니오'}</span>
+              <span class="pill">계좌: {_esc(broker_account.get('account_no_masked'))}</span>
+              <span class="pill">상품코드: {_esc(broker_account.get('product_code'))}</span>
+            </div>
+            <div class="pillrow" style="margin-top:10px;">
+              <span class="pill">예수금 {_money(broker_account.get('cash_balance'))}</span>
+              <span class="pill">유가평가 {_money(broker_account.get('stock_evaluation_amount'))}</span>
+              <span class="pill">총평가 {_money(broker_account.get('total_evaluation_amount'))}</span>
+              <span class="pill">총손익 {_money(broker_account.get('total_profit_loss_amount'))}</span>
+            </div>
+            <div class="muted" style="margin-top:12px;">최근 조회 시각: {_esc(broker_account_report.get('fetched_at'))}<br>오류: {_esc(broker_account_report.get('error')) if broker_account_report.get('error') else '없음'}</div>
+            <div style="margin-top:12px;">{_table(['종목','종목명','보유수량','현재가','평가금액','평가손익'], broker_position_rows, '브로커 계좌 보유 종목이 없습니다.')}</div>
           </div>
           <div class="card">
             <h2>KIS 연결 상태</h2>

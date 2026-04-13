@@ -12,6 +12,7 @@ from app.utils.time import now_local
 def _mock_response(payload: dict) -> MagicMock:
     response = MagicMock()
     response.read.return_value = json.dumps(payload).encode("utf-8")
+    response.headers = {"tr_cont": ""}
     context_manager = MagicMock()
     context_manager.__enter__.return_value = response
     context_manager.__exit__.return_value = False
@@ -85,6 +86,58 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertEqual(quote.symbol, "005930")
         self.assertEqual(quote.current_price, 70200)
         self.assertEqual(quote.accumulated_volume, 123456)
+
+    @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_get_account_balance(self, mocked_urlopen) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "0",
+                "output1": [
+                    {
+                        "pdno": "005930",
+                        "prdt_name": "삼성전자",
+                        "hldg_qty": "3",
+                        "ord_psbl_qty": "3",
+                        "pchs_avg_pric": "70000",
+                        "pchs_amt": "210000",
+                        "prpr": "71500",
+                        "evlu_amt": "214500",
+                        "evlu_pfls_amt": "4500",
+                        "evlu_pfls_rt": "2.14",
+                    }
+                ],
+                "output2": [
+                    {
+                        "dnca_tot_amt": "1000000",
+                        "scts_evlu_amt": "214500",
+                        "tot_evlu_amt": "1214500",
+                        "pchs_amt_smtl_amt": "210000",
+                        "evlu_pfls_smtl_amt": "4500",
+                        "nass_amt": "1214500",
+                    }
+                ],
+                "ctx_area_fk100": "",
+                "ctx_area_nk100": "",
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        snapshot = client.get_account_balance()
+
+        self.assertEqual(snapshot.account_no_masked, "1234****")
+        self.assertEqual(snapshot.cash_balance, 1000000)
+        self.assertEqual(snapshot.position_row_count, 1)
+        self.assertEqual(snapshot.positions[0].symbol, "005930")
+        self.assertEqual(snapshot.positions[0].holding_qty, 3)
 
 
 if __name__ == "__main__":

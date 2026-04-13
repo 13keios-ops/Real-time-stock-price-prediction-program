@@ -35,10 +35,12 @@
 - 대시보드 기본 언어 한글화와 `거래 현황 / 학습 현황 / 그 외` 3탭 전환 UI
 - 학습 탭에서 `실운용 학습 상태`와 `오프라인 연구 결과`를 분리해 보여주는 구조
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
+- KIS 브로커 모의계좌 잔고 조회와 대시보드 반영
 - 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
 - 대시보드 start/status/stop 스크립트의 포트 점유 프로세스 추적 보강
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
+- `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
 - KIS REST rate-limit backoff 재시도
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 - audit progress JSON 배열 정합성 보강
@@ -165,12 +167,21 @@ python -m app --build-dashboard
 
 대시보드는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외하고 실제 KIS 기반 운용 데이터만 보여준다.
 샘플 WebSocket 재생 결과도 이제 `replay` 계열로 따로 저장되어 실제 운용 데이터 범위에 들어오지 않는다.
+거래 현황 탭은 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`를 분리해서 보여준다.
+브로커 계좌 잔고는 `runtime-data/reports/kis-account/latest-account.json` 캐시를 읽고, 캐시가 오래되면 KIS REST로 새로 갱신한다.
 다만 학습 탭은 `실운용 학습 상태`와 `오프라인 연구 결과`를 나눠 보여준다.
 실제 장중 데이터가 충분히 쌓이기 전까지 backtest, walk-forward, challenger는 오프라인 연구 결과로 표시된다.
 기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
 
 ```powershell
 .\scripts\cleanup_runtime_test_data.ps1
+```
+
+브로커 모의계좌 잔고만 새로 갱신:
+
+```powershell
+.\scripts\refresh_kis_account.ps1
+python -m app --kis-account-balance
 ```
 
 로컬 대시보드 background 시작 / 상태 / 중지:
@@ -188,6 +199,7 @@ python -m app --build-dashboard
 ```
 
 이 스크립트는 대시보드를 띄우고, shadow ML 갱신과 KIS 사전 점검을 순서대로 수행한 뒤 현재 active 모델과 주요 리포트 상태를 요약한다.
+이제 여기에 `KIS 브로커 모의계좌 잔고 갱신`도 포함된다.
 
 Hourly Repo Audit 1회 실행:
 

@@ -12,6 +12,7 @@ from app.brokers.kis_quote_rest import KisRestQuoteClient
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
+from app.services.kis_account import refresh_kis_account_report
 from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.kis_verification import verify_kis_websocket_runtime
@@ -60,6 +61,7 @@ def main() -> int:
     parser.add_argument("--cleanup-runtime-test-data", action="store_true", help="Delete non-actual serving and paper rows from SQLite.")
     parser.add_argument("--kis-current-price", action="store_true", help="Fetch domestic stock current price via KIS REST.")
     parser.add_argument("--kis-orderbook", action="store_true", help="Fetch domestic stock orderbook via KIS REST.")
+    parser.add_argument("--kis-account-balance", action="store_true", help="Fetch KIS broker account balance and write a cached report.")
     parser.add_argument("--kis-approval-key", action="store_true", help="Issue a KIS WebSocket approval key.")
     parser.add_argument("--symbol", default="005930", help="Target symbol for the demo run.")
     parser.add_argument("--symbols", default="", help="Comma-separated symbols for watchlist snapshot runs.")
@@ -225,6 +227,7 @@ def main() -> int:
         or args.verify_kis_ws
         or args.kis_current_price
         or args.kis_orderbook
+        or args.kis_account_balance
         or args.kis_approval_key
     ):
         settings = load_settings(project_root=project_root)
@@ -300,6 +303,11 @@ def main() -> int:
                 print(json.dumps(asdict(quote), ensure_ascii=False, indent=2))
                 return 0
 
+            if args.kis_account_balance:
+                result = refresh_kis_account_report(project_root=project_root, force_refresh=True)
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+                return 0
+
             if args.kis_approval_key:
                 ws_client = KisWebSocketQuoteClient(profile=profile, token_manager=token_manager)
                 payload = {
@@ -316,7 +324,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, or --kis-approval-key."
     )
     return 2
 

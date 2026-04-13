@@ -16,6 +16,11 @@ param(
 
     [Parameter(Mandatory = $false)]
     [int]$RecentLimit = 10
+
+    ,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,10 +56,28 @@ function Test-DashboardHealth {
     }
 }
 
+function Stop-PortOwnerIfPresent {
+    param([int]$LocalPort)
+    $listener = Get-ListeningConnection -LocalPort $LocalPort
+    if ($null -eq $listener) {
+        return $false
+    }
+    $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+    if ($null -ne $process) {
+        Stop-Process -Id $process.Id -Force
+        Start-Sleep -Seconds 1
+        return $true
+    }
+    return $false
+}
+
 $existingListener = Get-ListeningConnection -LocalPort $Port
 if ($null -ne $existingListener) {
     $existingUrl = "http://{0}:{1}" -f $DashboardHost, $Port
-    if (Test-DashboardHealth -BaseUrl $existingUrl) {
+    if ($ForceRestart) {
+        Stop-PortOwnerIfPresent -LocalPort $Port | Out-Null
+        $existingListener = $null
+    } elseif (Test-DashboardHealth -BaseUrl $existingUrl) {
         $payload = [ordered]@{
             status = "running"
             pid = $existingListener.OwningProcess
@@ -83,7 +106,7 @@ if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
         $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
-        if ($null -ne $existingProcess) {
+        if ($null -ne $existingProcess -and -not $ForceRestart) {
             $existingState.status = "running"
             $existingState.process_running = $true
             $existingState | ConvertTo-Json -Depth 10
@@ -93,21 +116,15 @@ if (Test-Path -LiteralPath $statePath) {
 }
 
 $scriptPath = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
+$commandText = "& '{0}' -DashboardHost '{1}' -Port {2} -RefreshSeconds {3} -RecentLimit {4}" -f `
+    $scriptPath, $DashboardHost, $Port, $RefreshSeconds, $RecentLimit
 $process = Start-Process powershell.exe `
     -ArgumentList @(
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
-        "-File",
-        $scriptPath,
-        "-DashboardHost",
-        $DashboardHost,
-        "-Port",
-        "$Port",
-        "-RefreshSeconds",
-        "$RefreshSeconds",
-        "-RecentLimit",
-        "$RecentLimit"
+        "-Command",
+        $commandText
     ) `
     -WorkingDirectory $WorkspaceRoot `
     -RedirectStandardOutput $stdoutPath `
@@ -117,11 +134,28 @@ $process = Start-Process powershell.exe `
 Start-Sleep -Seconds 3
 $process.Refresh()
 $tcpConnection = Get-ListeningConnection -LocalPort $Port
-$status = if ($process.HasExited) { "failed" } elseif ($null -ne $tcpConnection) { "running" } else { "starting" }
+$healthUrl = "http://{0}:{1}/health" -f $DashboardHost, $Port
+$dashboardResponding = $false
+if ($null -ne $tcpConnection) {
+    try {
+        $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
+        $dashboardResponding = ($health.Content -match '"service"\s*:\s*"dashboard"')
+    } catch {
+        $dashboardResponding = $false
+    }
+}
+$effectivePid = if ($null -ne $tcpConnection) { $tcpConnection.OwningProcess } else { $process.Id }
+$status = if ($null -ne $tcpConnection -and $dashboardResponding) {
+    "running"
+} elseif ($process.HasExited) {
+    "failed"
+} else {
+    "starting"
+}
 
 $payload = [ordered]@{
     status = $status
-    pid = $process.Id
+    pid = $effectivePid
     host = $DashboardHost
     port = $Port
     url = "http://{0}:{1}" -f $DashboardHost, $Port
@@ -134,7 +168,7 @@ $payload = [ordered]@{
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     snapshot_html_path = (Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.html")
     snapshot_json_path = (Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json")
-    process_running = (-not $process.HasExited)
+    process_running = ($status -eq "running" -or -not $process.HasExited)
     port_bound = ($null -ne $tcpConnection)
 }
 

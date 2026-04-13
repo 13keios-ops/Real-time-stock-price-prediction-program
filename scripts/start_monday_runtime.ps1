@@ -18,7 +18,10 @@ param(
     [switch]$SkipMlShadow,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipKisVerification
+    [switch]$SkipKisVerification,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceDashboardRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,7 +35,8 @@ $null = & (Join-Path $WorkspaceRoot "scripts\start_dashboard_background.ps1") `
     -WorkspaceRoot $WorkspaceRoot `
     -RuntimeDataDir $RuntimeDataDir `
     -DashboardHost $DashboardHost `
-    -Port $DashboardPort
+    -Port $DashboardPort `
+    -ForceRestart:$ForceDashboardRestart
 
 Start-Sleep -Seconds 2
 $dashboardState = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
@@ -41,6 +45,13 @@ $dashboardState = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1"
 
 if (-not $SkipMlShadow) {
     & (Join-Path $WorkspaceRoot "scripts\run_ml_shadow_cycle.ps1")
+}
+
+$kisAccount = $null
+python -m app --kis-account-balance | Out-Null
+$kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json"
+if (Test-Path -LiteralPath $kisAccountPath) {
+    $kisAccount = Get-Content -LiteralPath $kisAccountPath -Raw | ConvertFrom-Json
 }
 
 $kisVerification = $null
@@ -72,6 +83,7 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     challenger_walk_forward_gate_status = $challenger.walk_forward_gate_status
     latest_runtime_report_path = $runtimeReportPath
     latest_dashboard_html_path = $dashboardHtmlPath
+    latest_kis_account = $kisAccount
     latest_kis_verification = $kisVerification
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_ml_shadow = [bool]$SkipMlShadow

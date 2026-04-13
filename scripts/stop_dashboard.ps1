@@ -26,11 +26,15 @@ if (-not $state.pid -and -not $state.port) {
 }
 
 $process = $null
+$effectivePid = $null
 if ($state.pid) {
     $process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+    if ($null -ne $process) {
+        $effectivePid = $process.Id
+    }
 }
 
-if ($null -eq $process -and $state.port) {
+if ($state.port) {
     $tcpConnection = Get-NetTCPConnection -LocalPort $state.port -ErrorAction SilentlyContinue |
         Where-Object { $_.State -eq "Listen" } |
         Select-Object -First 1
@@ -41,6 +45,9 @@ if ($null -eq $process -and $state.port) {
             if ($health.Content -match '"service"\s*:\s*"dashboard"') {
                 $process = Get-Process -Id $tcpConnection.OwningProcess -ErrorAction SilentlyContinue
                 $state.pid = $tcpConnection.OwningProcess
+                if ($null -ne $process) {
+                    $effectivePid = $process.Id
+                }
             }
         } catch {
         }
@@ -68,11 +75,11 @@ if ($null -eq $process) {
     exit 0
 }
 
-Stop-Process -Id $process.Id -Force
+Stop-Process -Id $effectivePid -Force
 
 $payload = [ordered]@{
     status = "stopped"
-    pid = $process.Id
+    pid = $effectivePid
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     host = $state.host
     port = $state.port

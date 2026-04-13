@@ -125,9 +125,23 @@ def _env_path(project_root: Path, env: dict[str, str], key: str, default: str) -
     return project_root / path
 
 
+def _normalize_template_value(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    placeholder_prefixes = ("여기에_", "발급받은_", "your_", "<", "[")
+    placeholder_exact = {"placeholder", "changeme", "example", "sample"}
+    if normalized.startswith(placeholder_prefixes):
+        return ""
+    if lowered in placeholder_exact:
+        return ""
+    return normalized
+
+
 def _normalize_account_credentials(account_no: str, product_code: str, *, prefix: str) -> tuple[str, str]:
-    raw_account = account_no.strip()
-    raw_product = product_code.strip()
+    raw_account = _normalize_template_value(account_no)
+    raw_product = _normalize_template_value(product_code)
     if "-" in raw_account:
         account_part, _, product_part = raw_account.partition("-")
         raw_account = account_part.strip()
@@ -145,8 +159,8 @@ def _build_kis_credential_set(env: dict[str, str], prefix: str) -> KisCredential
         prefix=prefix,
     )
     return KisCredentialSet(
-        app_key=env.get(f"KIS_APP_KEY_{prefix}", ""),
-        app_secret=env.get(f"KIS_APP_SECRET_{prefix}", ""),
+        app_key=_normalize_template_value(env.get(f"KIS_APP_KEY_{prefix}", "")),
+        app_secret=_normalize_template_value(env.get(f"KIS_APP_SECRET_{prefix}", "")),
         account_no=account_no,
         product_code=product_code,
     )
