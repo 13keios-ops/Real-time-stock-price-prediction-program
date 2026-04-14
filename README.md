@@ -54,6 +54,7 @@
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
 - 정규장 밖 KIS REST snapshot 분과 raw 집계를 대시보드 actual runtime 범위에서 제외
 - 대시보드 start/status/stop 스크립트의 포트 점유 프로세스 추적 보강
+- PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -232,6 +233,18 @@ python -m app --kis-account-balance
 이 background 시작 스크립트는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 찾아 서버를 띄운다.
 가능하면 `pythonw.exe`를 우선 사용해 콘솔 종료 영향 없이 더 안정적으로 유지한다.
 또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
+
+PC 재부팅 후 자동 시작용 runtime autoboot:
+
+```powershell
+.\scripts\start_runtime_autoboot.ps1
+.\scripts\install_runtime_startup_launcher.ps1
+.\scripts\get_runtime_startup_launcher_status.ps1
+.\scripts\remove_runtime_startup_launcher.ps1
+```
+
+`start_runtime_autoboot.ps1` 는 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
+`install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
 
 월요일 시작 루틴 1회 실행:
 

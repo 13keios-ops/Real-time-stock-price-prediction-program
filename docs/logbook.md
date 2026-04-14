@@ -8,6 +8,7 @@
 - watcher mode: `VERSION` change trigger
 - watcher repo opt-in: enabled
 - canonical docs synced: yes
+- runtime startup launcher installed: yes
 
 ## Current State
 
@@ -38,6 +39,7 @@
 - audit progress 상태 파일의 배열 정합성 방어가 추가되었다.
 - 다음 ML 운영 기준은 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM` 으로 확정됐다.
 - 과거 데이터는 학습창 밖으로 밀리더라도 삭제하지 않고 warm/cold 비교 자산으로 보관한다.
+- PC 로그인 후 자동 시작을 위한 runtime autoboot 스크립트와 startup launcher 설치/삭제/상태 스크립트가 추가되었다.
 
 ## Active Checklist
 
@@ -75,6 +77,7 @@
 - [x] 실시간 수집기 background 실행과 상태 확인 스크립트
 - [x] 장중 15분·60분 예측 동시 기록과 15분 신호 기준 대시보드 반영
 - [x] 최근 예측의 기준가 대비 예상 변동 금액과 실제 결과 표시
+- [x] PC 재부팅 후 dashboard/live runtime 자동 시작용 autoboot 스크립트
 
 ## Version And Watcher
 
@@ -229,6 +232,12 @@
 - `매수·매도 및 체결현황` 안에는 `매수 주문 / 매도 주문 / 체결 / 최근 신호` 확장 탭을 넣어 필요한 내용만 펼쳐서 보게 했다.
 - 나머지 상위 탭도 같은 세로 보조탭 구조로 통일해서 레이아웃 일관성을 맞췄다.
 - 표와 목록이 긴 영역은 이제 내부 스크롤 패널로 보여, 누적 데이터가 많아도 화면 전체가 과도하게 길어지지 않는다.
+- `2026-04-15`
+  - `scripts/start_runtime_autoboot.ps1` 를 추가해 PC 로그인 직후 dashboard, live runtime, broker paper-account refresh, runtime/dashboard rebuild를 한 번에 수행하도록 정리했다.
+  - `scripts/install_runtime_startup_launcher.ps1`, `scripts/get_runtime_startup_launcher_status.ps1`, `scripts/remove_runtime_startup_launcher.ps1` 를 추가해 Windows 시작프로그램 폴더에 launcher를 설치하거나 제거할 수 있게 했다.
+  - 재부팅 후에는 기존 월요일 전용 준비 스크립트보다 가벼운 autoboot 경로를 기본 자동 시작 루틴으로 사용한다.
+  - `C:\Users\Keios\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\RealTimeStockRuntime.cmd` 에 launcher 설치를 완료했다.
+  - `start_runtime_autoboot.ps1` 실검증 결과 dashboard=`running`, live_runtime=`running`, broker paper account refresh=`ok` 로 확인됐다.
 
 ## Next Commands
 
@@ -252,6 +261,10 @@ python -m app --build-dashboard
 .\scripts\start_live_runtime_background.ps1
 .\scripts\get_live_runtime_status.ps1
 .\scripts\stop_live_runtime.ps1
+.\scripts\start_runtime_autoboot.ps1
+.\scripts\install_runtime_startup_launcher.ps1
+.\scripts\get_runtime_startup_launcher_status.ps1
+.\scripts\remove_runtime_startup_launcher.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1
 .\scripts\bump_version.ps1 -Version 0.2.1

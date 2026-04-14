@@ -46,6 +46,7 @@ The project now has a working local foundation for:
 - Dashboard trading tab now separates local paper-engine state and broker paper-account balance
 - Local paper-engine state and broker paper-account balance are intentionally shown as separate account views
 - Live runtime background start / status / stop scripts are available
+- Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
 - Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
 - Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `상태 업데이트` button
@@ -154,6 +155,25 @@ Background runtime helpers:
 .\scripts\get_live_runtime_status.ps1
 .\scripts\stop_live_runtime.ps1
 ```
+
+PC 재부팅 후 자동 시작용 helper:
+
+```powershell
+.\scripts\start_runtime_autoboot.ps1
+.\scripts\install_runtime_startup_launcher.ps1
+.\scripts\get_runtime_startup_launcher_status.ps1
+.\scripts\remove_runtime_startup_launcher.ps1
+```
+
+`start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 올려야 하는 구성만 수행한다.
+
+- dashboard background start
+- live runtime background start
+- broker paper-account refresh
+- runtime report refresh
+- dashboard rebuild
+
+즉, 기존 `start_monday_runtime.ps1` 처럼 shadow ML 재학습과 KIS verification까지 모두 돌리는 무거운 부팅 루틴이 아니라, 부팅 직후 서비스 복구용으로 더 가볍고 안정적인 경로다.
 
 When the live runtime is running:
 
