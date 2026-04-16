@@ -41,6 +41,32 @@ class PaperPortfolioBook:
     def __post_init__(self) -> None:
         self.cash_balance = self.initial_cash
 
+    def restore_from_runtime(
+        self,
+        *,
+        latest_snapshot: dict | None,
+        position_rows: list[dict],
+    ) -> None:
+        if latest_snapshot:
+            self.cash_balance = float(latest_snapshot.get("cash_balance", self.initial_cash) or self.initial_cash)
+            self.realized_pnl_total = float(latest_snapshot.get("realized_pnl", 0.0) or 0.0)
+        self.positions = {}
+        for row in position_rows:
+            qty = int(row.get("qty", 0) or 0)
+            if qty <= 0:
+                continue
+            opened_at = row.get("opened_at")
+            if isinstance(opened_at, str) and opened_at:
+                opened_at = datetime.fromisoformat(opened_at)
+            self.positions[str(row.get("symbol"))] = PositionState(
+                symbol=str(row.get("symbol")),
+                opened_at=opened_at,
+                qty=qty,
+                avg_price=float(row.get("avg_price", 0.0) or 0.0),
+                last_price=float(row.get("last_price", 0.0) or 0.0),
+                realized_pnl=float(row.get("realized_pnl", 0.0) or 0.0),
+            )
+
     def open_position_count(self) -> int:
         return sum(1 for position in self.positions.values() if position.qty > 0)
 

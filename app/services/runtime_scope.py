@@ -147,6 +147,12 @@ def is_actual_row(
         order_id = str(row.get("order_id", ""))
         return order_id in actual_order_ids and not _has_test_marker(row.get("fill_id", ""))
 
+    if table == "broker_paper_order_submissions":
+        if actual_order_ids is None:
+            return False
+        local_order_id = str(row.get("local_order_id", ""))
+        return local_order_id in actual_order_ids and not _has_test_marker(row.get("submission_id", ""))
+
     if table == "paper_positions":
         if actual_position_symbols is None:
             return False

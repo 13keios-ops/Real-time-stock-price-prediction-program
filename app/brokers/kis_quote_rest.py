@@ -1,4 +1,4 @@
-"""KIS REST quote client for domestic stock market data and account views."""
+"""KIS REST quote client for domestic stock market data, account views, and paper/live order submission."""
 
 from __future__ import annotations
 
@@ -18,6 +18,11 @@ ORDERBOOK_TR_ID = "FHKST01010200"
 ACCOUNT_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
 ACCOUNT_BALANCE_TR_ID_LIVE = "TTTC8434R"
 ACCOUNT_BALANCE_TR_ID_PAPER = "VTTC8434R"
+ORDER_CASH_PATH = "/uapi/domestic-stock/v1/trading/order-cash"
+ORDER_CASH_TR_ID_BUY_LIVE = "TTTC0012U"
+ORDER_CASH_TR_ID_SELL_LIVE = "TTTC0011U"
+ORDER_CASH_TR_ID_BUY_PAPER = "VTTC0012U"
+ORDER_CASH_TR_ID_SELL_PAPER = "VTTC0011U"
 
 
 def _as_int(payload: dict, key: str) -> int:
@@ -100,6 +105,22 @@ class KisAccountBalanceSnapshot:
     position_row_count: int
 
 
+@dataclass(slots=True)
+class KisCashOrderResult:
+    mode: str
+    side: str
+    symbol: str
+    qty: int
+    order_type: str
+    limit_price: float
+    broker_order_no: str
+    broker_branch_no: str
+    order_time: str
+    message_code: str
+    message: str
+    raw_output: dict
+
+
 class KisRestQuoteClient:
     def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10) -> None:
         self.profile = profile
@@ -154,6 +175,48 @@ class KisRestQuoteClient:
                     allow_retry=False,
                 )
             raise KisApiError(f"KIS HTTP error {exc.code}: {body}") from exc
+        except URLError as exc:
+            raise KisApiError(f"KIS network error: {exc}") from exc
+
+        rt_cd = str(payload.get("rt_cd", ""))
+        if rt_cd and rt_cd != "0":
+            message = payload.get("msg1") or payload.get("msg_cd") or payload
+            raise KisApiError(f"KIS REST quote error: {message}")
+        return payload, response_headers
+
+    def _post_response(
+        self,
+        path: str,
+        tr_id: str,
+        body: dict[str, str],
+        *,
+        allow_retry: bool = True,
+    ) -> tuple[dict, dict[str, str]]:
+        token = self.token_manager.get_access_token()
+        headers = {
+            "authorization": token.authorization_header,
+            "appkey": self.profile.app_key,
+            "appsecret": self.profile.app_secret,
+            "tr_id": tr_id,
+            "custtype": self.profile.customer_type,
+            "content-type": "application/json; charset=utf-8",
+        }
+        request = Request(
+            url=f"{self.profile.rest_url}{path}",
+            data=json.dumps(body).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                response_headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
+        except HTTPError as exc:
+            body_text = exc.read().decode("utf-8", errors="ignore")
+            if allow_retry and any(code in body_text for code in ("EGW00121", "EGW00123")):
+                self.token_manager.get_access_token(force_refresh=True)
+                return self._post_response(path=path, tr_id=tr_id, body=body, allow_retry=False)
+            raise KisApiError(f"KIS HTTP error {exc.code}: {body_text}") from exc
         except URLError as exc:
             raise KisApiError(f"KIS network error: {exc}") from exc
 
@@ -286,4 +349,67 @@ class KisRestQuoteClient:
             total_asset_amount=_as_int(summary, "nass_amt") or _as_int(summary, "tot_evlu_amt"),
             summary_row_count=len(summary_payload),
             position_row_count=len(positions),
+        )
+
+    def submit_cash_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: int,
+        limit_price: float,
+        order_type: str = "00",
+        exchange_code: str = "KRX",
+        sell_type: str = "",
+        condition_price: str = "",
+    ) -> KisCashOrderResult:
+        if not self.profile.is_configured:
+            raise KisApiError("KIS account number and product code are required before submitting an order.")
+        normalized_side = side.strip().lower()
+        if normalized_side not in {"buy", "sell"}:
+            raise KisApiError("Order side must be either 'buy' or 'sell'.")
+        if qty <= 0:
+            raise KisApiError("Order quantity must be positive.")
+        if limit_price < 0:
+            raise KisApiError("Order limit price cannot be negative.")
+
+        tr_id = (
+            ORDER_CASH_TR_ID_BUY_LIVE
+            if self.profile.mode == "live" and normalized_side == "buy"
+            else ORDER_CASH_TR_ID_SELL_LIVE
+            if self.profile.mode == "live"
+            else ORDER_CASH_TR_ID_BUY_PAPER
+            if normalized_side == "buy"
+            else ORDER_CASH_TR_ID_SELL_PAPER
+        )
+
+        payload, _ = self._post_response(
+            path=ORDER_CASH_PATH,
+            tr_id=tr_id,
+            body={
+                "CANO": self.profile.account_no,
+                "ACNT_PRDT_CD": self.profile.product_code,
+                "PDNO": symbol,
+                "ORD_DVSN": order_type,
+                "ORD_QTY": str(int(qty)),
+                "ORD_UNPR": str(int(round(limit_price))),
+                "EXCG_ID_DVSN_CD": exchange_code,
+                "SLL_TYPE": sell_type,
+                "CNDT_PRIC": condition_price,
+            },
+        )
+        output = payload.get("output", {}) or {}
+        return KisCashOrderResult(
+            mode=self.profile.mode,
+            side=normalized_side,
+            symbol=symbol,
+            qty=int(qty),
+            order_type=order_type,
+            limit_price=float(limit_price),
+            broker_order_no=_as_text(output, "ODNO"),
+            broker_branch_no=_as_text(output, "KRX_FWDG_ORD_ORGNO"),
+            order_time=_as_text(output, "ORD_TMD"),
+            message_code=_as_text(payload, "msg_cd"),
+            message=_as_text(payload, "msg1"),
+            raw_output=dict(output),
         )

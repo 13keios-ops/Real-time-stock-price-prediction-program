@@ -181,6 +181,23 @@ class PortfolioSnapshot(RecordMixin):
 
 
 @dataclass(slots=True)
+class BrokerOrderSubmission(RecordMixin):
+    submission_id: str
+    local_order_id: str
+    broker_mode: str
+    symbol: str
+    event_time: datetime
+    side: str
+    qty: int
+    limit_price: float
+    order_type: str
+    status: str
+    broker_order_no: str
+    broker_branch_no: str
+    detail: dict[str, Any]
+
+
+@dataclass(slots=True)
 class RiskEvent(RecordMixin):
     risk_event_id: str
     symbol: str

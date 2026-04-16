@@ -27,8 +27,12 @@ class RuntimeCleanupTests(unittest.TestCase):
             sqlite_store = get_sqlite_store(settings)
 
         self.assertIsNotNone(sqlite_store)
+        self.assertGreater(result.deleted_rows["raw_market_ticks"], 0)
+        self.assertGreater(result.deleted_rows["raw_orderbook_ticks"], 0)
         self.assertGreater(result.deleted_rows["serving_predictions"], 0)
         self.assertGreater(result.deleted_rows["paper_orders"], 0)
+        self.assertEqual(sqlite_store.count_rows("raw_market_ticks"), 0)
+        self.assertEqual(sqlite_store.count_rows("raw_orderbook_ticks"), 0)
         self.assertEqual(sqlite_store.count_rows("serving_predictions"), 0)
         self.assertEqual(sqlite_store.count_rows("paper_orders"), 0)
         self.assertEqual(sqlite_store.count_rows("paper_portfolio_snapshots"), 0)
@@ -48,8 +52,12 @@ class RuntimeCleanupTests(unittest.TestCase):
             sqlite_store = get_sqlite_store(settings)
 
         self.assertIsNotNone(sqlite_store)
+        self.assertGreater(result.deleted_rows["raw_market_ticks"], 0)
+        self.assertGreater(result.deleted_rows["raw_orderbook_ticks"], 0)
         self.assertGreater(result.deleted_rows["serving_predictions"], 0)
         self.assertGreater(result.deleted_rows["paper_orders"], 0)
+        self.assertEqual(sqlite_store.count_rows("raw_market_ticks"), 0)
+        self.assertEqual(sqlite_store.count_rows("raw_orderbook_ticks"), 0)
         self.assertEqual(sqlite_store.count_rows("serving_predictions"), 0)
         self.assertEqual(sqlite_store.count_rows("paper_orders"), 0)
 

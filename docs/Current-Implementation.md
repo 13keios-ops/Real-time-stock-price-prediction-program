@@ -26,8 +26,9 @@ The project now has a working local foundation for:
 - Dashboard top status area and 10-tab layout for account, ML, prediction, signal/order, fills/bars, report, and misc views
 - Every top-level dashboard tab now uses the same left-side vertical subtab layout instead of mixing layouts by tab
 - Dashboard date / period filtering for today, specific day, recent 3/7/30 days, and all accumulated runtime data
-- Dashboard learning view separation between actual runtime status and offline research results
+- Dashboard learning view separation between actual runtime status and validation/comparison results
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
+- Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
 - Dashboard daily-report view now summarizes selected-period performance, insights, and next actions
 - Virtual-paper account view now uses vertical subtabs for overview, holdings, and trade activity
@@ -45,6 +46,9 @@ The project now has a working local foundation for:
 - KIS broker paper-account balance refresh and cached report generation
 - Dashboard trading tab now separates local paper-engine state and broker paper-account balance
 - Local paper-engine state and broker paper-account balance are intentionally shown as separate account views
+- Local paper orders can now be mirrored into the broker paper account when `ENABLE_BROKER_PAPER_MIRRORING=true`
+- Broker paper-order submissions are persisted and shown in the dashboard sync view
+- Online runtime now restores the previous local paper portfolio state from SQLite on restart
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
@@ -53,6 +57,8 @@ The project now has a working local foundation for:
 - Recent predictions now show baseline-price-relative expected move amounts and actual outcome amounts when the horizon has elapsed
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
+- Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
+- Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 
 ## Recommended Dev Flow
 
@@ -134,6 +140,21 @@ This runs:
 - challenger comparison
 - runtime report update
 
+### 4-3. Actual-data-only rebuild
+
+```powershell
+.\scripts\rebuild_actual_ml_state.ps1
+```
+
+This now runs:
+
+- removal of demo / replay / synthetic runtime rows
+- rebuild of actual-only feature and label rows
+- baseline active-model reset
+- LightGBM retraining without auto-promotion
+- fresh backtest / walk-forward / challenger outputs
+- runtime report and dashboard rebuild
+
 ### 5. KIS WebSocket live listener
 
 ```powershell
@@ -172,6 +193,15 @@ PC 재부팅 후 자동 시작용 helper:
 - broker paper-account refresh
 - runtime report refresh
 - dashboard rebuild
+
+Optional broker-paper mirroring:
+
+```powershell
+$env:ENABLE_BROKER_PAPER_MIRRORING="true"
+.\scripts\start_runtime_autoboot.ps1
+```
+
+When enabled, the local paper engine still records its own simulated fills immediately, while the broker paper account receives matching order submissions through KIS REST. Dashboard sync cards show whether balances and holdings still match.
 
 즉, 기존 `start_monday_runtime.ps1` 처럼 shadow ML 재학습과 KIS verification까지 모두 돌리는 무거운 부팅 루틴이 아니라, 부팅 직후 서비스 복구용으로 더 가볍고 안정적인 경로다.
 

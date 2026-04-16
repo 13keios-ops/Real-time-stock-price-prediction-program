@@ -2,7 +2,7 @@ param(
     [string]$DashboardHost = "127.0.0.1",
     [int]$Port = 8765,
     [int]$RefreshSeconds = 300,
-    [int]$RecentLimit = 10
+    [int]$RecentLimit = 100
 )
 
 $ErrorActionPreference = "Stop"

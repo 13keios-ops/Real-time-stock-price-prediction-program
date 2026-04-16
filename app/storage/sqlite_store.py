@@ -13,6 +13,7 @@ from app.storage.contracts import (
     FeatureLabel,
     FeatureSnapshot,
     Fill,
+    BrokerOrderSubmission,
     MarketTickEvent,
     MinuteBar,
     ModelEvaluation,
@@ -197,6 +198,23 @@ class SQLiteRuntimeStore:
                 open_positions INTEGER NOT NULL,
                 realized_pnl REAL NOT NULL,
                 unrealized_pnl REAL NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS broker_paper_order_submissions (
+                submission_id TEXT PRIMARY KEY,
+                local_order_id TEXT NOT NULL,
+                broker_mode TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                event_time TEXT NOT NULL,
+                side TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                limit_price REAL NOT NULL,
+                order_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                broker_order_no TEXT NOT NULL,
+                broker_branch_no TEXT NOT NULL,
+                detail_json TEXT NOT NULL
             )
             """,
             """
@@ -471,6 +489,33 @@ class SQLiteRuntimeStore:
                     snapshot.open_positions,
                     snapshot.realized_pnl,
                     snapshot.unrealized_pnl,
+                ),
+            )
+            connection.commit()
+
+    def insert_broker_order_submission(self, submission: BrokerOrderSubmission) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO broker_paper_order_submissions(
+                    submission_id, local_order_id, broker_mode, symbol, event_time, side, qty, limit_price,
+                    order_type, status, broker_order_no, broker_branch_no, detail_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    submission.submission_id,
+                    submission.local_order_id,
+                    submission.broker_mode,
+                    submission.symbol,
+                    self._dt(submission.event_time),
+                    submission.side,
+                    submission.qty,
+                    submission.limit_price,
+                    submission.order_type,
+                    submission.status,
+                    submission.broker_order_no,
+                    submission.broker_branch_no,
+                    self._json(submission.detail),
                 ),
             )
             connection.commit()

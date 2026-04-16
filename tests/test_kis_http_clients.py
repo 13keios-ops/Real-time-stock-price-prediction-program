@@ -139,6 +139,40 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertEqual(snapshot.positions[0].symbol, "005930")
         self.assertEqual(snapshot.positions[0].holding_qty, 3)
 
+    @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_submit_cash_order(self, mocked_urlopen) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "0",
+                "msg_cd": "APBK0013",
+                "msg1": "주문 전송 완료",
+                "output": {
+                    "KRX_FWDG_ORD_ORGNO": "00111",
+                    "ODNO": "1234567890",
+                    "ORD_TMD": "101530",
+                },
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        result = client.submit_cash_order(symbol="005930", side="buy", qty=3, limit_price=70000)
+
+        self.assertEqual(result.mode, "paper")
+        self.assertEqual(result.side, "buy")
+        self.assertEqual(result.symbol, "005930")
+        self.assertEqual(result.qty, 3)
+        self.assertEqual(result.broker_order_no, "1234567890")
+        self.assertEqual(result.broker_branch_no, "00111")
+
 
 if __name__ == "__main__":
     unittest.main()

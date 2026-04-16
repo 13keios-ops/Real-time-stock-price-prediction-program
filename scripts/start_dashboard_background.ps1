@@ -15,7 +15,7 @@ param(
     [int]$RefreshSeconds = 300,
 
     [Parameter(Mandatory = $false)]
-    [int]$RecentLimit = 10
+    [int]$RecentLimit = 100
 
     ,
 
@@ -37,6 +37,26 @@ $stderrPath = Join-Path $logDir "dashboard-server.stderr.log"
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+
+function Resolve-PythonExecutable {
+    try {
+        $candidate = & py -3 -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    try {
+        $candidate = & python -c "import sys; print(sys.executable)"
+        if ($LASTEXITCODE -eq 0 -and $candidate) {
+            return $candidate.Trim()
+        }
+    } catch {
+    }
+
+    throw "Python executable could not be resolved."
+}
 
 function Get-ListeningConnection {
     param([int]$LocalPort)
@@ -115,20 +135,26 @@ if (Test-Path -LiteralPath $statePath) {
     }
 }
 
-$powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
-$runnerScript = Join-Path $WorkspaceRoot "scripts\run_dashboard.ps1"
-$runnerCommand = "& '{0}' -DashboardHost '{1}' -Port {2} -RefreshSeconds {3} -RecentLimit {4}" -f $runnerScript, $DashboardHost, $Port, $RefreshSeconds, $RecentLimit
+$pythonExe = Resolve-PythonExecutable
 $startProcessArgs = @{
-    FilePath = $powershellExe
+    FilePath = $pythonExe
     ArgumentList = @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        $runnerCommand
+        "-m",
+        "app",
+        "--serve-dashboard",
+        "--dashboard-host",
+        $DashboardHost,
+        "--dashboard-port",
+        "$Port",
+        "--dashboard-refresh-seconds",
+        "$RefreshSeconds",
+        "--dashboard-recent-limit",
+        "$RecentLimit"
     )
     WorkingDirectory = $WorkspaceRoot
     WindowStyle = "Hidden"
+    RedirectStandardOutput = $stdoutPath
+    RedirectStandardError = $stderrPath
     PassThru = $true
 }
 

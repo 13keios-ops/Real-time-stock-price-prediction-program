@@ -211,8 +211,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("localStorage.setItem", html)
         self.assertIn("realtime-stock-dashboard-subtab-", html)
         self.assertIn("운용 방식:", html)
+        self.assertIn("브로커 주문 자동 연동", html)
+        self.assertIn("최근 브로커 제출 주문", html)
         self.assertIn("상태 업데이트", html)
         self.assertIn("자동 새로고침: 5분", html)
+        self.assertEqual(snapshot.payload["runtime_summary"]["broker_order_submissions"], 0)
+        self.assertFalse(snapshot.payload["account_sync"]["order_mirroring_enabled"])
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -259,7 +263,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(snapshot.payload["latest_portfolio_snapshot"])
         self.assertEqual(snapshot.payload["recent_predictions"], [])
         self.assertEqual(snapshot.payload["recent_orders"], [])
-        self.assertEqual(snapshot.payload["learning_context"]["mode"], "offline_research")
+        self.assertEqual(snapshot.payload["learning_context"]["mode"], "actual_runtime_pending")
 
     def test_dashboard_hides_replay_runtime_rows(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -298,7 +302,7 @@ class DashboardTests(unittest.TestCase):
             self._seed_dashboard_inputs(runtime_root)
             self._seed_actual_prediction_runtime(root)
             with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
-                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5)
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, range_key="all")
 
         recent_predictions = snapshot.payload["recent_predictions"]
         self.assertEqual(len(recent_predictions), 1)

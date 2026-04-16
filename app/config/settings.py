@@ -40,6 +40,7 @@ class StrategySettings:
     slippage_bps: float
     max_spread_bps: float
     enable_paper_execution: bool
+    enable_broker_paper_mirroring: bool
     paper_initial_cash: float
     max_hold_minutes: int
 
@@ -210,6 +211,11 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
         slippage_bps=_env_float(env_map, "SLIPPAGE_BPS", strategy_block["slippage_bps"]),
         max_spread_bps=_env_float(env_map, "MAX_SPREAD_BPS", strategy_block["max_spread_bps"]),
         enable_paper_execution=_env_bool(env_map, "ENABLE_PAPER_EXECUTION", strategy_block["enable_paper_execution"]),
+        enable_broker_paper_mirroring=_env_bool(
+            env_map,
+            "ENABLE_BROKER_PAPER_MIRRORING",
+            strategy_block.get("enable_broker_paper_mirroring", False),
+        ),
         paper_initial_cash=_env_float(env_map, "PAPER_INITIAL_CASH", strategy_block["paper_initial_cash"]),
         max_hold_minutes=_env_int(env_map, "MAX_HOLD_MINUTES", strategy_block["max_hold_minutes"]),
     )

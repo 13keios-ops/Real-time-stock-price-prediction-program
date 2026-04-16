@@ -22,6 +22,8 @@ from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel, 
 from app.models.loader import load_named_builtin_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.observability.logging import configure_logging
+from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
+from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.contracts import FeatureLabel, FeatureSnapshot, MinuteBar, ModelEvaluation, OrderbookSnapshot, TrainingRun
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 from app.utils.time import now_local
@@ -256,6 +258,36 @@ class ChallengerRunResult:
             "report_json_path": str(self.report_json_path),
             "leaderboard_json_path": str(self.leaderboard_json_path),
             "candidates": [candidate.to_dict() for candidate in self.candidates],
+        }
+
+
+@dataclass(slots=True)
+class ActualMlRebuildResult:
+    feature_build: dict[str, object]
+    active_model: dict[str, object]
+    lightgbm_training: dict[str, object] | None
+    backtest: dict[str, object] | None
+    walk_forward: dict[str, object] | None
+    challenger: dict[str, object] | None
+    deleted_files: list[str]
+    deleted_tables: dict[str, int]
+    deleted_runtime_rows: dict[str, int]
+    errors: dict[str, str]
+    runtime_root: Path
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "feature_build": self.feature_build,
+            "active_model": self.active_model,
+            "lightgbm_training": self.lightgbm_training,
+            "backtest": self.backtest,
+            "walk_forward": self.walk_forward,
+            "challenger": self.challenger,
+            "deleted_files": self.deleted_files,
+            "deleted_tables": self.deleted_tables,
+            "deleted_runtime_rows": self.deleted_runtime_rows,
+            "errors": self.errors,
+            "runtime_root": str(self.runtime_root),
         }
 
 
@@ -695,15 +727,40 @@ def build_minute_bars_from_sqlite(project_root: Path) -> MinuteBarBuildResult:
     )
 
 
-def build_feature_dataset_from_sqlite(project_root: Path, horizons: tuple[int, ...] = (15, 60)) -> FeatureDatasetBuildResult:
+def build_feature_dataset_from_sqlite(
+    project_root: Path,
+    horizons: tuple[int, ...] = (15, 60),
+    *,
+    actual_only: bool = False,
+    clear_existing: bool = False,
+) -> FeatureDatasetBuildResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     sqlite_store = get_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for feature dataset generation.")
 
+    if clear_existing:
+        sqlite_store.clear_tables(["feature_model_inputs", "feature_labels"])
+
+    if actual_only:
+        scope = build_runtime_scope(sqlite_store, settings)
+        minute_bar_rows = filter_actual_rows(
+            "curated_minute_bars",
+            [dict(row) for row in sqlite_store.fetch_minute_bars()],
+            scope,
+        )
+        orderbook_rows = filter_actual_rows(
+            "raw_orderbook_ticks",
+            [dict(row) for row in sqlite_store.fetch_orderbook_snapshots()],
+            scope,
+        )
+    else:
+        minute_bar_rows = [dict(row) for row in sqlite_store.fetch_minute_bars()]
+        orderbook_rows = [dict(row) for row in sqlite_store.fetch_orderbook_snapshots()]
+
     bars_by_symbol: dict[str, list[MinuteBar]] = defaultdict(list)
-    for row in sqlite_store.fetch_minute_bars():
+    for row in minute_bar_rows:
         bars_by_symbol[row["symbol"]].append(
             MinuteBar(
                 symbol=row["symbol"],
@@ -717,7 +774,6 @@ def build_feature_dataset_from_sqlite(project_root: Path, horizons: tuple[int, .
             )
         )
 
-    orderbook_rows = sqlite_store.fetch_orderbook_snapshots()
     orderbooks_by_symbol: dict[str, dict[datetime, OrderbookSnapshot]] = defaultdict(dict)
     for row in orderbook_rows:
         event_time = _row_timestamp(row["event_time"])
@@ -769,6 +825,122 @@ def build_feature_dataset_from_sqlite(project_root: Path, horizons: tuple[int, .
         features_written=features_written,
         labels_written=labels_written,
         horizons=list(horizons),
+        runtime_root=settings.runtime_data_dir,
+    )
+
+
+def _purge_runtime_paths(paths: list[Path]) -> list[str]:
+    deleted: list[str] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        if path.is_file():
+            path.unlink()
+            deleted.append(str(path))
+            continue
+        for child in sorted(path.rglob("*"), reverse=True):
+            if child.is_file():
+                child.unlink()
+                deleted.append(str(child))
+        for child in sorted(path.rglob("*"), reverse=True):
+            if child.is_dir():
+                try:
+                    child.rmdir()
+                except OSError:
+                    continue
+    return deleted
+
+
+def rebuild_actual_runtime_ml_state(project_root: Path, horizon_min: int = 15) -> ActualMlRebuildResult:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = get_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for actual ML rebuild.")
+
+    cleanup_result = cleanup_non_actual_runtime_rows(project_root=project_root)
+
+    table_counts = {
+        "feature_model_inputs": sqlite_store.count_rows("feature_model_inputs"),
+        "feature_labels": sqlite_store.count_rows("feature_labels"),
+        "ml_training_runs": sqlite_store.count_rows("ml_training_runs"),
+        "ml_model_evaluations": sqlite_store.count_rows("ml_model_evaluations"),
+    }
+
+    deleted_files = _purge_runtime_paths(
+        [
+            settings.runtime_data_dir / "reports" / "backtests",
+            settings.runtime_data_dir / "reports" / "challengers",
+            settings.runtime_data_dir / "ml" / "models",
+        ]
+    )
+    sqlite_store.clear_tables(["feature_model_inputs", "feature_labels", "ml_training_runs", "ml_model_evaluations"])
+
+    feature_result = build_feature_dataset_from_sqlite(
+        project_root=project_root,
+        horizons=(15, 60),
+        actual_only=True,
+        clear_existing=False,
+    )
+    active_result = set_builtin_model_active(
+        project_root=project_root,
+        horizon_min=horizon_min,
+        builtin_name="baseline",
+    )
+
+    training_result: BaselineTrainingResult | None = None
+    backtest_result: BacktestResult | None = None
+    walk_forward_result: WalkForwardBacktestResult | None = None
+    challenger_result: ChallengerRunResult | None = None
+    errors: dict[str, str] = {}
+
+    try:
+        training_result = train_lightgbm_from_sqlite(
+            project_root=project_root,
+            horizon_min=horizon_min,
+            set_active=False,
+        )
+    except ValueError as exc:
+        errors["lightgbm_training"] = str(exc)
+
+    try:
+        backtest_result = run_signal_backtest_from_sqlite(project_root=project_root, horizon_min=horizon_min)
+    except ValueError as exc:
+        errors["backtest"] = str(exc)
+
+    try:
+        walk_forward_result = run_walk_forward_backtest_from_sqlite(
+            project_root=project_root,
+            horizon_min=horizon_min,
+            min_train_rows=30,
+            test_window_rows=10,
+            step_rows=10,
+            gap_rows=15,
+            max_train_rows=40,
+        )
+    except ValueError as exc:
+        errors["walk_forward"] = str(exc)
+
+    try:
+        challenger_result = run_model_challenger_review_from_sqlite(
+            project_root=project_root,
+            horizon_min=horizon_min,
+            promote_best=False,
+        )
+    except ValueError as exc:
+        errors["challenger"] = str(exc)
+
+    return ActualMlRebuildResult(
+        feature_build=feature_result.to_dict(),
+        active_model=active_result.to_dict(),
+        lightgbm_training=training_result.to_dict() if training_result else None,
+        backtest=backtest_result.to_dict() if backtest_result else None,
+        walk_forward=walk_forward_result.to_dict() if walk_forward_result else None,
+        challenger=challenger_result.to_dict() if challenger_result else None,
+        deleted_files=deleted_files,
+        deleted_tables=table_counts,
+        deleted_runtime_rows=cleanup_result.deleted_rows,
+        errors=errors,
         runtime_root=settings.runtime_data_dir,
     )
 

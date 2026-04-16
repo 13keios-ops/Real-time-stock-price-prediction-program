@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-13`
+- date: `2026-04-16`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -40,6 +40,13 @@
 - 다음 ML 운영 기준은 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM` 으로 확정됐다.
 - 과거 데이터는 학습창 밖으로 밀리더라도 삭제하지 않고 warm/cold 비교 자산으로 보관한다.
 - PC 로그인 후 자동 시작을 위한 runtime autoboot 스크립트와 startup launcher 설치/삭제/상태 스크립트가 추가되었다.
+- actual-only runtime cleanup 이 raw tick / orderbook / minute bar / serving / paper rows까지 실제 운용 기준으로 정리한다.
+- actual-only ML rebuild 경로가 추가되어 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 실데이터 기준으로 다시 만든다.
+- 대시보드 예측현황 탭은 오전/오후, 시간대별, 상승/하락 통계를 보여주고 최근 예측은 최대 100개까지 표시한다.
+- 대시보드 머신러닝 현황은 실제 데이터 기반 학습 결과만 표시하고, 연구용 fallback 값은 더 이상 대신 보여주지 않는다.
+- 로컬 가상 모의운용은 재시작 시 SQLite 기준 마지막 포트폴리오 상태를 복원한다.
+- 브로커 모의계좌 주문 제출 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켤 수 있다.
+- 대시보드 `모의계좌(실제)` 탭은 브로커 제출 주문 수와 최근 브로커 제출 주문 표를 함께 보여준다.
 
 ## Active Checklist
 
@@ -74,6 +81,7 @@
 - [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
 - [x] 실제 KIS WebSocket 장중 수신 검증
 - [x] KIS 브로커 모의계좌 잔고 조회와 dashboard 반영
+- [x] 브로커 모의계좌 주문 제출 미러링과 대시보드 반영
 - [x] 실시간 수집기 background 실행과 상태 확인 스크립트
 - [x] 장중 15분·60분 예측 동시 기록과 15분 신호 기준 대시보드 반영
 - [x] 최근 예측의 기준가 대비 예상 변동 금액과 실제 결과 표시
@@ -93,12 +101,37 @@
 
 - dashboard/runtime cleanup targeted tests: `6 tests OK`
 - redesigned dashboard tests: `6 tests OK`
+- broker mirroring focused tests: `17 tests OK`
+- dashboard + broker sync tests: `6 tests OK`
 - runtime scope out-of-session filter test: `1 test OK`
 - streaming replay isolation tests: `3 tests OK`
 - dashboard korean tab UI tests: `4 tests OK`
 - targeted streaming tests: `3 tests OK`
 - targeted dashboard tests: `5 tests OK`
 - full test suite: `49 tests OK`
+- actual-only cleanup after rebuild:
+  - raw market test rows: `0`
+  - raw orderbook test rows: `0`
+  - prediction test rows: `0`
+- latest actual-only LightGBM training:
+  - model version: `lightgbm-h15-v1`
+  - train rows: `386`
+  - validation rows: `97`
+  - validation accuracy: `0.711340`
+  - feature count: `6`
+- latest actual-only backtest:
+  - overall accuracy: `0.103093`
+  - trades taken: `36`
+  - cumulative net return pct: `-6.650134`
+- latest actual-only walk-forward:
+  - folds: `43`
+  - rows evaluated: `430`
+  - overall accuracy: `0.411628`
+  - cumulative net return pct: `-22.894859`
+- latest actual-only challenger review:
+  - recommended action: `review_required`
+  - best candidate: `linear_score_builtin`
+  - promoted model: `none`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -227,6 +260,13 @@
   - 오늘의 리포트 탭은 선택 기간 기준 예측 성공률, 체결 수, 실현 손익, 고찰, 다음 접근 방향을 자동 요약한다.
   - background dashboard 시작 스크립트는 공백 경로가 있는 저장소에서도 안정적으로 서버를 띄우고 `/health` 확인 뒤 `running` 상태를 기록하도록 다시 보강했다.
   - 전체 테스트 `49 tests OK`를 다시 확인했다.
+- `2026-04-17`
+  - 로컬 가상 주문을 브로커 모의계좌에도 함께 제출할 수 있는 미러링 경로를 추가했다.
+  - 미러링 제출 이력은 `broker_paper_order_submissions` 테이블과 JSONL에 남기고, 대시보드 `모의계좌(실제)` 탭에서 최근 제출 주문을 볼 수 있게 했다.
+  - 런타임 재시작 시 `paper_portfolio_snapshots` 와 `paper_positions` 를 읽어 로컬 가상 포트폴리오 상태를 복원하도록 보강했다.
+  - 대시보드 `상태 및 설정` 과 `모의계좌(실제)` 비교 카드에 브로커 주문 자동 연동 여부와 제출 주문 수를 반영했다.
+  - 관련 검증으로 `tests.test_settings`, `tests.test_kis_http_clients`, `tests.test_streaming_pipeline`, `tests.test_runtime_cleanup`, `tests.test_dashboard` 를 각각 다시 통과시켰다.
+  - 전체 `discover` 실행은 15분 제한에서도 완료되지 않아, 이번 턴은 변경 영향 범위 중심의 집중 테스트를 canonical 검증으로 기록한다.
 - `모의투자(가상)` 탭은 `상태 설명 / 보유 종목 / 매수·매도 및 체결현황` 세로 하위 탭 구조로 바꿨다.
 - 열린 포지션이 없을 때도 `최근 종료 포지션`이 보여서 가상 운용 이력을 바로 확인할 수 있게 했다.
 - `매수·매도 및 체결현황` 안에는 `매수 주문 / 매도 주문 / 체결 / 최근 신호` 확장 탭을 넣어 필요한 내용만 펼쳐서 보게 했다.
@@ -238,6 +278,16 @@
   - 재부팅 후에는 기존 월요일 전용 준비 스크립트보다 가벼운 autoboot 경로를 기본 자동 시작 루틴으로 사용한다.
   - `C:\Users\Keios\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\RealTimeStockRuntime.cmd` 에 launcher 설치를 완료했다.
   - `start_runtime_autoboot.ps1` 실검증 결과 dashboard=`running`, live_runtime=`running`, broker paper account refresh=`ok` 로 확인됐다.
+- `2026-04-16`
+  - `rebuild_actual_ml_state` 경로를 추가해 실제 데이터만 남기고 ML 상태를 다시 만드는 흐름을 구현했다.
+  - runtime cleanup 은 이제 demo/replay/synthetic 원시 체결·호가와 파생 분봉·서빙·페이퍼 운용 흔적까지 함께 정리한다.
+  - 실제 runtime 데이터 기준으로 feature rows `978`, labels `861`, training runs `1`, evaluations `8` 상태를 재구축했다.
+  - 최신 actual-only LightGBM 학습 결과는 train `386`, validation `97`, accuracy `0.711340` 으로 확인됐다.
+  - 최신 actual-only backtest 는 cumulative net return pct `-6.650134`, walk-forward 는 `-22.894859` 로 확인됐다.
+  - 최신 challenger 결과는 `review_required` 이며, walk-forward gate 미달 때문에 자동 승격을 하지 않는다.
+  - 대시보드 예측현황 탭에 오전/오후, 시간대별, 상승/하락 통계를 추가했고 recent list limit 을 `100` 으로 늘렸다.
+  - 대시보드 LightGBM 상태는 이제 최신 학습 실행에 연결된 검증 정확도만 사용한다.
+  - 브로커 모의계좌 자동 주문 미러링이 아직 없다는 점을 대시보드와 문서에 명시했다.
 
 ## Next Commands
 

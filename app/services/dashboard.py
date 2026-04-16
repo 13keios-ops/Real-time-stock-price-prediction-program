@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import html
@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from app.config.settings import load_settings
+from app.models.lightgbm_model import find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
@@ -178,6 +179,7 @@ def _summarize_runtime(sqlite_store, scope) -> dict[str, int]:
         "signals": len(_filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)),
         "orders": len(_filtered_rows(sqlite_store, "paper_orders", "event_time", scope)),
         "fills": len(_filtered_rows(sqlite_store, "paper_fills", "event_time", scope)),
+        "broker_order_submissions": len(_filtered_rows(sqlite_store, "broker_paper_order_submissions", "event_time", scope)),
         "positions": len(_filtered_rows(sqlite_store, "paper_positions", "symbol", scope)),
         "portfolio_snapshots": len(_filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope)),
         "training_runs": sqlite_store.count_rows("ml_training_runs"),
@@ -443,6 +445,7 @@ def _summarize_runtime_from_rows(
     signals: list[dict[str, Any]],
     orders: list[dict[str, Any]],
     fills: list[dict[str, Any]],
+    broker_order_submissions: list[dict[str, Any]],
     positions: list[dict[str, Any]],
     portfolio_snapshots: list[dict[str, Any]],
     training_rows: list[dict[str, Any]],
@@ -458,6 +461,7 @@ def _summarize_runtime_from_rows(
         "signals": len(signals),
         "orders": len(orders),
         "fills": len(fills),
+        "broker_order_submissions": len(broker_order_submissions),
         "positions": len(positions),
         "portfolio_snapshots": len(portfolio_snapshots),
         "training_runs": len(training_rows),
@@ -468,12 +472,9 @@ def _summarize_runtime_from_rows(
     }
 
 
-def _build_prediction_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    horizon_counter = Counter(str(row.get("horizon_min", "-")) for row in rows)
-    predicted_counter = Counter(str(row.get("top_label", "")) for row in rows if row.get("top_label"))
+def _prediction_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
     evaluated = [row for row in rows if row.get("success") is not None]
     success_count = sum(1 for row in evaluated if row.get("success") is True)
-    actual_counter = Counter(str(row.get("actual_label", "")) for row in evaluated if row.get("actual_label"))
     predicted_change_values = [abs(float(row.get("predicted_change_amount") or 0.0)) for row in rows if row.get("predicted_change_amount") is not None]
     actual_change_values = [abs(float(row.get("actual_change_amount") or 0.0)) for row in evaluated if row.get("actual_change_amount") is not None]
     return {
@@ -482,11 +483,46 @@ def _build_prediction_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "pending": max(len(rows) - len(evaluated), 0),
         "success_count": success_count,
         "success_rate": (success_count / len(evaluated)) if evaluated else None,
+        "avg_predicted_change_amount": (sum(predicted_change_values) / len(predicted_change_values)) if predicted_change_values else None,
+        "avg_actual_change_amount": (sum(actual_change_values) / len(actual_change_values)) if actual_change_values else None,
+    }
+
+
+def _prediction_session_label(event_time_text: str | None) -> str:
+    event_time = _parse_iso_datetime(event_time_text)
+    if event_time is None:
+        return "시간 미상"
+    return "오전" if event_time.hour < 12 else "오후"
+
+
+def _prediction_hour_slot_label(event_time_text: str | None) -> str:
+    event_time = _parse_iso_datetime(event_time_text)
+    if event_time is None:
+        return "시간 미상"
+    return f"{event_time.hour:02d}시"
+
+
+def _build_prediction_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    horizon_counter = Counter(str(row.get("horizon_min", "-")) for row in rows)
+    predicted_counter = Counter(str(row.get("top_label", "")) for row in rows if row.get("top_label"))
+    evaluated = [row for row in rows if row.get("success") is not None]
+    actual_counter = Counter(str(row.get("actual_label", "")) for row in evaluated if row.get("actual_label"))
+    session_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    hour_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    direction_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        session_groups[_prediction_session_label(row.get("event_time"))].append(row)
+        hour_groups[_prediction_hour_slot_label(row.get("event_time"))].append(row)
+        direction_groups[str(row.get("top_label") or "unknown")].append(row)
+
+    return {
+        **_prediction_rollup(rows),
         "horizon_counts": {key: int(value) for key, value in sorted(horizon_counter.items())},
         "predicted_label_counts": {key: int(value) for key, value in sorted(predicted_counter.items())},
         "actual_label_counts": {key: int(value) for key, value in sorted(actual_counter.items())},
-        "avg_predicted_change_amount": (sum(predicted_change_values) / len(predicted_change_values)) if predicted_change_values else None,
-        "avg_actual_change_amount": (sum(actual_change_values) / len(actual_change_values)) if actual_change_values else None,
+        "session_stats": {key: _prediction_rollup(value) for key, value in sorted(session_groups.items())},
+        "hour_slot_stats": {key: _prediction_rollup(value) for key, value in sorted(hour_groups.items())},
+        "direction_stats": {key: _prediction_rollup(value) for key, value in sorted(direction_groups.items())},
         "latest_prediction_time": _latest_time(rows, "event_time"),
     }
 
@@ -599,6 +635,90 @@ def _build_account_view(name: str, report: dict[str, Any] | None) -> dict[str, A
     }
 
 
+def _build_account_sync_status(
+    local_account_summary: dict[str, Any],
+    paper_account_view: dict[str, Any],
+    *,
+    order_mirroring_enabled: bool,
+    mirrored_order_count: int,
+) -> dict[str, Any]:
+    local_positions = {
+        str(row.get("symbol")): int(row.get("qty", 0) or 0)
+        for row in (local_account_summary.get("positions") or [])
+        if int(row.get("qty", 0) or 0) > 0
+    }
+    broker_positions = {
+        str(row.get("symbol")): int(row.get("holding_qty", 0) or 0)
+        for row in (paper_account_view.get("positions") or [])
+        if int(row.get("holding_qty", 0) or 0) > 0
+    }
+    local_cash = local_account_summary.get("cash_balance")
+    broker_cash = paper_account_view.get("cash_balance")
+    cash_gap = None
+    if local_cash is not None and broker_cash is not None:
+        cash_gap = float(local_cash) - float(broker_cash)
+    positions_match = local_positions == broker_positions
+    balance_match = cash_gap is not None and abs(cash_gap) < 1.0
+    if order_mirroring_enabled:
+        note = (
+            "로컬 가상 주문을 브로커 모의계좌에도 함께 제출하도록 설정되어 있습니다. "
+            "다만 브로커 측 거절, 부분 체결, 체결 시차가 있으면 주문 직후에는 잔고와 보유 수량이 잠시 다를 수 있습니다."
+        )
+    else:
+        note = (
+            "현재는 로컬 가상 주문만 자동 실행되고, 브로커 모의투자 계좌 주문은 자동 연동되지 않습니다. "
+            "그래서 현재 보유 상태가 같더라도 주문 이력과 예수금은 일치하지 않을 수 있습니다."
+        )
+    return {
+        "order_mirroring_enabled": order_mirroring_enabled,
+        "mirrored_order_count": int(mirrored_order_count),
+        "positions_match": positions_match,
+        "balance_match": balance_match,
+        "cash_gap": cash_gap,
+        "local_positions": local_positions,
+        "broker_positions": broker_positions,
+        "status": "일치" if positions_match and balance_match else "불일치",
+        "note": note,
+    }
+
+
+def _build_lightgbm_status(
+    *,
+    settings,
+    latest_training: dict[str, Any] | None,
+    latest_evaluation: dict[str, Any] | None,
+    active_model_entry: dict[str, Any],
+    runtime_summary: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_path = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=15)
+    artifact_updated_at = None
+    if artifact_path and artifact_path.exists():
+        artifact_updated_at = datetime.fromtimestamp(artifact_path.stat().st_mtime, tz=get_timezone(settings.timezone)).isoformat()
+
+    training_summary = (latest_training or {}).get("training_summary") or {}
+    latest_model_version = (latest_training or {}).get("model_version") or "미학습"
+    return {
+        "framework": "LightGBM",
+        "available": artifact_path is not None and artifact_path.exists(),
+        "artifact_path": str(artifact_path) if artifact_path else None,
+        "artifact_updated_at": artifact_updated_at,
+        "latest_model_version": latest_model_version,
+        "active_model_version": active_model_entry.get("model_version"),
+        "is_active": active_model_entry.get("model_version") == latest_model_version,
+        "train_rows": (latest_training or {}).get("train_rows"),
+        "validation_rows": (latest_training or {}).get("validation_rows"),
+        "validation_accuracy": (latest_evaluation or {}).get("accuracy"),
+        "evaluated_rows": (latest_evaluation or {}).get("total_rows"),
+        "labels_seen": training_summary.get("labels_seen") or [],
+        "class_labels": training_summary.get("class_labels") or [],
+        "feature_count": len(training_summary.get("feature_names") or []),
+        "training_window": training_summary.get("training_window") or "recent_60_trading_days_plus_today",
+        "actual_feature_rows": runtime_summary.get("feature_rows", 0),
+        "actual_label_rows": runtime_summary.get("labels", 0),
+        "description": "최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징으로 다음 15분/60분의 상승·보합·하락 확률을 학습합니다.",
+    }
+
+
 def _build_today_report(
     *,
     period_filter: DashboardPeriodFilter,
@@ -671,7 +791,7 @@ def _build_today_report(
 def collect_dashboard_payload(
     project_root: Path,
     *,
-    recent_limit: int = 10,
+    recent_limit: int = 100,
     range_key: str | None = None,
     selected_date: str | None = None,
 ) -> dict[str, Any]:
@@ -695,6 +815,7 @@ def collect_dashboard_payload(
     signal_rows_all = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)
     order_rows_all = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope)
     fill_rows_all = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope)
+    broker_submission_rows_all = _filtered_rows(sqlite_store, "broker_paper_order_submissions", "event_time", scope)
     position_rows_all = _filtered_rows(sqlite_store, "paper_positions", "symbol", scope)
     open_position_rows_all = [row for row in position_rows_all if int(row.get("qty", 0) or 0) > 0]
     snapshot_rows_all = _filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope)
@@ -717,6 +838,7 @@ def collect_dashboard_payload(
     signal_rows = _filter_rows_by_period(signal_rows_all, period_filter, "event_time")
     order_rows = _filter_rows_by_period(order_rows_all, period_filter, "event_time")
     fill_rows = _filter_rows_by_period(fill_rows_all, period_filter, "event_time")
+    broker_submission_rows = _filter_rows_by_period(broker_submission_rows_all, period_filter, "event_time")
     snapshot_rows = _filter_rows_by_period(snapshot_rows_all, period_filter, "event_time")
     training_rows = _filter_rows_by_period(training_rows_all, period_filter, "completed_at")
     evaluation_rows = _filter_rows_by_period(evaluation_rows_all, period_filter, "evaluated_at")
@@ -731,6 +853,7 @@ def collect_dashboard_payload(
         signals=signal_rows,
         orders=order_rows,
         fills=fill_rows,
+        broker_order_submissions=broker_submission_rows,
         positions=open_position_rows_all,
         portfolio_snapshots=snapshot_rows,
         training_rows=training_rows,
@@ -740,6 +863,15 @@ def collect_dashboard_payload(
     active_registry = ModelRegistry(settings.runtime_data_dir).load()
     latest_training = training_rows_all[-1] if training_rows_all else None
     latest_evaluation = evaluation_rows_all[-1] if evaluation_rows_all else None
+    latest_training_evaluation = None
+    if latest_training is not None:
+        training_run_id = str(latest_training.get("training_run_id") or "")
+        for row in reversed(evaluation_rows_all):
+            if str(row.get("training_run_id") or "") == training_run_id:
+                latest_training_evaluation = row
+                break
+    if latest_training_evaluation is not None:
+        latest_evaluation = latest_training_evaluation
 
     active_models = active_registry.get("active_models", {}) if isinstance(active_registry, dict) else {}
     active_model_entry = active_models.get("15", {}) if isinstance(active_models, dict) else {}
@@ -760,6 +892,7 @@ def collect_dashboard_payload(
     recent_orders = _reverse_recent(order_rows, recent_limit)
     recent_fills = _reverse_recent(fill_rows, recent_limit)
     recent_bars = _reverse_recent(minute_bar_rows, recent_limit)
+    recent_broker_order_submissions = _reverse_recent(broker_submission_rows, recent_limit)
 
     prediction_summary = _build_prediction_summary(prediction_views)
     signal_order_summary = _build_signal_order_summary(signal_rows, order_rows, fill_rows)
@@ -771,11 +904,11 @@ def collect_dashboard_payload(
     latest_prediction_time = _latest_time(prediction_views, "event_time")
     latest_signal_time = _latest_time(signal_views, "event_time")
     actual_labels = runtime_summary.get("labels", 0)
-    learning_mode = "actual_runtime" if actual_labels > 0 else "offline_research"
+    learning_mode = "actual_runtime" if actual_labels > 0 else "actual_runtime_pending"
     learning_note = (
         "현재 실제 운용 라벨이 있어 학습 현황을 실운용 데이터 기준으로 해석할 수 있습니다."
         if learning_mode == "actual_runtime"
-        else "현재 실제 운용 라벨이 0건이라, 아래 학습·챌린저 값은 저장된 연구용 오프라인 평가 결과입니다."
+        else "현재 실제 운용 라벨이 0건이라, 실데이터 기반 학습·검증 결과는 아직 생성되지 않았습니다."
     )
     active_status_note = (
         "최신 학습 모델은 LightGBM 후보이지만, 승격 검증을 통과하지 못해 아직 활성 모델이 아닙니다."
@@ -791,12 +924,16 @@ def collect_dashboard_payload(
     else:
         minute_note = "최근 실제 운용 분봉이 아직 없습니다."
     ml_state = {
-        "status": "대기 (장후 재학습)",
+        "status": "장중 분석·예측 중" if live_runtime_state.get("status") == "running" else "대기 (장후 재학습)",
         "latest_completed_at": (latest_training or {}).get("completed_at"),
         "latest_model_version": (latest_training or {}).get("model_version"),
         "active_model_version_h15": active_model_entry.get("model_version"),
         "active_model_version_h60": active_model_entry_60.get("model_version"),
-        "note": "현재 상시 학습 프로세스는 따로 켜져 있지 않고, 마지막 학습 완료 결과를 기준으로 표시합니다.",
+        "note": (
+            "실시간 수집기는 장중 예측을 계속 수행하고, 학습 상태는 마지막 실제 데이터 기반 재학습 결과를 보여줍니다."
+            if actual_labels > 0
+            else "실제 장중 라벨이 아직 부족해 학습 상태는 마지막 재구성 결과가 없거나 준비 전 단계입니다."
+        ),
     }
     local_account_state = _build_local_account_summary(
         latest_snapshot=latest_portfolio_snapshot,
@@ -825,16 +962,29 @@ def collect_dashboard_payload(
 
     paper_account_report = _load_account("paper")
     live_account_report = _load_account("live")
-    today_training_runs = _reverse_recent(training_rows, 5)
-    today_evaluations = _reverse_recent(evaluation_rows, 5)
+    today_training_runs = _reverse_recent(training_rows, 5) if actual_labels > 0 else []
+    today_evaluations = _reverse_recent(evaluation_rows, 5) if actual_labels > 0 else []
 
-    latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
-    latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
-    latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
+    latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json") if actual_labels > 0 else None
+    latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json") if actual_labels > 0 else None
+    latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json") if actual_labels > 0 else None
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
 
     paper_account_view = _build_account_view("모의계좌(실제)", paper_account_report)
     live_account_view = _build_account_view("실 운용계좌", live_account_report)
+    account_sync = _build_account_sync_status(
+        local_account_state,
+        paper_account_view,
+        order_mirroring_enabled=settings.strategy.enable_broker_paper_mirroring,
+        mirrored_order_count=len(broker_submission_rows_all),
+    )
+    lightgbm_status = _build_lightgbm_status(
+        settings=settings,
+        latest_training=latest_training,
+        latest_evaluation=latest_evaluation,
+        active_model_entry=active_model_entry,
+        runtime_summary=runtime_summary,
+    )
     account_views = {
         "virtual_paper": local_account_state,
         "paper_broker": paper_account_view,
@@ -902,6 +1052,7 @@ def collect_dashboard_payload(
             "runtime_data_dir": str(settings.runtime_data_dir),
             "paper_initial_cash": settings.strategy.paper_initial_cash,
             "enable_paper_execution": settings.strategy.enable_paper_execution,
+            "enable_broker_paper_mirroring": settings.strategy.enable_broker_paper_mirroring,
             "max_open_positions": settings.strategy.max_open_positions,
             "max_position_pct": settings.strategy.max_position_pct,
             "max_hold_minutes": settings.strategy.max_hold_minutes,
@@ -944,10 +1095,13 @@ def collect_dashboard_payload(
         "paper_account_report": paper_account_report,
         "live_account_report": live_account_report,
         "account_views": account_views,
+        "account_sync": account_sync,
+        "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
         "recent_signals": recent_signals,
         "recent_orders": recent_orders,
         "recent_fills": recent_fills,
+        "recent_broker_order_submissions": recent_broker_order_submissions,
         "recent_minute_bars": recent_bars,
         "today_report": today_report,
         "runtime_summary_all": runtime_summary_all,
@@ -1211,6 +1365,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         ["환경", payload.get("project", {}).get("environment")],
         ["운영 모드", payload.get("project", {}).get("trading_mode")],
         ["런타임 폴더", payload.get("project", {}).get("runtime_data_dir")],
+        ["브로커 모의주문 미러링", "예" if payload.get("project", {}).get("enable_broker_paper_mirroring") else "아니오"],
         ["실데이터 minute 수", scope.get("actual_symbol_minutes")],
         ["실제 주문 ID 수", scope.get("actual_order_ids")],
     ]
@@ -1421,7 +1576,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         </div>
         <div class="stack">
           <div class="card">
-            <h2>오프라인 연구 결과</h2>
+              <h2>검증 및 비교 결과</h2>
             <div class="pillrow">
               <span class="pill">표시 기준: 오프라인 연구 결과</span>
               <span class="pill">최신 학습 모델: {_esc(latest_training.get('model_version'))}</span>
@@ -1574,6 +1729,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_walk_forward = payload.get("latest_walk_forward_report", {}) or {}
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
+    lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
     today_report = payload.get("today_report", {}) or {}
@@ -1581,6 +1737,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     virtual_account = account_views.get("virtual_paper", {}) or {}
     paper_account = account_views.get("paper_broker", {}) or {}
     live_account = account_views.get("live_broker", {}) or {}
+    account_sync = payload.get("account_sync", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
 
@@ -1704,6 +1861,39 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"예측 성공: {prediction_summary.get('success_count', 0)}",
         f"성공률: {_ratio_pct(prediction_summary.get('success_rate'), 1)}",
     ]
+    prediction_session_rows = [
+        [
+            key,
+            value.get("total", 0),
+            value.get("evaluated", 0),
+            value.get("success_count", 0),
+            _ratio_pct(value.get("success_rate"), 1),
+            _money(value.get("avg_actual_change_amount")),
+        ]
+        for key, value in (prediction_summary.get("session_stats") or {}).items()
+    ]
+    prediction_hour_rows = [
+        [
+            key,
+            value.get("total", 0),
+            value.get("evaluated", 0),
+            value.get("success_count", 0),
+            _ratio_pct(value.get("success_rate"), 1),
+        ]
+        for key, value in (prediction_summary.get("hour_slot_stats") or {}).items()
+    ]
+    prediction_direction_rows = [
+        [
+            _translate_prediction_label(key if key != "unknown" else None),
+            value.get("total", 0),
+            value.get("evaluated", 0),
+            value.get("success_count", 0),
+            _ratio_pct(value.get("success_rate"), 1),
+            _money(value.get("avg_predicted_change_amount")),
+            _money(value.get("avg_actual_change_amount")),
+        ]
+        for key, value in (prediction_summary.get("direction_stats") or {}).items()
+    ]
     signal_status_pills = [
         f"매수 신호: {signal_order_summary.get('signal_buy', 0)}",
         f"매도 신호: {signal_order_summary.get('signal_sell', 0)}",
@@ -1728,6 +1918,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"총자산: {_money(paper_account.get('total_asset_amount'))}",
         f"총손익: {_money(paper_account.get('total_profit_loss_amount'))}",
     ]
+    sync_rows = [
+        ["현재 비교 상태", account_sync.get("status") or "-"],
+        ["브로커 주문 자동 연동", "예" if account_sync.get("order_mirroring_enabled") else "아니오"],
+        ["브로커 제출 주문 수", account_sync.get("mirrored_order_count") or 0],
+        ["보유 종목 일치", "예" if account_sync.get("positions_match") else "아니오"],
+        ["현금 잔고 일치", "예" if account_sync.get("balance_match") else "아니오"],
+        ["현금 차이", _money(account_sync.get("cash_gap"))],
+    ]
     live_account_pills = [
         f"연결 상태: {live_account.get('status_text') or '-'}",
         f"계좌: {live_account.get('account_no_masked') or '-'}",
@@ -1744,12 +1942,26 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
+    lightgbm_rows = [
+        ["프레임워크", lightgbm_status.get("framework") or "-"],
+        ["최신 모델 버전", lightgbm_status.get("latest_model_version") or "-"],
+        ["활성 모델 여부", "예" if lightgbm_status.get("is_active") else "아니오"],
+        ["학습 행 수", lightgbm_status.get("train_rows") or 0],
+        ["검증 행 수", lightgbm_status.get("validation_rows") or 0],
+        ["검증 정확도", _ratio_pct(lightgbm_status.get("validation_accuracy"), 2)],
+        ["특징 수", lightgbm_status.get("feature_count") or 0],
+        ["실운용 특징 행", lightgbm_status.get("actual_feature_rows") or 0],
+        ["실운용 라벨 행", lightgbm_status.get("actual_label_rows") or 0],
+        ["학습 창", lightgbm_status.get("training_window") or "-"],
+        ["아티팩트 갱신 시각", lightgbm_status.get("artifact_updated_at") or "-"],
+    ]
     runtime_rows = [
         ["원시 체결", runtime.get("raw_market_ticks", 0)],
         ["원시 호가", runtime.get("raw_orderbook_ticks", 0)],
         ["분봉", runtime.get("minute_bars", 0)],
         ["특징", runtime.get("feature_rows", 0)],
         ["라벨", runtime.get("labels", 0)],
+        ["브로커 제출 주문", runtime.get("broker_order_submissions", 0)],
         ["학습", runtime.get("training_runs", 0)],
         ["평가", runtime.get("evaluations", 0)],
         ["백테스트", runtime.get("backtests", 0)],
@@ -1794,6 +2006,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["브로커 상태", paper_account.get("status_text") or "-"],
         ["브로커 예수금", _money(paper_account.get("cash_balance"))],
         ["보유 종목 수", len(paper_account.get("positions") or [])],
+        ["브로커 주문 자동 연동", "예" if project.get("enable_broker_paper_mirroring") else "아니오"],
+        ["브로커 제출 주문 수", runtime.get("broker_order_submissions", 0)],
         ["로컬 가상계좌와 차이", "브로커 실제 모의투자 계좌 값은 프로그램 내부 가상 장부와 다를 수 있습니다."],
     ]
     live_compare_rows = [
@@ -1805,6 +2019,19 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     signal_fill_rows = [
         [row.get("event_time"), row.get("order_id"), _money(row.get("fill_price")), row.get("fill_qty"), _money(row.get("commission"))]
         for row in payload.get("recent_fills", [])
+    ]
+    broker_submission_rows = [
+        [
+            row.get("event_time"),
+            row.get("local_order_id"),
+            row.get("symbol"),
+            _translate_signal_side(str(row.get("side", ""))),
+            row.get("qty"),
+            _money(row.get("limit_price")),
+            row.get("status"),
+            row.get("broker_order_no"),
+        ]
+        for row in payload.get("recent_broker_order_submissions", [])
     ]
     virtual_tab_html = _render_subtab_shell(
         "모의투자(가상)",
@@ -1924,9 +2151,19 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "매수/매도 및 체결현황",
                 _stack_cards(
                     _section_card("현재 제공 범위", _table(["항목", "값"], paper_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
+                    _section_card("로컬 가상계좌 비교", _table(["항목", "값"], sync_rows, "비교할 정보가 없습니다.", scroll_height=280), note=_esc(account_sync.get("note"))),
+                    _section_card(
+                        "최근 브로커 제출 주문",
+                        _table(
+                            ["시각", "로컬 주문 ID", "종목", "방향", "수량", "지정가", "상태", "브로커 주문번호"],
+                            broker_submission_rows,
+                            "최근 브로커 모의계좌 제출 주문이 없습니다.",
+                        ),
+                        note="로컬 가상 주문이 브로커 모의계좌에도 함께 제출된 기록입니다.",
+                    ),
                     _section_card(
                         "안내",
-                        '<div class="muted">현재 브로커 계좌 탭은 잔고와 보유 종목 중심으로 표시합니다. 브로커 주문·체결 내역을 별도 조회하는 기능은 아직 연결하지 않았습니다.</div>',
+                        '<div class="muted">현재는 브로커 제출 주문까지 연결되어 있습니다. 다만 브로커 체결 여부와 부분 체결 상세는 별도 조회로 확장할 여지가 있습니다.</div>',
                     ),
                 ),
             ),
@@ -1993,6 +2230,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         _pill_row(ml_status_pills),
                         note=f"{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}",
                     ),
+                    _section_card(
+                        "LightGBM 실제 현황",
+                        _table(["항목", "값"], lightgbm_rows, "표시할 LightGBM 현황이 없습니다.", scroll_height=330),
+                        note=_esc(lightgbm_status.get("description")),
+                    ),
                     _section_card("모델별 상태", _table(["구분", "모델 버전", "종류", "상태", "평가 점수", "메모"], model_rows, "표시할 모델 상태가 없습니다.")),
                 ),
             ),
@@ -2012,6 +2254,10 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                                 f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}",
                             ]
                         ),
+                    ),
+                    _section_card(
+                        "학습 설명",
+                        '<div class="muted">LightGBM는 최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징을 이용해 다음 15분과 60분의 상승·보합·하락 확률을 학습합니다. 장중에는 추론만 계속하고, 재학습은 장후 또는 수동 재구성 시점에 수행합니다.</div>',
                     ),
                 ),
             ),
@@ -2071,7 +2317,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 _stack_cards(
                     _section_card("예측 요약", _pill_row(prediction_status_pills + [f"최근 예측 시각: {prediction_summary.get('latest_prediction_time') or '-'}"]), note="예측 성공률은 실제 결과가 확정된 예측만 기준으로 계산합니다. 선택 기간 전체 기준으로 집계합니다."),
                     _section_card(
-                        "수평선별 집계",
+                        "수평선 및 방향별 집계",
                         _pill_row(
                             [f"{key}분: {value}건" for key, value in (prediction_summary.get("horizon_counts") or {}).items()]
                             + [
@@ -2081,12 +2327,24 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                             ]
                         ),
                     ),
+                    _section_card(
+                        "오전/오후 통계",
+                        _table(["구간", "예측", "확정", "성공", "성공률", "평균 실제 변동"], prediction_session_rows, "선택 기간의 시간대별 예측 통계가 없습니다.", scroll_height=260),
+                    ),
+                    _section_card(
+                        "시간대별 통계",
+                        _table(["시간대", "예측", "확정", "성공", "성공률"], prediction_hour_rows, "선택 기간의 시간대별 예측 통계가 없습니다.", scroll_height=260),
+                    ),
+                    _section_card(
+                        "상승/하락 예측 통계",
+                        _table(["예측 방향", "예측", "확정", "성공", "성공률", "평균 예상 변동", "평균 실제 변동"], prediction_direction_rows, "선택 기간의 방향별 예측 통계가 없습니다.", scroll_height=260),
+                    ),
                 ),
             ),
             (
                 "predictions-detail",
                 "예측 상세",
-                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다.")),
+                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다."), note="최근 예측 목록은 최신 순으로 최대 100건까지 보여줍니다."),
             ),
             (
                 "predictions-notes",
@@ -2398,7 +2656,7 @@ def build_dashboard_snapshot(
     project_root: Path,
     *,
     refresh_seconds: int = 300,
-    recent_limit: int = 10,
+    recent_limit: int = 100,
     range_key: str | None = None,
     selected_date: str | None = None,
 ) -> DashboardSnapshotResult:
@@ -2479,7 +2737,7 @@ def prepare_dashboard_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     refresh_seconds: int = 300,
-    recent_limit: int = 10,
+    recent_limit: int = 100,
 ) -> tuple[ThreadingHTTPServer, DashboardServeInfo]:
     snapshot = build_dashboard_snapshot(
         project_root=project_root,

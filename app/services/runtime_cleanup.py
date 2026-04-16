@@ -1,4 +1,4 @@
-"""Cleanup helpers for removing non-actual runtime rows from serving and paper tables."""
+"""Cleanup helpers for removing non-actual runtime rows from runtime tables."""
 
 from __future__ import annotations
 
@@ -40,12 +40,18 @@ def cleanup_non_actual_runtime_rows(project_root: Path) -> RuntimeCleanupResult:
     scope = build_runtime_scope(sqlite_store, settings)
     deleted_rows: dict[str, int] = {}
     table_order = [
+        ("raw_market_ticks", "event_time"),
+        ("raw_orderbook_ticks", "event_time"),
+        ("curated_minute_bars", "bar_time"),
+        ("feature_model_inputs", "event_time"),
+        ("feature_labels", "event_time"),
         ("serving_predictions", "event_time"),
         ("serving_trade_signals", "event_time"),
         ("serving_target_positions", "event_time"),
         ("paper_orders", "event_time"),
         ("paper_order_events", "event_time"),
         ("paper_fills", "event_time"),
+        ("broker_paper_order_submissions", "event_time"),
         ("paper_positions", "updated_at"),
         ("paper_portfolio_snapshots", "event_time"),
         ("ops_risk_events", "event_time"),

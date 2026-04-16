@@ -1,11 +1,13 @@
 import os
+from datetime import datetime
 from pathlib import Path
 import unittest
 import uuid
 from unittest.mock import patch
 
 from app.config.settings import load_settings
-from app.services.streaming import build_sample_ws_frames, replay_ws_frames
+from app.storage.contracts import BrokerOrderSubmission
+from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
 from app.storage.runtime_writer import get_sqlite_store
 
 
@@ -90,6 +92,63 @@ class StreamingPipelineTests(unittest.TestCase):
             )
             self.assertGreaterEqual(result.frames_received, 5)
             self.assertEqual(result.control_frames, 1)
+
+    def test_online_pipeline_restores_existing_open_position_state(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-restore" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+            processor = OnlinePipelineProcessor(settings)
+            self.assertLess(processor.portfolio_book.cash_balance, settings.strategy.paper_initial_cash)
+            self.assertIn("005930", processor.portfolio_book.positions)
+
+    def test_online_pipeline_writes_broker_submission_when_enabled(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-broker-mirror" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            fake_submission = BrokerOrderSubmission(
+                submission_id="broker-paper-paper-order-replay-000001",
+                local_order_id="paper-order-replay-000001",
+                broker_mode="paper",
+                symbol="005930",
+                event_time=datetime.fromisoformat("2026-04-13T10:15:00+09:00"),
+                side="buy",
+                qty=1,
+                limit_price=70000.0,
+                order_type="00",
+                status="submitted",
+                broker_order_no="123456",
+                broker_branch_no="00111",
+                detail={"message": "ok"},
+            )
+            with patch("app.services.streaming.BrokerPaperMirror.submit_local_order", return_value=fake_submission):
+                result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+                sqlite_store = get_sqlite_store(settings)
+
+        self.assertIsNotNone(sqlite_store)
+        self.assertGreaterEqual(result.orders_written, 1)
+        self.assertEqual(sqlite_store.count_rows("broker_paper_order_submissions"), 1)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from app.paper_trading.engine import PaperTradingEngine
 from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
+from app.services.broker_paper import BrokerPaperMirror
 from app.storage.contracts import MarketTickEvent, OrderbookSnapshot, RiskEvent
 from app.storage.runtime_writer import RuntimeWriter
 from app.universe.watchlist import load_watchlist
@@ -108,6 +109,7 @@ class OnlinePipelineProcessor:
             initial_cash=starting_cash_balance if starting_cash_balance is not None else settings.strategy.paper_initial_cash,
             max_open_positions=settings.strategy.max_open_positions,
         )
+        self._restore_portfolio_state()
         self.max_hold_minutes = max_hold_minutes if max_hold_minutes is not None else settings.strategy.max_hold_minutes
         self.forced_flat_time = parse_hhmm(settings.market_calendar.forced_flat_time)
         self.time_gate = TradingWindowGate(
@@ -123,6 +125,34 @@ class OnlinePipelineProcessor:
         self.signals_written = 0
         self.orders_written = 0
         self._sequence = 0
+        self.broker_paper_mirror = BrokerPaperMirror(settings)
+
+    def _restore_portfolio_state(self) -> None:
+        sqlite_store = self.writer.sqlite_store
+        if sqlite_store is None:
+            return
+        latest_snapshot = sqlite_store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
+        position_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_positions", "symbol")]
+        latest_snapshot_row = dict(latest_snapshot) if latest_snapshot is not None else None
+        self.portfolio_book.restore_from_runtime(latest_snapshot=latest_snapshot_row, position_rows=position_rows)
+
+    def _mirror_order_to_broker(self, order) -> None:
+        if not self.broker_paper_mirror.enabled:
+            return
+        try:
+            submission = self.broker_paper_mirror.submit_local_order(order)
+        except Exception as exc:
+            self.writer.write_risk_event(
+                RiskEvent(
+                    risk_event_id=self._next_scoped_id("risk"),
+                    symbol=order.symbol,
+                    event_time=order.event_time,
+                    gate="broker_paper_mirroring",
+                    detail=f"broker_paper_order_failed={exc}",
+                )
+            )
+            return
+        self.writer.write_broker_order_submission(submission)
 
     def _next_id(self, prefix: str) -> str:
         self._sequence += 1
@@ -254,6 +284,7 @@ class OnlinePipelineProcessor:
                 fill_id=self._next_scoped_id("fill"),
             )
             self.writer.write_paper_order(order)
+            self._mirror_order_to_broker(order)
             self.writer.write_order_event(ack)
             self.writer.write_order_event(fill_event)
             self.writer.write_fill(fill)
@@ -308,6 +339,7 @@ class OnlinePipelineProcessor:
             status="created",
         )
         ack = self.engine.acknowledge(order, order_event_id=order_event_id)
+        self._mirror_order_to_broker(order)
         fill_event, fill = self.engine.fill(
             order,
             fill_price=mark_price,

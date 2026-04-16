@@ -21,6 +21,7 @@ from app.services.reporting import build_runtime_report
 from app.services.research import (
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
+    rebuild_actual_runtime_ml_state,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -50,6 +51,7 @@ def main() -> int:
     parser.add_argument("--kis-watchlist-poll", action="store_true", help="Run repeated KIS REST snapshot polling for a watchlist.")
     parser.add_argument("--build-minute-bars", action="store_true", help="Build minute bars from raw ticks stored in SQLite.")
     parser.add_argument("--build-feature-dataset", action="store_true", help="Build feature snapshots and labels from SQLite minute bars.")
+    parser.add_argument("--rebuild-actual-ml", action="store_true", help="Delete offline ML artifacts and rebuild actual-runtime-only features, labels, training, and reports.")
     parser.add_argument("--train-baseline", action="store_true", help="Train the local centroid baseline using SQLite feature rows.")
     parser.add_argument("--train-lightgbm", action="store_true", help="Train the LightGBM model using SQLite feature rows.")
     parser.add_argument("--set-active-builtin", action="store_true", help="Set a builtin model as the active runtime model.")
@@ -91,7 +93,7 @@ def main() -> int:
     parser.add_argument("--dashboard-host", default="127.0.0.1", help="Host for the local dashboard server.")
     parser.add_argument("--dashboard-port", type=int, default=8765, help="Port for the local dashboard server.")
     parser.add_argument("--dashboard-refresh-seconds", type=int, default=300, help="Browser auto-refresh interval for the dashboard. Default is 300 seconds (5 minutes).")
-    parser.add_argument("--dashboard-recent-limit", type=int, default=10, help="Recent item count shown in the dashboard.")
+    parser.add_argument("--dashboard-recent-limit", type=int, default=100, help="Recent item count shown in the dashboard.")
     parser.add_argument("--project-root", default=".", help="Project root for config and runtime paths.")
     args = parser.parse_args()
 
@@ -109,6 +111,11 @@ def main() -> int:
 
     if args.build_feature_dataset:
         result = build_feature_dataset_from_sqlite(project_root=project_root)
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.rebuild_actual_ml:
+        result = rebuild_actual_runtime_ml_state(project_root=project_root, horizon_min=args.horizon_min)
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
@@ -332,7 +339,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, or --kis-approval-key."
     )
     return 2
 
