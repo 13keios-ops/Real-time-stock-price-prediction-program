@@ -67,10 +67,16 @@ if (-not $SkipMlShadow) {
 }
 
 $kisAccount = $null
+$paperReconciliation = $null
 python -m app --kis-account-balance | Out-Null
 $kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json"
 if (Test-Path -LiteralPath $kisAccountPath) {
     $kisAccount = Get-Content -LiteralPath $kisAccountPath -Raw | ConvertFrom-Json
+}
+python -m app --reconcile-paper-accounts | Out-Null
+$paperReconciliationPath = Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json"
+if (Test-Path -LiteralPath $paperReconciliationPath) {
+    $paperReconciliation = Get-Content -LiteralPath $paperReconciliationPath -Raw | ConvertFrom-Json
 }
 
 $kisVerification = $null
@@ -104,6 +110,7 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     latest_runtime_report_path = $runtimeReportPath
     latest_dashboard_html_path = $dashboardHtmlPath
     latest_kis_account = $kisAccount
+    latest_paper_reconciliation = $paperReconciliation
     latest_kis_verification = $kisVerification
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_ml_shadow = [bool]$SkipMlShadow

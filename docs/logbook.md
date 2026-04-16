@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-16`
+- date: `2026-04-17`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -47,6 +47,8 @@
 - 로컬 가상 모의운용은 재시작 시 SQLite 기준 마지막 포트폴리오 상태를 복원한다.
 - 브로커 모의계좌 주문 제출 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켤 수 있다.
 - 대시보드 `모의계좌(실제)` 탭은 브로커 제출 주문 수와 최근 브로커 제출 주문 표를 함께 보여준다.
+- 로컬 가상 계좌와 브로커 모의계좌를 비교하는 `paper-account reconciliation` 리포트가 추가되었다.
+- 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
 
 ## Active Checklist
 
@@ -108,6 +110,7 @@
 - dashboard korean tab UI tests: `4 tests OK`
 - targeted streaming tests: `3 tests OK`
 - targeted dashboard tests: `5 tests OK`
+- paper-account reconciliation tests: `2 tests OK`
 - full test suite: `49 tests OK`
 - actual-only cleanup after rebuild:
   - raw market test rows: `0`
@@ -164,6 +167,11 @@
   - `cash_balance=10000000`
   - `total_evaluation_amount=10000000`
   - `position_row_count=0`
+- 최신 paper-account reconciliation:
+  - `status=mirroring_disabled`
+  - `mismatch_count=1`
+  - `cash_gap=13248734.336781617`
+  - `total_asset_gap=14885534.336781617`
 - 최신 KIS REST preflight:
   - current price 조회: `ok`
   - orderbook 조회: `ok`
@@ -265,6 +273,12 @@
   - 미러링 제출 이력은 `broker_paper_order_submissions` 테이블과 JSONL에 남기고, 대시보드 `모의계좌(실제)` 탭에서 최근 제출 주문을 볼 수 있게 했다.
   - 런타임 재시작 시 `paper_portfolio_snapshots` 와 `paper_positions` 를 읽어 로컬 가상 포트폴리오 상태를 복원하도록 보강했다.
   - 대시보드 `상태 및 설정` 과 `모의계좌(실제)` 비교 카드에 브로커 주문 자동 연동 여부와 제출 주문 수를 반영했다.
+  - 로컬 가상 계좌와 브로커 모의계좌를 직접 비교하는 `paper-account reconciliation` 서비스와 리포트를 추가했다.
+  - 최신 비교 결과는 `runtime-data/reports/reconciliation/latest-paper-account-sync.{md,json}` 에 남고, dashboard와 runtime report에도 함께 반영된다.
+  - 현재 실제 상태에서는 브로커 미러링이 꺼져 있어 `mirroring_disabled` 가 기록되고, 로컬 장부의 `005930` 28주 보유와 브로커 모의계좌의 빈 포지션이 차이로 잡힌다.
+  - 대시보드 동기화 카드는 날짜 필터 범위가 아니라 현재 로컬 가상 계좌 전체 상태를 기준으로 차이를 계산하도록 맞췄다.
+  - `scripts/reconcile_paper_accounts.ps1` 와 `python -m app --reconcile-paper-accounts` 명령을 추가했다.
+  - `start_monday_runtime.ps1` 와 `start_runtime_autoboot.ps1` 는 이제 브로커 계좌 갱신 뒤 reconciliation 도 함께 수행한다.
   - 관련 검증으로 `tests.test_settings`, `tests.test_kis_http_clients`, `tests.test_streaming_pipeline`, `tests.test_runtime_cleanup`, `tests.test_dashboard` 를 각각 다시 통과시켰다.
   - 전체 `discover` 실행은 15분 제한에서도 완료되지 않아, 이번 턴은 변경 영향 범위 중심의 집중 테스트를 canonical 검증으로 기록한다.
 - `모의투자(가상)` 탭은 `상태 설명 / 보유 종목 / 매수·매도 및 체결현황` 세로 하위 탭 구조로 바꿨다.
@@ -315,6 +329,7 @@ python -m app --build-dashboard
 .\scripts\install_runtime_startup_launcher.ps1
 .\scripts\get_runtime_startup_launcher_status.ps1
 .\scripts\remove_runtime_startup_launcher.ps1
+.\scripts\reconcile_paper_accounts.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1
 .\scripts\bump_version.ps1 -Version 0.2.1

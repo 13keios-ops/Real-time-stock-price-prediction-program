@@ -18,6 +18,7 @@ from app.models.lightgbm_model import find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
+from app.services.paper_reconciliation import build_paper_account_reconciliation_payload, load_local_paper_account_state
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
 from app.universe.symbol_metadata import load_symbol_names, resolve_symbol_label, resolve_symbol_name
@@ -944,6 +945,7 @@ def collect_dashboard_payload(
         settings=settings,
         live_runtime_state=live_runtime_state,
     )
+    reconciliation_local_account_state = load_local_paper_account_state(settings)
 
     def _load_account(mode: str) -> dict[str, Any]:
         try:
@@ -973,8 +975,14 @@ def collect_dashboard_payload(
     paper_account_view = _build_account_view("모의계좌(실제)", paper_account_report)
     live_account_view = _build_account_view("실 운용계좌", live_account_report)
     account_sync = _build_account_sync_status(
-        local_account_state,
+        reconciliation_local_account_state,
         paper_account_view,
+        order_mirroring_enabled=settings.strategy.enable_broker_paper_mirroring,
+        mirrored_order_count=len(broker_submission_rows_all),
+    )
+    paper_account_reconciliation = build_paper_account_reconciliation_payload(
+        local_account_state=reconciliation_local_account_state,
+        broker_report=paper_account_report,
         order_mirroring_enabled=settings.strategy.enable_broker_paper_mirroring,
         mirrored_order_count=len(broker_submission_rows_all),
     )
@@ -1096,6 +1104,7 @@ def collect_dashboard_payload(
         "live_account_report": live_account_report,
         "account_views": account_views,
         "account_sync": account_sync,
+        "paper_account_reconciliation": paper_account_reconciliation,
         "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
         "recent_signals": recent_signals,
@@ -1738,6 +1747,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     paper_account = account_views.get("paper_broker", {}) or {}
     live_account = account_views.get("live_broker", {}) or {}
     account_sync = payload.get("account_sync", {}) or {}
+    paper_account_reconciliation = payload.get("paper_account_reconciliation", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
 
@@ -1925,6 +1935,29 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["보유 종목 일치", "예" if account_sync.get("positions_match") else "아니오"],
         ["현금 잔고 일치", "예" if account_sync.get("balance_match") else "아니오"],
         ["현금 차이", _money(account_sync.get("cash_gap"))],
+    ]
+    reconciliation_rows = [
+        ["최근 점검 상태", paper_account_reconciliation.get("status") or "-"],
+        ["차이 건수", paper_account_reconciliation.get("mismatch_count") or 0],
+        ["보유 종목 일치", "예" if paper_account_reconciliation.get("positions_match") else "아니오"],
+        ["예수금 일치", "예" if paper_account_reconciliation.get("balance_match") else "아니오"],
+        ["예수금 차이", _money(paper_account_reconciliation.get("cash_gap"))],
+        ["총자산 차이", _money(paper_account_reconciliation.get("total_asset_gap"))],
+        ["최근 브로커 제출 시각", paper_account_reconciliation.get("latest_broker_submission_time") or "-"],
+        ["최근 브로커 조회 시각", paper_account_reconciliation.get("latest_broker_fetch_time") or "-"],
+    ]
+    reconciliation_mismatch_rows = [
+        [
+            row.get("symbol"),
+            row.get("symbol_name") or "-",
+            row.get("status"),
+            row.get("local_qty"),
+            row.get("broker_qty"),
+            row.get("qty_gap"),
+            _money(row.get("local_market_value")),
+            _money(row.get("broker_evaluation_amount")),
+        ]
+        for row in paper_account_reconciliation.get("mismatch_rows", [])
     ]
     live_account_pills = [
         f"연결 상태: {live_account.get('status_text') or '-'}",
@@ -2152,6 +2185,19 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 _stack_cards(
                     _section_card("현재 제공 범위", _table(["항목", "값"], paper_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
                     _section_card("로컬 가상계좌 비교", _table(["항목", "값"], sync_rows, "비교할 정보가 없습니다.", scroll_height=280), note=_esc(account_sync.get("note"))),
+                    _section_card(
+                        "최근 동기화 점검",
+                        _table(["항목", "값"], reconciliation_rows, "동기화 점검 정보가 없습니다.", scroll_height=280),
+                        note=_esc(paper_account_reconciliation.get("note")),
+                    ),
+                    _section_card(
+                        "차이 상세",
+                        _table(
+                            ["종목", "종목명", "상태", "로컬 수량", "브로커 수량", "수량 차이", "로컬 평가금액", "브로커 평가금액"],
+                            reconciliation_mismatch_rows,
+                            "현재 확인된 수량 차이는 없습니다.",
+                        ),
+                    ),
                     _section_card(
                         "최근 브로커 제출 주문",
                         _table(

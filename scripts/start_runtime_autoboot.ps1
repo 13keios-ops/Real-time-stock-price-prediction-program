@@ -55,6 +55,7 @@ function Read-JsonFile {
 $dashboardState = $null
 $liveRuntimeState = $null
 $kisAccount = $null
+$paperReconciliation = $null
 $runtimeReport = $null
 $errors = @()
 
@@ -100,6 +101,8 @@ try {
         if ($null -eq $kisAccount) {
             $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json")
         }
+        python -m app --reconcile-paper-accounts | Out-Null
+        $paperReconciliation = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json")
     }
 } catch {
     $errors += "kis_account: $($_.Exception.Message)"
@@ -142,6 +145,7 @@ $payload = [ordered]@{
     dashboard = $dashboardState
     live_runtime = $liveRuntimeState
     kis_account = $kisAccount
+    paper_reconciliation = $paperReconciliation
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_dashboard = [bool]$SkipDashboard
     skipped_live_runtime = [bool]$SkipLiveRuntime

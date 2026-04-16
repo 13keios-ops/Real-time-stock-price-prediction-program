@@ -51,6 +51,7 @@
 - 대시보드의 실제 운용 데이터 전용 필터와 테스트 운용 흔적 정리 명령
 - KIS 브로커 모의계좌 잔고 조회와 대시보드 반영
 - 로컬 가상 주문의 브로커 모의계좌 주문 제출 미러링과 제출 이력 저장
+- 로컬 가상 계좌와 브로커 모의계좌를 비교하는 paper-account reconciliation 리포트
 - 런타임 재시작 시 기존 로컬 가상 포트폴리오 상태 복원
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
@@ -95,6 +96,11 @@
   - `ENABLE_BROKER_PAPER_MIRRORING=true` 이면 로컬 가상 주문을 브로커 모의계좌에도 함께 제출한다.
   - 다만 브로커 쪽 거절, 부분 체결, 체결 시차가 있으면 주문 직후에는 보유 수량과 예수금이 잠시 다를 수 있다.
   - 대시보드의 비교 카드와 `최근 브로커 제출 주문` 표에서 현재 동기화 상태를 확인한다.
+- `paper-account reconciliation`
+  - 로컬 가상 계좌와 브로커 모의계좌의 보유 수량, 예수금, 총자산을 비교하는 점검 리포트다.
+  - 이 비교는 화면의 날짜 필터와 무관하게 `현재 로컬 가상 계좌 전체 상태`를 기준으로 계산한다.
+  - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-account-sync.{md,json}` 에 남는다.
+  - 미러링이 꺼져 있으면 `mirroring_disabled` 상태가 정상일 수 있다.
 
 ## 저장소 구조
 
@@ -239,6 +245,15 @@ python -m app --build-dashboard
 python -m app --kis-account-balance
 ```
 
+로컬 가상 계좌와 브로커 모의계좌를 바로 비교:
+
+```powershell
+.\scripts\reconcile_paper_accounts.ps1
+python -m app --reconcile-paper-accounts
+```
+
+이 결과는 runtime report와 dashboard의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
+
 브로커 모의계좌 주문 미러링을 켜고 실행:
 
 ```powershell
@@ -270,6 +285,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 ```
 
 `start_runtime_autoboot.ps1` 는 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
+여기에 `paper-account reconciliation` 도 포함되어, 재부팅 후 바로 로컬 가상 계좌와 브로커 모의계좌 차이를 다시 계산한다.
 `install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
 
 월요일 시작 루틴 1회 실행:

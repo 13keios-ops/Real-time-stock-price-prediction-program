@@ -1,4 +1,4 @@
-# Current Implementation
+﻿# Current Implementation
 
 ## Current Status
 
@@ -42,18 +42,20 @@ The project now has a working local foundation for:
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
-- Placeholder product codes such as `여기에_상품코드` are treated as blank and default to `01` for paper mode
+- Placeholder product codes such as `?ш린???곹뭹肄붾뱶` are treated as blank and default to `01` for paper mode
 - KIS broker paper-account balance refresh and cached report generation
+- Local virtual paper account vs broker paper-account reconciliation report generation
 - Dashboard trading tab now separates local paper-engine state and broker paper-account balance
 - Local paper-engine state and broker paper-account balance are intentionally shown as separate account views
 - Local paper orders can now be mirrored into the broker paper account when `ENABLE_BROKER_PAPER_MIRRORING=true`
 - Broker paper-order submissions are persisted and shown in the dashboard sync view
+- Dashboard sync cards now show the latest reconciliation status, mismatch count, cash gap, and position gap details
 - Online runtime now restores the previous local paper portfolio state from SQLite on restart
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
 - Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
-- Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `상태 업데이트` button
+- Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `?곹깭 ?낅뜲?댄듃` button
 - Recent predictions now show baseline-price-relative expected move amounts and actual outcome amounts when the horizon has elapsed
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
@@ -177,7 +179,7 @@ Background runtime helpers:
 .\scripts\stop_live_runtime.ps1
 ```
 
-PC 재부팅 후 자동 시작용 helper:
+PC 재부팅 후 자동 시작 helper:
 
 ```powershell
 .\scripts\start_runtime_autoboot.ps1
@@ -186,11 +188,12 @@ PC 재부팅 후 자동 시작용 helper:
 .\scripts\remove_runtime_startup_launcher.ps1
 ```
 
-`start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 올려야 하는 구성만 수행한다.
+`start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 복구용 루틴만 수행한다.
 
 - dashboard background start
 - live runtime background start
 - broker paper-account refresh
+- paper-account reconciliation refresh
 - runtime report refresh
 - dashboard rebuild
 
@@ -203,7 +206,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 
 When enabled, the local paper engine still records its own simulated fills immediately, while the broker paper account receives matching order submissions through KIS REST. Dashboard sync cards show whether balances and holdings still match.
 
-즉, 기존 `start_monday_runtime.ps1` 처럼 shadow ML 재학습과 KIS verification까지 모두 돌리는 무거운 부팅 루틴이 아니라, 부팅 직후 서비스 복구용으로 더 가볍고 안정적인 경로다.
+즉, 기존 `start_monday_runtime.ps1` 처럼 shadow ML 학습과 KIS verification까지 모두 돌리는 무거운 준비 루틴이 아니라, 부팅 직후 서비스 복구 중심의 가벼운 경로다.
 
 When the live runtime is running:
 
@@ -312,11 +315,11 @@ Default dashboard behavior:
 - manual refresh from the `상태 업데이트` button
 - recent predictions show `기준가`, `예상 변동`, and `실제 결과`
 - top area shows current runtime state, version, and period filter
-- tabs are `모의투자 (가상)`, `모의계좌 (실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
-- `모의투자 (가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
+- tabs are `모의투자(가상)`, `모의계좌(실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
+- `모의투자(가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
 - the virtual-paper tab now uses a left-side vertical selector instead of stacking all sections at once
 - the other top-level tabs now follow the same vertical-selector pattern for consistency
-- `모의계좌 (실제)` and `실 운용계좌` tabs show broker account state, holdings, and account notes separately
+- `모의계좌(실제)` and `실 운용계좌` tabs show broker account state, holdings, and account notes separately
 - `예측현황` aggregates the selected period, while the table focuses on recent rows
 - `오늘의 리포트` summarizes the selected period rather than only the latest few events
 - long tables and bullet lists use an internal scroll panel instead of forcing the whole page to grow endlessly
@@ -331,14 +334,14 @@ Background start / status / stop:
 
 The dashboard currently shows:
 
-- `거래 현황` 탭
+- `거래 현황`
   - 현재 프로그램 상태
   - 최근 예측, 최근 신호, 최근 주문, 최근 체결과 분봉
   - 로컬 모의운용 계좌, 브로커 모의계좌 잔고, KIS 연결 상태
-- `학습 현황` 탭
+- `머신러닝 현황`
   - 실운용 학습 상태, 현재 운용 모델 상태
-  - 오프라인 연구 결과, 최신 학습, 최신 평가, 백테스트, 워크포워드, 챌린저 비교
-- `그 외` 탭
+  - 오프라인 검증 결과, 최신 학습, 최신 평가, 백테스트, 워크포워드, 챌린저 비교
+- `기타`
   - 프로젝트 정보, 상세 집계, 자동 점검 backlog 와 다음 작업
 
 The dashboard now filters out `sample`, `synthetic`, and `demo` runtime rows by default.
@@ -356,6 +359,15 @@ Refresh only the broker paper-account cache:
 python -m app --kis-account-balance
 ```
 
+Reconcile the local virtual paper book against the broker paper account:
+
+```powershell
+.\scripts\reconcile_paper_accounts.ps1
+python -m app --reconcile-paper-accounts
+```
+
+This comparison uses the current full local virtual-paper account state, not the date-filtered dashboard slice.
+
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
 
@@ -372,6 +384,7 @@ This currently:
 - refreshes runtime report and dashboard snapshot
 - runs shadow ML refresh unless skipped
 - refreshes the broker paper-account cache
+- refreshes paper-account reconciliation
 - runs KIS verification unless skipped
 - prints a compact JSON summary for Monday startup checks
 
@@ -390,6 +403,7 @@ python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-challengers --horizon-min 15
 python -m app --build-runtime-report
+python -m app --reconcile-paper-accounts
 python -m app --replay-sample-ws --symbol 005930
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
@@ -408,6 +422,8 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - Challenger leaderboard JSON: `runtime-data/reports/challengers/leaderboard-h15.json`
 - KIS verification report: `runtime-data/reports/kis-ws/latest-verification.md`
 - KIS verification report JSON: `runtime-data/reports/kis-ws/latest-verification.json`
+- Paper reconciliation report: `runtime-data/reports/reconciliation/latest-paper-account-sync.md`
+- Paper reconciliation report JSON: `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
 - Hourly audit review history: `runtime-data/reports/codex/automation/history/`
 - Hourly audit research notes: `runtime-data/reports/codex/automation/research/`
 - Hourly audit draft: `runtime-data/reports/codex/automation/drafts/latest-improvement-draft.md`
@@ -451,7 +467,7 @@ This does not mean older data should be deleted. The rolling 60-day window is fo
 
 For paper mode, if the account information is only available as an 8-digit account number, the settings loader now treats `KIS_PRODUCT_CODE_PAPER` as `01` by default.
 
-If `.env` still contains the template placeholder `여기에_상품코드`, the loader also treats that as blank and falls back to `01`.
+If `.env` still contains the template placeholder `?ш린???곹뭹肄붾뱶`, the loader also treats that as blank and falls back to `01`.
 
 If the account is written like `12345678-01`, the loader will split it into:
 
@@ -469,3 +485,4 @@ The cached report is written to:
 
 - `runtime-data/reports/kis-account/latest-account.md`
 - `runtime-data/reports/kis-account/latest-account.json`
+

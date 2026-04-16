@@ -71,6 +71,12 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         if latest_challenger_report_path.exists()
         else None
     )
+    latest_reconciliation_path = settings.runtime_data_dir / "reports" / "reconciliation" / "latest-paper-account-sync.json"
+    latest_reconciliation_report = (
+        json.loads(latest_reconciliation_path.read_text(encoding="utf-8"))
+        if latest_reconciliation_path.exists()
+        else None
+    )
 
     def serialize_evaluation(row):
         if row is None:
@@ -88,6 +94,7 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "latest_walk_forward": serialize_evaluation(latest_walk_forward),
         "latest_challenger": serialize_evaluation(latest_challenger),
         "latest_challenger_report": latest_challenger_report,
+        "latest_paper_reconciliation": latest_reconciliation_report,
         "latest_portfolio_snapshot": dict(latest_snapshot) if latest_snapshot else None,
         "positions": [dict(row) for row in latest_position_rows],
     }
@@ -146,6 +153,17 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
             markdown_lines.append(f"- `{key}`: {value}")
     else:
         markdown_lines.append("- No challenger evaluations recorded.")
+
+    markdown_lines.extend(["", "## Latest Paper Reconciliation", ""])
+    if latest_reconciliation_report:
+        comparison = latest_reconciliation_report.get("comparison") or {}
+        markdown_lines.append(f"- `status`: {comparison.get('status')}")
+        markdown_lines.append(f"- `mismatch_count`: {comparison.get('mismatch_count')}")
+        markdown_lines.append(f"- `cash_gap`: {comparison.get('cash_gap')}")
+        markdown_lines.append(f"- `total_asset_gap`: {comparison.get('total_asset_gap')}")
+        markdown_lines.append(f"- `note`: {comparison.get('note')}")
+    else:
+        markdown_lines.append("- No paper-account reconciliation report recorded.")
 
     markdown_lines.extend(["", "## Latest Portfolio Snapshot", ""])
     if latest_snapshot:

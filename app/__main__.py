@@ -13,6 +13,7 @@ from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
 from app.services.kis_account import refresh_kis_account_report
+from app.services.paper_reconciliation import reconcile_paper_accounts
 from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
 from app.services.kis_verification import verify_kis_websocket_runtime
@@ -72,6 +73,7 @@ def main() -> int:
     parser.add_argument("--kis-current-price", action="store_true", help="Fetch domestic stock current price via KIS REST.")
     parser.add_argument("--kis-orderbook", action="store_true", help="Fetch domestic stock orderbook via KIS REST.")
     parser.add_argument("--kis-account-balance", action="store_true", help="Fetch KIS broker account balance and write a cached report.")
+    parser.add_argument("--reconcile-paper-accounts", action="store_true", help="Compare the local virtual paper book against the broker paper account.")
     parser.add_argument("--kis-approval-key", action="store_true", help="Issue a KIS WebSocket approval key.")
     parser.add_argument("--symbol", default="005930", help="Target symbol for the demo run.")
     parser.add_argument("--symbols", default="", help="Comma-separated symbols for watchlist snapshot runs.")
@@ -243,6 +245,7 @@ def main() -> int:
         or args.kis_current_price
         or args.kis_orderbook
         or args.kis_account_balance
+        or args.reconcile_paper_accounts
         or args.kis_approval_key
     ):
         settings = load_settings(project_root=project_root)
@@ -320,6 +323,11 @@ def main() -> int:
 
             if args.kis_account_balance:
                 result = refresh_kis_account_report(project_root=project_root, force_refresh=True)
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+                return 0
+
+            if args.reconcile_paper_accounts:
+                result = reconcile_paper_accounts(project_root=project_root, force_account_refresh=True)
                 print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
                 return 0
 

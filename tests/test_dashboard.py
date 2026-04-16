@@ -62,6 +62,30 @@ class DashboardTests(unittest.TestCase):
         }
         return runtime_root, env
 
+    def _mock_account_report_without_positions(self) -> MagicMock:
+        report = MagicMock()
+        report.to_dict.return_value = {
+            "ok": True,
+            "trading_mode": "paper",
+            "fetched_at": "2026-04-17T09:31:00+09:00",
+            "cache_used": False,
+            "cache_age_seconds": 0,
+            "error": None,
+            "source": "kis-broker",
+            "account_snapshot": {
+                "account_no_masked": "1234****",
+                "product_code": "01",
+                "cash_balance": 1000000,
+                "stock_evaluation_amount": 0,
+                "total_evaluation_amount": 1000000,
+                "total_purchase_amount": 0,
+                "total_profit_loss_amount": 0,
+                "total_asset_amount": 1000000,
+                "positions": [],
+            },
+        }
+        return report
+
     def _seed_dashboard_inputs(self, runtime_root: Path) -> None:
         reports_root = runtime_root / "reports"
         (reports_root / "kis-ws").mkdir(parents=True, exist_ok=True)
@@ -213,10 +237,13 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("운용 방식:", html)
         self.assertIn("브로커 주문 자동 연동", html)
         self.assertIn("최근 브로커 제출 주문", html)
+        self.assertIn("최근 동기화 점검", html)
+        self.assertIn("차이 상세", html)
         self.assertIn("상태 업데이트", html)
         self.assertIn("자동 새로고침: 5분", html)
         self.assertEqual(snapshot.payload["runtime_summary"]["broker_order_submissions"], 0)
         self.assertFalse(snapshot.payload["account_sync"]["order_mirroring_enabled"])
+        self.assertIn("paper_account_reconciliation", snapshot.payload)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -248,6 +275,50 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("모의계좌(실제)", html)
         self.assertIn('http-equiv="refresh" content="300"', html)
         self.assertIn("data-subtab-group", html)
+
+    def test_dashboard_reconciliation_uses_full_local_account_state(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        full_local_account = {
+            "cash_balance": 1200000.0,
+            "net_liquidation_value": 1214500.0,
+            "gross_market_value": 214500.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 4500.0,
+            "latest_snapshot_time": "2026-04-17T09:31:00+09:00",
+            "positions": [
+                {
+                    "symbol": "005930",
+                    "qty": 3,
+                    "avg_price": 70000.0,
+                    "last_price": 71500.0,
+                    "market_value": 214500.0,
+                    "realized_pnl": 0.0,
+                    "unrealized_pnl": 4500.0,
+                }
+            ],
+            "orders_total": 2,
+            "fills_total": 2,
+            "broker_order_submissions": 0,
+            "latest_broker_submission_time": None,
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_dashboard_inputs(runtime_root)
+            with patch(
+                "app.services.dashboard.refresh_kis_account_report",
+                return_value=self._mock_account_report_without_positions(),
+            ), patch(
+                "app.services.dashboard.load_local_paper_account_state",
+                return_value=full_local_account,
+            ):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5)
+
+        reconciliation = snapshot.payload["paper_account_reconciliation"]
+        self.assertEqual(reconciliation["mismatch_count"], 1)
+        self.assertEqual(reconciliation["local_positions_count"], 1)
+        self.assertEqual(reconciliation["broker_positions_count"], 0)
+        self.assertEqual(reconciliation["mismatch_rows"][0]["status"], "only_local")
 
     def test_dashboard_hides_demo_runtime_rows(self) -> None:
         root = Path(__file__).resolve().parents[1]
