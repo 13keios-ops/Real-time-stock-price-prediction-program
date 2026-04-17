@@ -27,9 +27,33 @@ if (-not $RuntimeDataDir) {
 
 $stateDir = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state"
 $statePath = Join-Path $stateDir "watchdog-state.json"
+$dashboardSnapshotPath = Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
+$symbolForVerification = "005930"
+
+Add-Type -AssemblyName System.Web.Extensions
+
+function Read-JsonFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        $serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        $serializer.MaxJsonLength = 67108864
+        $jsonText = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+        return $serializer.DeserializeObject($jsonText)
+    } catch {
+        return $null
+    }
+}
 
 function Write-WatchdogState {
     param(
@@ -65,6 +89,10 @@ function Write-WatchdogState {
     $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
+function Read-DashboardSnapshot {
+    return Read-JsonFile -Path $dashboardSnapshotPath
+}
+
 while ($true) {
     $errors = @()
     $dashboardAction = "none"
@@ -72,6 +100,7 @@ while ($true) {
     $liveRuntimeAction = "none"
     $dashboardStatus = $null
     $liveRuntimeStatus = $null
+    $dashboardSnapshot = $null
 
     try {
         $dashboardStatus = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
@@ -104,6 +133,8 @@ while ($true) {
         }
     }
 
+    $dashboardSnapshot = Read-DashboardSnapshot
+
     try {
         $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
             -WorkspaceRoot $WorkspaceRoot `
@@ -133,7 +164,67 @@ while ($true) {
         }
     }
 
-    $dashboardSnapshotAction = "client_refresh"
+    $needsLiveRuntimeRecovery = $false
+    $needsVerificationRefresh = $false
+    if ($null -ne $dashboardSnapshot) {
+        $latestVerification = $dashboardSnapshot["latest_kis_verification"]
+        $systemStatus = $dashboardSnapshot["system_status"]
+        $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
+        $marketBarFreshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
+        $verificationFreshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
+        $sessionStatus = [string]$latestVerification["session_status"]
+
+        if (
+            ([string]$liveRuntimeStatus.status -eq "running") -and
+            ($sessionStatus -eq "regular-session") -and
+            ($null -ne $marketBarFreshness) -and
+            ([string]$marketBarFreshness["state"] -eq "stale")
+        ) {
+            $needsLiveRuntimeRecovery = $true
+        }
+
+        if (
+            ($sessionStatus -eq "regular-session") -and
+            (
+                ($null -eq $latestVerification) -or
+                ($null -eq $verificationFreshness) -or
+                (@("stale", "missing") -contains [string]$verificationFreshness["state"])
+            )
+        ) {
+            $needsVerificationRefresh = $true
+        }
+    }
+
+    if ($needsVerificationRefresh) {
+        try {
+            & python -m app --verify-kis-ws --symbols $symbolForVerification --max-frames 10 --max-reconnects 1 | Out-Null
+            $dashboardSnapshotAction = "refresh_kis_verification"
+            $dashboardSnapshot = Read-DashboardSnapshot
+        } catch {
+            $dashboardSnapshotAction = "refresh_kis_verification_failed"
+            $errors += "kis_verification_refresh: $($_.Exception.Message)"
+        }
+    }
+
+    if ($needsLiveRuntimeRecovery) {
+        try {
+            $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir `
+                -ForceRestart
+            $liveRuntimeAction = "restart_stale_runtime"
+            $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+        } catch {
+            $liveRuntimeAction = "restart_stale_runtime_failed"
+            $errors += "live_runtime_stale_restart: $($_.Exception.Message)"
+        }
+    }
+
+    if ($dashboardSnapshotAction -eq "none") {
+        $dashboardSnapshotAction = "client_refresh"
+    }
 
     $status = if ($errors.Count -eq 0) { "running" } else { "warning" }
     Write-WatchdogState `

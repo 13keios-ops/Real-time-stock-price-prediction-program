@@ -29,6 +29,8 @@ The project now has a working local foundation for:
 - Dashboard learning view separation between actual runtime status and validation/comparison results
 - Dashboard status tab now shows freshness for KIS verification, market bars, predictions, signals, training/evaluation, and dashboard generation
 - Dashboard top hero now surfaces immediate alert cards when live runtime appears stale or KIS verification is too old
+- Dashboard top alerts now distinguish regular-session failures from off-session informational states, so post-close verification records do not look like a live outage
+- Dashboard top alerts no longer raise `오늘 학습 부재` by default; they only surface training/evaluation when the latest artifact is actually missing or stale
 - Dashboard status script now normalizes the saved server-state file after a successful health check so stale `starting` state does not linger
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
 - Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
@@ -62,6 +64,7 @@ The project now has a working local foundation for:
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Runtime watchdog background start / status / stop scripts are available
+- Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
@@ -385,6 +388,7 @@ If an old dashboard server is still holding port `8765`, the start / status / st
 The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
 The dashboard status script now also checks `/api/dashboard.json`, not only `/health`, so a port-listening process without real payload responses no longer counts as healthy.
 The default page and `/api/dashboard.json` now serve the most recent cached snapshot first, while `/api/refresh` rebuilds the snapshot on demand.
+The dashboard snapshot can now be read reliably from PowerShell status scripts even when it contains long Korean text and large nested JSON blocks.
 
 Runtime watchdog start / status / stop:
 
@@ -397,6 +401,7 @@ Runtime watchdog start / status / stop:
 The watchdog keeps `dashboard` and `live runtime` alive.
 It does not rebuild dashboard snapshots itself anymore; snapshot refresh is handled by the dashboard client through `/api/refresh`.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
+The watchdog now reads market-bar and KIS-verification freshness from the cached dashboard snapshot with the same serializer-based JSON reader used by the live-runtime status script.
 
 ### 10. Monday runtime starter
 

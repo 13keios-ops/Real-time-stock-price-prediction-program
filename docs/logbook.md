@@ -54,12 +54,14 @@
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
 - 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
-- 대시보드 상단은 `실시간 분봉 지연`, `KIS 검증 기록 오래됨`, `오늘 학습 부재` 같은 즉시 조치 항목을 경고 카드로 표시한다.
+- 대시보드 상단은 `실시간 분봉 지연`, `최근 예측 기록 정지`, `KIS 실시간 검증 실패` 같은 정규장 경고와 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 장외 안내를 구분해 표시한다.
 - 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
+- 대시보드 상단 경고는 이제 최신 학습/평가 산출물이 실제로 `없음` 또는 `지연`일 때만 학습 관련 경고를 올린다.
 - `scripts/get_dashboard_status.ps1` 는 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해 `starting` 상태가 오래 남지 않게 했다.
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
+- `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
 - paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
 
@@ -225,6 +227,10 @@
   - 대시보드 상단에 즉시 조치가 필요한 항목을 보여주는 상태 경고 카드를 추가했다.
   - 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과가 머신러닝 탭에 계속 보이도록 정리했다.
   - dashboard 상태 조회 스크립트가 실제 응답 기준으로 상태 파일을 다시 써서 `starting` 값이 오래 남는 문제를 줄였다.
+  - live runtime 상태 스크립트와 runtime watchdog 이 PowerShell `ConvertFrom-Json` 대신 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽도록 바꿨다.
+  - 이 수정으로 `latest-dashboard.json` 의 한글/긴 JSON 때문에 생기던 파싱 실패가 사라졌고, 분봉·예측·KIS 검증 신선도 값이 다시 정상 표시되기 시작했다.
+  - 대시보드 상단 경고는 이제 장마감 후 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 안내형 메시지로 낮춰 보이고, `오늘 학습 부재`는 실제 최신 학습/평가가 없거나 stale 할 때만 띄우도록 정리했다.
+  - KIS WebSocket 연결 옵션은 ping timeout 영향이 덜하도록 보정했고, 장중 disconnect 원인 추적을 위해 오류는 그대로 verification report 에 남긴다.
 - `2026-04-11`
   - v0.2.0 release commit and push completed.
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.

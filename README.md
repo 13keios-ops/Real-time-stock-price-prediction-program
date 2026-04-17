@@ -65,11 +65,13 @@
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
 - 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 로 새 snapshot 을 만든 뒤 화면을 갱신한다.
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
-- 대시보드 상단에는 `실시간 분봉 지연`, `KIS 검증 기록 오래됨`, `오늘 학습 부재` 같은 핵심 경고를 즉시 읽을 수 있는 상태 경고 카드가 추가되었다.
+- 대시보드 상단 상태 경고 카드는 이제 `정규장 실시간 지연` 과 `장외 안내`를 구분해서 보여준다. 정규장에는 `실시간 분봉 지연`, `최근 예측 기록 정지`, `KIS 실시간 검증 실패`를 바로 경고하고, 장외에는 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 안내형 메시지로 낮춰 보여준다.
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
+- 대시보드 상단 경고는 이제 `오늘 학습 부재`를 무조건 띄우지 않고, 최신 학습이나 평가 기록이 실제로 `없음` 또는 `지연` 상태일 때만 올린다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
+- `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -298,6 +300,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 
 runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 꺼져 있으면 다시 올린다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
+watchdog 은 cached dashboard snapshot 의 `분봉 / 예측 / KIS 검증 신선도`도 함께 읽고, 정규장에는 stale 상태를 실제 재기동 신호로 쓸 수 있다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:
 

@@ -440,12 +440,125 @@ def _build_status_alerts(
 ) -> list[dict[str, str]]:
     alerts: list[dict[str, str]] = []
     runtime_status = str(live_runtime_state.get("status") or "").lower()
+    session_status = str((latest_kis_verification or {}).get("session_status") or "").lower()
     market_bar_freshness = freshness.get("latest_market_bar", {}) or {}
     prediction_freshness = freshness.get("latest_prediction", {}) or {}
     kis_freshness = freshness.get("latest_kis_verification", {}) or {}
     training_freshness = freshness.get("latest_training", {}) or {}
     evaluation_freshness = freshness.get("latest_evaluation", {}) or {}
     latest_kis = latest_kis_verification or {}
+
+    if runtime_status != "running":
+        alerts.append(
+            {
+                "level": "warning",
+                "title": "실시간 수집기가 멈춰 있습니다",
+                "message": "분봉, 예측, 신호는 실시간 수집기가 살아 있어야 계속 갱신됩니다. 우선 현재 상태를 먼저 확인해 주세요.",
+            }
+        )
+    elif market_bar_freshness.get("state") == "stale":
+        if session_status == "regular-session":
+            alerts.append(
+                {
+                    "level": "warning",
+                    "title": "실시간 분봉 갱신이 지연되고 있습니다",
+                    "message": f"최근 분봉 시각이 오래됐습니다. 현재 상태는 {market_bar_freshness.get('note') or '지연'} 입니다.",
+                }
+            )
+        else:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 분봉은 마지막 장중 기록 기준입니다",
+                    "message": f"현재 장외 상태라 분봉이 더 늘지 않을 수 있습니다. 마지막 분봉 기준은 {market_bar_freshness.get('timestamp') or '-'} 입니다.",
+                }
+            )
+
+    kis_failure_message = latest_kis.get("error") or latest_kis.get("status_note") or "실시간 수신이 확인되지 않았습니다."
+    if latest_kis and (
+        (session_status == "regular-session" and latest_kis.get("ok") is False)
+        or (session_status == "regular-session" and latest_kis.get("connection_ready") is False)
+        or (session_status == "regular-session" and latest_kis.get("market_data_flow_ok") is False)
+    ):
+        alerts.append(
+            {
+                "level": "warning",
+                "title": "KIS 실시간 검증이 실패했습니다",
+                "message": f"{kis_failure_message}",
+            }
+        )
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "pre-open", "post-close"}:
+        alerts.append(
+            {
+                "level": "info",
+                "title": "KIS 검증은 장외 기준으로 기록되었습니다",
+                "message": f"{latest_kis.get('status_note') or kis_failure_message}",
+            }
+        )
+    elif latest_kis and kis_freshness.get("state") == "stale":
+        alerts.append(
+            {
+                "level": "info",
+                "title": "KIS 연결 검증 기록이 오래되었습니다",
+                "message": f"마지막 검증 시각은 {latest_kis.get('verified_at') or '-'} 이고, 현재 신선도는 {kis_freshness.get('label') or '지연'} 입니다.",
+            }
+        )
+
+    if prediction_freshness.get("state") == "stale" and runtime_summary.get("predictions", 0) > 0:
+        if session_status == "regular-session":
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 예측 기록이 멈춰 보입니다",
+                    "message": f"최근 예측 시각이 오래됐습니다. 현재 상태는 {prediction_freshness.get('note') or '지연'} 입니다.",
+                }
+            )
+        else:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 예측은 마지막 장중 계산 기준입니다",
+                    "message": f"현재 장외 상태라 새 예측이 더 쌓이지 않을 수 있습니다. 마지막 예측 기준은 {prediction_freshness.get('timestamp') or '-'} 입니다.",
+                }
+            )
+
+    if session_status != "regular-session" and runtime_summary.get("training_runs", 0) == 0:
+        if latest_training is None:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 학습 기록이 없습니다",
+                    "message": "최근 전체 학습 기록을 찾지 못했습니다. 장후 재학습 경로를 한 번 점검해 주세요.",
+                }
+            )
+        elif training_freshness.get("state") == "stale":
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 학습 기록이 오래되었습니다",
+                    "message": f"최근 전체 학습 결과는 {latest_training.get('completed_at') or '-'} 기준이며, 현재 신선도는 {training_freshness.get('label') or '-'} 입니다.",
+                }
+            )
+
+    if session_status != "regular-session" and runtime_summary.get("evaluations", 0) == 0:
+        if latest_evaluation is None:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 평가 기록이 없습니다",
+                    "message": "backtest, walk-forward, challenger 같은 최신 평가 기록을 찾지 못했습니다.",
+                }
+            )
+        elif evaluation_freshness.get("state") == "stale":
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 평가 기록이 오래되었습니다",
+                    "message": f"최근 전체 평가 결과는 {latest_evaluation.get('evaluated_at') or '-'} 기준이며, 현재 신선도는 {evaluation_freshness.get('label') or '-'} 입니다.",
+                }
+            )
+
+    return alerts[:4]
 
     if runtime_status != "running":
         alerts.append(
@@ -464,7 +577,28 @@ def _build_status_alerts(
             }
         )
 
-    if latest_kis and kis_freshness.get("state") == "stale":
+    kis_failure_message = latest_kis.get("error") or latest_kis.get("status_note") or "실시간 수신이 확인되지 않았습니다."
+    if latest_kis and (
+        (session_status == "regular-session" and latest_kis.get("ok") is False)
+        or (session_status == "regular-session" and latest_kis.get("connection_ready") is False)
+        or (session_status == "regular-session" and latest_kis.get("market_data_flow_ok") is False)
+    ):
+        alerts.append(
+            {
+                "level": "warning",
+                "title": "KIS 실시간 검증이 실패했습니다",
+                "message": f"{kis_failure_message}",
+            }
+        )
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "pre-open", "post-close"}:
+        alerts.append(
+            {
+                "level": "info",
+                "title": "KIS 검증은 장외 기준으로 기록되었습니다",
+                "message": f"{latest_kis.get('status_note') or kis_failure_message}",
+            }
+        )
+    elif latest_kis and kis_freshness.get("state") == "stale":
         alerts.append(
             {
                 "level": "info",
@@ -482,23 +616,41 @@ def _build_status_alerts(
             }
         )
 
-    if runtime_summary.get("training_runs", 0) == 0 and latest_training:
-        alerts.append(
-            {
-                "level": "info",
-                "title": "오늘 학습은 아직 실행되지 않았습니다",
-                "message": f"최근 전체 학습 결과는 {latest_training.get('completed_at') or '-'} 기준이며, 현재 신선도는 {training_freshness.get('label') or '-'} 입니다.",
-            }
-        )
+    if session_status != "regular-session" and runtime_summary.get("training_runs", 0) == 0:
+        if latest_training is None:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 학습 기록이 없습니다",
+                    "message": "최근 전체 학습 기록을 찾지 못했습니다. 장후 재학습 경로를 한 번 점검해 주세요.",
+                }
+            )
+        elif training_freshness.get("state") == "stale":
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 학습 기록이 오래되었습니다",
+                    "message": f"최근 전체 학습 결과는 {latest_training.get('completed_at') or '-'} 기준이며, 현재 신선도는 {training_freshness.get('label') or '-'} 입니다.",
+                }
+            )
 
-    if runtime_summary.get("evaluations", 0) == 0 and latest_evaluation:
-        alerts.append(
-            {
-                "level": "info",
-                "title": "오늘 평가 기록은 아직 없습니다",
-                "message": f"최근 전체 평가 결과는 {latest_evaluation.get('evaluated_at') or '-'} 기준이며, 현재 신선도는 {evaluation_freshness.get('label') or '-'} 입니다.",
-            }
-        )
+    if session_status != "regular-session" and runtime_summary.get("evaluations", 0) == 0:
+        if latest_evaluation is None:
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 평가 기록이 없습니다",
+                    "message": "backtest, walk-forward, challenger 같은 최신 평가 기록을 찾지 못했습니다.",
+                }
+            )
+        elif evaluation_freshness.get("state") == "stale":
+            alerts.append(
+                {
+                    "level": "info",
+                    "title": "최근 평가 기록이 오래되었습니다",
+                    "message": f"최근 전체 평가 결과는 {latest_evaluation.get('evaluated_at') or '-'} 기준이며, 현재 신선도는 {evaluation_freshness.get('label') or '-'} 입니다.",
+                }
+            )
 
     return alerts[:4]
 

@@ -195,6 +195,15 @@ class KisWebSocketQuoteClient:
                 subscriptions.append(self.build_domestic_orderbook_subscription(symbol))
         return subscriptions
 
+    @staticmethod
+    def _connection_kwargs() -> dict[str, Any]:
+        return {
+            "ping_interval": None,
+            "ping_timeout": None,
+            "close_timeout": 10,
+            "open_timeout": 15,
+        }
+
     async def subscribe(self, symbol: str, channel: str = "trade") -> list[str]:
         if websockets is None:
             raise KisApiError("WebSocket support requires the optional 'websockets' package.")
@@ -211,7 +220,10 @@ class KisWebSocketQuoteClient:
         )
 
         frames: list[str] = []
-        async with websockets.connect(self.profile.websocket_tryitout_url) as connection:  # type: ignore[union-attr]
+        async with websockets.connect(  # type: ignore[union-attr]
+            self.profile.websocket_tryitout_url,
+            **self._connection_kwargs(),
+        ) as connection:
             await connection.send(json.dumps(request_message, ensure_ascii=False))
             for _ in range(2):
                 frames.append(await connection.recv())
@@ -243,9 +255,7 @@ class KisWebSocketQuoteClient:
             try:
                 async with websockets.connect(  # type: ignore[union-attr]
                     self.profile.websocket_tryitout_url,
-                    ping_interval=20,
-                    ping_timeout=20,
-                    close_timeout=5,
+                    **self._connection_kwargs(),
                 ) as connection:
                     LOGGER.info(
                         "Connected to KIS WebSocket endpoint=%s symbols=%s",
