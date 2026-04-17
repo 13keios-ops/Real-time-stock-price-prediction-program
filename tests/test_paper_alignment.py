@@ -9,7 +9,7 @@ from app.config.settings import load_settings
 from app.services.kis_account import KisAccountReportResult
 from app.services.paper_alignment import align_local_paper_to_broker
 from app.services.paper_reconciliation import load_local_paper_account_state
-from app.storage.contracts import PaperPosition, PortfolioSnapshot
+from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, PaperPosition, PortfolioSnapshot
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
@@ -65,6 +65,45 @@ class PaperAlignmentTests(unittest.TestCase):
                     unrealized_pnl=500.0,
                 )
             )
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-before-align-001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=5,
+                    limit_price=70000.0,
+                    status="filled",
+                )
+            )
+            writer.write_fill(
+                Fill(
+                    fill_id="fill-before-align-001",
+                    order_id="paper-order-before-align-001",
+                    event_time=event_time,
+                    fill_price=70000.0,
+                    fill_qty=5,
+                    commission=0.0,
+                    tax=0.0,
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-before-align-001",
+                    local_order_id="paper-order-before-align-001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=5,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="100001",
+                    broker_branch_no="001",
+                    detail={"message": "ok"},
+                )
+            )
 
             fake_report = KisAccountReportResult(
                 ok=True,
@@ -101,6 +140,9 @@ class PaperAlignmentTests(unittest.TestCase):
         self.assertEqual(local_state["cash_balance"], 10000000.0)
         self.assertEqual(local_state["net_liquidation_value"], 10000000.0)
         self.assertEqual(local_state["positions"], [])
+        self.assertEqual(local_state["orders_total"], 0)
+        self.assertEqual(local_state["fills_total"], 0)
+        self.assertEqual(local_state["broker_order_submissions"], 0)
 
 
 if __name__ == "__main__":

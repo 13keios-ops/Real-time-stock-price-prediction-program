@@ -50,9 +50,10 @@
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 `paper-account reconciliation` 리포트가 추가되었다.
 - 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
 - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추는 marker 기반 `paper baseline alignment` 경로가 추가되었다.
-- 대시보드 `로컬 모의운용 계좌` 카드도 이제 alignment marker 를 따라가므로, 오래된 pre-alignment 포지션을 현재 상태처럼 다시 보여주지 않는다.
-- 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
-- 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
+  - 대시보드 `로컬 모의운용 계좌` 카드도 이제 alignment marker 를 따라가므로, 오래된 pre-alignment 포지션을 현재 상태처럼 다시 보여주지 않는다.
+  - 대시보드 `로컬 모의운용 계좌` 요약의 주문/체결/브로커 제출 수 역시 marker 이후 현재 활동만 집계한다.
+  - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
+  - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
 - 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
@@ -229,6 +230,7 @@
   - 이 정렬은 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 다시 맞춘다.
   - `python -m app --align-local-paper-to-broker`, `--sync-broker-paper-orders`, `--reconcile-paper-accounts` 재실행 결과 현재 상태는 `aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0` 이다.
   - `start_runtime_autoboot.ps1` 를 다시 돌려 dashboard, live runtime, watchdog, broker account refresh, reconciliation 이 모두 `ok=true` 로 끝나는 것을 확인했다.
+  - 이후 대시보드 `로컬 모의운용 계좌` 요약은 alignment marker 이전 누적 주문/체결을 현재 상태처럼 세지 않고, marker 이후 활동만 현재 상태로 집계하도록 보강했다.
   - 대시보드 `로컬 모의운용 계좌` 카드가 pre-alignment stale 포지션을 현재 상태처럼 보여주던 문제를 고쳤고, 최신 dashboard JSON 기준 `open_positions=0`, `cash_balance=10000000.0`, `reconciliation_status=aligned_waiting_first_submission` 으로 확인했다.
   - `paper_reconciliation` 상태 문구도 `브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다.` 처럼 실제 해석이 드러나도록 정리했다.
   - 대시보드 상태 리뷰를 다시 수행했고, `KIS 검증 / 분봉 / 예측 / 신호 / 학습 / 평가 / 대시보드 생성` 신선도 표시를 추가했다.

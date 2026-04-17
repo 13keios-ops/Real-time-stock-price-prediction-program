@@ -61,6 +61,7 @@ The project now has a working local foundation for:
 - Broker paper-order submissions are persisted and shown in the dashboard sync view
 - Dashboard sync cards now show the latest reconciliation status, mismatch count, cash gap, and position gap details
 - Online runtime now restores the previous local paper portfolio state from SQLite on restart
+- The local paper-account summary now counts only post-alignment orders, fills, and broker submissions, so stale pre-alignment activity does not look like current state
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Runtime watchdog background start / status / stop scripts are available

@@ -70,6 +70,29 @@ def _is_on_or_after_cutoff(value: Any, cutoff: datetime | None) -> bool:
     return timestamp is not None and timestamp >= cutoff
 
 
+def get_alignment_cutoff(runtime_data_dir: Path) -> datetime | None:
+    marker = load_paper_alignment_marker(runtime_data_dir)
+    if not marker:
+        return None
+    return _parse_iso_timestamp(marker.get("aligned_at"))
+
+
+def filter_rows_after_alignment(
+    rows: list[dict[str, Any]],
+    *,
+    runtime_data_dir: Path,
+    time_fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    cutoff = get_alignment_cutoff(runtime_data_dir)
+    if cutoff is None:
+        return list(rows)
+    return [
+        row
+        for row in rows
+        if any(_is_on_or_after_cutoff(row.get(field_name), cutoff) for field_name in time_fields)
+    ]
+
+
 def apply_alignment_baseline(
     *,
     latest_snapshot: dict[str, Any] | None,

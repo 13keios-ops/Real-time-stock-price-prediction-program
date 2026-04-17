@@ -18,7 +18,7 @@ from app.models.lightgbm_model import find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
-from app.services.paper_alignment import apply_alignment_baseline
+from app.services.paper_alignment import apply_alignment_baseline, filter_rows_after_alignment
 from app.services.paper_reconciliation import build_paper_account_reconciliation_payload, load_local_paper_account_state
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
@@ -1165,6 +1165,16 @@ def collect_dashboard_payload(
     snapshot_rows = _filter_rows_by_period(snapshot_rows_all, period_filter, "event_time")
     training_rows = _filter_rows_by_period(training_rows_all, period_filter, "completed_at")
     evaluation_rows = _filter_rows_by_period(evaluation_rows_all, period_filter, "evaluated_at")
+    current_order_rows = filter_rows_after_alignment(
+        order_rows,
+        runtime_data_dir=settings.runtime_data_dir,
+        time_fields=("event_time",),
+    )
+    current_fill_rows = filter_rows_after_alignment(
+        fill_rows,
+        runtime_data_dir=settings.runtime_data_dir,
+        time_fields=("event_time",),
+    )
 
     runtime_summary = _summarize_runtime_from_rows(
         raw_market_ticks=raw_market_rows,
@@ -1321,8 +1331,8 @@ def collect_dashboard_payload(
         latest_snapshot=latest_portfolio_snapshot,
         positions=positions,
         all_positions=position_rows_all,
-        orders=order_rows,
-        fills=fill_rows,
+        orders=current_order_rows,
+        fills=current_fill_rows,
         settings=settings,
         live_runtime_state=live_runtime_state,
     )

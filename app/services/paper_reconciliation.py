@@ -11,7 +11,7 @@ from typing import Any
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
 from app.services.kis_account import KisAccountReportResult, refresh_kis_account_report
-from app.services.paper_alignment import apply_alignment_baseline
+from app.services.paper_alignment import apply_alignment_baseline, filter_rows_after_alignment
 from app.storage.runtime_writer import get_sqlite_store
 from app.utils.time import now_local
 
@@ -79,9 +79,21 @@ def load_local_paper_account_state(settings: AppSettings) -> dict[str, Any]:
         runtime_data_dir=settings.runtime_data_dir,
     )
     open_positions = [row for row in position_rows if int(row.get("qty", 0) or 0) > 0]
-    order_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")]
-    fill_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")]
-    broker_submission_rows = [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")]
+    order_rows = filter_rows_after_alignment(
+        [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
+        runtime_data_dir=settings.runtime_data_dir,
+        time_fields=("event_time",),
+    )
+    fill_rows = filter_rows_after_alignment(
+        [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")],
+        runtime_data_dir=settings.runtime_data_dir,
+        time_fields=("event_time",),
+    )
+    broker_submission_rows = filter_rows_after_alignment(
+        [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")],
+        runtime_data_dir=settings.runtime_data_dir,
+        time_fields=("event_time",),
+    )
 
     latest_snapshot_dict = latest_snapshot_dict or {}
     return {

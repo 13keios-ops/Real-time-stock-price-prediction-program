@@ -53,6 +53,7 @@
 - 로컬 가상 주문의 브로커 모의계좌 주문 제출 미러링과 제출 이력 저장
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 paper-account reconciliation 리포트
 - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 paper alignment
+- paper alignment marker 이후의 주문/체결/브로커 제출 수만 `현재 로컬 계좌 요약`에 집계해서, 오래된 누적 이력이 현재 상태처럼 보이지 않도록 정리
 - 런타임 재시작 시 기존 로컬 가상 포트폴리오 상태 복원
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
@@ -118,6 +119,7 @@
 - `paper baseline alignment`
   - 브로커 모의계좌 기준으로 로컬 가상 계좌의 현재 상태를 다시 맞추는 정렬 단계다.
   - 이 경로는 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 정렬한다.
+  - 정렬 이후 대시보드의 `로컬 모의운용 계좌` 요약은 marker 이후 주문/체결/브로커 제출 수만 현재 상태로 집계한다.
   - 정렬 뒤에는 reconciliation, runtime report, dashboard 가 모두 브로커 기준 현재 상태를 우선 보여준다.
   - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
 
