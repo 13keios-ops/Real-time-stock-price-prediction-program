@@ -87,6 +87,8 @@
 - paper-account reconciliation 기록은 live runtime 이 DB를 쓰는 중에도 더 오래 재시도하도록 보강했다.
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 - audit progress JSON 배열 정합성 보강
+- `scripts/start_repo_review_until_deadline_background.ps1` 로 특정 시각까지 저장소 전체점검을 반복 실행할 수 있다.
+- bounded repo review runner 는 공백이 있는 workspace 경로에서도 하위 PowerShell 호출이 끊기지 않도록 인자 인용과 iteration timeout 을 보강했다.
 
 현재 기준 버전은 `0.2.0` 이다.
 

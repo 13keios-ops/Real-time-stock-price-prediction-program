@@ -66,6 +66,7 @@
 - `scripts/get_dashboard_status.ps1` 는 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해 `starting` 상태가 오래 남지 않게 했다.
 - dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일 경로를 우선 잡는다.
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
+- `scripts/start_repo_review_until_deadline_background.ps1` 로 특정 시각까지 저장소 점검을 계속 돌리는 bounded runner가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
@@ -261,6 +262,8 @@
   - 대시보드 기본 `오늘` 조회는 장후/자정 이후에도 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여주도록 바꿨다.
   - 최신 actual-only rebuild 결과는 `features=6188`, `labels=10882`, `LightGBM validation_accuracy=0.856048`, `walk_forward overall_accuracy=0.440722` 이다.
   - dashboard start script 가 조용히 실패하던 경우를 줄이기 위해 Windows 앱 별칭 `python.exe` 를 피하고 실제 Python 실행 파일을 우선 찾도록 보강했다.
+  - 오전 10시 같은 특정 시각까지 저장소 전체점검을 계속 돌릴 수 있도록 bounded repo review runner와 상태/중지 스크립트를 추가했다.
+  - bounded repo review runner 는 workspace 경로 공백 때문에 하위 iteration 호출이 끊기던 문제를 수정했고, timeout 이후에도 다음 재시작이 막히지 않도록 기존 pid 정리 경로를 보강했다.
 - `2026-04-11`
   - v0.2.0 release commit and push completed.
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.

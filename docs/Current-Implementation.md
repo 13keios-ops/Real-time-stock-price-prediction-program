@@ -67,6 +67,7 @@ The project now has a working local foundation for:
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Runtime watchdog background start / status / stop scripts are available
+- Repo review until deadline background start / status / stop scripts are available
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -221,6 +222,17 @@ Background runtime helpers:
 .\scripts\get_live_runtime_status.ps1
 .\scripts\stop_live_runtime.ps1
 ```
+
+Bounded repo review helpers:
+
+```powershell
+.\scripts\start_repo_review_until_deadline_background.ps1
+.\scripts\get_repo_review_until_deadline_status.ps1
+.\scripts\stop_repo_review_until_deadline.ps1
+```
+
+기본값은 `오늘 오전 10시 KST`까지이고, 이미 10시가 지난 시각이면 다음날 오전 10시까지로 자동 맞춘다.
+workspace 경로에 공백이 있어도 하위 iteration 호출이 끊기지 않도록 quoting 을 보강했고, iteration timeout 기본값은 `600초`다.
 
 PC 재부팅 후 자동 시작 helper:
 
