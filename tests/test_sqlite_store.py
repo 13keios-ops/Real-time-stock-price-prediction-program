@@ -41,6 +41,24 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertEqual(store.read_retry_delays, (0.0, 0.05))
         self.assertEqual(store.write_retry_delays, (0.0, 0.1, 0.2))
 
+    def test_backup_database_creates_a_copy(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        tmp_root = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4())
+        database_path = tmp_root / "dev.db"
+        backup_path = tmp_root / "backups" / "dev-backup.sqlite3"
+
+        store = SQLiteRuntimeStore(database_path)
+        store._run_write_query(
+            "INSERT INTO paper_orders(order_id, symbol, event_time, side, qty, limit_price, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("order-1", "005930", "2026-04-17T09:00:00+09:00", "buy", 1, 70000.0, "submitted"),
+        )
+
+        created_path = store.backup_database(backup_path)
+        backup_store = SQLiteRuntimeStore(created_path, initialize_schema=False)
+
+        self.assertTrue(created_path.exists())
+        self.assertEqual(backup_store.count_rows("paper_orders"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

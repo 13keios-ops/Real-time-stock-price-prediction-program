@@ -18,6 +18,7 @@ from app.models.lightgbm_model import find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
+from app.services.paper_alignment import apply_alignment_baseline
 from app.services.paper_reconciliation import build_paper_account_reconciliation_payload, load_local_paper_account_state
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
@@ -1200,7 +1201,14 @@ def collect_dashboard_payload(
     active_model_entry_60 = active_models.get("60", {}) if isinstance(active_models, dict) else {}
 
     latest_portfolio_snapshot = snapshot_rows[-1] if snapshot_rows else (snapshot_rows_all[-1] if snapshot_rows_all else None)
-    positions = open_position_rows_all
+    aligned_snapshot, aligned_position_rows_all, _ = apply_alignment_baseline(
+        latest_snapshot=dict(latest_portfolio_snapshot) if latest_portfolio_snapshot is not None else None,
+        position_rows=[dict(row) for row in position_rows_all],
+        runtime_data_dir=settings.runtime_data_dir,
+    )
+    latest_portfolio_snapshot = aligned_snapshot
+    position_rows_all = aligned_position_rows_all
+    positions = [row for row in aligned_position_rows_all if int(row.get("qty", 0) or 0) > 0]
     prediction_views = _prediction_view(
         prediction_rows,
         symbol_names,

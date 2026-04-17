@@ -89,11 +89,21 @@ $stateChanged = ($state.status -ne $effectiveStatus) -or
     ([bool]$state.port_bound -ne [bool]$output.port_bound)
 
 if ($stateChanged) {
-    $state.status = $effectiveStatus
-    $state.pid = $output.pid
-    $state.process_running = $output.process_running
-    $state.port_bound = $output.port_bound
-    $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
+    $normalizedState = [ordered]@{
+        status = $effectiveStatus
+        pid = $output.pid
+        process_running = $output.process_running
+        port_bound = $output.port_bound
+        host = $state.host
+        port = $state.port
+        url = $state.url
+        started_at = $state.started_at
+        stdout_log_path = $state.stdout_log_path
+        stderr_log_path = $state.stderr_log_path
+        snapshot_html_path = $state.snapshot_html_path
+        snapshot_json_path = $state.snapshot_json_path
+    }
+    $normalizedState | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
 }
 
 $output | ConvertTo-Json -Depth 10

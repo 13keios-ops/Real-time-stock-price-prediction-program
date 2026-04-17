@@ -14,7 +14,7 @@ from app.services.dashboard import build_dashboard_snapshot, collect_dashboard_p
 from app.services.orchestrator import run_synthetic_dev_cycle
 from app.services.runtime import run_demo_pipeline
 from app.services.streaming import build_sample_ws_frames, replay_ws_frames
-from app.storage.contracts import MarketTickEvent, MinuteBar, Prediction
+from app.storage.contracts import MarketTickEvent, MinuteBar, PaperPosition, PortfolioSnapshot, Prediction
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
@@ -318,6 +318,79 @@ class DashboardTests(unittest.TestCase):
             "broker_order_submissions": 0,
             "latest_broker_submission_time": None,
         }
+
+    def test_dashboard_uses_broker_alignment_for_virtual_account_state(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            stale_time = datetime.fromisoformat("2026-04-17T09:15:00+09:00")
+            writer.write_portfolio_snapshot(
+                PortfolioSnapshot(
+                    snapshot_id="stale-local-snapshot",
+                    event_time=stale_time,
+                    cash_balance=25494367.59,
+                    gross_market_value=2034090.04,
+                    net_liquidation_value=25494367.59,
+                    open_positions=1,
+                    realized_pnl=3938436.33,
+                    unrealized_pnl=-671.24,
+                )
+            )
+            writer.write_paper_position(
+                PaperPosition(
+                    symbol="005930",
+                    opened_at=stale_time,
+                    updated_at=stale_time,
+                    qty=29,
+                    avg_price=70164.18,
+                    last_price=70141.03,
+                    market_value=2034090.04,
+                    cost_basis=2034761.29,
+                    realized_pnl=0.0,
+                    unrealized_pnl=-671.24,
+                )
+            )
+            alignment_dir = runtime_root / "reports" / "broker-paper"
+            alignment_dir.mkdir(parents=True, exist_ok=True)
+            aligned_at = datetime.fromisoformat("2026-04-17T18:46:04.542863+09:00")
+            (alignment_dir / "latest-alignment.json").write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "aligned_at": aligned_at.isoformat(),
+                        "status": "aligned_to_broker_marker",
+                        "broker_account_snapshot": {
+                            "cash_balance": 10000000,
+                            "positions": [],
+                        },
+                        "baseline_positions": [],
+                        "baseline_snapshot": {
+                            "snapshot_id": "portfolio-broker-aligned-20260417184604",
+                            "event_time": aligned_at.isoformat(),
+                            "cash_balance": 10000000.0,
+                            "gross_market_value": 0.0,
+                            "net_liquidation_value": 10000000.0,
+                            "open_positions": 0,
+                            "realized_pnl": 0.0,
+                            "unrealized_pnl": 0.0,
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            self._seed_dashboard_inputs(runtime_root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report_without_positions()):
+                payload = collect_dashboard_payload(project_root=root, recent_limit=5)
+
+        local_account = payload["local_account_state"]
+        self.assertEqual(local_account["open_positions"], 0)
+        self.assertEqual(local_account["positions"], [])
+        self.assertEqual(local_account["cash_balance"], 10000000.0)
+        self.assertEqual(local_account["net_liquidation_value"], 10000000.0)
 
         with patch.dict(os.environ, env, clear=False):
             self._seed_dashboard_inputs(runtime_root)

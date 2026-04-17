@@ -9,6 +9,7 @@ from pathlib import Path
 from app.config.settings import load_settings
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
+from app.services.paper_alignment import apply_alignment_baseline
 from app.storage.runtime_writer import get_sqlite_store
 
 
@@ -48,6 +49,8 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "signals": sqlite_store.count_rows("serving_trade_signals"),
         "orders": sqlite_store.count_rows("paper_orders"),
         "fills": sqlite_store.count_rows("paper_fills"),
+        "broker_order_submissions": sqlite_store.count_rows("broker_paper_order_submissions"),
+        "broker_order_status_snapshots": sqlite_store.count_rows("broker_paper_order_status_snapshots"),
         "positions": sqlite_store.count_rows("paper_positions"),
         "portfolio_snapshots": sqlite_store.count_rows("paper_portfolio_snapshots"),
         "training_runs": sqlite_store.count_rows("ml_training_runs"),
@@ -63,7 +66,13 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
     latest_walk_forward = walk_forward_rows[-1] if walk_forward_rows else None
     latest_challenger = challenger_rows[-1] if challenger_rows else None
     latest_snapshot = sqlite_store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
-    latest_position_rows = sqlite_store.fetch_all_rows("paper_positions", "symbol")
+    latest_position_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_positions", "symbol")]
+    latest_snapshot_row = dict(latest_snapshot) if latest_snapshot else None
+    latest_snapshot_row, latest_position_rows, _ = apply_alignment_baseline(
+        latest_snapshot=latest_snapshot_row,
+        position_rows=latest_position_rows,
+        runtime_data_dir=settings.runtime_data_dir,
+    )
     registry_payload = ModelRegistry(settings.runtime_data_dir).load()
     latest_challenger_report_path = settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json"
     latest_challenger_report = (
@@ -75,6 +84,12 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
     latest_reconciliation_report = (
         json.loads(latest_reconciliation_path.read_text(encoding="utf-8"))
         if latest_reconciliation_path.exists()
+        else None
+    )
+    latest_broker_sync_path = settings.runtime_data_dir / "reports" / "broker-paper" / "latest-sync.json"
+    latest_broker_sync_report = (
+        json.loads(latest_broker_sync_path.read_text(encoding="utf-8"))
+        if latest_broker_sync_path.exists()
         else None
     )
 
@@ -94,9 +109,10 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "latest_walk_forward": serialize_evaluation(latest_walk_forward),
         "latest_challenger": serialize_evaluation(latest_challenger),
         "latest_challenger_report": latest_challenger_report,
+        "latest_broker_sync": latest_broker_sync_report,
         "latest_paper_reconciliation": latest_reconciliation_report,
-        "latest_portfolio_snapshot": dict(latest_snapshot) if latest_snapshot else None,
-        "positions": [dict(row) for row in latest_position_rows],
+        "latest_portfolio_snapshot": latest_snapshot_row,
+        "positions": latest_position_rows,
     }
 
     report_dir = settings.runtime_data_dir / "reports" / "runtime"
@@ -165,9 +181,16 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
     else:
         markdown_lines.append("- No paper-account reconciliation report recorded.")
 
+    markdown_lines.extend(["", "## Latest Broker Paper Sync", ""])
+    if latest_broker_sync_report:
+        for key, value in latest_broker_sync_report.items():
+            markdown_lines.append(f"- `{key}`: {value}")
+    else:
+        markdown_lines.append("- No broker paper sync report recorded.")
+
     markdown_lines.extend(["", "## Latest Portfolio Snapshot", ""])
-    if latest_snapshot:
-        markdown_lines.extend(f"- `{key}`: {value}" for key, value in dict(latest_snapshot).items())
+    if latest_snapshot_row:
+        markdown_lines.extend(f"- `{key}`: {value}" for key, value in latest_snapshot_row.items())
     else:
         markdown_lines.append("- No portfolio snapshots recorded.")
 

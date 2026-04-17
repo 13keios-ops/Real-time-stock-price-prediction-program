@@ -1,8 +1,9 @@
-"""SQLite runtime store for local development and research workflows."""
+﻿"""SQLite runtime store for local development and research workflows."""
 
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import time
 from collections.abc import Iterable
@@ -14,6 +15,7 @@ from app.storage.contracts import (
     FeatureLabel,
     FeatureSnapshot,
     Fill,
+    BrokerOrderStatusSnapshot,
     BrokerOrderSubmission,
     MarketTickEvent,
     MinuteBar,
@@ -232,6 +234,30 @@ class SQLiteRuntimeStore:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS broker_paper_order_status_snapshots (
+                sync_id TEXT PRIMARY KEY,
+                local_order_id TEXT NOT NULL,
+                broker_mode TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                synced_at TEXT NOT NULL,
+                order_date TEXT NOT NULL,
+                side TEXT NOT NULL,
+                order_qty INTEGER NOT NULL,
+                filled_qty INTEGER NOT NULL,
+                remaining_qty INTEGER NOT NULL,
+                avg_fill_price REAL NOT NULL,
+                status TEXT NOT NULL,
+                broker_order_no TEXT NOT NULL,
+                broker_branch_no TEXT NOT NULL,
+                reject_qty INTEGER NOT NULL,
+                cancel_confirm_qty INTEGER NOT NULL,
+                cancel_yn INTEGER NOT NULL,
+                matched INTEGER NOT NULL,
+                applied_fill_qty INTEGER NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS ops_risk_events (
                 risk_event_id TEXT PRIMARY KEY,
                 symbol TEXT NOT NULL,
@@ -288,6 +314,21 @@ class SQLiteRuntimeStore:
                 connection.execute(statement)
             self._ensure_column(connection, "paper_positions", "opened_at", "TEXT")
             connection.commit()
+
+    def checkpoint_wal(self, mode: str = "PASSIVE") -> None:
+        normalized_mode = mode.strip().upper()
+        if normalized_mode not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
+            raise ValueError(f"Unsupported wal_checkpoint mode: {mode}")
+        self._run_write_query(f"PRAGMA wal_checkpoint({normalized_mode})")
+
+    def backup_database(self, backup_path: Path) -> Path:
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        if backup_path.exists():
+            backup_path.unlink()
+        self.checkpoint_wal("TRUNCATE")
+        shutil.copy2(self.database_path, backup_path)
+        return backup_path
+
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
@@ -580,6 +621,45 @@ class SQLiteRuntimeStore:
             )
             connection.commit()
 
+
+    def insert_broker_order_status_snapshot(self, snapshot: BrokerOrderStatusSnapshot) -> None:
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO broker_paper_order_status_snapshots(
+                sync_id, local_order_id, broker_mode, symbol, synced_at, order_date, side, order_qty,
+                filled_qty, remaining_qty, avg_fill_price, status, broker_order_no, broker_branch_no,
+                reject_qty, cancel_confirm_qty, cancel_yn, matched, applied_fill_qty, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot.sync_id,
+                snapshot.local_order_id,
+                snapshot.broker_mode,
+                snapshot.symbol,
+                self._dt(snapshot.synced_at),
+                snapshot.order_date,
+                snapshot.side,
+                snapshot.order_qty,
+                snapshot.filled_qty,
+                snapshot.remaining_qty,
+                snapshot.avg_fill_price,
+                snapshot.status,
+                snapshot.broker_order_no,
+                snapshot.broker_branch_no,
+                snapshot.reject_qty,
+                snapshot.cancel_confirm_qty,
+                int(snapshot.cancel_yn),
+                int(snapshot.matched),
+                snapshot.applied_fill_qty,
+                self._json(snapshot.detail),
+            ),
+        )
+
+    def update_paper_order_status(self, order_id: str, status: str) -> None:
+        self._run_write_query(
+            "UPDATE paper_orders SET status = ? WHERE order_id = ?",
+            (status, order_id),
+        )
     def insert_risk_event(self, event: RiskEvent) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -711,6 +791,22 @@ class SQLiteRuntimeStore:
         rows = self._run_read_query(query, (limit,))
         return list(rows) if isinstance(rows, list) else []
 
+
+    def fetch_rows_by_column(self, table_name: str, column_name: str, value: Any, order_by_column: str) -> list[sqlite3.Row]:
+        query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column}"
+        rows = self._run_read_query(query, (value,))
+        return list(rows) if isinstance(rows, list) else []
+
+    def fetch_latest_row_by_column(
+        self,
+        table_name: str,
+        column_name: str,
+        value: Any,
+        order_by_column: str,
+    ) -> sqlite3.Row | None:
+        query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column} DESC LIMIT 1"
+        row = self._run_read_query(query, (value,), single=True)
+        return row if isinstance(row, sqlite3.Row) or row is None else None
     def count_rows(self, table_name: str) -> int:
         row = self._run_read_query(f"SELECT COUNT(*) AS count FROM {table_name}", single=True)
         if row is None:
@@ -718,7 +814,22 @@ class SQLiteRuntimeStore:
         return int(row["count"])
 
     def clear_tables(self, table_names: Iterable[str]) -> None:
-        with self._connect() as connection:
-            for table_name in table_names:
-                connection.execute(f"DELETE FROM {table_name}")
-            connection.commit()
+        table_name_list = list(table_names)
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.write_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            try:
+                with self._connect() as connection:
+                    for table_name in table_name_list:
+                        connection.execute(f"DELETE FROM {table_name}")
+                    connection.commit()
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.write_retry_delays) - 1:
+                    raise
+        if last_error is not None:
+            raise last_error

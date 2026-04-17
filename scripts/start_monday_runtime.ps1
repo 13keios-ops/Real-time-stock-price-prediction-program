@@ -56,6 +56,68 @@ function Invoke-AppCommand {
     }
 }
 
+function Test-NeedsBrokerPaperAlignment {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PaperReconciliation
+    )
+
+    if ($null -eq $PaperReconciliation -or $null -eq $PaperReconciliation.comparison) {
+        return $false
+    }
+
+    $comparison = $PaperReconciliation.comparison
+    return (
+        [bool]$comparison.order_mirroring_enabled -and
+        [int]$comparison.mirrored_order_count -eq 0 -and
+        [int]$comparison.mismatch_count -gt 0
+    )
+}
+
+if (-not $SkipMlShadow) {
+    & (Join-Path $WorkspaceRoot "scripts\run_ml_shadow_cycle.ps1")
+}
+
+$dashboardState = $null
+$liveRuntimeState = $null
+$kisAccount = $null
+$paperReconciliation = $null
+$brokerPaperSync = $null
+$paperAlignment = $null
+Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
+$kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json"
+if (-not (Test-Path -LiteralPath $kisAccountPath)) {
+    $kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json"
+}
+if (Test-Path -LiteralPath $kisAccountPath) {
+    $kisAccount = Get-Content -LiteralPath $kisAccountPath -Raw | ConvertFrom-Json
+}
+Invoke-AppCommand -Arguments @("-m", "app", "--sync-broker-paper-orders") -DiscardOutput
+$brokerPaperSyncPath = Join-Path $RuntimeDataDir "reports\broker-paper\latest-sync.json"
+if (Test-Path -LiteralPath $brokerPaperSyncPath) {
+    $brokerPaperSync = Get-Content -LiteralPath $brokerPaperSyncPath -Raw | ConvertFrom-Json
+}
+Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
+$paperReconciliationPath = Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json"
+if (Test-Path -LiteralPath $paperReconciliationPath) {
+    $paperReconciliation = Get-Content -LiteralPath $paperReconciliationPath -Raw | ConvertFrom-Json
+}
+if (Test-NeedsBrokerPaperAlignment -PaperReconciliation $paperReconciliation) {
+    Invoke-AppCommand -Arguments @("-m", "app", "--align-local-paper-to-broker") -DiscardOutput
+    $paperAlignmentPath = Join-Path $RuntimeDataDir "reports\broker-paper\latest-alignment.json"
+    if (Test-Path -LiteralPath $paperAlignmentPath) {
+        $paperAlignment = Get-Content -LiteralPath $paperAlignmentPath -Raw | ConvertFrom-Json
+    }
+    Invoke-AppCommand -Arguments @("-m", "app", "--sync-broker-paper-orders") -DiscardOutput
+    if (Test-Path -LiteralPath $brokerPaperSyncPath) {
+        $brokerPaperSync = Get-Content -LiteralPath $brokerPaperSyncPath -Raw | ConvertFrom-Json
+    }
+    Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
+    if (Test-Path -LiteralPath $paperReconciliationPath) {
+        $paperReconciliation = Get-Content -LiteralPath $paperReconciliationPath -Raw | ConvertFrom-Json
+    }
+}
+
 $null = & (Join-Path $WorkspaceRoot "scripts\start_dashboard_background.ps1") `
     -WorkspaceRoot $WorkspaceRoot `
     -RuntimeDataDir $RuntimeDataDir `
@@ -68,7 +130,6 @@ $dashboardState = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1"
     -WorkspaceRoot $WorkspaceRoot `
     -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
 
-$liveRuntimeState = $null
 if (-not $SkipLiveRuntime) {
     $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
         -WorkspaceRoot $WorkspaceRoot `
@@ -79,23 +140,6 @@ if (-not $SkipLiveRuntime) {
     $liveRuntimeState = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
         -WorkspaceRoot $WorkspaceRoot `
         -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
-}
-
-if (-not $SkipMlShadow) {
-    & (Join-Path $WorkspaceRoot "scripts\run_ml_shadow_cycle.ps1")
-}
-
-$kisAccount = $null
-$paperReconciliation = $null
-Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
-$kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json"
-if (Test-Path -LiteralPath $kisAccountPath) {
-    $kisAccount = Get-Content -LiteralPath $kisAccountPath -Raw | ConvertFrom-Json
-}
-Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
-$paperReconciliationPath = Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json"
-if (Test-Path -LiteralPath $paperReconciliationPath) {
-    $paperReconciliation = Get-Content -LiteralPath $paperReconciliationPath -Raw | ConvertFrom-Json
 }
 
 $kisVerification = $null
@@ -129,6 +173,8 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     latest_runtime_report_path = $runtimeReportPath
     latest_dashboard_html_path = $dashboardHtmlPath
     latest_kis_account = $kisAccount
+    latest_broker_paper_sync = $brokerPaperSync
+    latest_paper_alignment = $paperAlignment
     latest_paper_reconciliation = $paperReconciliation
     latest_kis_verification = $kisVerification
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }

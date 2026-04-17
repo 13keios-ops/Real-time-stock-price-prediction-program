@@ -11,8 +11,8 @@ from typing import Any
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
 from app.services.kis_account import KisAccountReportResult, refresh_kis_account_report
-from app.storage.contracts import ReconciliationRun
-from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
+from app.services.paper_alignment import apply_alignment_baseline
+from app.storage.runtime_writer import get_sqlite_store
 from app.utils.time import now_local
 
 
@@ -72,12 +72,18 @@ def load_local_paper_account_state(settings: AppSettings) -> dict[str, Any]:
 
     latest_snapshot = sqlite_store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
     position_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_positions", "symbol")]
+    latest_snapshot_dict = dict(latest_snapshot) if latest_snapshot is not None else None
+    latest_snapshot_dict, position_rows, _ = apply_alignment_baseline(
+        latest_snapshot=latest_snapshot_dict,
+        position_rows=position_rows,
+        runtime_data_dir=settings.runtime_data_dir,
+    )
     open_positions = [row for row in position_rows if int(row.get("qty", 0) or 0) > 0]
     order_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")]
     fill_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")]
     broker_submission_rows = [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")]
 
-    latest_snapshot_dict = dict(latest_snapshot) if latest_snapshot is not None else {}
+    latest_snapshot_dict = latest_snapshot_dict or {}
     return {
         "cash_balance": float(latest_snapshot_dict.get("cash_balance", settings.strategy.paper_initial_cash) or settings.strategy.paper_initial_cash),
         "net_liquidation_value": float(latest_snapshot_dict.get("net_liquidation_value", settings.strategy.paper_initial_cash) or settings.strategy.paper_initial_cash),
@@ -180,12 +186,15 @@ def build_paper_account_reconciliation_payload(
     elif not order_mirroring_enabled:
         status = "mirroring_disabled"
         note = "브로커 모의주문 미러링이 꺼져 있어 로컬 가상 장부와 브로커 모의계좌가 자동으로 같아지지 않습니다."
+    elif positions_match and balance_match and mirrored_order_count == 0:
+        status = "aligned_waiting_first_submission"
+        note = "브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다."
     elif mirrored_order_count == 0:
         status = "waiting_first_submission"
-        note = "미러링은 켜져 있지만 아직 브로커로 제출된 주문이 없습니다."
+        note = "브로커 미러링은 켜져 있지만 아직 제출된 주문이 없어 동기화 여부를 더 지켜봐야 합니다."
     elif positions_match and balance_match:
         status = "aligned"
-        note = "현재 기준으로 로컬 가상 장부와 브로커 모의계좌의 보유 수량과 예수금 차이가 없습니다."
+        note = "현재 로컬 가상 장부와 브로커 모의계좌의 보유 수량과 예수금이 일치합니다."
     else:
         status = "needs_review"
         note = "브로커 모의계좌와 로컬 가상 장부 사이에 수량 또는 예수금 차이가 있어 점검이 필요합니다."
@@ -254,11 +263,6 @@ def reconcile_paper_accounts(
 ) -> PaperAccountReconciliationResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    writer = RuntimeWriter.from_settings(
-        settings,
-        sqlite_busy_timeout_ms=30_000,
-        sqlite_write_retry_delays=(0.0, 0.5, 1.0, 2.0, 4.0, 8.0),
-    )
     local_account_state = load_local_paper_account_state(settings)
     broker_report_result: KisAccountReportResult = refresh_kis_account_report(
         project_root=project_root,
@@ -283,14 +287,6 @@ def reconcile_paper_accounts(
         "broker_account": broker_report.get("account_snapshot"),
     }
     _write_report(markdown_path, json_path, payload)
-    writer.write_reconciliation_run(
-        ReconciliationRun(
-            reconciliation_id=f"recon-paper-{as_of.strftime('%Y%m%d%H%M%S')}",
-            as_of=as_of,
-            status=str(comparison.get("status") or "unknown"),
-            mismatch_count=int(comparison.get("mismatch_count") or 0),
-        )
-    )
     return PaperAccountReconciliationResult(
         ok=bool(payload["ok"]),
         as_of=str(payload["as_of"]),

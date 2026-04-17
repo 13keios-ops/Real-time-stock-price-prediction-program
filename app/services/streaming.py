@@ -30,7 +30,9 @@ from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
 from app.services.broker_paper import BrokerPaperMirror
-from app.storage.contracts import MarketTickEvent, OrderbookSnapshot, RiskEvent
+from app.services.broker_paper_sync import BrokerPaperExecutionSync
+from app.services.paper_alignment import apply_alignment_baseline
+from app.storage.contracts import MarketTickEvent, OrderEvent, OrderbookSnapshot, RiskEvent
 from app.storage.runtime_writer import RuntimeWriter
 from app.universe.watchlist import load_watchlist
 from app.utils.time import now_local, parse_hhmm
@@ -126,6 +128,21 @@ class OnlinePipelineProcessor:
         self.orders_written = 0
         self._sequence = 0
         self.broker_paper_mirror = BrokerPaperMirror(settings)
+        self.broker_paper_sync = (
+            BrokerPaperExecutionSync(
+                settings,
+                writer=self.writer,
+                portfolio_book=self.portfolio_book,
+                engine=self.engine,
+                id_factory=self._next_scoped_id,
+            )
+            if self.broker_paper_mirror.enabled
+            else None
+        )
+        self.pending_order_symbols: set[str] = set()
+        self.pending_buy_symbols: set[str] = set()
+        self._last_broker_sync_minute: datetime | None = None
+        self._restore_pending_order_state()
 
     def _restore_portfolio_state(self) -> None:
         sqlite_store = self.writer.sqlite_store
@@ -134,11 +151,32 @@ class OnlinePipelineProcessor:
         latest_snapshot = sqlite_store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
         position_rows = [dict(row) for row in sqlite_store.fetch_all_rows("paper_positions", "symbol")]
         latest_snapshot_row = dict(latest_snapshot) if latest_snapshot is not None else None
+        latest_snapshot_row, position_rows, _ = apply_alignment_baseline(
+            latest_snapshot=latest_snapshot_row,
+            position_rows=position_rows,
+            runtime_data_dir=self.settings.runtime_data_dir,
+        )
         self.portfolio_book.restore_from_runtime(latest_snapshot=latest_snapshot_row, position_rows=position_rows)
+
+    def _restore_pending_order_state(self) -> None:
+        sqlite_store = self.writer.sqlite_store
+        if sqlite_store is None:
+            return
+        unresolved_statuses = {"created", "acknowledged", "submitted", "pending_lookup", "open", "partially_filled"}
+        for row in sqlite_store.fetch_all_rows("paper_orders", "event_time"):
+            payload = dict(row)
+            if str(payload.get("status") or "") not in unresolved_statuses:
+                continue
+            symbol = str(payload.get("symbol") or "")
+            if not symbol:
+                continue
+            self.pending_order_symbols.add(symbol)
+            if str(payload.get("side") or "").lower() == "buy":
+                self.pending_buy_symbols.add(symbol)
 
     def _mirror_order_to_broker(self, order) -> None:
         if not self.broker_paper_mirror.enabled:
-            return
+            return None
         try:
             submission = self.broker_paper_mirror.submit_local_order(order)
         except Exception as exc:
@@ -149,10 +187,34 @@ class OnlinePipelineProcessor:
                     event_time=order.event_time,
                     gate="broker_paper_mirroring",
                     detail=f"broker_paper_order_failed={exc}",
-                )
+                    )
             )
-            return
+            return None
         self.writer.write_broker_order_submission(submission)
+        return submission
+
+    def _can_open_with_pending(self, symbol: str) -> tuple[bool, str]:
+        if symbol in self.pending_order_symbols:
+            return False, "broker_order_pending"
+        reserved_open_slots = self.portfolio_book.open_position_count() + len(self.pending_buy_symbols)
+        if reserved_open_slots >= self.settings.strategy.max_open_positions:
+            return False, "max_open_positions_reached"
+        return self.portfolio_book.can_open(symbol)
+
+    def _run_broker_sync(self, *, bar_time: datetime, force: bool = False) -> None:
+        if self.broker_paper_sync is None:
+            return
+        sync_minute = self._minute_floor(bar_time)
+        if not force and self._last_broker_sync_minute == sync_minute:
+            return
+        result = self.broker_paper_sync.sync_recent_orders()
+        self.pending_order_symbols = set(result.pending_symbols)
+        self.pending_buy_symbols = {
+            symbol
+            for symbol in result.pending_symbols
+            if symbol not in self.portfolio_book.positions or self.portfolio_book.positions[symbol].qty <= 0
+        }
+        self._last_broker_sync_minute = sync_minute
 
     def _next_id(self, prefix: str) -> str:
         self._sequence += 1
@@ -269,35 +331,64 @@ class OnlinePipelineProcessor:
         self.predictions_written += len(predictions)
         self.signals_written += 1
 
-        can_open, open_reason = self.portfolio_book.can_open(state.symbol)
+        can_open, open_reason = self._can_open_with_pending(state.symbol)
         if close_reason is not None:
             can_open = False
             open_reason = close_reason
         if signal.allowed and self.settings.strategy.enable_paper_execution and target.target_qty > 0 and can_open:
             order = self.engine.create_order(target, signal, order_id=self._next_scoped_id("paper-order"))
             ack = self.engine.acknowledge(order, order_event_id=self._next_scoped_id("order-event"))
-            execution_price = order.limit_price * (1 + (self.settings.strategy.slippage_bps / 10_000))
-            fill_event, fill = self.engine.fill(
-                order,
-                fill_price=execution_price,
-                order_event_id=self._next_scoped_id("order-event"),
-                fill_id=self._next_scoped_id("fill"),
-            )
-            self.writer.write_paper_order(order)
-            self._mirror_order_to_broker(order)
             self.writer.write_order_event(ack)
-            self.writer.write_order_event(fill_event)
-            self.writer.write_fill(fill)
-            self.portfolio_book.apply_buy_fill(symbol=state.symbol, fill=fill, fill_price=execution_price)
-            self.writer.write_paper_position(
-                self.portfolio_book.to_position_record(state.symbol, updated_at=fill.event_time)
-            )
-            self.writer.write_portfolio_snapshot(
-                self.portfolio_book.to_portfolio_snapshot(
-                    snapshot_id=self._next_scoped_id("portfolio"),
-                    event_time=fill.event_time,
+            if self.broker_paper_mirror.enabled:
+                submission = self._mirror_order_to_broker(order)
+                if submission is not None:
+                    order.status = "submitted"
+                    self.pending_order_symbols.add(state.symbol)
+                    self.pending_buy_symbols.add(state.symbol)
+                    self.writer.write_paper_order(order)
+                    self.writer.write_order_event(
+                        OrderEvent(
+                            order_event_id=self._next_scoped_id("order-event"),
+                            order_id=order.order_id,
+                            event_time=order.event_time,
+                            event_type="broker_submitted",
+                            detail=f"broker_order_no={submission.broker_order_no};branch={submission.broker_branch_no}",
+                        )
+                    )
+                    self._run_broker_sync(bar_time=bar.bar_time, force=True)
+                else:
+                    order.status = "rejected"
+                    self.writer.write_paper_order(order)
+                    self.writer.write_order_event(
+                        OrderEvent(
+                            order_event_id=self._next_scoped_id("order-event"),
+                            order_id=order.order_id,
+                            event_time=order.event_time,
+                            event_type="rejected",
+                            detail="broker_paper_submission_failed",
+                        )
+                    )
+            else:
+                execution_price = order.limit_price * (1 + (self.settings.strategy.slippage_bps / 10_000))
+                fill_event, fill = self.engine.fill(
+                    order,
+                    fill_price=execution_price,
+                    order_event_id=self._next_scoped_id("order-event"),
+                    fill_id=self._next_scoped_id("fill"),
                 )
-            )
+                self.writer.write_paper_order(order)
+                self.writer.write_order_event(fill_event)
+                self.writer.write_fill(fill)
+                self.portfolio_book.apply_buy_fill(symbol=state.symbol, fill=fill, fill_price=execution_price)
+                self.writer.write_paper_position(
+                    self.portfolio_book.to_position_record(state.symbol, updated_at=fill.event_time)
+                )
+                self.writer.write_portfolio_snapshot(
+                    self.portfolio_book.to_portfolio_snapshot(
+                        snapshot_id=self._next_scoped_id("portfolio"),
+                        event_time=fill.event_time,
+                    )
+                )
             self.orders_written += 1
         else:
             risk_event = RiskEvent(
@@ -339,25 +430,44 @@ class OnlinePipelineProcessor:
             status="created",
         )
         ack = self.engine.acknowledge(order, order_event_id=order_event_id)
-        self._mirror_order_to_broker(order)
-        fill_event, fill = self.engine.fill(
-            order,
-            fill_price=mark_price,
-            order_event_id=fill_event_id,
-            fill_id=fill_id,
-        )
-        self.writer.write_paper_order(order)
         self.writer.write_order_event(ack)
-        self.writer.write_order_event(fill_event)
-        self.writer.write_fill(fill)
-        self.portfolio_book.close_position(symbol=symbol, fill=fill, fill_price=mark_price)
-        self.writer.write_paper_position(self.portfolio_book.to_position_record(symbol, updated_at=event_time))
-        self.writer.write_portfolio_snapshot(
-            self.portfolio_book.to_portfolio_snapshot(
-                snapshot_id=self._next_scoped_id("portfolio-close"),
-                event_time=event_time,
+        if self.broker_paper_mirror.enabled:
+            submission = self._mirror_order_to_broker(order)
+            if submission is not None:
+                order.status = "submitted"
+                self.pending_order_symbols.add(symbol)
+                self.writer.write_paper_order(order)
+                self._run_broker_sync(bar_time=event_time, force=True)
+            else:
+                order.status = "rejected"
+                self.writer.write_paper_order(order)
+                self.writer.write_order_event(
+                    OrderEvent(
+                        order_event_id=self._next_scoped_id("order-event-close"),
+                        order_id=order.order_id,
+                        event_time=event_time,
+                        event_type="rejected",
+                        detail="broker_paper_submission_failed",
+                    )
+                )
+        else:
+            fill_event, fill = self.engine.fill(
+                order,
+                fill_price=mark_price,
+                order_event_id=fill_event_id,
+                fill_id=fill_id,
             )
-        )
+            self.writer.write_paper_order(order)
+            self.writer.write_order_event(fill_event)
+            self.writer.write_fill(fill)
+            self.portfolio_book.close_position(symbol=symbol, fill=fill, fill_price=mark_price)
+            self.writer.write_paper_position(self.portfolio_book.to_position_record(symbol, updated_at=event_time))
+            self.writer.write_portfolio_snapshot(
+                self.portfolio_book.to_portfolio_snapshot(
+                    snapshot_id=self._next_scoped_id("portfolio-close"),
+                    event_time=event_time,
+                )
+            )
         self.orders_written += 1
         return "recently_closed"
 
@@ -365,6 +475,8 @@ class OnlinePipelineProcessor:
         for state in self.states.values():
             self._finalize_symbol_minute(state)
             state.ticks.clear()
+        if self.broker_paper_mirror.enabled:
+            self._run_broker_sync(bar_time=now_local(self.settings.timezone), force=True)
         return OnlinePipelineResult(
             frames_received=0,
             control_frames=0,

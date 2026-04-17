@@ -9,6 +9,7 @@ from app.storage.contracts import (
     FeatureLabel,
     FeatureSnapshot,
     Fill,
+    BrokerOrderStatusSnapshot,
     BrokerOrderSubmission,
     MarketTickEvent,
     MinuteBar,
@@ -129,6 +130,11 @@ class RuntimeWriter:
         self.jsonl_store.append("broker", "paper_order_submissions", submission.to_record(), submission.event_time)
         if self.sqlite_store:
             self.sqlite_store.insert_broker_order_submission(submission)
+
+    def write_broker_order_status_snapshot(self, snapshot: BrokerOrderStatusSnapshot) -> None:
+        self.jsonl_store.append("broker", "paper_order_status", snapshot.to_record(), snapshot.synced_at)
+        if self.sqlite_store:
+            self.sqlite_store.insert_broker_order_status_snapshot(snapshot)
 
     def write_risk_event(self, event: RiskEvent) -> None:
         self.jsonl_store.append("ops", "risk_events", event.to_record(), event.event_time)

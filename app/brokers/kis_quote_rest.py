@@ -23,6 +23,12 @@ ORDER_CASH_TR_ID_BUY_LIVE = "TTTC0012U"
 ORDER_CASH_TR_ID_SELL_LIVE = "TTTC0011U"
 ORDER_CASH_TR_ID_BUY_PAPER = "VTTC0012U"
 ORDER_CASH_TR_ID_SELL_PAPER = "VTTC0011U"
+ORDER_RVSECNCL_PATH = "/uapi/domestic-stock/v1/trading/order-rvsecncl"
+ORDER_RVSECNCL_TR_ID_LIVE = "TTTC0803U"
+ORDER_RVSECNCL_TR_ID_PAPER = "VTTC0803U"
+ORDER_DAILY_CCLD_PATH = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+ORDER_DAILY_CCLD_TR_ID_LIVE = "TTTC0081R"
+ORDER_DAILY_CCLD_TR_ID_PAPER = "VTTC0081R"
 
 
 def _as_int(payload: dict, key: str) -> int:
@@ -121,6 +127,59 @@ class KisCashOrderResult:
     raw_output: dict
 
 
+@dataclass(slots=True)
+class KisDailyOrderFillRecord:
+    mode: str
+    order_date: str
+    broker_branch_no: str
+    broker_order_no: str
+    original_order_no: str
+    symbol: str
+    symbol_name: str
+    side: str
+    side_name: str
+    order_type_code: str
+    order_type_name: str
+    order_time: str
+    order_qty: int
+    order_price: float
+    filled_qty: int
+    remaining_qty: int
+    avg_fill_price: float
+    filled_amount: float
+    cancel_confirm_qty: int
+    reject_qty: int
+    cancel_yn: bool
+    exchange_id: str
+    raw_output: dict
+
+
+def _as_bool(payload: dict, key: str) -> bool:
+    value = str(payload.get(key, "")).strip().upper()
+    return value in {"Y", "1", "TRUE", "T"}
+
+
+def _first_present(payload: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        if key in payload and str(payload.get(key, "")).strip():
+            return str(payload.get(key, "")).strip()
+    return ""
+
+
+def _first_int(payload: dict, keys: tuple[str, ...]) -> int:
+    for key in keys:
+        if key in payload and str(payload.get(key, "")).strip():
+            return _as_int(payload, key)
+    return 0
+
+
+def _first_float(payload: dict, keys: tuple[str, ...]) -> float:
+    for key in keys:
+        if key in payload and str(payload.get(key, "")).strip():
+            return _as_float(payload, key)
+    return 0.0
+
+
 class KisRestQuoteClient:
     def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10) -> None:
         self.profile = profile
@@ -190,6 +249,7 @@ class KisRestQuoteClient:
         tr_id: str,
         body: dict[str, str],
         *,
+        include_hashkey: bool = False,
         allow_retry: bool = True,
     ) -> tuple[dict, dict[str, str]]:
         token = self.token_manager.get_access_token()
@@ -201,6 +261,8 @@ class KisRestQuoteClient:
             "custtype": self.profile.customer_type,
             "content-type": "application/json; charset=utf-8",
         }
+        if include_hashkey:
+            headers["hashkey"] = self.token_manager.issue_hashkey(body)
         request = Request(
             url=f"{self.profile.rest_url}{path}",
             data=json.dumps(body).encode("utf-8"),
@@ -215,7 +277,13 @@ class KisRestQuoteClient:
             body_text = exc.read().decode("utf-8", errors="ignore")
             if allow_retry and any(code in body_text for code in ("EGW00121", "EGW00123")):
                 self.token_manager.get_access_token(force_refresh=True)
-                return self._post_response(path=path, tr_id=tr_id, body=body, allow_retry=False)
+                return self._post_response(
+                    path=path,
+                    tr_id=tr_id,
+                    body=body,
+                    include_hashkey=include_hashkey,
+                    allow_retry=False,
+                )
             raise KisApiError(f"KIS HTTP error {exc.code}: {body_text}") from exc
         except URLError as exc:
             raise KisApiError(f"KIS network error: {exc}") from exc
@@ -397,6 +465,7 @@ class KisRestQuoteClient:
                 "SLL_TYPE": sell_type,
                 "CNDT_PRIC": condition_price,
             },
+            include_hashkey=True,
         )
         output = payload.get("output", {}) or {}
         return KisCashOrderResult(
@@ -413,3 +482,138 @@ class KisRestQuoteClient:
             message=_as_text(payload, "msg1"),
             raw_output=dict(output),
         )
+
+    def cancel_order(
+        self,
+        *,
+        broker_branch_no: str,
+        broker_order_no: str,
+        order_qty: int,
+        qty_all_order: bool = True,
+        order_type: str = "00",
+        cancel_code: str = "02",
+        order_price: float = 0.0,
+    ) -> KisCashOrderResult:
+        if not self.profile.is_configured:
+            raise KisApiError("KIS account number and product code are required before cancelling an order.")
+        if not broker_branch_no or not broker_order_no:
+            raise KisApiError("Broker branch/order number are required before cancelling an order.")
+        if order_qty <= 0:
+            raise KisApiError("Cancellation quantity must be positive.")
+
+        tr_id = ORDER_RVSECNCL_TR_ID_LIVE if self.profile.mode == "live" else ORDER_RVSECNCL_TR_ID_PAPER
+        payload, _ = self._post_response(
+            path=ORDER_RVSECNCL_PATH,
+            tr_id=tr_id,
+            body={
+                "CANO": self.profile.account_no,
+                "ACNT_PRDT_CD": self.profile.product_code,
+                "KRX_FWDG_ORD_ORGNO": broker_branch_no,
+                "ORGN_ODNO": broker_order_no,
+                "ORD_DVSN": order_type,
+                "RVSE_CNCL_DVSN_CD": cancel_code,
+                "ORD_QTY": str(int(order_qty)),
+                "ORD_UNPR": str(int(round(order_price))),
+                "QTY_ALL_ORD_YN": "Y" if qty_all_order else "N",
+            },
+            include_hashkey=True,
+        )
+        output = payload.get("output", {}) or {}
+        return KisCashOrderResult(
+            mode=self.profile.mode,
+            side="cancel",
+            symbol="",
+            qty=int(order_qty),
+            order_type=order_type,
+            limit_price=float(order_price),
+            broker_order_no=_as_text(output, "ODNO"),
+            broker_branch_no=_as_text(output, "KRX_FWDG_ORD_ORGNO"),
+            order_time=_as_text(output, "ORD_TMD"),
+            message_code=_as_text(payload, "msg_cd"),
+            message=_as_text(payload, "msg1"),
+            raw_output=dict(output),
+        )
+
+    def get_daily_order_fills(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+        symbol: str = "",
+        order_no: str = "",
+        side_filter: str = "00",
+        filled_filter: str = "00",
+        order_filter_3: str = "00",
+        order_filter_1: str = "",
+        exchange_code: str = "KRX",
+        max_pages: int = 10,
+    ) -> list[KisDailyOrderFillRecord]:
+        if not self.profile.is_configured:
+            raise KisApiError("KIS account number and product code are required before requesting order fills.")
+
+        ctx_area_fk100 = ""
+        ctx_area_nk100 = ""
+        tr_cont = ""
+        tr_id = ORDER_DAILY_CCLD_TR_ID_LIVE if self.profile.mode == "live" else ORDER_DAILY_CCLD_TR_ID_PAPER
+        records: list[KisDailyOrderFillRecord] = []
+
+        for _ in range(max_pages):
+            payload, response_headers = self._request_response(
+                path=ORDER_DAILY_CCLD_PATH,
+                tr_id=tr_id,
+                query_params={
+                    "CANO": self.profile.account_no,
+                    "ACNT_PRDT_CD": self.profile.product_code,
+                    "INQR_STRT_DT": start_date,
+                    "INQR_END_DT": end_date,
+                    "SLL_BUY_DVSN_CD": side_filter,
+                    "INQR_DVSN": "00",
+                    "PDNO": symbol,
+                    "CCLD_DVSN": filled_filter,
+                    "ORD_GNO_BRNO": "",
+                    "ODNO": order_no,
+                    "INQR_DVSN_3": order_filter_3,
+                    "INQR_DVSN_1": order_filter_1,
+                    "CTX_AREA_FK100": ctx_area_fk100,
+                    "CTX_AREA_NK100": ctx_area_nk100,
+                    "EXCG_ID_DVSN_CD": exchange_code,
+                },
+                extra_headers={"tr_cont": tr_cont} if tr_cont else None,
+            )
+            for row in list(payload.get("output1", []) or []):
+                records.append(
+                    KisDailyOrderFillRecord(
+                        mode=self.profile.mode,
+                        order_date=_as_text(row, "ord_dt"),
+                        broker_branch_no=_first_present(row, ("ord_gno_brno", "ord_orgno")),
+                        broker_order_no=_as_text(row, "odno"),
+                        original_order_no=_as_text(row, "orgn_odno"),
+                        symbol=_as_text(row, "pdno"),
+                        symbol_name=_as_text(row, "prdt_name"),
+                        side=_as_text(row, "sll_buy_dvsn_cd"),
+                        side_name=_as_text(row, "sll_buy_dvsn_cd_name"),
+                        order_type_code=_as_text(row, "ord_dvsn_cd"),
+                        order_type_name=_first_present(row, ("ord_dvsn_name", "ord_dvsn_cd_name")),
+                        order_time=_as_text(row, "ord_tmd"),
+                        order_qty=_as_int(row, "ord_qty"),
+                        order_price=_as_float(row, "ord_unpr"),
+                        filled_qty=_first_int(row, ("tot_ccld_qty", "ccld_qty")),
+                        remaining_qty=_first_int(row, ("rmn_qty", "ord_remn_qty")),
+                        avg_fill_price=_first_float(row, ("avg_prvs", "avg_ccld_unpr")),
+                        filled_amount=_first_float(row, ("tot_ccld_amt",)),
+                        cancel_confirm_qty=_first_int(row, ("cncl_cfrm_qty",)),
+                        reject_qty=_first_int(row, ("rjct_qty",)),
+                        cancel_yn=_as_bool(row, "cncl_yn"),
+                        exchange_id=_first_present(row, ("excg_id_dvsn_cd", "excg_dvsn_cd")),
+                        raw_output=dict(row),
+                    )
+                )
+            ctx_area_fk100 = _as_text(payload, "ctx_area_fk100")
+            ctx_area_nk100 = _as_text(payload, "ctx_area_nk100")
+            next_tr_cont = response_headers.get("tr_cont", "").upper()
+            if next_tr_cont in {"M", "F"} and (ctx_area_fk100 or ctx_area_nk100):
+                tr_cont = "N"
+                continue
+            break
+
+        return records

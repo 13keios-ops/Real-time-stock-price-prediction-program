@@ -140,6 +140,58 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertEqual(snapshot.positions[0].holding_qty, 3)
 
     @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_get_daily_order_fills(self, mocked_urlopen) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "0",
+                "output1": [
+                    {
+                        "ord_dt": "20260417",
+                        "ord_gno_brno": "00111",
+                        "odno": "1234567890",
+                        "orgn_odno": "",
+                        "pdno": "005930",
+                        "prdt_name": "삼성전자",
+                        "sll_buy_dvsn_cd": "02",
+                        "sll_buy_dvsn_cd_name": "매수",
+                        "ord_dvsn_cd": "00",
+                        "ord_dvsn_name": "지정가",
+                        "ord_tmd": "101530",
+                        "ord_qty": "3",
+                        "ord_unpr": "70000",
+                        "tot_ccld_qty": "3",
+                        "rmn_qty": "0",
+                        "avg_prvs": "70100",
+                        "tot_ccld_amt": "210300",
+                        "cncl_cfrm_qty": "0",
+                        "rjct_qty": "0",
+                        "cncl_yn": "N",
+                        "excg_id_dvsn_cd": "KRX",
+                    }
+                ],
+                "ctx_area_fk100": "",
+                "ctx_area_nk100": "",
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        rows = client.get_daily_order_fills(start_date="20260417", end_date="20260417")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].symbol, "005930")
+        self.assertEqual(rows[0].filled_qty, 3)
+        self.assertEqual(rows[0].avg_fill_price, 70100.0)
+
+    @patch("app.brokers.kis_quote_rest.urlopen")
     def test_submit_cash_order(self, mocked_urlopen) -> None:
         mocked_urlopen.return_value = _mock_response(
             {
@@ -162,6 +214,7 @@ class KisHttpClientTests(unittest.TestCase):
                 expires_at=now_local("Asia/Seoul"),
             )
         )
+        manager.issue_hashkey = MagicMock(return_value="hash-key")
         client = KisRestQuoteClient(profile=profile, token_manager=manager)
 
         result = client.submit_cash_order(symbol="005930", side="buy", qty=3, limit_price=70000)

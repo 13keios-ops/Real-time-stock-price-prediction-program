@@ -212,7 +212,7 @@ def refresh_kis_account_report(
             report_markdown_path=markdown_path,
             report_json_path=json_path,
         )
-    except KisApiError as exc:
+    except Exception as exc:
         error = str(exc)
         if cached_payload:
             cached_payload["error"] = error

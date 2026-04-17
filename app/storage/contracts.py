@@ -198,6 +198,30 @@ class BrokerOrderSubmission(RecordMixin):
 
 
 @dataclass(slots=True)
+class BrokerOrderStatusSnapshot(RecordMixin):
+    sync_id: str
+    local_order_id: str
+    broker_mode: str
+    symbol: str
+    synced_at: datetime
+    order_date: str
+    side: str
+    order_qty: int
+    filled_qty: int
+    remaining_qty: int
+    avg_fill_price: float
+    status: str
+    broker_order_no: str
+    broker_branch_no: str
+    reject_qty: int
+    cancel_confirm_qty: int
+    cancel_yn: bool
+    matched: bool
+    applied_fill_qty: int
+    detail: dict[str, Any]
+
+
+@dataclass(slots=True)
 class RiskEvent(RecordMixin):
     risk_event_id: str
     symbol: str

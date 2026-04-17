@@ -16,6 +16,7 @@ from app.utils.time import get_timezone, now_local
 TOKEN_ENDPOINT = "/oauth2/tokenP"
 TOKEN_REVOKE_ENDPOINT = "/oauth2/revokeP"
 APPROVAL_ENDPOINT = "/oauth2/Approval"
+HASHKEY_ENDPOINT = "/uapi/hashkey"
 KST = get_timezone("Asia/Seoul")
 
 
@@ -196,3 +197,31 @@ class KisTokenManager:
         if not approval_key:
             raise KisApiError(f"KIS approval key response is missing approval_key: {payload}")
         return approval_key
+
+    def issue_hashkey(self, payload: dict[str, object]) -> str:
+        if not self.profile.is_ready_for_quotes:
+            raise KisApiError("KIS app key and secret are required before requesting a hashkey.")
+        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = Request(
+            url=f"{self.profile.rest_url}{HASHKEY_ENDPOINT}",
+            data=encoded,
+            headers={
+                "content-type": "application/json; charset=utf-8",
+                "appkey": self.profile.app_key,
+                "appsecret": self.profile.app_secret,
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=15) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            raise KisApiError(f"KIS HTTP error {exc.code}: {body}") from exc
+        except URLError as exc:
+            raise KisApiError(f"KIS network error: {exc}") from exc
+
+        hashkey = str(response_payload.get("HASH", "")).strip()
+        if not hashkey:
+            raise KisApiError(f"KIS hashkey response is missing HASH: {response_payload}")
+        return hashkey

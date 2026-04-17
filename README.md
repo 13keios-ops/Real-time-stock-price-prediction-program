@@ -52,6 +52,7 @@
 - KIS 브로커 모의계좌 잔고 조회와 대시보드 반영
 - 로컬 가상 주문의 브로커 모의계좌 주문 제출 미러링과 제출 이력 저장
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 paper-account reconciliation 리포트
+- 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 paper alignment
 - 런타임 재시작 시 기존 로컬 가상 포트폴리오 상태 복원
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
@@ -114,6 +115,11 @@
   - 이 비교는 화면의 날짜 필터와 무관하게 `현재 로컬 가상 계좌 전체 상태`를 기준으로 계산한다.
   - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-account-sync.{md,json}` 에 남는다.
   - 미러링이 꺼져 있으면 `mirroring_disabled` 상태가 정상일 수 있다.
+- `paper baseline alignment`
+  - 브로커 모의계좌 기준으로 로컬 가상 계좌의 현재 상태를 다시 맞추는 정렬 단계다.
+  - 이 경로는 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 정렬한다.
+  - 정렬 뒤에는 reconciliation, runtime report, dashboard 가 모두 브로커 기준 현재 상태를 우선 보여준다.
+  - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
 
 ## 저장소 구조
 
@@ -267,6 +273,15 @@ python -m app --reconcile-paper-accounts
 
 이 결과는 runtime report와 dashboard의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
 
+브로커 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추려면:
+
+```powershell
+.\scripts\align_local_paper_to_broker.ps1
+python -m app --align-local-paper-to-broker
+```
+
+이 정렬은 destructive delete 가 아니라 marker 기반 현재 상태 정렬이다.
+
 브로커 모의계좌 주문 미러링을 켜고 실행:
 
 ```powershell
@@ -274,7 +289,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 .\scripts\start_runtime_autoboot.ps1
 ```
 
-기본값은 `false` 이고, 대시보드에는 현재 켜짐 여부와 브로커 제출 주문 수가 함께 표시된다.
+현재 기본 전략 설정은 `true` 이고, 대시보드에는 현재 켜짐 여부와 브로커 제출 주문 수가 함께 표시된다.
 
 로컬 대시보드 background 시작 / 상태 / 중지:
 
@@ -312,7 +327,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 ```
 
 `start_runtime_autoboot.ps1` 는 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
-여기에 `paper-account reconciliation` 도 포함되어, 재부팅 후 바로 로컬 가상 계좌와 브로커 모의계좌 차이를 다시 계산한다.
+여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
 `install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.

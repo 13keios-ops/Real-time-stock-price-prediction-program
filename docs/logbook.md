@@ -49,6 +49,8 @@
 - 대시보드 `모의계좌(실제)` 탭은 브로커 제출 주문 수와 최근 브로커 제출 주문 표를 함께 보여준다.
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 `paper-account reconciliation` 리포트가 추가되었다.
 - 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
+- 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추는 marker 기반 `paper baseline alignment` 경로가 추가되었다.
+- 대시보드 `로컬 모의운용 계좌` 카드도 이제 alignment marker 를 따라가므로, 오래된 pre-alignment 포지션을 현재 상태처럼 다시 보여주지 않는다.
 - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
 - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
@@ -211,10 +213,10 @@
   - `total_evaluation_amount=10000000`
   - `position_row_count=0`
 - 최신 paper-account reconciliation:
-  - `status=mirroring_disabled`
-  - `mismatch_count=1`
-  - `cash_gap=13248734.336781617`
-  - `total_asset_gap=14885534.336781617`
+  - `status=aligned_waiting_first_submission`
+  - `mismatch_count=0`
+  - `cash_gap=0.0`
+  - `total_asset_gap=0.0`
 - 최신 KIS REST preflight:
   - current price 조회: `ok`
   - orderbook 조회: `ok`
@@ -223,6 +225,12 @@
 ## Recent Log
 
 - `2026-04-17`
+  - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 `paper baseline alignment` 경로를 추가했다.
+  - 이 정렬은 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 다시 맞춘다.
+  - `python -m app --align-local-paper-to-broker`, `--sync-broker-paper-orders`, `--reconcile-paper-accounts` 재실행 결과 현재 상태는 `aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0` 이다.
+  - `start_runtime_autoboot.ps1` 를 다시 돌려 dashboard, live runtime, watchdog, broker account refresh, reconciliation 이 모두 `ok=true` 로 끝나는 것을 확인했다.
+  - 대시보드 `로컬 모의운용 계좌` 카드가 pre-alignment stale 포지션을 현재 상태처럼 보여주던 문제를 고쳤고, 최신 dashboard JSON 기준 `open_positions=0`, `cash_balance=10000000.0`, `reconciliation_status=aligned_waiting_first_submission` 으로 확인했다.
+  - `paper_reconciliation` 상태 문구도 `브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다.` 처럼 실제 해석이 드러나도록 정리했다.
   - 대시보드 상태 리뷰를 다시 수행했고, `KIS 검증 / 분봉 / 예측 / 신호 / 학습 / 평가 / 대시보드 생성` 신선도 표시를 추가했다.
   - 대시보드 상단에 즉시 조치가 필요한 항목을 보여주는 상태 경고 카드를 추가했다.
   - 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과가 머신러닝 탭에 계속 보이도록 정리했다.

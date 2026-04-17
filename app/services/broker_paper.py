@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
 
 from app.brokers.kis_auth import KisTokenManager, get_kis_profile
-from app.brokers.kis_quote_rest import KisAccountBalanceSnapshot, KisCashOrderResult, KisRestQuoteClient
+from app.brokers.kis_quote_rest import (
+    KisAccountBalanceSnapshot,
+    KisCashOrderResult,
+    KisDailyOrderFillRecord,
+    KisRestQuoteClient,
+)
 from app.config.settings import AppSettings
 from app.storage.contracts import BrokerOrderSubmission, PaperOrder
+from app.utils.time import now_local
 
 
 class BrokerPaperMirror:
@@ -36,6 +43,27 @@ class BrokerPaperMirror:
 
     def fetch_balance_snapshot(self) -> KisAccountBalanceSnapshot:
         return self.client.get_account_balance()
+
+    def fetch_recent_order_fills(self, *, lookback_days: int = 3) -> list[KisDailyOrderFillRecord]:
+        end_date = now_local(self.settings.timezone).date()
+        start_date = end_date - timedelta(days=max(lookback_days - 1, 0))
+        return self.client.get_daily_order_fills(
+            start_date=start_date.strftime("%Y%m%d"),
+            end_date=end_date.strftime("%Y%m%d"),
+        )
+
+    def cancel_submitted_order(
+        self,
+        *,
+        broker_branch_no: str,
+        broker_order_no: str,
+        order_qty: int,
+    ) -> KisCashOrderResult:
+        return self.client.cancel_order(
+            broker_branch_no=broker_branch_no,
+            broker_order_no=broker_order_no,
+            order_qty=order_qty,
+        )
 
     @staticmethod
     def _to_submission(order: PaperOrder, result: KisCashOrderResult) -> BrokerOrderSubmission:

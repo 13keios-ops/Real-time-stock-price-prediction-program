@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import patch
 
 from app.config.settings import load_settings
+from app.services.broker_paper_sync import BrokerPaperSyncResult
 from app.storage.contracts import BrokerOrderSubmission
 from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
 from app.storage.runtime_writer import get_sqlite_store
@@ -143,8 +144,26 @@ class StreamingPipelineTests(unittest.TestCase):
                 detail={"message": "ok"},
             )
             with patch("app.services.streaming.BrokerPaperMirror.submit_local_order", return_value=fake_submission):
-                result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
-                sqlite_store = get_sqlite_store(settings)
+                with patch(
+                    "app.services.streaming.BrokerPaperExecutionSync.sync_recent_orders",
+                    return_value=BrokerPaperSyncResult(
+                        ok=True,
+                        synced_at="2026-04-13T10:16:00+09:00",
+                        status="ok",
+                        total_submissions=1,
+                        matched_orders=0,
+                        updated_orders=0,
+                        applied_fill_events=0,
+                        applied_fill_qty=0,
+                        open_order_count=1,
+                        final_order_count=0,
+                        pending_symbols=["005930"],
+                        report_markdown_path=runtime_root / "sync.md",
+                        report_json_path=runtime_root / "sync.json",
+                    ),
+                ):
+                    result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+                    sqlite_store = get_sqlite_store(settings)
 
         self.assertIsNotNone(sqlite_store)
         self.assertGreaterEqual(result.orders_written, 1)

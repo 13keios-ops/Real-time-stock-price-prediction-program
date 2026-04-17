@@ -213,14 +213,25 @@ PC 재부팅 후 자동 시작 helper:
 
 It now validates each nested `python -m app ...` command and stops immediately if one of them fails.
 
-Optional broker-paper mirroring:
+Broker-paper mirroring:
 
 ```powershell
 $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 .\scripts\start_runtime_autoboot.ps1
 ```
 
+The current strategy default is `ENABLE_BROKER_PAPER_MIRRORING=true`.
+
 When enabled, the local paper engine still records its own simulated fills immediately, while the broker paper account receives matching order submissions through KIS REST. Dashboard sync cards show whether balances and holdings still match.
+
+Broker baseline alignment:
+
+```powershell
+.\scripts\align_local_paper_to_broker.ps1
+python -m app --align-local-paper-to-broker
+```
+
+This path now uses marker-based alignment instead of destructive row deletion. The latest marker is written to `runtime-data/reports/broker-paper/latest-alignment.json`.
 
 즉, 기존 `start_monday_runtime.ps1` 처럼 shadow ML 학습과 KIS verification까지 모두 돌리는 무거운 준비 루틴이 아니라, 부팅 직후 서비스 복구 중심의 가벼운 경로다.
 
@@ -518,4 +529,6 @@ The cached report is written to:
 
 - `runtime-data/reports/kis-account/latest-account.md`
 - `runtime-data/reports/kis-account/latest-account.json`
+
+
 

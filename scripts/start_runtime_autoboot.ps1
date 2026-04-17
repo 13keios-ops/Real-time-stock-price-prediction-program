@@ -77,13 +77,57 @@ function Read-JsonFile {
     return Get-Content -LiteralPath $LiteralPath -Raw | ConvertFrom-Json
 }
 
+function Test-NeedsBrokerPaperAlignment {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$PaperReconciliation
+    )
+
+    if ($null -eq $PaperReconciliation -or $null -eq $PaperReconciliation.comparison) {
+        return $false
+    }
+
+    $comparison = $PaperReconciliation.comparison
+    return (
+        [bool]$comparison.order_mirroring_enabled -and
+        [int]$comparison.mirrored_order_count -eq 0 -and
+        [int]$comparison.mismatch_count -gt 0
+    )
+}
+
 $dashboardState = $null
 $liveRuntimeState = $null
 $watchdogState = $null
 $kisAccount = $null
+$brokerPaperSync = $null
 $paperReconciliation = $null
+$paperAlignment = $null
 $runtimeReport = $null
 $errors = @()
+
+try {
+    if (-not $SkipAccountRefresh) {
+        Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
+        $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json")
+        if ($null -eq $kisAccount) {
+            $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json")
+        }
+        Invoke-AppCommand -Arguments @("-m", "app", "--sync-broker-paper-orders") -DiscardOutput
+        $brokerPaperSync = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\broker-paper\latest-sync.json")
+        Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
+        $paperReconciliation = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json")
+        if (Test-NeedsBrokerPaperAlignment -PaperReconciliation $paperReconciliation) {
+            Invoke-AppCommand -Arguments @("-m", "app", "--align-local-paper-to-broker") -DiscardOutput
+            $paperAlignment = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\broker-paper\latest-alignment.json")
+            Invoke-AppCommand -Arguments @("-m", "app", "--sync-broker-paper-orders") -DiscardOutput
+            $brokerPaperSync = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\broker-paper\latest-sync.json")
+            Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
+            $paperReconciliation = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json")
+        }
+    }
+} catch {
+    $errors += "kis_account: $($_.Exception.Message)"
+}
 
 try {
     if (-not $SkipDashboard) {
@@ -139,20 +183,6 @@ try {
 }
 
 try {
-    if (-not $SkipAccountRefresh) {
-        Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
-        $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json")
-        if ($null -eq $kisAccount) {
-            $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json")
-        }
-        Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
-        $paperReconciliation = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json")
-    }
-} catch {
-    $errors += "kis_account: $($_.Exception.Message)"
-}
-
-try {
     if (-not $SkipDashboardBuild) {
         Invoke-AppCommand -Arguments @("-m", "app", "--build-runtime-report") -DiscardOutput
         Invoke-AppCommand -Arguments @("-m", "app", "--build-dashboard") -DiscardOutput
@@ -200,6 +230,8 @@ $payload = [ordered]@{
     live_runtime = $liveRuntimeState
     watchdog = $watchdogState
     kis_account = $kisAccount
+    broker_paper_sync = $brokerPaperSync
+    paper_alignment = $paperAlignment
     paper_reconciliation = $paperReconciliation
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_dashboard = [bool]$SkipDashboard
