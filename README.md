@@ -67,6 +67,7 @@
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
 - 대시보드 상단에는 `실시간 분봉 지연`, `KIS 검증 기록 오래됨`, `오늘 학습 부재` 같은 핵심 경고를 즉시 읽을 수 있는 상태 경고 카드가 추가되었다.
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
+- `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리

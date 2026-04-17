@@ -64,7 +64,7 @@ if ($processRunning -and $null -ne $tcpConnection -and $dashboardApiResponding) 
     $processRunning = $true
 }
 
-[ordered]@{
+$output = [ordered]@{
     status = $effectiveStatus
     pid = if ($processRunning -and $null -ne $portOwnerPid) { $portOwnerPid } else { $state.pid }
     process_running = $processRunning
@@ -81,4 +81,19 @@ if ($processRunning -and $null -ne $tcpConnection -and $dashboardApiResponding) 
     dashboard_responding = $dashboardResponding
     dashboard_api_responding = $dashboardApiResponding
     raw_status = $state.status
-} | ConvertTo-Json -Depth 10
+}
+
+$stateChanged = ($state.status -ne $effectiveStatus) -or
+    ([string]$state.pid -ne [string]$output.pid) -or
+    ([bool]$state.process_running -ne [bool]$output.process_running) -or
+    ([bool]$state.port_bound -ne [bool]$output.port_bound)
+
+if ($stateChanged) {
+    $state.status = $effectiveStatus
+    $state.pid = $output.pid
+    $state.process_running = $output.process_running
+    $state.port_bound = $output.port_bound
+    $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
+}
+
+$output | ConvertTo-Json -Depth 10

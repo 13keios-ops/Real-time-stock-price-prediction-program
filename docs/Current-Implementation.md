@@ -29,6 +29,7 @@ The project now has a working local foundation for:
 - Dashboard learning view separation between actual runtime status and validation/comparison results
 - Dashboard status tab now shows freshness for KIS verification, market bars, predictions, signals, training/evaluation, and dashboard generation
 - Dashboard top hero now surfaces immediate alert cards when live runtime appears stale or KIS verification is too old
+- Dashboard status script now normalizes the saved server-state file after a successful health check so stale `starting` state does not linger
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
 - Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context

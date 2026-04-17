@@ -56,6 +56,7 @@
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
 - 대시보드 상단은 `실시간 분봉 지연`, `KIS 검증 기록 오래됨`, `오늘 학습 부재` 같은 즉시 조치 항목을 경고 카드로 표시한다.
 - 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
+- `scripts/get_dashboard_status.ps1` 는 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해 `starting` 상태가 오래 남지 않게 했다.
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
@@ -223,6 +224,7 @@
   - 대시보드 상태 리뷰를 다시 수행했고, `KIS 검증 / 분봉 / 예측 / 신호 / 학습 / 평가 / 대시보드 생성` 신선도 표시를 추가했다.
   - 대시보드 상단에 즉시 조치가 필요한 항목을 보여주는 상태 경고 카드를 추가했다.
   - 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과가 머신러닝 탭에 계속 보이도록 정리했다.
+  - dashboard 상태 조회 스크립트가 실제 응답 기준으로 상태 파일을 다시 써서 `starting` 값이 오래 남는 문제를 줄였다.
 - `2026-04-11`
   - v0.2.0 release commit and push completed.
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.
