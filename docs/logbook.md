@@ -53,6 +53,9 @@
 - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
 - 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
+- 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
+- 대시보드 상단은 `실시간 분봉 지연`, `KIS 검증 기록 오래됨`, `오늘 학습 부재` 같은 즉시 조치 항목을 경고 카드로 표시한다.
+- 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
@@ -130,6 +133,10 @@
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
   - `/api/dashboard.json`: `200 OK`
+- latest dashboard review:
+  - `status_alerts` populated
+  - freshness badges rendered for KIS verification / market bar / prediction / signal / training / evaluation / dashboard generation
+  - latest overall ML artifacts still shown when today's training and evaluation counts are zero
 - runtime watchdog status:
   - `status=running`
   - `dashboard_api_responding=true`
@@ -212,6 +219,10 @@
 
 ## Recent Log
 
+- `2026-04-17`
+  - 대시보드 상태 리뷰를 다시 수행했고, `KIS 검증 / 분봉 / 예측 / 신호 / 학습 / 평가 / 대시보드 생성` 신선도 표시를 추가했다.
+  - 대시보드 상단에 즉시 조치가 필요한 항목을 보여주는 상태 경고 카드를 추가했다.
+  - 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과가 머신러닝 탭에 계속 보이도록 정리했다.
 - `2026-04-11`
   - v0.2.0 release commit and push completed.
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.

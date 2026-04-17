@@ -27,6 +27,8 @@ The project now has a working local foundation for:
 - Every top-level dashboard tab now uses the same left-side vertical subtab layout instead of mixing layouts by tab
 - Dashboard date / period filtering for today, specific day, recent 3/7/30 days, and all accumulated runtime data
 - Dashboard learning view separation between actual runtime status and validation/comparison results
+- Dashboard status tab now shows freshness for KIS verification, market bars, predictions, signals, training/evaluation, and dashboard generation
+- Dashboard top hero now surfaces immediate alert cards when live runtime appears stale or KIS verification is too old
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
 - Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
@@ -42,6 +44,7 @@ The project now has a working local foundation for:
 - Dashboard HTTP endpoints now return a temporary-unavailable response instead of dropping the connection when SQLite is briefly locked
 - Dashboard default page and default JSON API now prefer the latest cached snapshot so the UI responds faster under load
 - Dashboard manual refresh and 5-minute auto refresh now rebuild the snapshot through `/api/refresh` before reloading the page
+- Dashboard ML tab now keeps showing the latest overall backtest / walk-forward / challenger artifacts even when the selected day has no new training or evaluation rows
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution

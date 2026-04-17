@@ -372,6 +372,137 @@ def _latest_time(rows: list[dict[str, Any]], field_name: str) -> str | None:
     return str(rows[-1].get(field_name)) if rows[-1].get(field_name) else None
 
 
+def _build_freshness_snapshot(
+    timestamp_text: str | None,
+    *,
+    timezone_name: str,
+    warning_after_minutes: int,
+    stale_after_minutes: int,
+    missing_label: str,
+) -> dict[str, Any]:
+    parsed = _parse_iso_datetime(timestamp_text)
+    if parsed is None:
+        return {
+            "available": False,
+            "timestamp": None,
+            "age_minutes": None,
+            "state": "missing",
+            "label": missing_label,
+            "note": missing_label,
+        }
+
+    timezone = get_timezone(timezone_name)
+    localized = parsed.astimezone(timezone) if parsed.tzinfo else parsed.replace(tzinfo=timezone)
+    age_minutes = max((now_local(timezone_name) - localized).total_seconds() / 60.0, 0.0)
+
+    if age_minutes <= warning_after_minutes:
+        state = "fresh"
+        label = "최신"
+    elif age_minutes <= stale_after_minutes:
+        state = "aging"
+        label = "주의"
+    else:
+        state = "stale"
+        label = "지연"
+
+    rounded_age = int(round(age_minutes))
+    if rounded_age < 1:
+        age_text = "방금 전"
+    elif rounded_age < 60:
+        age_text = f"{rounded_age}분 전"
+    elif rounded_age < 1440:
+        hours = rounded_age // 60
+        minutes = rounded_age % 60
+        age_text = f"{hours}시간 {minutes}분 전" if minutes else f"{hours}시간 전"
+    else:
+        days = rounded_age // 1440
+        hours = (rounded_age % 1440) // 60
+        age_text = f"{days}일 {hours}시간 전" if hours else f"{days}일 전"
+
+    return {
+        "available": True,
+        "timestamp": localized.isoformat(),
+        "age_minutes": round(age_minutes, 2),
+        "state": state,
+        "label": label,
+        "note": f"{age_text} 업데이트",
+    }
+
+
+def _build_status_alerts(
+    *,
+    live_runtime_state: dict[str, Any],
+    latest_kis_verification: dict[str, Any] | None,
+    freshness: dict[str, Any],
+    runtime_summary: dict[str, int],
+    latest_training: dict[str, Any] | None,
+    latest_evaluation: dict[str, Any] | None,
+) -> list[dict[str, str]]:
+    alerts: list[dict[str, str]] = []
+    runtime_status = str(live_runtime_state.get("status") or "").lower()
+    market_bar_freshness = freshness.get("latest_market_bar", {}) or {}
+    prediction_freshness = freshness.get("latest_prediction", {}) or {}
+    kis_freshness = freshness.get("latest_kis_verification", {}) or {}
+    training_freshness = freshness.get("latest_training", {}) or {}
+    evaluation_freshness = freshness.get("latest_evaluation", {}) or {}
+    latest_kis = latest_kis_verification or {}
+
+    if runtime_status != "running":
+        alerts.append(
+            {
+                "level": "warning",
+                "title": "실시간 수집기가 멈춰 있습니다",
+                "message": "장중 예측과 신호는 실시간 수집기가 살아 있어야 계속 갱신됩니다. 런타임 상태를 먼저 확인해 주세요.",
+            }
+        )
+    elif market_bar_freshness.get("state") == "stale":
+        alerts.append(
+            {
+                "level": "warning",
+                "title": "실시간 분봉 갱신이 지연되고 있습니다",
+                "message": f"최근 분봉 시각이 오래됐습니다. 현재 상태는 {market_bar_freshness.get('note') or '지연'} 입니다.",
+            }
+        )
+
+    if latest_kis and kis_freshness.get("state") == "stale":
+        alerts.append(
+            {
+                "level": "info",
+                "title": "KIS 연결 검증 기록이 오래되었습니다",
+                "message": f"마지막 검증 시각은 {latest_kis.get('verified_at') or '-'} 이고, 현재 신선도는 {kis_freshness.get('label') or '지연'} 입니다.",
+            }
+        )
+
+    if prediction_freshness.get("state") == "stale" and runtime_summary.get("predictions", 0) > 0:
+        alerts.append(
+            {
+                "level": "info",
+                "title": "최근 예측 기록이 멈춰 보입니다",
+                "message": f"최근 예측 시각이 오래됐습니다. 현재 상태는 {prediction_freshness.get('note') or '지연'} 입니다.",
+            }
+        )
+
+    if runtime_summary.get("training_runs", 0) == 0 and latest_training:
+        alerts.append(
+            {
+                "level": "info",
+                "title": "오늘 학습은 아직 실행되지 않았습니다",
+                "message": f"최근 전체 학습 결과는 {latest_training.get('completed_at') or '-'} 기준이며, 현재 신선도는 {training_freshness.get('label') or '-'} 입니다.",
+            }
+        )
+
+    if runtime_summary.get("evaluations", 0) == 0 and latest_evaluation:
+        alerts.append(
+            {
+                "level": "info",
+                "title": "오늘 평가 기록은 아직 없습니다",
+                "message": f"최근 전체 평가 결과는 {latest_evaluation.get('evaluated_at') or '-'} 기준이며, 현재 신선도는 {evaluation_freshness.get('label') or '-'} 입니다.",
+            }
+        )
+
+    return alerts[:4]
+
+
 def _prediction_view(
     rows: list[dict[str, Any]],
     symbol_names: dict[str, str],
@@ -942,6 +1073,36 @@ def collect_dashboard_payload(
     latest_market_bar_time = _latest_time(minute_bar_rows, "bar_time")
     latest_prediction_time = _latest_time(prediction_views, "event_time")
     latest_signal_time = _latest_time(signal_views, "event_time")
+    freshness = {
+        "dashboard_generated": _build_freshness_snapshot(
+            datetime.now().astimezone().isoformat(),
+            timezone_name=settings.timezone,
+            warning_after_minutes=3,
+            stale_after_minutes=10,
+            missing_label="대시보드 생성 시각 없음",
+        ),
+        "latest_market_bar": _build_freshness_snapshot(
+            latest_market_bar_time,
+            timezone_name=settings.timezone,
+            warning_after_minutes=3,
+            stale_after_minutes=10,
+            missing_label="최근 분봉 없음",
+        ),
+        "latest_prediction": _build_freshness_snapshot(
+            latest_prediction_time,
+            timezone_name=settings.timezone,
+            warning_after_minutes=3,
+            stale_after_minutes=10,
+            missing_label="최근 예측 없음",
+        ),
+        "latest_signal": _build_freshness_snapshot(
+            latest_signal_time,
+            timezone_name=settings.timezone,
+            warning_after_minutes=3,
+            stale_after_minutes=10,
+            missing_label="최근 신호 없음",
+        ),
+    }
     actual_labels = runtime_summary.get("labels", 0)
     learning_mode = "actual_runtime" if actual_labels > 0 else "actual_runtime_pending"
     learning_note = (
@@ -962,6 +1123,28 @@ def collect_dashboard_payload(
         minute_note = "최근 분봉은 실제 장중 KIS 체결 데이터로 생성된 기록입니다. 주문이나 체결이 없어도 시장 데이터만 들어오면 분봉은 만들어질 수 있습니다."
     else:
         minute_note = "최근 실제 운용 분봉이 아직 없습니다."
+    freshness["latest_kis_verification"] = _build_freshness_snapshot(
+        (_safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json") or {}).get("verified_at"),
+        timezone_name=settings.timezone,
+        warning_after_minutes=30,
+        stale_after_minutes=180,
+        missing_label="KIS 검증 기록 없음",
+    )
+    freshness["latest_training"] = _build_freshness_snapshot(
+        (latest_training or {}).get("completed_at"),
+        timezone_name=settings.timezone,
+        warning_after_minutes=720,
+        stale_after_minutes=2880,
+        missing_label="최근 학습 기록 없음",
+    )
+    freshness["latest_evaluation"] = _build_freshness_snapshot(
+        (latest_evaluation or {}).get("evaluated_at"),
+        timezone_name=settings.timezone,
+        warning_after_minutes=720,
+        stale_after_minutes=2880,
+        missing_label="최근 평가 기록 없음",
+    )
+
     ml_state = {
         "status": "장중 분석·예측 중" if live_runtime_state.get("status") == "running" else "대기 (장후 재학습)",
         "latest_completed_at": (latest_training or {}).get("completed_at"),
@@ -971,7 +1154,7 @@ def collect_dashboard_payload(
         "note": (
             "실시간 수집기는 장중 예측을 계속 수행하고, 학습 상태는 마지막 실제 데이터 기반 재학습 결과를 보여줍니다."
             if actual_labels > 0
-            else "실제 장중 라벨이 아직 부족해 학습 상태는 마지막 재구성 결과가 없거나 준비 전 단계입니다."
+            else "실제 장중 라벨이 아직 부족해 학습 상태는 마지막 연구용 결과를 참고하는 준비 단계입니다."
         ),
     }
     local_account_state = _build_local_account_summary(
@@ -1002,13 +1185,21 @@ def collect_dashboard_payload(
 
     paper_account_report = _load_account("paper")
     live_account_report = _load_account("live")
-    today_training_runs = _reverse_recent(training_rows, 5) if actual_labels > 0 else []
-    today_evaluations = _reverse_recent(evaluation_rows, 5) if actual_labels > 0 else []
+    today_training_runs = _reverse_recent(training_rows, 5)
+    today_evaluations = _reverse_recent(evaluation_rows, 5)
 
-    latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json") if actual_labels > 0 else None
-    latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json") if actual_labels > 0 else None
-    latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json") if actual_labels > 0 else None
+    latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
+    latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
+    latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
+    status_alerts = _build_status_alerts(
+        live_runtime_state=live_runtime_state,
+        latest_kis_verification=latest_kis_verification if isinstance(latest_kis_verification, dict) else None,
+        freshness=freshness,
+        runtime_summary=runtime_summary,
+        latest_training=latest_training if isinstance(latest_training, dict) else None,
+        latest_evaluation=latest_evaluation if isinstance(latest_evaluation, dict) else None,
+    )
 
     paper_account_view = _build_account_view("모의계좌(실제)", paper_account_report)
     live_account_view = _build_account_view("실 운용계좌", live_account_report)
@@ -1107,6 +1298,7 @@ def collect_dashboard_payload(
         "active_model": active_model_entry,
         "active_model_h60": active_model_entry_60,
         "local_account_state": local_account_state,
+        "status_alerts": status_alerts,
         "system_status": {
             "live_runtime": live_runtime_state,
             "ml_state": ml_state,
@@ -1117,6 +1309,7 @@ def collect_dashboard_payload(
             "minute_note": minute_note,
             "prediction_horizons": ["15분", "60분"],
             "signal_horizon": "15분",
+            "freshness": freshness,
         },
         "learning_context": {
             "mode": learning_mode,
@@ -1255,6 +1448,22 @@ def _list(items: list[str], empty_text: str, *, scroll_height: int = 320) -> str
 
 def _pill_row(items: list[str]) -> str:
     return '<div class="pillrow">' + "".join(f'<span class="pill">{item}</span>' for item in items if item) + "</div>"
+
+
+def _alert_list(items: list[dict[str, str]]) -> str:
+    if not items:
+        return '<div class="muted">지금은 즉시 조치가 필요한 경고가 없습니다.</div>'
+    rows: list[str] = []
+    for item in items:
+        level = str(item.get("level") or "info").strip().lower()
+        css_class = "alert-card is-warning" if level == "warning" else "alert-card"
+        rows.append(
+            f'<div class="{css_class}">'
+            f'<strong>{_esc(item.get("title") or "-")}</strong>'
+            f'<div class="muted">{_esc(item.get("message") or "-")}</div>'
+            "</div>"
+        )
+    return '<div class="alert-list">' + "".join(rows) + "</div>"
 
 
 def _tab_button(target: str, label: str, *, active: bool = False) -> str:
@@ -1807,6 +2016,15 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     system_status = payload.get("system_status", {}) or {}
     live_runtime = system_status.get("live_runtime", {}) or {}
     ml_state = system_status.get("ml_state", {}) or {}
+    status_alerts = payload.get("status_alerts", []) or []
+    freshness = system_status.get("freshness", {}) or {}
+    dashboard_freshness = freshness.get("dashboard_generated", {}) or {}
+    market_bar_freshness = freshness.get("latest_market_bar", {}) or {}
+    prediction_freshness = freshness.get("latest_prediction", {}) or {}
+    signal_freshness = freshness.get("latest_signal", {}) or {}
+    kis_freshness = freshness.get("latest_kis_verification", {}) or {}
+    training_freshness = freshness.get("latest_training", {}) or {}
+    evaluation_freshness = freshness.get("latest_evaluation", {}) or {}
     active_model = payload.get("active_model", {}) or {}
     active_model_h60 = payload.get("active_model_h60", {}) or {}
     learning_context = payload.get("learning_context", {}) or {}
@@ -1921,11 +2139,19 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["장 상태", latest_kis.get("session_status")],
         ["실시간 수집기", "실행 중" if live_runtime.get("status") == "running" else "중지"],
         ["실데이터 수신", "예" if latest_kis.get("market_data_flow_ok") else "아니오"],
+        ["KIS 검증 상태", kis_freshness.get("label") or "미확인"],
+        ["KIS 마지막 검증", latest_kis.get("verified_at") or "-"],
         ["최근 분봉 시각", system_status.get("latest_market_bar_time")],
+        ["분봉 신선도", market_bar_freshness.get("label") or "미확인"],
         ["최근 예측 시각", system_status.get("latest_prediction_time")],
+        ["예측 신선도", prediction_freshness.get("label") or "미확인"],
         ["최근 신호 시각", system_status.get("latest_signal_time")],
+        ["신호 신선도", signal_freshness.get("label") or "미확인"],
         ["머신러닝 상태", ml_state.get("status")],
         ["최근 학습 완료", ml_state.get("latest_completed_at")],
+        ["학습 결과 신선도", training_freshness.get("label") or "미확인"],
+        ["대시보드 갱신", payload.get("generated_at")],
+        ["대시보드 신선도", dashboard_freshness.get("label") or "미확인"],
         ["현재 범위", period_filter.get("label")],
     ]
     setting_rows = [
@@ -2048,9 +2274,12 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     ml_status_pills = [
         f"실운용 라벨: {learning_context.get('actual_runtime_labels', 0)}건",
         f"실운용 특징: {runtime.get('feature_rows', 0)}건",
+        f"오늘 학습: {len(payload.get('today_training_runs', []))}건",
+        f"오늘 평가: {len(payload.get('today_evaluations', []))}건",
         f"최신 학습 모델: {latest_training.get('model_version') or '-'}",
         f"활성 모델(15분): {active_model.get('model_version') or '-'}",
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
+        f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
     lightgbm_rows = [
@@ -2366,8 +2595,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "ml-training",
                 "학습 및 평가",
                 _stack_cards(
-                    _section_card("선택 기간 학습 결과", _table(["완료 시각", "모델 버전", "학습 행 수", "검증 행 수", "특징 세트"], today_training_rows, "현재 범위에 학습 기록이 없습니다.")),
-                    _section_card("선택 기간 평가 결과", _table(["평가 시각", "분할 이름", "정확도", "행 수"], today_evaluation_rows, "현재 범위에 평가 기록이 없습니다.")),
+                    _section_card(
+                        "선택 기간 학습 결과",
+                        _table(["완료 시각", "모델 버전", "학습 행 수", "검증 행 수", "특징 세트"], today_training_rows, "현재 범위에 학습 기록이 없습니다."),
+                        note=f"최신 전체 학습 시각: {_esc(latest_training.get('completed_at') or '-')} / 신선도: {_esc(training_freshness.get('label') or '-')}",
+                    ),
+                    _section_card(
+                        "선택 기간 평가 결과",
+                        _table(["평가 시각", "분할 이름", "정확도", "행 수"], today_evaluation_rows, "현재 범위에 평가 기록이 없습니다."),
+                        note=f"최신 전체 평가 시각: {_esc(latest_evaluation.get('evaluated_at') or '-')} / 신선도: {_esc(evaluation_freshness.get('label') or '-')}",
+                    ),
                     _section_card(
                         "최신 검증 요약",
                         _pill_row(
@@ -2419,7 +2656,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                                 f"제어 프레임: {latest_kis.get('control_frames', 0)}",
                             ]
                         ),
-                        note=f"상태 메모: {_esc(latest_kis.get('status_note') or '-')}",
+                        note=f"상태 메모: {_esc(latest_kis.get('status_note') or '-')}<br>검증 신선도: {_esc(kis_freshness.get('label') or '-')} / {_esc(kis_freshness.get('note') or '-')}",
                     ),
                     _section_card("운용 및 설정", _table(["항목", "값"], setting_rows, "표시할 설정이 없습니다.", scroll_height=330)),
                 ),
@@ -2586,6 +2823,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     .hero-actions {{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; }}
     .action-button {{ appearance:none; border:none; border-radius:12px; background:#0d5c63; color:#fff; padding:12px 16px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 10px 24px rgba(13,92,99,.20); }}
     .action-button:disabled {{ opacity:.7; cursor:wait; }}
+    .alert-list {{ display:grid; gap:10px; margin-top:14px; }}
+    .alert-card {{ border:1px solid rgba(13,92,99,.14); border-radius:14px; background:rgba(13,92,99,.06); padding:12px 14px; }}
+    .alert-card.is-warning {{ border-color:rgba(176,98,0,.20); background:rgba(255,174,0,.10); }}
     .status-box {{ max-height:140px; overflow:auto; padding-right:8px; }}
     .filter-form {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center; }}
     .filter-form select, .filter-form input {{ border:1px solid rgba(21,33,45,.16); border-radius:10px; padding:10px 12px; font-size:14px; background:#fff; }}
@@ -2646,6 +2886,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
           <button id="refresh-dashboard-button" class="action-button" type="button">상태 업데이트</button>
           <div class="status-box muted">업데이트 시각: {_esc(payload.get('generated_at'))}<br>상태 요약: {_esc(system_status.get('operation_note'))}<br>실제 데이터 기준: {_esc(scope.get('actual_runtime_filter_note'))}<br>현재 범위: {_esc(period_filter.get('label'))}<br>{_esc(period_filter.get('description'))}<br>예측 수평선: {_esc(', '.join(system_status.get('prediction_horizons') or []))}<br>신호 생성 기준: {_esc(system_status.get('signal_horizon') or '-')}</div>
         </div>
+        {_alert_list(status_alerts)}
       </div>
     </section>
     <section class="metrics">{metrics_html}</section>
