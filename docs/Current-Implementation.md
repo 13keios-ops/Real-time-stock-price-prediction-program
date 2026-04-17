@@ -40,6 +40,8 @@ The project now has a working local foundation for:
 - Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
 - Dashboard SQLite reads now skip schema initialization, use lock-aware retry, and are less likely to fail under live runtime writes
 - Dashboard HTTP endpoints now return a temporary-unavailable response instead of dropping the connection when SQLite is briefly locked
+- Dashboard default page and default JSON API now prefer the latest cached snapshot so the UI responds faster under load
+- Dashboard manual refresh and 5-minute auto refresh now rebuild the snapshot through `/api/refresh` before reloading the page
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution
@@ -55,6 +57,9 @@ The project now has a working local foundation for:
 - Online runtime now restores the previous local paper portfolio state from SQLite on restart
 - Live runtime background start / status / stop scripts are available
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
+- Runtime watchdog background start / status / stop scripts are available
+- Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
+- Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
 - Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
 - Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `?곹깭 ?낅뜲?댄듃` button
@@ -198,6 +203,8 @@ PC 재부팅 후 자동 시작 helper:
 - paper-account reconciliation refresh
 - runtime report refresh
 - dashboard rebuild
+
+It now validates each nested `python -m app ...` command and stops immediately if one of them fails.
 
 Optional broker-paper mirroring:
 
@@ -372,6 +379,20 @@ This comparison uses the current full local virtual-paper account state, not the
 
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
+The dashboard status script now also checks `/api/dashboard.json`, not only `/health`, so a port-listening process without real payload responses no longer counts as healthy.
+The default page and `/api/dashboard.json` now serve the most recent cached snapshot first, while `/api/refresh` rebuilds the snapshot on demand.
+
+Runtime watchdog start / status / stop:
+
+```powershell
+.\scripts\start_runtime_watchdog_background.ps1
+.\scripts\get_runtime_watchdog_status.ps1
+.\scripts\stop_runtime_watchdog.ps1
+```
+
+The watchdog keeps `dashboard` and `live runtime` alive.
+It does not rebuild dashboard snapshots itself anymore; snapshot refresh is handled by the dashboard client through `/api/refresh`.
+Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 
 ### 10. Monday runtime starter
 
@@ -383,6 +404,7 @@ This currently:
 
 - starts the dashboard server when it is not already running
 - starts the live runtime listener when it is not already running
+- starts the runtime watchdog when it is not already running
 - refreshes runtime report and dashboard snapshot
 - runs shadow ML refresh unless skipped
 - refreshes the broker paper-account cache

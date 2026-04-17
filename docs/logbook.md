@@ -51,6 +51,13 @@
 - 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
 - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
 - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
+- 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
+- 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
+- runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
+- runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
+- `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
+- runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
+- paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
 
 ## Active Checklist
 
@@ -90,6 +97,8 @@
 - [x] 장중 15분·60분 예측 동시 기록과 15분 신호 기준 대시보드 반영
 - [x] 최근 예측의 기준가 대비 예상 변동 금액과 실제 결과 표시
 - [x] PC 재부팅 후 dashboard/live runtime 자동 시작용 autoboot 스크립트
+- [x] runtime watchdog background 제어 스크립트
+- [x] dashboard cached snapshot 우선 응답과 `/api/refresh` 갱신 경로
 
 ## Version And Watcher
 
@@ -115,10 +124,27 @@
 - paper-account reconciliation tests: `2 tests OK`
 - full test suite: `49 tests OK`
 - sqlite store focused tests: `2 tests OK`
+- sqlite store focused tests: `3 tests OK`
+- runtime writer focused tests: `1 test OK`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
   - `/api/dashboard.json`: `200 OK`
+- runtime watchdog status:
+  - `status=running`
+  - `dashboard_api_responding=true`
+  - `live_runtime.status=running`
+- latest autoboot verification:
+  - `dashboard.status=running`
+  - `live_runtime.status=running`
+  - `watchdog.status=running`
+  - `ok=true`
+- latest live reconciliation verification:
+  - `python -m app --reconcile-paper-accounts`: `ok=true`
+- latest autoboot verification after fail-fast hardening:
+  - `dashboard.dashboard_api_responding=true`
+  - `paper_reconciliation.ok=true`
+  - `ok=true`
 - actual-only cleanup after rebuild:
   - raw market test rows: `0`
   - raw orderbook test rows: `0`
@@ -288,6 +314,17 @@
   - `start_monday_runtime.ps1` 와 `start_runtime_autoboot.ps1` 는 이제 브로커 계좌 갱신 뒤 reconciliation 도 함께 수행한다.
   - 관련 검증으로 `tests.test_settings`, `tests.test_kis_http_clients`, `tests.test_streaming_pipeline`, `tests.test_runtime_cleanup`, `tests.test_dashboard` 를 각각 다시 통과시켰다.
   - 전체 `discover` 실행은 15분 제한에서도 완료되지 않아, 이번 턴은 변경 영향 범위 중심의 집중 테스트를 canonical 검증으로 기록한다.
+  - dashboard 기본 화면과 기본 API는 이제 최신 cached snapshot 을 먼저 내려 더 빠르게 응답한다.
+  - dashboard `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 로 snapshot 을 다시 만든 뒤 화면을 갱신한다.
+  - `get_dashboard_status.ps1` 는 `/health` 와 `/api/dashboard.json` 을 모두 확인해, 포트만 열려 있고 실제 payload 는 죽은 상태를 더 정확히 잡는다.
+  - `start_runtime_watchdog_background.ps1`, `get_runtime_watchdog_status.ps1`, `stop_runtime_watchdog.ps1` 를 추가했다.
+  - runtime watchdog 은 dashboard 와 live runtime 이 내려가면 다시 올리는 역할만 맡고, snapshot rebuild 는 dashboard client 쪽 `/api/refresh` 로 분리했다.
+  - `start_runtime_autoboot.ps1` 는 이제 watchdog 도 함께 시작하고 상태 요약에 포함한다.
+  - SQLite 쓰기 경로에 reconciliation 전용 retry 를 추가해, live runtime 이 돌고 있을 때도 `python -m app --reconcile-paper-accounts` 가 더 안정적으로 끝나게 했다.
+  - runtime writer 는 설정 단계에서 SQLite timeout / retry 값을 오버라이드할 수 있게 보강했다.
+  - `paper_reconciliation` 는 이제 더 긴 SQLite write timeout / retry 조합으로 기록한다.
+  - `start_runtime_autoboot.ps1`, `start_monday_runtime.ps1`, `refresh_kis_account.ps1`, `reconcile_paper_accounts.ps1` 는 하위 `python -m app ...` 명령이 실패하면 즉시 오류로 처리한다.
+  - `start_runtime_autoboot.ps1 -SkipDashboardBuild` 재검증 결과 `dashboard`, `live_runtime`, `watchdog`, `paper_reconciliation` 모두 정상으로 확인했다.
 - `모의투자(가상)` 탭은 `상태 설명 / 보유 종목 / 매수·매도 및 체결현황` 세로 하위 탭 구조로 바꿨다.
 - 열린 포지션이 없을 때도 `최근 종료 포지션`이 보여서 가상 운용 이력을 바로 확인할 수 있게 했다.
 - `매수·매도 및 체결현황` 안에는 `매수 주문 / 매도 주문 / 체결 / 최근 신호` 확장 탭을 넣어 필요한 내용만 펼쳐서 보게 했다.
@@ -336,6 +373,9 @@ python -m app --build-dashboard
 .\scripts\install_runtime_startup_launcher.ps1
 .\scripts\get_runtime_startup_launcher_status.ps1
 .\scripts\remove_runtime_startup_launcher.ps1
+.\\scripts\\start_runtime_watchdog_background.ps1
+.\\scripts\\get_runtime_watchdog_status.ps1
+.\\scripts\\stop_runtime_watchdog.ps1
 .\scripts\reconcile_paper_accounts.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1

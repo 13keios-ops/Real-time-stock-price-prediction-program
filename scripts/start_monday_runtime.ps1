@@ -37,6 +37,25 @@ if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
+function Invoke-AppCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$DiscardOutput
+    )
+
+    if ($DiscardOutput) {
+        & python @Arguments | Out-Null
+    } else {
+        & python @Arguments
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "python $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+    }
+}
+
 $null = & (Join-Path $WorkspaceRoot "scripts\start_dashboard_background.ps1") `
     -WorkspaceRoot $WorkspaceRoot `
     -RuntimeDataDir $RuntimeDataDir `
@@ -68,12 +87,12 @@ if (-not $SkipMlShadow) {
 
 $kisAccount = $null
 $paperReconciliation = $null
-python -m app --kis-account-balance | Out-Null
+Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
 $kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json"
 if (Test-Path -LiteralPath $kisAccountPath) {
     $kisAccount = Get-Content -LiteralPath $kisAccountPath -Raw | ConvertFrom-Json
 }
-python -m app --reconcile-paper-accounts | Out-Null
+Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
 $paperReconciliationPath = Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json"
 if (Test-Path -LiteralPath $paperReconciliationPath) {
     $paperReconciliation = Get-Content -LiteralPath $paperReconciliationPath -Raw | ConvertFrom-Json
@@ -81,15 +100,15 @@ if (Test-Path -LiteralPath $paperReconciliationPath) {
 
 $kisVerification = $null
 if (-not $SkipKisVerification) {
-    python -m app --verify-kis-ws --symbols $VerifySymbols --max-frames 20 --max-reconnects 1
+    Invoke-AppCommand -Arguments @("-m", "app", "--verify-kis-ws", "--symbols", $VerifySymbols, "--max-frames", "20", "--max-reconnects", "1")
     $kisVerificationPath = Join-Path $RuntimeDataDir "reports\kis-ws\latest-verification.json"
     if (Test-Path -LiteralPath $kisVerificationPath) {
         $kisVerification = Get-Content -LiteralPath $kisVerificationPath -Raw | ConvertFrom-Json
     }
 }
 
-python -m app --build-runtime-report | Out-Null
-python -m app --build-dashboard | Out-Null
+Invoke-AppCommand -Arguments @("-m", "app", "--build-runtime-report") -DiscardOutput
+Invoke-AppCommand -Arguments @("-m", "app", "--build-dashboard") -DiscardOutput
 
 $registryPath = Join-Path $RuntimeDataDir "ml\registry.json"
 $runtimeReportPath = Join-Path $RuntimeDataDir "reports\runtime\latest-runtime-report.json"

@@ -70,7 +70,12 @@ function Test-DashboardHealth {
     try {
         $healthUrl = "{0}/health" -f $BaseUrl.TrimEnd("/")
         $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
-        return ($health.Content -match '"service"\s*:\s*"dashboard"')
+        if (-not ($health.Content -match '"service"\s*:\s*"dashboard"')) {
+            return $false
+        }
+        $apiUrl = "{0}/api/dashboard.json" -f $BaseUrl.TrimEnd("/")
+        $api = Invoke-WebRequest -UseBasicParsing $apiUrl -TimeoutSec 5
+        return ($api.StatusCode -eq 200)
     } catch {
         return $false
     }

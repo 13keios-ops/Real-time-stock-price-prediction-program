@@ -62,11 +62,16 @@
 - 대시보드 start/status/stop 스크립트의 포트 점유 프로세스 추적 보강
 - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않도록 분리하고, busy-timeout / read retry 로 잠금 충돌에 더 강하게 조정
 - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 발생해도 연결이 바로 끊기지 않고 `일시 점검` 안내 응답으로 돌아오도록 보강
+- 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
+- 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 로 새 snapshot 을 만든 뒤 화면을 갱신한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
+- runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
 - KIS REST rate-limit backoff 재시도
+- runtime autoboot 와 Monday runtime 스크립트는 이제 내부 `python -m app ...` 실행이 실패하면 즉시 오류로 처리한다.
+- paper-account reconciliation 기록은 live runtime 이 DB를 쓰는 중에도 더 오래 재시도하도록 보강했다.
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 - audit progress JSON 배열 정합성 보강
 
@@ -276,6 +281,19 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 이 background 시작 스크립트는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 찾아 서버를 띄운다.
 가능하면 `pythonw.exe`를 우선 사용해 콘솔 종료 영향 없이 더 안정적으로 유지한다.
 또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
+`get_dashboard_status.ps1` 는 이제 `/health` 뿐 아니라 `/api/dashboard.json` 응답까지 확인해, 포트만 열려 있고 실제 payload 가 죽은 상태도 잡는다.
+기본 `today` 화면과 `/api/dashboard.json` 은 최신 snapshot cache 를 우선 내려 더 빠르게 응답하고, `상태 업데이트` 또는 5분 자동 새로고침 때는 `/api/refresh` 로 새 snapshot 을 다시 만든 뒤 reload 한다.
+
+runtime watchdog background 시작 / 상태 / 중지:
+
+```powershell
+.\scripts\start_runtime_watchdog_background.ps1
+.\scripts\get_runtime_watchdog_status.ps1
+.\scripts\stop_runtime_watchdog.ps1
+```
+
+runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 꺼져 있으면 다시 올린다.
+상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:
 
@@ -288,6 +306,8 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 
 `start_runtime_autoboot.ps1` 는 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
 여기에 `paper-account reconciliation` 도 포함되어, 재부팅 후 바로 로컬 가상 계좌와 브로커 모의계좌 차이를 다시 계산한다.
+이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
+이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
 `install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
 
 월요일 시작 루틴 1회 실행:

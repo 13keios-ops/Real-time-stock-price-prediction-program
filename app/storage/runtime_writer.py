@@ -36,10 +36,28 @@ class RuntimeWriter:
         self.sqlite_store = sqlite_store
 
     @classmethod
-    def from_settings(cls, settings: AppSettings) -> "RuntimeWriter":
+    def from_settings(
+        cls,
+        settings: AppSettings,
+        *,
+        sqlite_initialize_schema: bool = True,
+        sqlite_busy_timeout_ms: int = 10_000,
+        sqlite_read_retry_delays: tuple[float, ...] = (0.0, 0.15, 0.35, 0.75),
+        sqlite_write_retry_delays: tuple[float, ...] = (0.0, 0.2, 0.5, 1.0),
+    ) -> "RuntimeWriter":
         jsonl_store = JsonlArtifactStore(settings.runtime_data_dir)
         sqlite_path = resolve_sqlite_path(settings.database_url, settings.project_root)
-        sqlite_store = SQLiteRuntimeStore(sqlite_path) if sqlite_path is not None else None
+        sqlite_store = (
+            SQLiteRuntimeStore(
+                sqlite_path,
+                initialize_schema=sqlite_initialize_schema,
+                busy_timeout_ms=sqlite_busy_timeout_ms,
+                read_retry_delays=sqlite_read_retry_delays,
+                write_retry_delays=sqlite_write_retry_delays,
+            )
+            if sqlite_path is not None
+            else None
+        )
         return cls(jsonl_store=jsonl_store, sqlite_store=sqlite_store)
 
     def write_market_tick(self, event: MarketTickEvent) -> None:
@@ -138,8 +156,21 @@ class RuntimeWriter:
             self.sqlite_store.insert_model_evaluation(evaluation)
 
 
-def get_sqlite_store(settings: AppSettings, *, initialize_schema: bool = True) -> SQLiteRuntimeStore | None:
+def get_sqlite_store(
+    settings: AppSettings,
+    *,
+    initialize_schema: bool = True,
+    busy_timeout_ms: int = 10_000,
+    read_retry_delays: tuple[float, ...] = (0.0, 0.15, 0.35, 0.75),
+    write_retry_delays: tuple[float, ...] = (0.0, 0.2, 0.5, 1.0),
+) -> SQLiteRuntimeStore | None:
     sqlite_path = resolve_sqlite_path(settings.database_url, settings.project_root)
     if sqlite_path is None:
         return None
-    return SQLiteRuntimeStore(sqlite_path, initialize_schema=initialize_schema)
+    return SQLiteRuntimeStore(
+        sqlite_path,
+        initialize_schema=initialize_schema,
+        busy_timeout_ms=busy_timeout_ms,
+        read_retry_delays=read_retry_delays,
+        write_retry_delays=write_retry_delays,
+    )

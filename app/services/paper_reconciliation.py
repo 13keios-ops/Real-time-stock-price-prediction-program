@@ -254,7 +254,11 @@ def reconcile_paper_accounts(
 ) -> PaperAccountReconciliationResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    writer = RuntimeWriter.from_settings(settings)
+    writer = RuntimeWriter.from_settings(
+        settings,
+        sqlite_busy_timeout_ms=30_000,
+        sqlite_write_retry_delays=(0.0, 0.5, 1.0, 2.0, 4.0, 8.0),
+    )
     local_account_state = load_local_paper_account_state(settings)
     broker_report_result: KisAccountReportResult = refresh_kis_account_report(
         project_root=project_root,

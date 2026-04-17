@@ -54,6 +54,39 @@ def _safe_load_json(path: Path) -> dict[str, Any] | list[Any] | None:
         return None
 
 
+def _load_cached_dashboard_payload(project_root: Path) -> dict[str, Any] | None:
+    settings = load_settings(project_root=project_root)
+    cached = _safe_load_json(settings.runtime_data_dir / "reports" / "dashboard" / "latest-dashboard.json")
+    return cached if isinstance(cached, dict) else None
+
+
+def _should_use_cached_dashboard(*, path: str, range_key: str, selected_date: str | None, refresh_requested: bool) -> bool:
+    if refresh_requested:
+        return False
+    if path not in {"/", "/index.html", "/api/dashboard.json"}:
+        return False
+    if range_key != "today":
+        return False
+    if selected_date:
+        return False
+    return True
+
+
+def _mark_dashboard_payload_stale(payload: dict[str, Any], *, message: str, detail: str) -> dict[str, Any]:
+    stale_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+    stale_payload["stale_fallback"] = {
+        "active": True,
+        "message": message,
+        "detail": detail,
+        "served_at": datetime.now().astimezone().isoformat(),
+    }
+    system_status = stale_payload.setdefault("system_status", {})
+    current_note = str(system_status.get("operation_note") or "")
+    fallback_note = f"{message} 마지막 정상 스냅샷을 대신 보여주고 있습니다."
+    system_status["operation_note"] = f"{fallback_note} {current_note}".strip()
+    return stale_payload
+
+
 def _serialize_row(row: Any) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
@@ -798,7 +831,12 @@ def collect_dashboard_payload(
 ) -> dict[str, Any]:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings, initialize_schema=False)
+    sqlite_store = get_sqlite_store(
+        settings,
+        initialize_schema=False,
+        busy_timeout_ms=2_000,
+        read_retry_delays=(0.0, 0.05, 0.15),
+    )
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for the dashboard.")
 
@@ -1312,7 +1350,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
     scope = payload.get("dashboard_scope", {})
-    refresh_meta = f'<meta http-equiv="refresh" content="{max(refresh_seconds, 1)}">' if live_mode else ""
+    refresh_meta = ""
     refresh_text = _refresh_interval_text(refresh_seconds)
 
     prediction_rows = [
@@ -1739,11 +1777,20 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
       activate(initialTab || 'tab-trading');
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
       if (refreshButton) {{
-        refreshButton.addEventListener('click', () => {{
+        const triggerRefresh = () => {{
           refreshButton.disabled = true;
           refreshButton.textContent = '업데이트 중...';
-          window.location.reload();
+          fetch('/api/refresh', {{ cache: 'no-store' }})
+            .catch(() => null)
+            .finally(() => window.location.reload());
+        }};
+        refreshButton.addEventListener('click', () => {{
+          triggerRefresh();
         }});
+        const refreshIntervalMs = {max(refresh_seconds, 1) * 1000};
+        window.setTimeout(() => {{
+          triggerRefresh();
+        }}, refreshIntervalMs);
       }}
     }})();
   </script>
@@ -2778,8 +2825,20 @@ def _make_dashboard_handler(project_root: Path, *, refresh_seconds: int, recent_
             params = parse_qs(parsed.query)
             range_key = (params.get("range", ["today"])[0] or "today").strip().lower()
             selected_date = (params.get("date", [""])[0] or "").strip() or None
+            refresh_requested = str(params.get("refresh", ["0"])[0] or "0").strip().lower() in {"1", "true", "yes"}
             try:
+                use_cached_dashboard = _should_use_cached_dashboard(
+                    path=parsed.path,
+                    range_key=range_key,
+                    selected_date=selected_date,
+                    refresh_requested=refresh_requested,
+                )
                 if parsed.path in {"/", "/index.html"}:
+                    if use_cached_dashboard:
+                        cached_payload = _load_cached_dashboard_payload(project_root)
+                        if cached_payload is not None:
+                            self._write_html(_render_dashboard_html(cached_payload, refresh_seconds=refresh_seconds, live_mode=True))
+                            return
                     payload = collect_dashboard_payload(
                         project_root=project_root,
                         recent_limit=recent_limit,
@@ -2789,6 +2848,11 @@ def _make_dashboard_handler(project_root: Path, *, refresh_seconds: int, recent_
                     self._write_html(_render_dashboard_html(payload, refresh_seconds=refresh_seconds, live_mode=True))
                     return
                 if parsed.path == "/api/dashboard.json":
+                    if use_cached_dashboard:
+                        cached_payload = _load_cached_dashboard_payload(project_root)
+                        if cached_payload is not None:
+                            self._write_json(cached_payload)
+                            return
                     self._write_json(
                         collect_dashboard_payload(
                             project_root=project_root,
@@ -2798,12 +2862,35 @@ def _make_dashboard_handler(project_root: Path, *, refresh_seconds: int, recent_
                         )
                     )
                     return
+                if parsed.path == "/api/refresh":
+                    snapshot = build_dashboard_snapshot(
+                        project_root=project_root,
+                        refresh_seconds=refresh_seconds,
+                        recent_limit=recent_limit,
+                    )
+                    self._write_json(
+                        {
+                            "ok": True,
+                            "refreshed_at": snapshot.payload.get("generated_at"),
+                            "snapshot_html_path": str(snapshot.snapshot_html_path),
+                            "snapshot_json_path": str(snapshot.snapshot_json_path),
+                        }
+                    )
+                    return
                 if parsed.path == "/health":
                     self._write_json({"ok": True, "service": "dashboard"})
                     return
                 self._write_json({"ok": False, "error": "not-found"}, status=HTTPStatus.NOT_FOUND)
             except Exception as exc:  # pragma: no cover - live serving fallback
                 message = "\uc2e4\uc2dc\uac04 \uc218\uc9d1\uae30\uc640 \ub300\uc2dc\ubcf4\ub4dc\uac00 \uac19\uc740 \ub370\uc774\ud130 \ud30c\uc77c\uc744 \ub3d9\uc2dc\uc5d0 \uc0ac\uc6a9\ud574 \uc7a0\uc2dc \ucda9\ub3cc\ud588\uc2b5\ub2c8\ub2e4."
+                cached_payload = _load_cached_dashboard_payload(project_root)
+                if cached_payload is not None:
+                    fallback_payload = _mark_dashboard_payload_stale(cached_payload, message=message, detail=str(exc))
+                    if parsed.path == "/api/dashboard.json":
+                        self._write_json(fallback_payload)
+                        return
+                    self._write_html(_render_dashboard_html(fallback_payload, refresh_seconds=refresh_seconds, live_mode=True))
+                    return
                 if parsed.path == "/api/dashboard.json":
                     self._write_json(
                         {

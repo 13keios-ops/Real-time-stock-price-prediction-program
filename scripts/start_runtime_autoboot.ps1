@@ -27,10 +27,16 @@ param(
     [switch]$SkipDashboardBuild,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipWatchdog,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ForceDashboardRestart,
 
     [Parameter(Mandatory = $false)]
-    [switch]$ForceLiveRuntimeRestart
+    [switch]$ForceLiveRuntimeRestart,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceWatchdogRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +50,25 @@ $stateDir = Join-Path $RuntimeDataDir "reports\runtime-autoboot\state"
 $statePath = Join-Path $stateDir "latest-autoboot.json"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
+function Invoke-AppCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$DiscardOutput
+    )
+
+    if ($DiscardOutput) {
+        & python @Arguments | Out-Null
+    } else {
+        & python @Arguments
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "python $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+    }
+}
+
 function Read-JsonFile {
     param([string]$LiteralPath)
     if (-not (Test-Path -LiteralPath $LiteralPath)) {
@@ -54,6 +79,7 @@ function Read-JsonFile {
 
 $dashboardState = $null
 $liveRuntimeState = $null
+$watchdogState = $null
 $kisAccount = $null
 $paperReconciliation = $null
 $runtimeReport = $null
@@ -95,13 +121,31 @@ try {
 }
 
 try {
+    if (-not $SkipWatchdog) {
+        $null = & (Join-Path $WorkspaceRoot "scripts\start_runtime_watchdog_background.ps1") `
+            -WorkspaceRoot $WorkspaceRoot `
+            -RuntimeDataDir $RuntimeDataDir `
+            -DashboardHost $DashboardHost `
+            -DashboardPort $DashboardPort `
+            -ForceRestart:$ForceWatchdogRestart
+
+        Start-Sleep -Seconds 2
+        $watchdogState = & (Join-Path $WorkspaceRoot "scripts\get_runtime_watchdog_status.ps1") `
+            -WorkspaceRoot $WorkspaceRoot `
+            -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+    }
+} catch {
+    $errors += "watchdog: $($_.Exception.Message)"
+}
+
+try {
     if (-not $SkipAccountRefresh) {
-        python -m app --kis-account-balance | Out-Null
+        Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
         $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json")
         if ($null -eq $kisAccount) {
             $kisAccount = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json")
         }
-        python -m app --reconcile-paper-accounts | Out-Null
+        Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput
         $paperReconciliation = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\reconciliation\latest-paper-account-sync.json")
     }
 } catch {
@@ -110,8 +154,8 @@ try {
 
 try {
     if (-not $SkipDashboardBuild) {
-        python -m app --build-runtime-report | Out-Null
-        python -m app --build-dashboard | Out-Null
+        Invoke-AppCommand -Arguments @("-m", "app", "--build-runtime-report") -DiscardOutput
+        Invoke-AppCommand -Arguments @("-m", "app", "--build-dashboard") -DiscardOutput
         $runtimeReport = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\runtime\latest-runtime-report.json")
     }
 } catch {
@@ -138,12 +182,23 @@ try {
     $errors += "live_runtime_status: $($_.Exception.Message)"
 }
 
+try {
+    if (-not $SkipWatchdog) {
+        $watchdogState = & (Join-Path $WorkspaceRoot "scripts\get_runtime_watchdog_status.ps1") `
+            -WorkspaceRoot $WorkspaceRoot `
+            -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+    }
+} catch {
+    $errors += "watchdog_status: $($_.Exception.Message)"
+}
+
 $payload = [ordered]@{
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     workspace_root = $WorkspaceRoot
     runtime_data_dir = $RuntimeDataDir
     dashboard = $dashboardState
     live_runtime = $liveRuntimeState
+    watchdog = $watchdogState
     kis_account = $kisAccount
     paper_reconciliation = $paperReconciliation
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
@@ -151,6 +206,7 @@ $payload = [ordered]@{
     skipped_live_runtime = [bool]$SkipLiveRuntime
     skipped_account_refresh = [bool]$SkipAccountRefresh
     skipped_dashboard_build = [bool]$SkipDashboardBuild
+    skipped_watchdog = [bool]$SkipWatchdog
     ok = ($errors.Count -eq 0)
     errors = $errors
 }

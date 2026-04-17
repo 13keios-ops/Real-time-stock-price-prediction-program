@@ -33,6 +33,7 @@ if ((@("starting", "running") -contains [string]$state.status) -and (-not $proce
 $tcpConnection = $null
 $portOwnerPid = $null
 $dashboardResponding = $false
+$dashboardApiResponding = $false
 if ($state.port) {
     $tcpConnection = Get-NetTCPConnection -LocalPort $state.port -ErrorAction SilentlyContinue |
         Where-Object { $_.State -eq "Listen" } |
@@ -46,12 +47,19 @@ if ($state.port) {
         } catch {
             $dashboardResponding = $false
         }
+        try {
+            $apiUrl = "{0}/api/dashboard.json" -f ([string]$state.url).TrimEnd("/")
+            $apiResponse = Invoke-WebRequest -UseBasicParsing $apiUrl -TimeoutSec 5
+            $dashboardApiResponding = ($apiResponse.StatusCode -eq 200)
+        } catch {
+            $dashboardApiResponding = $false
+        }
     }
 }
 
-if ($processRunning -and $null -ne $tcpConnection) {
+if ($processRunning -and $null -ne $tcpConnection -and $dashboardApiResponding) {
     $effectiveStatus = "running"
-} elseif ((-not $processRunning) -and $null -ne $tcpConnection -and $dashboardResponding) {
+} elseif ((-not $processRunning) -and $null -ne $tcpConnection -and $dashboardResponding -and $dashboardApiResponding) {
     $effectiveStatus = "running"
     $processRunning = $true
 }
@@ -71,5 +79,6 @@ if ($processRunning -and $null -ne $tcpConnection) {
     snapshot_json_path = $state.snapshot_json_path
     port_owner_pid = $portOwnerPid
     dashboard_responding = $dashboardResponding
+    dashboard_api_responding = $dashboardApiResponding
     raw_status = $state.status
 } | ConvertTo-Json -Depth 10

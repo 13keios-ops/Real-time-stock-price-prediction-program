@@ -52,10 +52,12 @@ class SQLiteRuntimeStore:
         initialize_schema: bool = True,
         busy_timeout_ms: int = 10_000,
         read_retry_delays: tuple[float, ...] = (0.0, 0.15, 0.35, 0.75),
+        write_retry_delays: tuple[float, ...] = (0.0, 0.2, 0.5, 1.0),
     ) -> None:
         self.database_path = database_path
         self.busy_timeout_ms = max(int(busy_timeout_ms), 1_000)
         self.read_retry_delays = tuple(read_retry_delays)
+        self.write_retry_delays = tuple(write_retry_delays)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         if initialize_schema:
             self._initialize_schema()
@@ -330,6 +332,25 @@ class SQLiteRuntimeStore:
             raise last_error
         return None
 
+    def _run_write_query(self, query: str, params: tuple[Any, ...] = ()) -> None:
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.write_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            try:
+                with self._connect() as connection:
+                    connection.execute(query, params)
+                    connection.commit()
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.write_retry_delays) - 1:
+                    raise
+        if last_error is not None:
+            raise last_error
+
     def insert_market_tick(self, event: MarketTickEvent) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -568,12 +589,10 @@ class SQLiteRuntimeStore:
             connection.commit()
 
     def insert_reconciliation_run(self, run: ReconciliationRun) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO ops_reconciliation_runs(reconciliation_id, as_of, status, mismatch_count) VALUES (?, ?, ?, ?)",
-                (run.reconciliation_id, self._dt(run.as_of), run.status, run.mismatch_count),
-            )
-            connection.commit()
+        self._run_write_query(
+            "INSERT OR REPLACE INTO ops_reconciliation_runs(reconciliation_id, as_of, status, mismatch_count) VALUES (?, ?, ?, ?)",
+            (run.reconciliation_id, self._dt(run.as_of), run.status, run.mismatch_count),
+        )
 
     def insert_replay_run(self, run: ReplayRun) -> None:
         with self._connect() as connection:
