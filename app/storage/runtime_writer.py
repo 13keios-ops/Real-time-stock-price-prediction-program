@@ -138,8 +138,8 @@ class RuntimeWriter:
             self.sqlite_store.insert_model_evaluation(evaluation)
 
 
-def get_sqlite_store(settings: AppSettings) -> SQLiteRuntimeStore | None:
+def get_sqlite_store(settings: AppSettings, *, initialize_schema: bool = True) -> SQLiteRuntimeStore | None:
     sqlite_path = resolve_sqlite_path(settings.database_url, settings.project_root)
     if sqlite_path is None:
         return None
-    return SQLiteRuntimeStore(sqlite_path)
+    return SQLiteRuntimeStore(sqlite_path, initialize_schema=initialize_schema)

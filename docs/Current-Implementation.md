@@ -38,6 +38,8 @@ The project now has a working local foundation for:
 - Replay WebSocket sample runs now use `kis-ws-replay` provenance and replay-scoped IDs
 - Dashboard actual-runtime filtering now excludes contaminated minutes where real and test sources are mixed
 - Dashboard actual-runtime filtering now also excludes out-of-session KIS REST snapshot minutes and raw rows
+- Dashboard SQLite reads now skip schema initialization, use lock-aware retry, and are less likely to fail under live runtime writes
+- Dashboard HTTP endpoints now return a temporary-unavailable response instead of dropping the connection when SQLite is briefly locked
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution

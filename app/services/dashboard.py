@@ -1,4 +1,4 @@
-﻿"""Local monitoring dashboard for runtime operations."""
+"""Local monitoring dashboard for runtime operations."""
 
 from __future__ import annotations
 
@@ -798,7 +798,7 @@ def collect_dashboard_payload(
 ) -> dict[str, Any]:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = get_sqlite_store(settings, initialize_schema=False)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for the dashboard.")
 
@@ -1126,6 +1126,37 @@ def _esc(value: Any) -> str:
         return "-"
     return html.escape(str(value))
 
+
+def _render_dashboard_error_html(message: str, *, detail: str | None = None) -> str:
+    detail_html = f"<p>{_esc(detail)}</p>" if detail else ""
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>\ub300\uc2dc\ubcf4\ub4dc \uc77c\uc2dc \uc810\uac80</title>
+  <style>
+    body {{ margin:0; background:#f4efe6; color:#15212d; font-family:\"Segoe UI\",\"Malgun Gothic\",sans-serif; }}
+    .wrap {{ max-width:920px; margin:0 auto; padding:40px 20px; }}
+    .card {{ background:#fffaf3; border:1px solid rgba(21,33,45,.12); border-radius:22px; padding:26px 28px; box-shadow:0 18px 40px rgba(21,33,45,.08); }}
+    h1 {{ margin:0 0 14px; font-size:34px; }}
+    p {{ margin:10px 0; line-height:1.7; }}
+    .muted {{ color:#5e6b79; }}
+    .button {{ display:inline-block; margin-top:14px; padding:10px 16px; border-radius:12px; background:#0d5c63; color:#fff; text-decoration:none; font-weight:700; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>\ub300\uc2dc\ubcf4\ub4dc \ub370\uc774\ud130\ub97c \uc7a0\uc2dc \ubd88\ub7ec\uc624\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4</h1>
+      <p>{_esc(message)}</p>
+      {detail_html}
+      <p class="muted">\uc2e4\uc2dc\uac04 \uc218\uc9d1\uae30\uac00 \uac19\uc740 SQLite \ud30c\uc77c\uc5d0 \uae30\ub85d \uc911\uc774\ub77c \uc7a0\uae50 \ucda9\ub3cc\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \uc7a0\uc2dc \ud6c4 \ub2e4\uc2dc \uc0c1\ud0dc \uc5c5\ub370\uc774\ud2b8\ub97c \ub20c\ub7ec \uc8fc\uc138\uc694.</p>
+      <a class="button" href="/">\ub2e4\uc2dc \uc2dc\ub3c4</a>
+    </div>
+  </div>
+</body>
+</html>"""
 
 def _money(value: Any) -> str:
     if value is None:
@@ -2747,30 +2778,47 @@ def _make_dashboard_handler(project_root: Path, *, refresh_seconds: int, recent_
             params = parse_qs(parsed.query)
             range_key = (params.get("range", ["today"])[0] or "today").strip().lower()
             selected_date = (params.get("date", [""])[0] or "").strip() or None
-            if parsed.path in {"/", "/index.html"}:
-                payload = collect_dashboard_payload(
-                    project_root=project_root,
-                    recent_limit=recent_limit,
-                    range_key=range_key,
-                    selected_date=selected_date,
-                )
-                self._write_html(_render_dashboard_html(payload, refresh_seconds=refresh_seconds, live_mode=True))
-                return
-            if parsed.path == "/api/dashboard.json":
-                self._write_json(
-                    collect_dashboard_payload(
+            try:
+                if parsed.path in {"/", "/index.html"}:
+                    payload = collect_dashboard_payload(
                         project_root=project_root,
                         recent_limit=recent_limit,
                         range_key=range_key,
                         selected_date=selected_date,
                     )
+                    self._write_html(_render_dashboard_html(payload, refresh_seconds=refresh_seconds, live_mode=True))
+                    return
+                if parsed.path == "/api/dashboard.json":
+                    self._write_json(
+                        collect_dashboard_payload(
+                            project_root=project_root,
+                            recent_limit=recent_limit,
+                            range_key=range_key,
+                            selected_date=selected_date,
+                        )
+                    )
+                    return
+                if parsed.path == "/health":
+                    self._write_json({"ok": True, "service": "dashboard"})
+                    return
+                self._write_json({"ok": False, "error": "not-found"}, status=HTTPStatus.NOT_FOUND)
+            except Exception as exc:  # pragma: no cover - live serving fallback
+                message = "\uc2e4\uc2dc\uac04 \uc218\uc9d1\uae30\uc640 \ub300\uc2dc\ubcf4\ub4dc\uac00 \uac19\uc740 \ub370\uc774\ud130 \ud30c\uc77c\uc744 \ub3d9\uc2dc\uc5d0 \uc0ac\uc6a9\ud574 \uc7a0\uc2dc \ucda9\ub3cc\ud588\uc2b5\ub2c8\ub2e4."
+                if parsed.path == "/api/dashboard.json":
+                    self._write_json(
+                        {
+                            "ok": False,
+                            "error": "dashboard-temporarily-unavailable",
+                            "message": message,
+                            "detail": str(exc),
+                        },
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return
+                self._write_html(
+                    _render_dashboard_error_html(message, detail=str(exc)),
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
                 )
-                return
-            if parsed.path == "/health":
-                self._write_json({"ok": True, "service": "dashboard"})
-                return
-            self._write_json({"ok": False, "error": "not-found"}, status=HTTPStatus.NOT_FOUND)
-
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
             return
 

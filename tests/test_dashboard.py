@@ -10,12 +10,12 @@ from unittest.mock import MagicMock, patch
 
 from app.config.settings import load_settings
 
-from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
+from app.services.dashboard import build_dashboard_snapshot, collect_dashboard_payload, prepare_dashboard_server
 from app.services.orchestrator import run_synthetic_dev_cycle
 from app.services.runtime import run_demo_pipeline
 from app.services.streaming import build_sample_ws_frames, replay_ws_frames
 from app.storage.contracts import MarketTickEvent, MinuteBar, Prediction
-from app.storage.runtime_writer import RuntimeWriter
+from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class DashboardTests(unittest.TestCase):
@@ -238,6 +238,22 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("브로커 주문 자동 연동", html)
         self.assertIn("최근 브로커 제출 주문", html)
         self.assertIn("최근 동기화 점검", html)
+
+    def test_collect_dashboard_payload_uses_read_only_sqlite_path(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
+            self._seed_dashboard_inputs(runtime_root)
+            with (
+                patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()),
+                patch("app.services.dashboard.get_sqlite_store", wraps=get_sqlite_store) as mocked_get_store,
+            ):
+                payload = collect_dashboard_payload(project_root=root, recent_limit=5)
+
+        self.assertIn("runtime_summary", payload)
+        self.assertTrue(mocked_get_store.called)
+        self.assertTrue(any(call.kwargs.get("initialize_schema") is False for call in mocked_get_store.call_args_list))
         self.assertIn("차이 상세", html)
         self.assertIn("상태 업데이트", html)
         self.assertIn("자동 새로고침: 5분", html)

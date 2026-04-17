@@ -60,6 +60,8 @@
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
 - 정규장 밖 KIS REST snapshot 분과 raw 집계를 대시보드 actual runtime 범위에서 제외
 - 대시보드 start/status/stop 스크립트의 포트 점유 프로세스 추적 보강
+- 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않도록 분리하고, busy-timeout / read retry 로 잠금 충돌에 더 강하게 조정
+- 대시보드 HTTP 응답은 SQLite 잠금이 잠시 발생해도 연결이 바로 끊기지 않고 `일시 점검` 안내 응답으로 돌아오도록 보강
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리

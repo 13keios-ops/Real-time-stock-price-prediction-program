@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -44,14 +45,25 @@ def resolve_sqlite_path(database_url: str, project_root: Path) -> Path | None:
 
 
 class SQLiteRuntimeStore:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        initialize_schema: bool = True,
+        busy_timeout_ms: int = 10_000,
+        read_retry_delays: tuple[float, ...] = (0.0, 0.15, 0.35, 0.75),
+    ) -> None:
         self.database_path = database_path
+        self.busy_timeout_ms = max(int(busy_timeout_ms), 1_000)
+        self.read_retry_delays = tuple(read_retry_delays)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_schema()
+        if initialize_schema:
+            self._initialize_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(self.database_path, timeout=self.busy_timeout_ms / 1_000.0)
         connection.row_factory = sqlite3.Row
+        connection.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms}")
         return connection
 
     def _initialize_schema(self) -> None:
@@ -268,6 +280,8 @@ class SQLiteRuntimeStore:
             """,
         ]
         with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=NORMAL")
             for statement in statements:
                 connection.execute(statement)
             self._ensure_column(connection, "paper_positions", "opened_at", "TEXT")
@@ -290,6 +304,31 @@ class SQLiteRuntimeStore:
     @staticmethod
     def _dt(value: datetime) -> str:
         return value.isoformat()
+
+    def _run_read_query(
+        self,
+        query: str,
+        params: tuple[Any, ...] = (),
+        *,
+        single: bool = False,
+    ) -> sqlite3.Row | list[sqlite3.Row] | None:
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.read_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            try:
+                with self._connect() as connection:
+                    cursor = connection.execute(query, params)
+                    return cursor.fetchone() if single else list(cursor)
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.read_retry_delays) - 1:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return None
 
     def insert_market_tick(self, event: MarketTickEvent) -> None:
         with self._connect() as connection:
@@ -594,8 +633,8 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, event_time"
-        with self._connect() as connection:
-            return list(connection.execute(query, params))
+        rows = self._run_read_query(query, params)
+        return list(rows) if isinstance(rows, list) else []
 
     def fetch_orderbook_snapshots(self, symbol: str | None = None) -> list[sqlite3.Row]:
         query = "SELECT symbol, event_time, bid_price, ask_price, bid_size, ask_size, source FROM raw_orderbook_ticks"
@@ -604,8 +643,8 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, event_time"
-        with self._connect() as connection:
-            return list(connection.execute(query, params))
+        rows = self._run_read_query(query, params)
+        return list(rows) if isinstance(rows, list) else []
 
     def fetch_minute_bars(self, symbol: str | None = None) -> list[sqlite3.Row]:
         query = "SELECT symbol, bar_time, open, high, low, close, volume, trade_count FROM curated_minute_bars"
@@ -614,8 +653,8 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, bar_time"
-        with self._connect() as connection:
-            return list(connection.execute(query, params))
+        rows = self._run_read_query(query, params)
+        return list(rows) if isinstance(rows, list) else []
 
     def fetch_feature_rows(self, horizon_min: int) -> list[sqlite3.Row]:
         query = """
@@ -635,28 +674,29 @@ class SQLiteRuntimeStore:
             WHERE labels.horizon_min = ?
             ORDER BY inputs.symbol, inputs.event_time
         """
-        with self._connect() as connection:
-            return list(connection.execute(query, (horizon_min,)))
+        rows = self._run_read_query(query, (horizon_min,))
+        return list(rows) if isinstance(rows, list) else []
 
     def fetch_latest_row(self, table_name: str, order_by_column: str) -> sqlite3.Row | None:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT 1"
-        with self._connect() as connection:
-            return connection.execute(query).fetchone()
+        row = self._run_read_query(query, single=True)
+        return row if isinstance(row, sqlite3.Row) or row is None else None
 
     def fetch_all_rows(self, table_name: str, order_by_column: str) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column}"
-        with self._connect() as connection:
-            return list(connection.execute(query))
+        rows = self._run_read_query(query)
+        return list(rows) if isinstance(rows, list) else []
 
     def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT ?"
-        with self._connect() as connection:
-            return list(connection.execute(query, (limit,)))
+        rows = self._run_read_query(query, (limit,))
+        return list(rows) if isinstance(rows, list) else []
 
     def count_rows(self, table_name: str) -> int:
-        with self._connect() as connection:
-            row = connection.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
-            return int(row["count"])
+        row = self._run_read_query(f"SELECT COUNT(*) AS count FROM {table_name}", single=True)
+        if row is None:
+            return 0
+        return int(row["count"])
 
     def clear_tables(self, table_names: Iterable[str]) -> None:
         with self._connect() as connection:

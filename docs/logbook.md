@@ -49,6 +49,8 @@
 - 대시보드 `모의계좌(실제)` 탭은 브로커 제출 주문 수와 최근 브로커 제출 주문 표를 함께 보여준다.
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 `paper-account reconciliation` 리포트가 추가되었다.
 - 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
+- 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
+- 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
 
 ## Active Checklist
 
@@ -112,6 +114,11 @@
 - targeted dashboard tests: `5 tests OK`
 - paper-account reconciliation tests: `2 tests OK`
 - full test suite: `49 tests OK`
+- sqlite store focused tests: `2 tests OK`
+- live dashboard payload direct call: `predictions=4`, `signals=2`
+- live dashboard HTTP checks:
+  - `/health`: `200 OK`
+  - `/api/dashboard.json`: `200 OK`
 - actual-only cleanup after rebuild:
   - raw market test rows: `0`
   - raw orderbook test rows: `0`
