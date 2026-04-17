@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-17`
+- date: `2026-04-18`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -42,6 +42,9 @@
 - PC 로그인 후 자동 시작을 위한 runtime autoboot 스크립트와 startup launcher 설치/삭제/상태 스크립트가 추가되었다.
 - actual-only runtime cleanup 이 raw tick / orderbook / minute bar / serving / paper rows까지 실제 운용 기준으로 정리한다.
 - actual-only ML rebuild 경로가 추가되어 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 실데이터 기준으로 다시 만든다.
+- 예측현황의 `실제 결과` 와 `성공 여부` 는 이제 목표 시각의 정확한 분봉이 없어도 같은 거래일의 가장 가까운 후속 분봉으로 계산한다.
+- 대시보드 기본 `오늘` 조회는 현재 날짜에 장중 기록이 없으면 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
+- 장후 재학습과 실제 데이터 재구축은 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 의 batch 경로를 통해 lock 충돌에 더 강하게 수행된다.
 - 대시보드 예측현황 탭은 오전/오후, 시간대별, 상승/하락 통계를 보여주고 최근 예측은 최대 100개까지 표시한다.
 - 대시보드 머신러닝 현황은 실제 데이터 기반 학습 결과만 표시하고, 연구용 fallback 값은 더 이상 대신 보여주지 않는다.
 - 로컬 가상 모의운용은 재시작 시 SQLite 기준 마지막 포트폴리오 상태를 복원한다.
@@ -61,6 +64,7 @@
 - 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
 - 대시보드 상단 경고는 이제 최신 학습/평가 산출물이 실제로 `없음` 또는 `지연`일 때만 학습 관련 경고를 올린다.
 - `scripts/get_dashboard_status.ps1` 는 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해 `starting` 상태가 오래 남지 않게 했다.
+- dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일 경로를 우선 잡는다.
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
@@ -132,6 +136,8 @@
 - targeted dashboard tests: `5 tests OK`
 - paper-account reconciliation tests: `2 tests OK`
 - full test suite: `49 tests OK`
+- sparse-future-bar dashboard test: `1 test OK`
+- sparse-future-bar research label test: `1 test OK`
 - sqlite store focused tests: `2 tests OK`
 - sqlite store focused tests: `3 tests OK`
 - runtime writer focused tests: `1 test OK`
@@ -162,25 +168,30 @@
   - raw market test rows: `0`
   - raw orderbook test rows: `0`
   - prediction test rows: `0`
+- latest actual-only feature rebuild:
+  - feature rows written: `6188`
+  - label rows written: `10882`
 - latest actual-only LightGBM training:
   - model version: `lightgbm-h15-v1`
-  - train rows: `386`
-  - validation rows: `97`
-  - validation accuracy: `0.711340`
+  - train rows: `4696`
+  - validation rows: `1174`
+  - validation accuracy: `0.856048`
   - feature count: `6`
 - latest actual-only backtest:
-  - overall accuracy: `0.103093`
-  - trades taken: `36`
-  - cumulative net return pct: `-6.650134`
+  - rows evaluated: `1174`
+  - trades taken: `484`
+  - overall accuracy: `0.072402`
+  - cumulative net return pct: `-64.229295`
 - latest actual-only walk-forward:
-  - folds: `43`
-  - rows evaluated: `430`
-  - overall accuracy: `0.411628`
-  - cumulative net return pct: `-22.894859`
+  - folds: `582`
+  - rows evaluated: `5820`
+  - overall accuracy: `0.440722`
+  - cumulative net return pct: `-67.492498`
 - latest actual-only challenger review:
-  - recommended action: `review_required`
-  - best candidate: `linear_score_builtin`
+  - recommended action: `keep_active`
+  - best candidate: `latest_lightgbm`
   - promoted model: `none`
+  - decision reason: `The top challenger does not have enough trades.`
 - 최신 synthetic dev cycle:
   - training accuracy: `0.866667`
   - backtest trades: `13`
@@ -241,6 +252,15 @@
   - 이 수정으로 `latest-dashboard.json` 의 한글/긴 JSON 때문에 생기던 파싱 실패가 사라졌고, 분봉·예측·KIS 검증 신선도 값이 다시 정상 표시되기 시작했다.
   - 대시보드 상단 경고는 이제 장마감 후 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 안내형 메시지로 낮춰 보이고, `오늘 학습 부재`는 실제 최신 학습/평가가 없거나 stale 할 때만 띄우도록 정리했다.
   - KIS WebSocket 연결 옵션은 ping timeout 영향이 덜하도록 보정했고, 장중 disconnect 원인 추적을 위해 오류는 그대로 verification report 에 남긴다.
+- `2026-04-18`
+  - 예측현황의 실제 결과 계산이 정확한 `+15분/+60분` 분봉만 찾던 문제를 고쳤다.
+  - 이제 같은 거래일 안에서 목표 시각 이후 가장 가까운 실제 분봉을 사용해 실제 결과와 성공 여부를 채운다.
+  - feature / label 생성도 같은 방식으로 바꿔서 sparse intraday data 에서도 15분·60분 라벨이 비어 있지 않게 정리했다.
+  - 연구용 SQLite / writer 경로를 lock-aware batch 모드로 분리해 `--rebuild-actual-ml` 이 더 이상 과도하게 느리거나 SQLite 잠금으로 자주 실패하지 않게 했다.
+  - `--rebuild-actual-ml` 는 이제 `runtime-data/reports/actual-ml/latest-rebuild.json` 을 함께 남기고, post-close maintenance 상태에도 최신 rebuild 결과가 반영된다.
+  - 대시보드 기본 `오늘` 조회는 장후/자정 이후에도 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여주도록 바꿨다.
+  - 최신 actual-only rebuild 결과는 `features=6188`, `labels=10882`, `LightGBM validation_accuracy=0.856048`, `walk_forward overall_accuracy=0.440722` 이다.
+  - dashboard start script 가 조용히 실패하던 경우를 줄이기 위해 Windows 앱 별칭 `python.exe` 를 피하고 실제 Python 실행 파일을 우선 찾도록 보강했다.
 - `2026-04-11`
   - v0.2.0 release commit and push completed.
   - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.

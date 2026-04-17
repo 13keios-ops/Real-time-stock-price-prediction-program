@@ -40,6 +40,7 @@
 - 대시보드 상단에서 `조회 범위`와 `기준 날짜`로 특정일 / 최근 기간 / 전체 누적 데이터 조회
 - 학습 탭에서 `실운용 학습 상태`와 `검증 및 비교 결과`를 분리해 실제 데이터 기반 결과만 해석하는 구조
 - 최근 예측에 기준가 대비 `예상 변동 금액`과 `실제 결과` 표시
+- 최근 예측의 `실제 결과`는 예측 시각에서 정확히 `+15분/+60분` 분봉이 없어도, 같은 거래일 안에서 목표 시각 이후 가장 가까운 실제 분봉을 사용해 계산
 - 예측현황 탭에서 선택 기간 기준 `예측 건수 / 확정 건수 / 성공률 / 수평선별 집계` 제공
 - 예측현황 탭에서 `오전/오후`, `시간대별`, `상승/하락` 통계를 함께 제공
 - 최근 예측 리스트는 최신 기준 최대 `100개`까지 표시
@@ -70,7 +71,11 @@
 - 대시보드 상단 상태 경고 카드는 이제 `정규장 실시간 지연` 과 `장외 안내`를 구분해서 보여준다. 정규장에는 `실시간 분봉 지연`, `최근 예측 기록 정지`, `KIS 실시간 검증 실패`를 바로 경고하고, 장외에는 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 안내형 메시지로 낮춰 보여준다.
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
 - 대시보드 상단 경고는 이제 `오늘 학습 부재`를 무조건 띄우지 않고, 최신 학습이나 평가 기록이 실제로 `없음` 또는 `지연` 상태일 때만 올린다.
+- 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
+- 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
+- post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
+- dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.

@@ -147,6 +147,61 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(sqlite_store.count_rows("ml_model_evaluations"), 11)
             logging.shutdown()
 
+    def test_feature_labels_use_nearest_same_day_future_bar_when_exact_minute_missing(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        kst = get_timezone("Asia/Seoul")
+        runtime_root = root / ".tmp-tests" / "research-sparse" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+
+            timestamps = [
+                datetime(2026, 4, 11, 9, 15, tzinfo=kst),
+                datetime(2026, 4, 11, 9, 40, tzinfo=kst),
+            ]
+            prices = [70000, 70800]
+            for event_time, price in zip(timestamps, prices, strict=True):
+                writer.write_market_tick(
+                    MarketTickEvent(
+                        symbol="005930",
+                        event_time=event_time,
+                        price=float(price),
+                        volume=100,
+                        source="kis-ws",
+                    )
+                )
+                writer.write_orderbook_snapshot(
+                    OrderbookSnapshot(
+                        symbol="005930",
+                        event_time=event_time,
+                        bid_price=float(price - 5),
+                        ask_price=float(price + 5),
+                        bid_size=1000,
+                        ask_size=900,
+                        source="kis-ws",
+                    )
+                )
+
+            build_minute_bars_from_sqlite(project_root=root)
+            feature_result = build_feature_dataset_from_sqlite(project_root=root, horizons=(15,))
+            sqlite_store = get_sqlite_store(settings)
+
+            self.assertIsNotNone(sqlite_store)
+            self.assertEqual(feature_result.features_written, 2)
+            self.assertEqual(feature_result.labels_written, 1)
+            label_rows = sqlite_store.fetch_all_rows("feature_labels", "event_time")
+            self.assertEqual(len(label_rows), 1)
+            self.assertEqual(label_rows[0]["event_time"], "2026-04-11T09:15:00+09:00")
+            self.assertGreater(float(label_rows[0]["future_return_pct"]), 0.0)
+            logging.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()

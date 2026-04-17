@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 import json
 import math
 from collections import Counter, defaultdict
@@ -259,6 +260,42 @@ class ChallengerRunResult:
             "leaderboard_json_path": str(self.leaderboard_json_path),
             "candidates": [candidate.to_dict() for candidate in self.candidates],
         }
+
+
+def _find_first_same_day_future_bar(
+    bars: list[MinuteBar],
+    bar_times: list[datetime],
+    target_time: datetime,
+) -> MinuteBar | None:
+    if not bars:
+        return None
+    index = bisect_left(bar_times, target_time)
+    while index < len(bars):
+        candidate = bars[index]
+        if candidate.bar_time.date() != target_time.date():
+            return None
+        return candidate
+    return None
+
+
+def _get_research_sqlite_store(settings):
+    return get_sqlite_store(
+        settings,
+        initialize_schema=False,
+        busy_timeout_ms=30_000,
+        read_retry_delays=(0.0, 0.25, 0.75, 1.5, 3.0, 6.0),
+        write_retry_delays=(0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0),
+    )
+
+
+def _get_research_writer(settings) -> RuntimeWriter:
+    return RuntimeWriter.from_settings(
+        settings,
+        sqlite_initialize_schema=False,
+        sqlite_busy_timeout_ms=30_000,
+        sqlite_read_retry_delays=(0.0, 0.25, 0.75, 1.5, 3.0, 6.0),
+        sqlite_write_retry_delays=(0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0),
+    )
 
 
 @dataclass(slots=True)
@@ -683,7 +720,7 @@ def _evaluate_rows_with_model(
 def build_minute_bars_from_sqlite(project_root: Path) -> MinuteBarBuildResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for minute bar generation.")
 
@@ -699,7 +736,7 @@ def build_minute_bars_from_sqlite(project_root: Path) -> MinuteBarBuildResult:
             }
         )
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     symbols_seen: set[str] = set()
     bars_written = 0
     for (symbol, minute), values in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1])):
@@ -733,10 +770,11 @@ def build_feature_dataset_from_sqlite(
     *,
     actual_only: bool = False,
     clear_existing: bool = False,
+    persist_runtime_artifacts: bool = True,
 ) -> FeatureDatasetBuildResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for feature dataset generation.")
 
@@ -788,24 +826,27 @@ def build_feature_dataset_from_sqlite(
         )
         orderbooks_by_symbol[row["symbol"]][_minute_floor(event_time)] = snapshot
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings) if persist_runtime_artifacts else None
     features_written = 0
     labels_written = 0
+    feature_batch: list[FeatureSnapshot] = []
+    label_batch: list[FeatureLabel] = []
 
     for symbol, bars in bars_by_symbol.items():
         bars.sort(key=lambda bar: bar.bar_time)
-        by_time = {bar.bar_time: bar for bar in bars}
+        bar_times = [bar.bar_time for bar in bars]
         latest_orderbook: OrderbookSnapshot | None = None
         for bar in bars:
             latest_orderbook = orderbooks_by_symbol[symbol].get(bar.bar_time, latest_orderbook)
             if latest_orderbook is None:
                 continue
             feature_snapshot = build_feature_snapshot(bar, latest_orderbook, settings.feature_set_version)
-            writer.write_feature_snapshot(feature_snapshot)
+            feature_batch.append(feature_snapshot)
             features_written += 1
 
             for horizon in horizons:
-                future_bar = by_time.get(bar.bar_time + timedelta(minutes=horizon))
+                target_time = bar.bar_time + timedelta(minutes=horizon)
+                future_bar = _find_first_same_day_future_bar(bars, bar_times, target_time)
                 if future_bar is None:
                     continue
                 future_return_pct = ((future_bar.close - bar.close) / bar.close) * 100
@@ -818,8 +859,15 @@ def build_feature_dataset_from_sqlite(
                     threshold_pct=threshold,
                     future_return_pct=future_return_pct,
                 )
-                writer.write_feature_label(label)
+                label_batch.append(label)
                 labels_written += 1
+
+    if writer is not None:
+        writer.write_feature_snapshots_batch(feature_batch)
+        writer.write_feature_labels_batch(label_batch)
+    else:
+        sqlite_store.upsert_feature_snapshots_many(feature_batch)
+        sqlite_store.upsert_feature_labels_many(label_batch)
 
     return FeatureDatasetBuildResult(
         features_written=features_written,
@@ -854,7 +902,7 @@ def _purge_runtime_paths(paths: list[Path]) -> list[str]:
 def rebuild_actual_runtime_ml_state(project_root: Path, horizon_min: int = 15) -> ActualMlRebuildResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for actual ML rebuild.")
 
@@ -881,6 +929,7 @@ def rebuild_actual_runtime_ml_state(project_root: Path, horizon_min: int = 15) -
         horizons=(15, 60),
         actual_only=True,
         clear_existing=False,
+        persist_runtime_artifacts=False,
     )
     active_result = set_builtin_model_active(
         project_root=project_root,
@@ -952,7 +1001,7 @@ def train_centroid_baseline_from_sqlite(
 ) -> BaselineTrainingResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for training.")
 
@@ -993,7 +1042,7 @@ def train_centroid_baseline_from_sqlite(
             )
         )
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     writer.write_training_run(
         TrainingRun(
             training_run_id=training_run_id,
@@ -1050,7 +1099,7 @@ def train_lightgbm_from_sqlite(
 ) -> BaselineTrainingResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for training.")
 
@@ -1095,7 +1144,7 @@ def train_lightgbm_from_sqlite(
             ),
         )
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     writer.write_training_run(
         TrainingRun(
             training_run_id=training_run_id,
@@ -1182,7 +1231,7 @@ def set_builtin_model_active(
 def run_signal_backtest_from_sqlite(project_root: Path, horizon_min: int = 15) -> BacktestResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for backtesting.")
 
@@ -1219,7 +1268,7 @@ def run_signal_backtest_from_sqlite(project_root: Path, horizon_min: int = 15) -
         **metrics,
     }
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     writer.write_model_evaluation(
         ModelEvaluation(
             evaluation_id=evaluation_id,
@@ -1295,7 +1344,7 @@ def run_walk_forward_backtest_from_sqlite(
 ) -> WalkForwardBacktestResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for walk-forward backtesting.")
 
@@ -1427,7 +1476,7 @@ def run_walk_forward_backtest_from_sqlite(
         "fold_summaries": fold_summaries,
     }
 
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     writer.write_model_evaluation(
         ModelEvaluation(
             evaluation_id=evaluation_id,
@@ -1507,7 +1556,7 @@ def run_model_challenger_review_from_sqlite(
 ) -> ChallengerRunResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    sqlite_store = get_sqlite_store(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for challenger evaluation.")
 
@@ -1518,7 +1567,7 @@ def run_model_challenger_review_from_sqlite(
 
     review_time = now_local(settings.timezone)
     challenger_run_id = f"challenger-h{horizon_min}-{review_time.strftime('%Y%m%d%H%M%S%f')}"
-    writer = RuntimeWriter.from_settings(settings)
+    writer = _get_research_writer(settings)
     registry = ModelRegistry(settings.runtime_data_dir)
 
     candidates: list[dict[str, object]] = []

@@ -81,10 +81,32 @@ class RuntimeWriter:
         if self.sqlite_store:
             self.sqlite_store.upsert_feature_snapshot(snapshot)
 
+    def write_feature_snapshots_batch(self, snapshots: list[FeatureSnapshot]) -> None:
+        if not snapshots:
+            return
+        self.jsonl_store.append_many(
+            "feature",
+            "model_inputs",
+            [(snapshot.to_record(), snapshot.event_time) for snapshot in snapshots],
+        )
+        if self.sqlite_store:
+            self.sqlite_store.upsert_feature_snapshots_many(snapshots)
+
     def write_feature_label(self, label: FeatureLabel) -> None:
         self.jsonl_store.append("feature", "labels", label.to_record(), label.event_time)
         if self.sqlite_store:
             self.sqlite_store.upsert_feature_label(label)
+
+    def write_feature_labels_batch(self, labels: list[FeatureLabel]) -> None:
+        if not labels:
+            return
+        self.jsonl_store.append_many(
+            "feature",
+            "labels",
+            [(label.to_record(), label.event_time) for label in labels],
+        )
+        if self.sqlite_store:
+            self.sqlite_store.upsert_feature_labels_many(labels)
 
     def write_prediction(self, prediction: Prediction) -> None:
         self.jsonl_store.append("serving", "predictions", prediction.to_record(), prediction.event_time)

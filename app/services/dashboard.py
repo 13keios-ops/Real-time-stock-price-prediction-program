@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -133,7 +134,7 @@ def _build_period_filter(settings, *, range_key: str | None = None, selected_dat
     except ValueError:
         selected_date = today_local
 
-    anchor_date = today_local if normalized_range == "today" else selected_date
+    anchor_date = selected_date if normalized_range == "today" else selected_date
     if normalized_range == "all":
         return DashboardPeriodFilter(
             range_key="all",
@@ -161,8 +162,12 @@ def _build_period_filter(settings, *, range_key: str | None = None, selected_dat
         label = f"{anchor_date.isoformat()} 기준 최근 30일"
         description = "선택한 날짜를 포함한 최근 30일 실제 운용 데이터를 보여줍니다."
     elif normalized_range == "today":
-        label = "오늘"
-        description = "오늘 발생한 실제 운용 데이터만 보여줍니다."
+        if anchor_date == today_local:
+            label = "오늘"
+            description = "오늘 발생한 실제 운용 데이터만 보여줍니다."
+        else:
+            label = f"최근 장중 ({anchor_date.isoformat()})"
+            description = "현재 날짜에 장중 기록이 없어, 마지막 실제 장중 날짜 기준으로 보여줍니다."
 
     return DashboardPeriodFilter(
         range_key=normalized_range,
@@ -172,6 +177,35 @@ def _build_period_filter(settings, *, range_key: str | None = None, selected_dat
         start_at=datetime.combine(start_date, time.min, tzinfo=timezone),
         end_at=datetime.combine(end_date, time.min, tzinfo=timezone),
     )
+
+
+def _resolve_default_dashboard_date(
+    settings,
+    *,
+    minute_bar_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+    signal_rows: list[dict[str, Any]],
+) -> str | None:
+    latest_timestamp: datetime | None = None
+    for rows, field_name in (
+        (minute_bar_rows, "bar_time"),
+        (prediction_rows, "event_time"),
+        (signal_rows, "event_time"),
+    ):
+        for row in rows:
+            parsed = _parse_iso_datetime(row.get(field_name))
+            if parsed is None:
+                continue
+            if latest_timestamp is None or parsed > latest_timestamp:
+                latest_timestamp = parsed
+    if latest_timestamp is None:
+        return None
+
+    today_local = now_local(settings.timezone).date()
+    latest_local_date = latest_timestamp.astimezone(get_timezone(settings.timezone)).date()
+    if latest_local_date < today_local:
+        return latest_local_date.isoformat()
+    return None
 
 
 def _row_time(row: dict[str, Any], *field_names: str) -> datetime | None:
@@ -298,9 +332,16 @@ def _prediction_threshold_pct(settings, horizon_min: int) -> float:
     return float(settings.strategy.label_threshold_15)
 
 
-def _build_bar_lookup(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[str, datetime]]:
+def _build_bar_lookup(
+    rows: list[dict[str, Any]]
+) -> tuple[
+    dict[tuple[str, str], dict[str, Any]],
+    dict[str, datetime],
+    dict[str, dict[str, list[Any]]],
+]:
     lookup: dict[tuple[str, str], dict[str, Any]] = {}
     latest_by_symbol: dict[str, datetime] = {}
+    unsorted_entries: defaultdict[str, list[tuple[datetime, dict[str, Any]]]] = defaultdict(list)
     for row in rows:
         symbol = str(row.get("symbol", ""))
         bar_time = str(row.get("bar_time", ""))
@@ -308,16 +349,67 @@ def _build_bar_lookup(rows: list[dict[str, Any]]) -> tuple[dict[tuple[str, str],
         parsed = _parse_iso_datetime(bar_time)
         if parsed is None:
             continue
+        unsorted_entries[symbol].append((parsed, row))
         existing = latest_by_symbol.get(symbol)
         if existing is None or parsed > existing:
             latest_by_symbol[symbol] = parsed
-    return lookup, latest_by_symbol
+
+    bar_index: dict[str, dict[str, list[Any]]] = {}
+    for symbol, entries in unsorted_entries.items():
+        entries.sort(key=lambda item: item[0])
+        bar_index[symbol] = {
+            "times": [item[0] for item in entries],
+            "rows": [item[1] for item in entries],
+        }
+    return lookup, latest_by_symbol, bar_index
 
 
 def _build_label_lookup(rows: list[dict[str, Any]]) -> dict[tuple[str, str, int], dict[str, Any]]:
     return {
         (str(row.get("symbol", "")), str(row.get("event_time", "")), int(row.get("horizon_min", 0))): row
         for row in rows
+    }
+
+
+def _find_first_same_day_bar_at_or_after(
+    bar_index: dict[str, dict[str, list[Any]]],
+    *,
+    symbol: str,
+    target_time: datetime,
+) -> dict[str, Any] | None:
+    index_entry = bar_index.get(symbol)
+    if not index_entry:
+        return None
+    bar_times = index_entry.get("times") or []
+    bar_rows = index_entry.get("rows") or []
+    if not bar_times or not bar_rows:
+        return None
+    candidate_index = bisect_left(bar_times, target_time)
+    while candidate_index < len(bar_times):
+        candidate_time = bar_times[candidate_index]
+        if candidate_time.date() != target_time.date():
+            return None
+        return bar_rows[candidate_index]
+    return None
+
+
+def _effective_active_model_entry(
+    settings,
+    *,
+    active_entry: dict[str, Any] | None,
+    horizon_min: int,
+) -> dict[str, Any]:
+    if isinstance(active_entry, dict) and active_entry.get("model_version"):
+        normalized = dict(active_entry)
+        normalized.setdefault("status", "registry")
+        return normalized
+    fallback_model_version = settings.model_version_h60 if int(horizon_min) == 60 else settings.model_version_h15
+    return {
+        "model_version": fallback_model_version,
+        "model_kind": "builtin",
+        "builtin_name": "baseline",
+        "status": "builtin_fallback",
+        "note": "활성 레지스트리가 없어서 기본 baseline 모델을 사용 중입니다.",
     }
 
 
@@ -664,7 +756,7 @@ def _prediction_view(
     feature_label_rows: list[dict[str, Any]],
     settings,
 ) -> list[dict[str, Any]]:
-    bar_lookup, latest_bar_time_by_symbol = _build_bar_lookup(minute_bar_rows)
+    bar_lookup, latest_bar_time_by_symbol, bar_index = _build_bar_lookup(minute_bar_rows)
     label_lookup = _build_label_lookup(feature_label_rows)
     rendered: list[dict[str, Any]] = []
     for row in rows:
@@ -689,7 +781,11 @@ def _prediction_view(
         target_time_reached = False
         if event_time is not None:
             target_time = event_time + timedelta(minutes=horizon_min)
-            future_bar = bar_lookup.get((symbol, target_time.isoformat()))
+            future_bar = _find_first_same_day_bar_at_or_after(
+                bar_index,
+                symbol=symbol,
+                target_time=target_time,
+            )
             latest_symbol_time = latest_bar_time_by_symbol.get(symbol)
             target_time_reached = latest_symbol_time is not None and latest_symbol_time >= target_time
             if future_bar and base_close not in (None, 0):
@@ -1033,7 +1129,7 @@ def _build_lightgbm_status(
         "training_window": training_summary.get("training_window") or "recent_60_trading_days_plus_today",
         "actual_feature_rows": runtime_summary.get("feature_rows", 0),
         "actual_label_rows": runtime_summary.get("labels", 0),
-        "description": "최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징으로 다음 15분/60분의 상승·보합·하락 확률을 학습합니다.",
+        "description": "최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징으로 다음 15분/60분의 상승·보합·하락 확률을 학습합니다. 장중에는 추론만 수행하고, 장후 재학습 또는 실제 데이터 재구성 시점에만 새 모델을 만듭니다.",
     }
 
 
@@ -1126,7 +1222,6 @@ def collect_dashboard_payload(
 
     scope = build_runtime_scope(sqlite_store, settings)
     symbol_names = load_symbol_names(project_root)
-    period_filter = _build_period_filter(settings, range_key=range_key, selected_date_text=selected_date)
     runtime_summary_all = _summarize_runtime(sqlite_store, scope)
 
     raw_market_rows_all = _filtered_rows(sqlite_store, "raw_market_ticks", "event_time", scope)
@@ -1152,6 +1247,25 @@ def collect_dashboard_payload(
         for row in sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")
     ]
 
+    default_dashboard_date = None
+    if (range_key or "today").strip().lower() == "today" and not selected_date:
+        default_dashboard_date = _resolve_default_dashboard_date(
+            settings,
+            minute_bar_rows=minute_bar_rows_all,
+            prediction_rows=prediction_rows_all,
+            signal_rows=signal_rows_all,
+        )
+    period_filter = _build_period_filter(
+        settings,
+        range_key=range_key,
+        selected_date_text=selected_date or default_dashboard_date,
+    )
+    calendar_today_filter = _build_period_filter(
+        settings,
+        range_key="day",
+        selected_date_text=now_local(settings.timezone).date().isoformat(),
+    )
+
     raw_market_rows = _filter_rows_by_period(raw_market_rows_all, period_filter, "event_time")
     raw_orderbook_rows = _filter_rows_by_period(raw_orderbook_rows_all, period_filter, "event_time")
     minute_bar_rows = _filter_rows_by_period(minute_bar_rows_all, period_filter, "bar_time")
@@ -1165,6 +1279,8 @@ def collect_dashboard_payload(
     snapshot_rows = _filter_rows_by_period(snapshot_rows_all, period_filter, "event_time")
     training_rows = _filter_rows_by_period(training_rows_all, period_filter, "completed_at")
     evaluation_rows = _filter_rows_by_period(evaluation_rows_all, period_filter, "evaluated_at")
+    today_training_rows = _filter_rows_by_period(training_rows_all, calendar_today_filter, "completed_at")
+    today_evaluation_rows = _filter_rows_by_period(evaluation_rows_all, calendar_today_filter, "evaluated_at")
     current_order_rows = filter_rows_after_alignment(
         order_rows,
         runtime_data_dir=settings.runtime_data_dir,
@@ -1207,8 +1323,16 @@ def collect_dashboard_payload(
         latest_evaluation = latest_training_evaluation
 
     active_models = active_registry.get("active_models", {}) if isinstance(active_registry, dict) else {}
-    active_model_entry = active_models.get("15", {}) if isinstance(active_models, dict) else {}
-    active_model_entry_60 = active_models.get("60", {}) if isinstance(active_models, dict) else {}
+    active_model_entry = _effective_active_model_entry(
+        settings,
+        active_entry=active_models.get("15", {}) if isinstance(active_models, dict) else {},
+        horizon_min=15,
+    )
+    active_model_entry_60 = _effective_active_model_entry(
+        settings,
+        active_entry=active_models.get("60", {}) if isinstance(active_models, dict) else {},
+        horizon_min=60,
+    )
 
     latest_portfolio_snapshot = snapshot_rows[-1] if snapshot_rows else (snapshot_rows_all[-1] if snapshot_rows_all else None)
     aligned_snapshot, aligned_position_rows_all, _ = apply_alignment_baseline(
@@ -1321,6 +1445,13 @@ def collect_dashboard_payload(
         "latest_model_version": (latest_training or {}).get("model_version"),
         "active_model_version_h15": active_model_entry.get("model_version"),
         "active_model_version_h60": active_model_entry_60.get("model_version"),
+        "today_training_count": 0,
+        "today_evaluation_count": 0,
+        "recent_training_count": len(training_rows_all),
+        "recent_evaluation_count": len(evaluation_rows_all),
+        "training_mode": "장중에는 추론만 수행하고, 장후 재학습 또는 실제 데이터 재구성 시점에만 새 모델을 학습합니다.",
+        "effective_h60_note": active_model_entry_60.get("note"),
+        "latest_post_close_maintenance": None,
         "note": (
             "실시간 수집기는 장중 예측을 계속 수행하고, 학습 상태는 마지막 실제 데이터 기반 재학습 결과를 보여줍니다."
             if actual_labels > 0
@@ -1355,8 +1486,16 @@ def collect_dashboard_payload(
 
     paper_account_report = _load_account("paper")
     live_account_report = _load_account("live")
-    today_training_runs = _reverse_recent(training_rows, 5)
-    today_evaluations = _reverse_recent(evaluation_rows, 5)
+    today_training_runs = _reverse_recent(today_training_rows, 5)
+    today_evaluations = _reverse_recent(today_evaluation_rows, 5)
+    recent_training_runs = _reverse_recent(training_rows_all, 5)
+    recent_evaluations = _reverse_recent(evaluation_rows_all, 8)
+    latest_post_close_ml_maintenance = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "ml-maintenance" / "state" / "latest-post-close-ml.json"
+    )
+    ml_state["today_training_count"] = len(today_training_runs)
+    ml_state["today_evaluation_count"] = len(today_evaluations)
+    ml_state["latest_post_close_maintenance"] = latest_post_close_ml_maintenance
 
     latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
     latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
@@ -1392,6 +1531,11 @@ def collect_dashboard_payload(
         active_model_entry=active_model_entry,
         runtime_summary=runtime_summary,
     )
+    lightgbm_status["today_training_count"] = len(today_training_runs)
+    lightgbm_status["today_evaluation_count"] = len(today_evaluations)
+    lightgbm_status["recent_training_count"] = len(training_rows_all)
+    lightgbm_status["recent_evaluation_count"] = len(evaluation_rows_all)
+    lightgbm_status["latest_post_close_maintenance"] = latest_post_close_ml_maintenance
     account_views = {
         "virtual_paper": local_account_state,
         "paper_broker": paper_account_view,
@@ -1413,7 +1557,7 @@ def collect_dashboard_payload(
             "model_kind": active_model_entry_60.get("model_kind") or "fallback",
             "status": "운용 중",
             "score": None,
-            "note": "60분 예측용 활성 모델입니다.",
+            "note": active_model_entry_60.get("note") or "60분 예측용 활성 모델입니다.",
         },
         {
             "name": "최신 학습 모델",
@@ -1494,10 +1638,13 @@ def collect_dashboard_payload(
         "latest_evaluation": latest_evaluation,
         "today_training_runs": today_training_runs,
         "today_evaluations": today_evaluations,
+        "recent_training_runs": recent_training_runs,
+        "recent_evaluations": recent_evaluations,
         "latest_backtest_report": latest_backtest_report,
         "latest_walk_forward_report": latest_walk_forward_report,
         "latest_challenger_report": latest_challenger_report,
         "latest_kis_verification": latest_kis_verification,
+        "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
         "broker_account_report": paper_account_report,
@@ -1742,6 +1889,19 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             _money(row.get("base_close")),
             row["predicted_change_text"],
             row["actual_change_text"],
+        ]
+        for row in payload.get("recent_predictions", [])
+    ]
+    prediction_rows = [
+        [
+            row["event_time"],
+            row.get("symbol_label") or row["symbol"],
+            f'{row["horizon_min"]}분',
+            row["model_version"],
+            _money(row.get("base_close")),
+            row["predicted_change_text"],
+            row["actual_change_text"],
+            row.get("success_text") or "-",
         ]
         for row in payload.get("recent_predictions", [])
     ]
@@ -2294,6 +2454,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         [row.get("evaluated_at"), row.get("split_name"), _ratio_pct(row.get("accuracy"), 2), row.get("total_rows")]
         for row in payload.get("today_evaluations", [])
     ]
+    recent_training_rows = [
+        [row.get("completed_at"), row.get("model_version"), row.get("train_rows"), row.get("validation_rows"), row.get("feature_set_version")]
+        for row in payload.get("recent_training_runs", [])
+    ]
+    recent_evaluation_rows = [
+        [row.get("evaluated_at"), row.get("split_name"), _ratio_pct(row.get("accuracy"), 2), row.get("total_rows")]
+        for row in payload.get("recent_evaluations", [])
+    ]
     challenger_rows = [
         [row.get("rank"), row.get("candidate_name"), row.get("model_version"), _ratio_pct(row.get("overall_accuracy"), 2), _ratio_pct(row.get("trade_hit_rate"), 2), _pct(row.get("cumulative_net_return_pct"), 2)]
         for row in latest_challenger.get("candidates", [])
@@ -2446,6 +2614,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"실운용 특징: {runtime.get('feature_rows', 0)}건",
         f"오늘 학습: {len(payload.get('today_training_runs', []))}건",
         f"오늘 평가: {len(payload.get('today_evaluations', []))}건",
+        f"누적 학습: {len(payload.get('recent_training_runs', []))}건 표시 / 전체 {ml_state.get('recent_training_count', 0)}건",
+        f"누적 평가: {len(payload.get('recent_evaluations', []))}건 표시 / 전체 {ml_state.get('recent_evaluation_count', 0)}건",
         f"최신 학습 모델: {latest_training.get('model_version') or '-'}",
         f"활성 모델(15분): {active_model.get('model_version') or '-'}",
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
@@ -2462,8 +2632,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["특징 수", lightgbm_status.get("feature_count") or 0],
         ["실운용 특징 행", lightgbm_status.get("actual_feature_rows") or 0],
         ["실운용 라벨 행", lightgbm_status.get("actual_label_rows") or 0],
+        ["오늘 학습 건수", lightgbm_status.get("today_training_count") or 0],
+        ["오늘 평가 건수", lightgbm_status.get("today_evaluation_count") or 0],
         ["학습 창", lightgbm_status.get("training_window") or "-"],
         ["아티팩트 갱신 시각", lightgbm_status.get("artifact_updated_at") or "-"],
+        [
+            "최근 장후 재학습",
+            (lightgbm_status.get("latest_post_close_maintenance") or {}).get("completed_at")
+            or (lightgbm_status.get("latest_post_close_maintenance") or {}).get("started_at")
+            or "-",
+        ],
     ]
     runtime_rows = [
         ["원시 체결", runtime.get("raw_market_ticks", 0)],
@@ -2751,7 +2929,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     _section_card(
                         "실운용 학습 상태",
                         _pill_row(ml_status_pills),
-                        note=f"{_esc(learning_context.get('note'))}<br>{_esc(learning_context.get('active_status_note'))}",
+                        note=(
+                            f"{_esc(learning_context.get('note'))}<br>"
+                            f"{_esc(learning_context.get('active_status_note'))}<br>"
+                            f"{_esc(ml_state.get('training_mode') or '-')}"
+                        ),
                     ),
                     _section_card(
                         "LightGBM 실제 현황",
@@ -2771,9 +2953,19 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         note=f"최신 전체 학습 시각: {_esc(latest_training.get('completed_at') or '-')} / 신선도: {_esc(training_freshness.get('label') or '-')}",
                     ),
                     _section_card(
+                        "최근 전체 학습 결과",
+                        _table(["완료 시각", "모델 버전", "학습 행 수", "검증 행 수", "특징 세트"], recent_training_rows, "최근 전체 학습 기록이 없습니다."),
+                        note="장중에는 새 학습이 생기지 않을 수 있습니다. 이 표는 현재 범위와 무관하게 가장 최근 학습 기록을 보여줍니다.",
+                    ),
+                    _section_card(
                         "선택 기간 평가 결과",
                         _table(["평가 시각", "분할 이름", "정확도", "행 수"], today_evaluation_rows, "현재 범위에 평가 기록이 없습니다."),
                         note=f"최신 전체 평가 시각: {_esc(latest_evaluation.get('evaluated_at') or '-')} / 신선도: {_esc(evaluation_freshness.get('label') or '-')}",
+                    ),
+                    _section_card(
+                        "최근 전체 평가 결과",
+                        _table(["평가 시각", "분할 이름", "정확도", "행 수"], recent_evaluation_rows, "최근 전체 평가 기록이 없습니다."),
+                        note="오늘 평가가 없더라도 마지막 백테스트·워크포워드·챌린저 결과는 계속 비교 대상으로 유지합니다.",
                     ),
                     _section_card(
                         "최신 검증 요약",
@@ -2788,7 +2980,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     ),
                     _section_card(
                         "학습 설명",
-                        '<div class="muted">LightGBM는 최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징을 이용해 다음 15분과 60분의 상승·보합·하락 확률을 학습합니다. 장중에는 추론만 계속하고, 재학습은 장후 또는 수동 재구성 시점에 수행합니다.</div>',
+                        '<div class="muted">LightGBM는 최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징을 이용해 다음 15분과 60분의 상승·보합·하락 확률을 학습합니다. 장중에는 추론만 계속하고, 재학습은 장후 또는 수동 재구성 시점에 수행합니다. 60분 활성 모델은 레지스트리가 비어 있어도 기본 baseline fallback으로 계속 예측을 수행할 수 있습니다.</div>',
                     ),
                 ),
             ),
@@ -2880,7 +3072,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             (
                 "predictions-notes",
                 "해석 메모",
-                _section_card("예측 해석 메모", '<div class="muted">예측 결과는 기준가 대비 예상 변동 금액과 실제 결과를 함께 보여줍니다. 아직 목표 시점이 지나지 않은 예측은 실제 결과가 대기 중으로 표시됩니다. 실제 결과가 확정되면 성공/실패 판정이 함께 갱신됩니다.</div>'),
+                _section_card("예측 해석 메모", '<div class="muted">예측 결과는 기준가 대비 예상 변동 금액과 실제 결과를 함께 보여줍니다. 실제 결과는 목표 시각과 정확히 같은 분봉이 없더라도, 그 이후 가장 가까운 같은 거래일 분봉을 찾아 계산합니다. 목표 시각 이후 같은 거래일 분봉이 아직 없으면 대기 중으로 남습니다.</div>'),
             ),
         ],
     )

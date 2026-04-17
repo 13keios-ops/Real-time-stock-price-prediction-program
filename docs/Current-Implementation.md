@@ -33,6 +33,7 @@ The project now has a working local foundation for:
 - Dashboard top alerts no longer raise `오늘 학습 부재` by default; they only surface training/evaluation when the latest artifact is actually missing or stale
 - Dashboard status script now normalizes the saved server-state file after a successful health check so stale `starting` state does not linger
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
+- Dashboard prediction view now resolves actual outcomes with the first same-day minute bar at or after the target horizon, so sparse intraday data no longer leaves most rows stuck as `대기 중`
 - Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
 - Dashboard daily-report view now summarizes selected-period performance, insights, and next actions
@@ -49,6 +50,7 @@ The project now has a working local foundation for:
 - Dashboard manual refresh and 5-minute auto refresh now rebuild the snapshot through `/api/refresh` before reloading the page
 - Dashboard ML tab now keeps showing the latest overall backtest / walk-forward / challenger artifacts even when the selected day has no new training or evaluation rows
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
+- Dashboard foreground and background launch scripts now both avoid the Windows `WindowsApps\python.exe` alias and prefer a real Python interpreter path
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
@@ -76,6 +78,8 @@ The project now has a working local foundation for:
 - Hourly repository audit automation with carry-forward state files
 - Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
+- Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs
+- Post-close ML maintenance now uses a lock-aware batch rebuild path, so real-data-only feature/label regeneration and LightGBM retraining finish without the earlier SQLite lock/stall behavior
 
 ## Recommended Dev Flow
 
@@ -171,6 +175,30 @@ This now runs:
 - LightGBM retraining without auto-promotion
 - fresh backtest / walk-forward / challenger outputs
 - runtime report and dashboard rebuild
+
+Latest verified actual-only rebuild result:
+
+- feature rows written: `6188`
+- label rows written: `10882`
+- latest LightGBM:
+  - `train_rows=4696`
+  - `validation_rows=1174`
+  - `validation_accuracy=0.856048`
+- latest backtest:
+  - `rows_evaluated=1174`
+  - `trades_taken=484`
+  - `overall_accuracy=0.072402`
+  - `cumulative_net_return_pct=-64.229295`
+- latest walk-forward:
+  - `folds=582`
+  - `rows_evaluated=5820`
+  - `overall_accuracy=0.440722`
+  - `cumulative_net_return_pct=-67.492498`
+- latest challenger:
+  - `best_candidate=latest_lightgbm`
+  - `recommended_action=keep_active`
+  - `decision_reason=The top challenger does not have enough trades.`
+  - `walk_forward_gate_status=needs_review`
 
 ### 5. KIS WebSocket live listener
 

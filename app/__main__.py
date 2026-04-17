@@ -121,7 +121,14 @@ def main() -> int:
 
     if args.rebuild_actual_ml:
         result = rebuild_actual_runtime_ml_state(project_root=project_root, horizon_min=args.horizon_min)
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        payload = result.to_dict()
+        report_dir = project_root / "runtime-data" / "reports" / "actual-ml"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "latest-rebuild.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
 
     if args.train_baseline:

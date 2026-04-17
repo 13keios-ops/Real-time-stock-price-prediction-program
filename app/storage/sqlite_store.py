@@ -393,61 +393,81 @@ class SQLiteRuntimeStore:
             raise last_error
 
     def insert_market_tick(self, event: MarketTickEvent) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT INTO raw_market_ticks(symbol, event_time, price, volume, source) VALUES (?, ?, ?, ?, ?)",
-                (event.symbol, self._dt(event.event_time), event.price, event.volume, event.source),
-            )
-            connection.commit()
+        self._run_write_query(
+            "INSERT INTO raw_market_ticks(symbol, event_time, price, volume, source) VALUES (?, ?, ?, ?, ?)",
+            (event.symbol, self._dt(event.event_time), event.price, event.volume, event.source),
+        )
 
     def insert_orderbook_snapshot(self, event: OrderbookSnapshot) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO raw_orderbook_ticks(symbol, event_time, bid_price, ask_price, bid_size, ask_size, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.symbol,
-                    self._dt(event.event_time),
-                    event.bid_price,
-                    event.ask_price,
-                    event.bid_size,
-                    event.ask_size,
-                    event.source,
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT INTO raw_orderbook_ticks(symbol, event_time, bid_price, ask_price, bid_size, ask_size, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.symbol,
+                self._dt(event.event_time),
+                event.bid_price,
+                event.ask_price,
+                event.bid_size,
+                event.ask_size,
+                event.source,
+            ),
+        )
 
     def upsert_minute_bar(self, bar: MinuteBar) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO curated_minute_bars(symbol, bar_time, open, high, low, close, volume, trade_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (bar.symbol, self._dt(bar.bar_time), bar.open, bar.high, bar.low, bar.close, bar.volume, bar.trade_count),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO curated_minute_bars(symbol, bar_time, open, high, low, close, volume, trade_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (bar.symbol, self._dt(bar.bar_time), bar.open, bar.high, bar.low, bar.close, bar.volume, bar.trade_count),
+        )
 
     def upsert_feature_snapshot(self, snapshot: FeatureSnapshot) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO feature_model_inputs(symbol, event_time, feature_set_version, values_json)
-                VALUES (?, ?, ?, ?)
-                """,
-                (snapshot.symbol, self._dt(snapshot.event_time), snapshot.feature_set_version, self._json(snapshot.values)),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO feature_model_inputs(symbol, event_time, feature_set_version, values_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (snapshot.symbol, self._dt(snapshot.event_time), snapshot.feature_set_version, self._json(snapshot.values)),
+        )
+
+    def upsert_feature_snapshots_many(self, snapshots: list[FeatureSnapshot]) -> None:
+        self._run_write_many(
+            """
+            INSERT OR REPLACE INTO feature_model_inputs(symbol, event_time, feature_set_version, values_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (snapshot.symbol, self._dt(snapshot.event_time), snapshot.feature_set_version, self._json(snapshot.values))
+                for snapshot in snapshots
+            ],
+        )
 
     def upsert_feature_label(self, label: FeatureLabel) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO feature_labels(symbol, event_time, horizon_min, label, threshold_pct, future_return_pct)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO feature_labels(symbol, event_time, horizon_min, label, threshold_pct, future_return_pct)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                label.symbol,
+                self._dt(label.event_time),
+                label.horizon_min,
+                label.label,
+                label.threshold_pct,
+                label.future_return_pct,
+            ),
+        )
+
+    def upsert_feature_labels_many(self, labels: list[FeatureLabel]) -> None:
+        self._run_write_many(
+            """
+            INSERT OR REPLACE INTO feature_labels(symbol, event_time, horizon_min, label, threshold_pct, future_return_pct)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
                 (
                     label.symbol,
                     self._dt(label.event_time),
@@ -455,171 +475,154 @@ class SQLiteRuntimeStore:
                     label.label,
                     label.threshold_pct,
                     label.future_return_pct,
-                ),
-            )
-            connection.commit()
+                )
+                for label in labels
+            ],
+        )
 
     def insert_prediction(self, prediction: Prediction) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO serving_predictions(
-                    prediction_id, symbol, event_time, horizon_min, model_version, probability_up, probability_flat, probability_down
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    prediction.prediction_id,
-                    prediction.symbol,
-                    self._dt(prediction.event_time),
-                    prediction.horizon_min,
-                    prediction.model_version,
-                    prediction.probability_up,
-                    prediction.probability_flat,
-                    prediction.probability_down,
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO serving_predictions(
+                prediction_id, symbol, event_time, horizon_min, model_version, probability_up, probability_flat, probability_down
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                prediction.prediction_id,
+                prediction.symbol,
+                self._dt(prediction.event_time),
+                prediction.horizon_min,
+                prediction.model_version,
+                prediction.probability_up,
+                prediction.probability_flat,
+                prediction.probability_down,
+            ),
+        )
 
     def insert_trade_signal(self, signal: TradeSignal) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO serving_trade_signals(signal_id, symbol, event_time, side, confidence, reason, allowed)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    signal.signal_id,
-                    signal.symbol,
-                    self._dt(signal.event_time),
-                    signal.side,
-                    signal.confidence,
-                    signal.reason,
-                    int(signal.allowed),
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO serving_trade_signals(signal_id, symbol, event_time, side, confidence, reason, allowed)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                signal.signal_id,
+                signal.symbol,
+                self._dt(signal.event_time),
+                signal.side,
+                signal.confidence,
+                signal.reason,
+                int(signal.allowed),
+            ),
+        )
 
     def insert_target_position(self, target: TargetPosition) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO serving_target_positions(
-                    target_id, symbol, event_time, side, target_qty, target_notional, portfolio_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    target.target_id,
-                    target.symbol,
-                    self._dt(target.event_time),
-                    target.side,
-                    target.target_qty,
-                    target.target_notional,
-                    target.portfolio_version,
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO serving_target_positions(
+                target_id, symbol, event_time, side, target_qty, target_notional, portfolio_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target.target_id,
+                target.symbol,
+                self._dt(target.event_time),
+                target.side,
+                target.target_qty,
+                target.target_notional,
+                target.portfolio_version,
+            ),
+        )
 
     def insert_paper_order(self, order: PaperOrder) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO paper_orders(order_id, symbol, event_time, side, qty, limit_price, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (order.order_id, order.symbol, self._dt(order.event_time), order.side, order.qty, order.limit_price, order.status),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO paper_orders(order_id, symbol, event_time, side, qty, limit_price, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (order.order_id, order.symbol, self._dt(order.event_time), order.side, order.qty, order.limit_price, order.status),
+        )
 
     def insert_order_event(self, event: OrderEvent) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO paper_order_events(order_event_id, order_id, event_time, event_type, detail) VALUES (?, ?, ?, ?, ?)",
-                (event.order_event_id, event.order_id, self._dt(event.event_time), event.event_type, event.detail),
-            )
-            connection.commit()
+        self._run_write_query(
+            "INSERT OR REPLACE INTO paper_order_events(order_event_id, order_id, event_time, event_type, detail) VALUES (?, ?, ?, ?, ?)",
+            (event.order_event_id, event.order_id, self._dt(event.event_time), event.event_type, event.detail),
+        )
 
     def insert_fill(self, fill: Fill) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO paper_fills(fill_id, order_id, event_time, fill_price, fill_qty, commission, tax)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (fill.fill_id, fill.order_id, self._dt(fill.event_time), fill.fill_price, fill.fill_qty, fill.commission, fill.tax),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO paper_fills(fill_id, order_id, event_time, fill_price, fill_qty, commission, tax)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (fill.fill_id, fill.order_id, self._dt(fill.event_time), fill.fill_price, fill.fill_qty, fill.commission, fill.tax),
+        )
 
     def upsert_paper_position(self, position: PaperPosition) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO paper_positions(
-                    symbol, opened_at, updated_at, qty, avg_price, last_price, market_value, cost_basis, realized_pnl, unrealized_pnl
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    position.symbol,
-                    self._dt(position.opened_at) if position.opened_at else None,
-                    self._dt(position.updated_at),
-                    position.qty,
-                    position.avg_price,
-                    position.last_price,
-                    position.market_value,
-                    position.cost_basis,
-                    position.realized_pnl,
-                    position.unrealized_pnl,
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO paper_positions(
+                symbol, opened_at, updated_at, qty, avg_price, last_price, market_value, cost_basis, realized_pnl, unrealized_pnl
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                position.symbol,
+                self._dt(position.opened_at) if position.opened_at else None,
+                self._dt(position.updated_at),
+                position.qty,
+                position.avg_price,
+                position.last_price,
+                position.market_value,
+                position.cost_basis,
+                position.realized_pnl,
+                position.unrealized_pnl,
+            ),
+        )
 
     def insert_portfolio_snapshot(self, snapshot: PortfolioSnapshot) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO paper_portfolio_snapshots(
-                    snapshot_id, event_time, cash_balance, gross_market_value, net_liquidation_value,
-                    open_positions, realized_pnl, unrealized_pnl
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    snapshot.snapshot_id,
-                    self._dt(snapshot.event_time),
-                    snapshot.cash_balance,
-                    snapshot.gross_market_value,
-                    snapshot.net_liquidation_value,
-                    snapshot.open_positions,
-                    snapshot.realized_pnl,
-                    snapshot.unrealized_pnl,
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO paper_portfolio_snapshots(
+                snapshot_id, event_time, cash_balance, gross_market_value, net_liquidation_value,
+                open_positions, realized_pnl, unrealized_pnl
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot.snapshot_id,
+                self._dt(snapshot.event_time),
+                snapshot.cash_balance,
+                snapshot.gross_market_value,
+                snapshot.net_liquidation_value,
+                snapshot.open_positions,
+                snapshot.realized_pnl,
+                snapshot.unrealized_pnl,
+            ),
+        )
 
     def insert_broker_order_submission(self, submission: BrokerOrderSubmission) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO broker_paper_order_submissions(
-                    submission_id, local_order_id, broker_mode, symbol, event_time, side, qty, limit_price,
-                    order_type, status, broker_order_no, broker_branch_no, detail_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    submission.submission_id,
-                    submission.local_order_id,
-                    submission.broker_mode,
-                    submission.symbol,
-                    self._dt(submission.event_time),
-                    submission.side,
-                    submission.qty,
-                    submission.limit_price,
-                    submission.order_type,
-                    submission.status,
-                    submission.broker_order_no,
-                    submission.broker_branch_no,
-                    self._json(submission.detail),
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO broker_paper_order_submissions(
+                submission_id, local_order_id, broker_mode, symbol, event_time, side, qty, limit_price,
+                order_type, status, broker_order_no, broker_branch_no, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                submission.submission_id,
+                submission.local_order_id,
+                submission.broker_mode,
+                submission.symbol,
+                self._dt(submission.event_time),
+                submission.side,
+                submission.qty,
+                submission.limit_price,
+                submission.order_type,
+                submission.status,
+                submission.broker_order_no,
+                submission.broker_branch_no,
+                self._json(submission.detail),
+            ),
+        )
 
 
     def insert_broker_order_status_snapshot(self, snapshot: BrokerOrderStatusSnapshot) -> None:
@@ -661,12 +664,10 @@ class SQLiteRuntimeStore:
             (status, order_id),
         )
     def insert_risk_event(self, event: RiskEvent) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO ops_risk_events(risk_event_id, symbol, event_time, gate, detail) VALUES (?, ?, ?, ?, ?)",
-                (event.risk_event_id, event.symbol, self._dt(event.event_time), event.gate, event.detail),
-            )
-            connection.commit()
+        self._run_write_query(
+            "INSERT OR REPLACE INTO ops_risk_events(risk_event_id, symbol, event_time, gate, detail) VALUES (?, ?, ?, ?, ?)",
+            (event.risk_event_id, event.symbol, self._dt(event.event_time), event.gate, event.detail),
+        )
 
     def insert_reconciliation_run(self, run: ReconciliationRun) -> None:
         self._run_write_query(
@@ -675,55 +676,49 @@ class SQLiteRuntimeStore:
         )
 
     def insert_replay_run(self, run: ReplayRun) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO ops_replay_runs(replay_id, as_of, status, drift_count) VALUES (?, ?, ?, ?)",
-                (run.replay_id, self._dt(run.as_of), run.status, run.drift_count),
-            )
-            connection.commit()
+        self._run_write_query(
+            "INSERT OR REPLACE INTO ops_replay_runs(replay_id, as_of, status, drift_count) VALUES (?, ?, ?, ?)",
+            (run.replay_id, self._dt(run.as_of), run.status, run.drift_count),
+        )
 
     def insert_training_run(self, run: TrainingRun) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO ml_training_runs(
-                    training_run_id, started_at, completed_at, model_version, feature_set_version, horizon_min,
-                    train_rows, validation_rows, training_summary_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    run.training_run_id,
-                    self._dt(run.started_at),
-                    self._dt(run.completed_at),
-                    run.model_version,
-                    run.feature_set_version,
-                    run.horizon_min,
-                    run.train_rows,
-                    run.validation_rows,
-                    self._json(run.training_summary),
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO ml_training_runs(
+                training_run_id, started_at, completed_at, model_version, feature_set_version, horizon_min,
+                train_rows, validation_rows, training_summary_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run.training_run_id,
+                self._dt(run.started_at),
+                self._dt(run.completed_at),
+                run.model_version,
+                run.feature_set_version,
+                run.horizon_min,
+                run.train_rows,
+                run.validation_rows,
+                self._json(run.training_summary),
+            ),
+        )
 
     def insert_model_evaluation(self, evaluation: ModelEvaluation) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO ml_model_evaluations(
-                    evaluation_id, training_run_id, evaluated_at, split_name, accuracy, total_rows, metrics_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    evaluation.evaluation_id,
-                    evaluation.training_run_id,
-                    self._dt(evaluation.evaluated_at),
-                    evaluation.split_name,
-                    evaluation.accuracy,
-                    evaluation.total_rows,
-                    self._json(evaluation.metrics),
-                ),
-            )
-            connection.commit()
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO ml_model_evaluations(
+                evaluation_id, training_run_id, evaluated_at, split_name, accuracy, total_rows, metrics_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evaluation.evaluation_id,
+                evaluation.training_run_id,
+                self._dt(evaluation.evaluated_at),
+                evaluation.split_name,
+                evaluation.accuracy,
+                evaluation.total_rows,
+                self._json(evaluation.metrics),
+            ),
+        )
 
     def fetch_market_ticks(self, symbol: str | None = None) -> list[sqlite3.Row]:
         query = "SELECT symbol, event_time, price, volume, source FROM raw_market_ticks"
@@ -823,6 +818,27 @@ class SQLiteRuntimeStore:
                 with self._connect() as connection:
                     for table_name in table_name_list:
                         connection.execute(f"DELETE FROM {table_name}")
+                    connection.commit()
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.write_retry_delays) - 1:
+                    raise
+        if last_error is not None:
+            raise last_error
+
+    def _run_write_many(self, query: str, params_list: list[tuple[Any, ...]]) -> None:
+        if not params_list:
+            return
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.write_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            try:
+                with self._connect() as connection:
+                    connection.executemany(query, params_list)
                     connection.commit()
                 return
             except sqlite3.OperationalError as exc:

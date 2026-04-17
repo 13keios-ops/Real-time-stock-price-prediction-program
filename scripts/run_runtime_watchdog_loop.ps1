@@ -28,6 +28,8 @@ if (-not $RuntimeDataDir) {
 $stateDir = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state"
 $statePath = Join-Path $stateDir "watchdog-state.json"
 $dashboardSnapshotPath = Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json"
+$mlMaintenanceStatePath = Join-Path $RuntimeDataDir "reports\ml-maintenance\state\latest-post-close-ml.json"
+$mlMaintenanceLockPath = Join-Path $RuntimeDataDir "reports\ml-maintenance\state\maintenance-in-progress.json"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
@@ -61,6 +63,7 @@ function Write-WatchdogState {
         [string]$DashboardAction,
         [string]$DashboardSnapshotAction,
         [string]$LiveRuntimeAction,
+        [string]$MlMaintenanceAction,
         [string[]]$Errors,
         [object]$DashboardStatus,
         [object]$LiveRuntimeStatus
@@ -79,6 +82,7 @@ function Write-WatchdogState {
         dashboard_action = $DashboardAction
         dashboard_snapshot_action = $DashboardSnapshotAction
         live_runtime_action = $LiveRuntimeAction
+        ml_maintenance_action = $MlMaintenanceAction
         stdout_log_path = (Join-Path $RuntimeDataDir "logs\app\runtime-watchdog.stdout.log")
         stderr_log_path = (Join-Path $RuntimeDataDir "logs\app\runtime-watchdog.stderr.log")
         errors = $Errors
@@ -98,9 +102,12 @@ while ($true) {
     $dashboardAction = "none"
     $dashboardSnapshotAction = "none"
     $liveRuntimeAction = "none"
+    $mlMaintenanceAction = "none"
     $dashboardStatus = $null
     $liveRuntimeStatus = $null
     $dashboardSnapshot = $null
+    $mlMaintenanceLock = Read-JsonFile -Path $mlMaintenanceLockPath
+    $maintenanceInProgress = $null -ne $mlMaintenanceLock
 
     try {
         $dashboardStatus = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
@@ -115,7 +122,7 @@ while ($true) {
         $dashboardHealthy = ([string]$dashboardStatus.status -eq "running") -and [bool]$dashboardStatus.dashboard_responding
     }
 
-    if (-not $dashboardHealthy) {
+    if ((-not $maintenanceInProgress) -and (-not $dashboardHealthy)) {
         try {
             $null = & (Join-Path $WorkspaceRoot "scripts\start_dashboard_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
@@ -148,7 +155,7 @@ while ($true) {
         $liveRuntimeHealthy = ([string]$liveRuntimeStatus.status -eq "running")
     }
 
-    if (-not $liveRuntimeHealthy) {
+    if ((-not $maintenanceInProgress) -and (-not $liveRuntimeHealthy)) {
         try {
             $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
@@ -195,7 +202,7 @@ while ($true) {
         }
     }
 
-    if ($needsVerificationRefresh) {
+    if ((-not $maintenanceInProgress) -and $needsVerificationRefresh) {
         try {
             & python -m app --verify-kis-ws --symbols $symbolForVerification --max-frames 10 --max-reconnects 1 | Out-Null
             $dashboardSnapshotAction = "refresh_kis_verification"
@@ -206,7 +213,7 @@ while ($true) {
         }
     }
 
-    if ($needsLiveRuntimeRecovery) {
+    if ((-not $maintenanceInProgress) -and $needsLiveRuntimeRecovery) {
         try {
             $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
@@ -222,8 +229,47 @@ while ($true) {
         }
     }
 
+    $todayKey = Get-Date -Format "yyyy-MM-dd"
+    $now = Get-Date
+    $isWeekday = $now.DayOfWeek -notin @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)
+    $afterClose = ($now.Hour -gt 16) -or (($now.Hour -eq 16) -and ($now.Minute -ge 5))
+    $mlMaintenanceState = Read-JsonFile -Path $mlMaintenanceStatePath
+    $mlMaintenanceAlreadyRan = (
+        $null -ne $mlMaintenanceState -and
+        [string]$mlMaintenanceState["maintenance_date"] -eq $todayKey -and
+        [string]$mlMaintenanceState["status"] -eq "ok"
+    )
+
+    if ((-not $maintenanceInProgress) -and $isWeekday -and $afterClose -and -not $mlMaintenanceAlreadyRan) {
+        try {
+            & (Join-Path $WorkspaceRoot "scripts\run_post_close_ml_maintenance.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir `
+                -RestartLiveRuntime | Out-Null
+            $mlMaintenanceAction = "post_close_ml_rebuild"
+            $dashboardSnapshot = Read-DashboardSnapshot
+        } catch {
+            $mlMaintenanceAction = "post_close_ml_rebuild_failed"
+            $errors += "post_close_ml: $($_.Exception.Message)"
+        }
+    }
+
     if ($dashboardSnapshotAction -eq "none") {
         $dashboardSnapshotAction = "client_refresh"
+    }
+    if ($maintenanceInProgress) {
+        if ($dashboardAction -eq "none") {
+            $dashboardAction = "maintenance_hold"
+        }
+        if ($liveRuntimeAction -eq "none") {
+            $liveRuntimeAction = "maintenance_hold"
+        }
+        if ($dashboardSnapshotAction -eq "client_refresh") {
+            $dashboardSnapshotAction = "maintenance_hold"
+        }
+        if ($mlMaintenanceAction -eq "none") {
+            $mlMaintenanceAction = "running"
+        }
     }
 
     $status = if ($errors.Count -eq 0) { "running" } else { "warning" }
@@ -232,6 +278,7 @@ while ($true) {
         -DashboardAction $dashboardAction `
         -DashboardSnapshotAction $dashboardSnapshotAction `
         -LiveRuntimeAction $liveRuntimeAction `
+        -MlMaintenanceAction $mlMaintenanceAction `
         -Errors $errors `
         -DashboardStatus $dashboardStatus `
         -LiveRuntimeStatus $liveRuntimeStatus
