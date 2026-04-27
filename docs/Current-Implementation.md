@@ -70,6 +70,7 @@ The project now has a working local foundation for:
 - Runtime autoboot script and Windows startup-launcher install/remove/status scripts are available
 - Runtime watchdog background start / status / stop scripts are available
 - Repo review until deadline background start / status / stop scripts are available
+- Midday Codex review now keeps only `run_codex_review_iteration_v4.ps1` as the active runner; older broken variants were removed
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -80,6 +81,7 @@ The project now has a working local foundation for:
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
 - Hourly repository audit now resolves GitHub Desktop's bundled `git.exe` when `git` is not available on PATH
+- Midday Codex review `v4` now uses the same non-interactive Codex CLI invocation pattern as the hourly audit path, so long prompts complete and return reliably
 - Git autopush helper scripts now default their scan root to the current repository parent instead of a fixed drive path
 - Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only

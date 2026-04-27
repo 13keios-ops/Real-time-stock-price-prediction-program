@@ -42,6 +42,7 @@ function Invoke-CodexReport {
     )
 
     $args = @(
+        "-a", "never",
         "exec",
         "-C", $WorkspaceRoot,
         "-s", "read-only",
@@ -54,11 +55,42 @@ function Invoke-CodexReport {
         $args += @("--output-schema", $SchemaPath)
     }
 
-    $args += $Prompt
+    $codexSource = (Get-Command codex -ErrorAction Stop).Source
+    $codexCommand = Join-Path (Split-Path -Path $codexSource -Parent) "codex.cmd"
+    if (-not (Test-Path -LiteralPath $codexCommand)) {
+        $codexCommand = $codexSource
+    }
 
-    & codex @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "codex exec failed with exit code $LASTEXITCODE"
+    $codexLogPath = Join-Path $RuntimeDataDir "logs\app\midday-codex-review-codex.log"
+    $promptDir = Join-Path $RuntimeDataDir "tmp\codex-prompts"
+    New-Item -ItemType Directory -Force $promptDir | Out-Null
+    $promptPath = Join-Path $promptDir ("prompt-{0}.txt" -f ([guid]::NewGuid().ToString("N")))
+    Set-Content -LiteralPath $promptPath -Value $Prompt -Encoding UTF8
+
+    $args += "-"
+    $quotedArgs = $args | ForEach-Object {
+        if ($_ -match '\s') {
+            '"{0}"' -f ($_ -replace '"', '""')
+        } else {
+            $_
+        }
+    }
+
+    $commandText = @(
+        ('"{0}"' -f $codexCommand),
+        ($quotedArgs -join ' '),
+        ('< "{0}"' -f $promptPath),
+        '1>nul',
+        ('2>>"{0}"' -f $codexLogPath)
+    ) -join ' '
+
+    try {
+        cmd.exe /d /c $commandText | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "codex exec failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Remove-Item -LiteralPath $promptPath -Force -ErrorAction SilentlyContinue
     }
 }
 

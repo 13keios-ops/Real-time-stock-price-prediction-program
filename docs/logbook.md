@@ -145,6 +145,8 @@
 - full test suite after repo-move recovery fixes: `67 tests OK`
 - `python -m app --build-dashboard`: `ok`
 - PowerShell recovery scripts updated to default to repo-root resolution: `ok`
+- all `scripts/*.ps1` parse check after legacy review-script cleanup: `ok`
+- `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday ... -TimeLabel 2205`: `ok`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -248,6 +250,9 @@
   - git-autopush helper 의 기본 `ScanRoot` 를 고정 `J:\GitHub` 대신 현재 저장소의 상위 폴더로 바꿨다.
   - `run_hourly_repo_audit_iteration.ps1` 는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 내장 `git.exe` 를 찾아 현재 저장소 상태를 읽는다.
   - 검증으로 `python -m unittest discover -s tests -p "test_*.py"`, `python -m app --build-runtime-report`, `python -m app --build-dashboard` 를 실제로 다시 실행해 통과를 확인했다.
+  - 더 이상 참조되지 않는 `scripts/run_codex_review_iteration.ps1`, `run_codex_review_iteration_v2.ps1`, `run_codex_review_iteration_v3.ps1` 를 제거해 전체 `scripts/*.ps1` 문법 검사에서 남아 있던 parse 오류를 없앴다.
+  - 활성 runner 인 `scripts/run_codex_review_iteration_v4.ps1` 는 긴 prompt 를 인자로 직접 넘기던 방식을 버리고, hourly audit 과 같은 비대화형 Codex CLI 호출 방식으로 바꿨다.
+  - 이 변경 뒤 `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday -ReviewDate 2026-04-27 -TimeLabel 2205` 실행이 실제로 종료됐고, 산출물 `runtime-data/reports/codex/intraday/2026-04-27/iteration-2205.md` 생성과 완료 로그를 확인했다.
 
 - `2026-04-17`
   - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 `paper baseline alignment` 경로를 추가했다.
