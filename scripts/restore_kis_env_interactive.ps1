@@ -47,15 +47,11 @@ function Get-PlainTextFromSecureString {
 
 function Get-EnvValue {
     param(
-        [AllowEmptyCollection()]
-        [AllowEmptyString()]
-        [string[]]$Lines,
-
         [Parameter(Mandatory = $true)]
         [string]$Key
     )
 
-    foreach ($line in $Lines) {
+    foreach ($line in $script:EnvSourceLines) {
         if ($line -match ('^' + [regex]::Escape($Key) + '=(.*)$')) {
             return $Matches[1]
         }
@@ -67,23 +63,20 @@ function Get-EnvValue {
 function Set-EnvValue {
     param(
         [Parameter(Mandatory = $true)]
-        [System.Collections.Generic.List[string]]$Lines,
-
-        [Parameter(Mandatory = $true)]
         [string]$Key,
 
-        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string]$Value
     )
 
-    for ($index = 0; $index -lt $Lines.Count; $index++) {
-        if ($Lines[$index] -match ('^' + [regex]::Escape($Key) + '=')) {
-            $Lines[$index] = "$Key=$Value"
+    for ($index = 0; $index -lt $script:EnvLines.Count; $index++) {
+        if ($script:EnvLines[$index] -match ('^' + [regex]::Escape($Key) + '=')) {
+            $script:EnvLines[$index] = "$Key=$Value"
             return
         }
     }
 
-    $Lines.Add("$Key=$Value") | Out-Null
+    $script:EnvLines.Add("$Key=$Value") | Out-Null
 }
 
 function Read-RequiredValue {
@@ -169,19 +162,19 @@ function Get-MaskedAccount {
     return "$($normalized.Substring(0, 4))$('*' * ($normalized.Length - 4))"
 }
 
-$sourceLines = [System.IO.File]::ReadAllLines($basePath, [System.Text.Encoding]::UTF8)
-$lines = New-Object 'System.Collections.Generic.List[string]'
-$lines.AddRange($sourceLines)
+$script:EnvSourceLines = [System.IO.File]::ReadAllLines($basePath, [System.Text.Encoding]::UTF8)
+$script:EnvLines = New-Object 'System.Collections.Generic.List[string]'
+$script:EnvLines.AddRange($script:EnvSourceLines)
 
 $selectedTradingMode = $TradingMode.Trim().ToLowerInvariant()
 $prefix = if ($selectedTradingMode -eq "live") { "LIVE" } else { "PAPER" }
-$currentTradingMode = (Get-EnvValue -Lines $sourceLines -Key "TRADING_MODE").Trim().ToLowerInvariant()
+$currentTradingMode = (Get-EnvValue -Key "TRADING_MODE").Trim().ToLowerInvariant()
 
-$currentAppKey = (Get-EnvValue -Lines $sourceLines -Key "KIS_APP_KEY_$prefix").Trim()
-$currentAppSecret = (Get-EnvValue -Lines $sourceLines -Key "KIS_APP_SECRET_$prefix").Trim()
-$currentAccountNo = (Get-EnvValue -Lines $sourceLines -Key "KIS_ACCOUNT_NO_$prefix").Trim()
-$currentProductCode = (Get-EnvValue -Lines $sourceLines -Key "KIS_PRODUCT_CODE_$prefix").Trim()
-$currentHtsId = (Get-EnvValue -Lines $sourceLines -Key "KIS_HTS_ID").Trim()
+$currentAppKey = (Get-EnvValue -Key "KIS_APP_KEY_$prefix").Trim()
+$currentAppSecret = (Get-EnvValue -Key "KIS_APP_SECRET_$prefix").Trim()
+$currentAccountNo = (Get-EnvValue -Key "KIS_ACCOUNT_NO_$prefix").Trim()
+$currentProductCode = (Get-EnvValue -Key "KIS_PRODUCT_CODE_$prefix").Trim()
+$currentHtsId = (Get-EnvValue -Key "KIS_HTS_ID").Trim()
 
 if ([string]::IsNullOrWhiteSpace($currentProductCode) -and $prefix -eq "PAPER") {
     $currentProductCode = "01"
@@ -212,14 +205,14 @@ if ($IncludeAccountFields) {
     $htsId = Read-OptionalValue -Prompt "KIS_HTS_ID" -DefaultValue $currentHtsId
 }
 
-Set-EnvValue -Lines $lines -Key "TRADING_MODE" -Value $selectedTradingMode
-Set-EnvValue -Lines $lines -Key "KIS_APP_KEY_$prefix" -Value $appKey
-Set-EnvValue -Lines $lines -Key "KIS_APP_SECRET_$prefix" -Value $appSecret
-Set-EnvValue -Lines $lines -Key "KIS_ACCOUNT_NO_$prefix" -Value $accountNo
-Set-EnvValue -Lines $lines -Key "KIS_PRODUCT_CODE_$prefix" -Value $productCode
-Set-EnvValue -Lines $lines -Key "KIS_HTS_ID" -Value $htsId
+Set-EnvValue -Key "TRADING_MODE" -Value $selectedTradingMode
+Set-EnvValue -Key "KIS_APP_KEY_$prefix" -Value $appKey
+Set-EnvValue -Key "KIS_APP_SECRET_$prefix" -Value $appSecret
+Set-EnvValue -Key "KIS_ACCOUNT_NO_$prefix" -Value $accountNo
+Set-EnvValue -Key "KIS_PRODUCT_CODE_$prefix" -Value $productCode
+Set-EnvValue -Key "KIS_HTS_ID" -Value $htsId
 
-[System.IO.File]::WriteAllLines($envPath, $lines, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllLines($envPath, $script:EnvLines.ToArray(), [System.Text.Encoding]::UTF8)
 
 Write-Host ""
 Write-Host ".env saved" -ForegroundColor Green

@@ -293,6 +293,7 @@
   - NAS recovery export root `\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports` 접근 가능을 다시 확인했다.
   - 최신 recovery package `real-time-stock-price-prediction-program-recovery-20260428-020032` 구조를 점검했고, `repo-snapshot` 루트에는 `.env` 가 포함되지 않는다는 것을 확인했다.
   - `restore_kis_env_interactive.ps1` 초안은 blank line 이 있는 `.env.example` 에서 `Lines` parameter binding 오류가 있었고, 이후 전체 프롬프트를 ASCII 로 정리하면서 기본 입력 범위를 `paper` KIS app key/secret 전용으로 단순화했다.
+  - `restore_kis_env_interactive.ps1` 의 env line helper 는 빈 줄이 PowerShell function parameter binding 으로 들어가지 않도록 script-scope buffer 를 직접 읽고 쓰게 바꿨고, 계좌값을 나중에 넣는 흐름을 위해 빈 env value 저장도 허용했다.
   - `RECOVERY.md` 와 NAS package 의 `RESTORE-FIRST.txt` 가 요구하던 `scripts/check_local_setup.ps1` 가 실제로 비어 있었기 때문에, 복구 preflight 스크립트를 새로 추가했다.
   - 새 `check_local_setup.ps1` 는 root `.env`, Python executable, `websockets`/`lightgbm`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 한 번에 점검하고 `runtime-data/reports/recovery/latest-local-setup-check.{json,md}` 를 남긴다.
   - `2026-04-28 02:32 KST` 실제 실행 결과 dashboard=`running`, watchdog=`running`, NAS recovery root=`reachable`, Python=`F:\Programs\Python\Python314\python.exe`, blocker=`missing_root_env`, `live_runtime_blocked_missing_kis_credentials` 로 확인됐다.
