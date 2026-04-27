@@ -38,6 +38,99 @@ function Read-JsonFile {
     }
 }
 
+function Read-DotEnvMap {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $envMap = @{}
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $envMap
+    }
+
+    foreach ($rawLine in [System.IO.File]::ReadAllLines($Path, [System.Text.Encoding]::UTF8)) {
+        $line = "$rawLine".Trim()
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#") -or -not $line.Contains("=")) {
+            continue
+        }
+
+        $pair = $line.Split("=", 2)
+        $key = $pair[0].Trim()
+        $value = $pair[1].Trim().Trim("'`"")
+        if (-not [string]::IsNullOrWhiteSpace($key)) {
+            $envMap[$key] = $value
+        }
+    }
+
+    return $envMap
+}
+
+function Get-NormalizedEnvValue {
+    param([string]$Value)
+
+    $normalized = "$Value".Trim()
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return ""
+    }
+
+    $lowered = $normalized.ToLowerInvariant()
+    if (
+        $normalized.StartsWith("?ш린??") -or
+        $normalized.StartsWith("諛쒓툒諛쏆?_") -or
+        $normalized.StartsWith("<") -or
+        $normalized.StartsWith("[") -or
+        (@("placeholder", "changeme", "example", "sample") -contains $lowered)
+    ) {
+        return ""
+    }
+
+    return $normalized
+}
+
+function Get-EnvSettingValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$DotEnvMap,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Default = ""
+    )
+
+    $processValue = [Environment]::GetEnvironmentVariable($Key)
+    if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+        return "$processValue"
+    }
+
+    if ($DotEnvMap.ContainsKey($Key)) {
+        return "$($DotEnvMap[$Key])"
+    }
+
+    return $Default
+}
+
+function Get-KisCredentialStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EnvFilePath
+    )
+
+    $dotEnvMap = Read-DotEnvMap -Path $EnvFilePath
+    $tradingModeRaw = (Get-EnvSettingValue -DotEnvMap $dotEnvMap -Key "TRADING_MODE" -Default "paper").Trim().ToLowerInvariant()
+    $tradingMode = if ($tradingModeRaw -eq "live") { "live" } else { "paper" }
+    $prefix = if ($tradingMode -eq "live") { "LIVE" } else { "PAPER" }
+    $appKey = Get-NormalizedEnvValue -Value (Get-EnvSettingValue -DotEnvMap $dotEnvMap -Key "KIS_APP_KEY_$prefix")
+    $appSecret = Get-NormalizedEnvValue -Value (Get-EnvSettingValue -DotEnvMap $dotEnvMap -Key "KIS_APP_SECRET_$prefix")
+
+    return [ordered]@{
+        trading_mode = $tradingMode
+        ready_for_quotes = (-not [string]::IsNullOrWhiteSpace($appKey)) -and (-not [string]::IsNullOrWhiteSpace($appSecret))
+    }
+}
+
 if (-not (Test-Path -LiteralPath $statePath)) {
     [ordered]@{
         status = "stopped"
@@ -179,16 +272,29 @@ $failureReason = if ($storedFailureReason -and $storedFailureReason -ne ".") {
 } else {
     ""
 }
-$blockedReason = if ([string]$state["blocked_reason"]) {
+$envFileExists = Test-Path -LiteralPath $envFilePath
+$credentialStatus = Get-KisCredentialStatus -EnvFilePath $envFilePath
+$credentialsReadyForQuotes = [bool]$credentialStatus["ready_for_quotes"]
+$tradingMode = [string]$credentialStatus["trading_mode"]
+$parsedBlockedReason = Get-BlockedReasonFromText -Text ($failureReason + [Environment]::NewLine + $stdoutTail)
+$storedBlockedReason = if ([string]$state["blocked_reason"]) {
     [string]$state["blocked_reason"]
 } else {
-    Get-BlockedReasonFromText -Text ($failureReason + [Environment]::NewLine + $stdoutTail)
+    ""
 }
+$blockedReason = if ($storedBlockedReason) { $storedBlockedReason } else { $parsedBlockedReason }
 $knownCredentialsFailureReason = "python.exe -m app: error: KIS credentials are not configured. Fill .env values before using KIS commands."
+$staleCredentialsFailureCleared = $false
+if (($blockedReason -eq "missing_kis_credentials") -and $credentialsReadyForQuotes) {
+    $blockedReason = ""
+    if ($failureReason -eq $knownCredentialsFailureReason) {
+        $failureReason = ""
+    }
+    $staleCredentialsFailureCleared = $true
+}
 if (($blockedReason -eq "missing_kis_credentials") -and (($failureReason -eq ".") -or [string]::IsNullOrWhiteSpace($failureReason))) {
     $failureReason = $knownCredentialsFailureReason
 }
-$envFileExists = Test-Path -LiteralPath $envFilePath
 $message = Get-LiveRuntimeMessage -BlockedReason $blockedReason -EnvFileExists $envFileExists -FailureReason $failureReason
 
 $dashboardPayload = Read-JsonFile -Path $dashboardPath
@@ -199,7 +305,9 @@ $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { 
 [string]$rawStatus = "$($state["status"])"
 $effectiveStatus = if ($processRunning) {
     "running"
-} elseif (($rawStatus -eq "failed") -or ($blockedReason -eq "missing_kis_credentials")) {
+} elseif ($blockedReason -eq "missing_kis_credentials") {
+    "failed"
+} elseif (($rawStatus -eq "failed") -and -not $staleCredentialsFailureCleared) {
     "failed"
 } else {
     "stopped"
@@ -222,7 +330,9 @@ if (
     ([string]$state["stdout_tail"] -ne $stdoutTail) -or
     ([string]$state["stderr_tail"] -ne $stderrTail) -or
     ([string]$state["message"] -ne $message) -or
-    ([bool]$state["env_file_exists"] -ne $envFileExists)
+    ([bool]$state["env_file_exists"] -ne $envFileExists) -or
+    ([bool]$state["credentials_ready_for_quotes"] -ne $credentialsReadyForQuotes) -or
+    ([string]$state["trading_mode"] -ne $tradingMode)
 ) {
     $normalizedState = [ordered]@{
         status = $normalizedStateStatus
@@ -241,6 +351,8 @@ if (
         started_at = $state["started_at"]
         env_file_path = $envFilePath
         env_file_exists = $envFileExists
+        trading_mode = $tradingMode
+        credentials_ready_for_quotes = $credentialsReadyForQuotes
         message = $message
     }
 
@@ -290,6 +402,8 @@ if (
     stopped_at = $state["stopped_at"]
     env_file_path = $envFilePath
     env_file_exists = $envFileExists
+    trading_mode = $tradingMode
+    credentials_ready_for_quotes = $credentialsReadyForQuotes
     exit_code = $state["exit_code"]
     blocked_reason = $blockedReason
     failure_reason = $failureReason

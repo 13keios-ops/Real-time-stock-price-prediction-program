@@ -69,6 +69,7 @@ It verifies:
 - Python executable detection
 - `websockets` and `lightgbm` module availability
 - dashboard / live runtime / watchdog status
+- runtime startup launcher path validity for the current repo root
 - NAS recovery-root reachability
 
 ## Repository Note

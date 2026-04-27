@@ -97,6 +97,7 @@ $pythonExecutable = Resolve-PythonExecutable
 $dashboardStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1")
 $liveRuntimeStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1")
 $watchdogStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_runtime_watchdog_status.ps1")
+$runtimeStartupLauncherStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_runtime_startup_launcher_status.ps1")
 
 $envFileExists = Test-Path -LiteralPath $envFilePath
 $envExampleExists = Test-Path -LiteralPath $envExamplePath
@@ -143,10 +144,20 @@ if ([string]$watchdogStatus.status -ne "running") {
     $nextActions += "Restart the runtime watchdog."
 }
 
+if (-not [bool]$runtimeStartupLauncherStatus.installed) {
+    $blockers += "runtime_startup_launcher_missing"
+    $nextActions += "Install the runtime startup launcher for the current repo path."
+} elseif (-not [bool]$runtimeStartupLauncherStatus.ok) {
+    $blockers += "runtime_startup_launcher_stale"
+    $nextActions += "Reinstall the runtime startup launcher so it points to the current repo path."
+}
+
 if ([string]$liveRuntimeStatus.status -ne "running") {
     if ([string]$liveRuntimeStatus.blocked_reason -eq "missing_kis_credentials") {
         $blockers += "live_runtime_blocked_missing_kis_credentials"
-        if ($envFileExists) {
+        if ($envFileExists -and [bool]$liveRuntimeStatus.credentials_ready_for_quotes) {
+            $nextActions += "Restart the live runtime so the watchdog can resume collection."
+        } elseif ($envFileExists) {
             $nextActions += "Check whether the required KIS values in root .env are empty and fill them."
         } else {
             $nextActions += "Restore root .env and then restart the live runtime."
@@ -177,6 +188,7 @@ $payload = [ordered]@{
     dashboard_status = $dashboardStatus
     live_runtime_status = $liveRuntimeStatus
     watchdog_status = $watchdogStatus
+    runtime_startup_launcher_status = $runtimeStartupLauncherStatus
     blockers = $blockers
     next_actions = $nextActions
 }
@@ -198,6 +210,8 @@ $mdLines = @(
     "- dashboard status: $($dashboardStatus.status)",
     "- live runtime status: $($liveRuntimeStatus.status)",
     "- watchdog status: $($watchdogStatus.status)",
+    "- runtime startup launcher installed: $($runtimeStartupLauncherStatus.installed)",
+    "- runtime startup launcher ok: $($runtimeStartupLauncherStatus.ok)",
     "",
     "## Blockers",
     ""

@@ -74,8 +74,10 @@ The project now has a working local foundation for:
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
 - Live runtime status now verifies that the recorded pid is still the actual `python -m app --kis-ws-listen` process, so stale pid reuse no longer looks like a healthy listener
 - Live runtime start/status helpers now persist blocked reasons such as missing KIS credentials, including the common `root .env missing` recovery case
+- Live runtime status now also reevaluates current KIS app key/secret readiness, so a stale `missing_kis_credentials` failure clears automatically after `.env` recovery instead of pinning watchdog in a permanently blocked state
 - Dashboard, watchdog, hourly-audit, and deadline-review helpers now verify their saved pid against the real command line before trusting `running` state or stopping a process
-- Local setup recovery preflight is now available through `scripts/check_local_setup.ps1`, which checks root `.env`, Python modules, dashboard, live runtime, watchdog, and NAS recovery-root reachability
+- Runtime startup-launcher status now validates the saved `WorkspaceRoot`, `RuntimeDataDir`, and autoboot script path instead of checking only that the launcher file exists
+- Local setup recovery preflight is now available through `scripts/check_local_setup.ps1`, which checks root `.env`, Python modules, dashboard, live runtime, watchdog, runtime startup launcher, and NAS recovery-root reachability
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -470,6 +472,7 @@ It does not rebuild dashboard snapshots itself anymore; snapshot refresh is hand
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 The watchdog now reads market-bar and KIS-verification freshness from the cached dashboard snapshot with the same serializer-based JSON reader used by the live-runtime status script.
 When root `.env` is missing or KIS credentials are not configured, the watchdog now records a blocked live-runtime state instead of retrying the same failing restart every cycle.
+If `.env` is restored later and the active trading-mode app key/secret become available again, the stale blocked state is cleared back to `stopped` so the next watchdog cycle can retry the listener automatically.
 
 ### 10. Monday runtime starter
 

@@ -74,7 +74,8 @@
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
 - paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
 - dashboard / watchdog / hourly audit / deadline review helper 는 이제 저장된 pid 만 믿지 않고 실제 command line 까지 확인해 stale pid 재사용 오판과 잘못된 stop 을 줄인다.
-- `scripts/check_local_setup.ps1` 가 root `.env`, Python module, dashboard, live runtime, watchdog, NAS recovery root 를 한 번에 점검하고 recovery report를 남긴다.
+- `scripts/check_local_setup.ps1` 가 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 를 한 번에 점검하고 recovery report를 남긴다.
+- live runtime status 는 이제 `.env` 복구 뒤 active trading mode 기준 KIS app key/secret 이 다시 준비되면 stale `missing_kis_credentials` block 을 자동 해제한다.
 
 ## Active Checklist
 
@@ -172,6 +173,10 @@
 - live runtime blocked-state recovery:
   - `.\scripts\get_live_runtime_status.ps1`: `status=failed`, `blocked_reason=missing_kis_credentials`, `env_file_exists=false`
   - `.\scripts\get_runtime_watchdog_status.ps1`: `live_runtime_action=blocked_missing_env`
+- live runtime blocked-state auto-clear recovery:
+  - temp `.env` with dummy KIS app key/secret: `credentials_ready_for_quotes=true`
+  - `.\scripts\get_live_runtime_status.ps1 -WorkspaceRoot <temp>`: `status=stopped`
+  - stale `blocked_reason` and stale credentials failure message: `cleared`
 - background helper pid verification recovery:
   - dashboard / watchdog / hourly audit / deadline review status parse check: `ok`
   - `.\scripts\get_dashboard_status.ps1`: `status=running`
@@ -183,6 +188,10 @@
   - python executable resolved: `F:\Programs\Python\Python314\python.exe`
   - websockets available: `true`
   - lightgbm available: `true`
+- runtime startup launcher recovery:
+  - previous launcher state: `workspace_root_mismatch`, `runtime_data_dir_mismatch`, `autoboot_script_missing`
+  - `.\scripts\install_runtime_startup_launcher.ps1`: `ok`
+  - `.\scripts\get_runtime_startup_launcher_status.ps1`: `installed=true`, `ok=true`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -285,6 +294,11 @@
   - `RECOVERY.md` 와 NAS package 의 `RESTORE-FIRST.txt` 가 요구하던 `scripts/check_local_setup.ps1` 가 실제로 비어 있었기 때문에, 복구 preflight 스크립트를 새로 추가했다.
   - 새 `check_local_setup.ps1` 는 root `.env`, Python executable, `websockets`/`lightgbm`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 한 번에 점검하고 `runtime-data/reports/recovery/latest-local-setup-check.{json,md}` 를 남긴다.
   - `2026-04-28 02:32 KST` 실제 실행 결과 dashboard=`running`, watchdog=`running`, NAS recovery root=`reachable`, Python=`F:\Programs\Python\Python314\python.exe`, blocker=`missing_root_env`, `live_runtime_blocked_missing_kis_credentials` 로 확인됐다.
+  - live runtime status script 는 이제 root `.env` 가 나중에 복구되면 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고, 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
+  - Windows Startup launcher 가 여전히 예전 `J:\GitHub\...` 경로를 가리키고 있다는 것을 확인했고, `get_runtime_startup_launcher_status.ps1` 가 현재 repo root / runtime-data / autoboot script 일치 여부까지 검증하도록 보강했다.
+  - `install_runtime_startup_launcher.ps1` 를 다시 실행해 startup launcher 를 현재 `D:\GitHub\Real-time-stock-price-prediction-program` 경로로 재설치했다.
+  - `check_local_setup.ps1` 는 이제 runtime startup launcher stale path 도 blocker 로 잡는다.
+  - `Desktop/Documents/Downloads`, sibling `secrets`, NAS recovery package, HKCU environment, PowerShell history 범위를 다시 확인했지만 재사용 가능한 KIS root `.env` 또는 자격정보 복구본은 찾지 못했다.
 - `2026-04-27`
   - 기존 작업 드라이브 고장 이후 저장소를 `D:\GitHub\Real-time-stock-price-prediction-program` 으로 옮긴 상태를 기준으로 전체 복구 점검을 시작했다.
   - root `runtime-data/` 가 비어 있거나 SQLite 스키마가 아직 없는 상태에서도 `python -m app --build-dashboard` 가 `no such table` 로 죽지 않고 0건 기준 snapshot 을 만들도록 SQLite read path 를 보강했다.

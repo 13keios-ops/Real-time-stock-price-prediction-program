@@ -80,8 +80,9 @@
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
+- root `.env` 가 나중에 복구되면, live runtime 상태 스크립트는 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
-- `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
+- `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -329,6 +330,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 
 runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 꺼져 있으면 다시 올린다.
 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
+반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 watchdog 은 cached dashboard snapshot 의 `분봉 / 예측 / KIS 검증 신선도`도 함께 읽고, 정규장에는 stale 상태를 실제 재기동 신호로 쓸 수 있다.
 
@@ -346,6 +348,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
 `install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
+`get_runtime_startup_launcher_status.ps1` 는 launcher 존재 여부만 보는 것이 아니라, 현재 저장소 `WorkspaceRoot` / `RuntimeDataDir` / autoboot script 경로와 일치하는지도 함께 확인한다.
 
 복구 직후 로컬 setup 점검:
 
@@ -353,7 +356,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 .\scripts\check_local_setup.ps1
 ```
 
-이 스크립트는 root `.env`, `websockets`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 함께 확인하고 아래 보고서를 갱신한다.
+이 스크립트는 root `.env`, `websockets`, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 접근 여부를 함께 확인하고 아래 보고서를 갱신한다.
 
 - `runtime-data/reports/recovery/latest-local-setup-check.json`
 - `runtime-data/reports/recovery/latest-local-setup-check.md`
