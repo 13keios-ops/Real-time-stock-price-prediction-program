@@ -147,6 +147,17 @@
 - PowerShell recovery scripts updated to default to repo-root resolution: `ok`
 - all `scripts/*.ps1` parse check after legacy review-script cleanup: `ok`
 - `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday ... -TimeLabel 2205`: `ok`
+- runtime recovery helper parse check after nested-script return fix: `ok`
+- `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass`: `ok`
+- `.\scripts\rebuild_actual_ml_state.ps1`: `ok`
+  - feature rows written: `0`
+  - label rows written: `0`
+  - deleted leftover non-actual runtime rows: `raw_market_ticks=9`, `raw_orderbook_ticks=3`, `minute_bars=1`, `predictions=1`
+- runtime recovery preflight:
+  - dashboard: `running`
+  - watchdog: `running`
+  - live runtime: `blocked by missing KIS credentials`
+  - root `.env`: `missing`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -253,6 +264,12 @@
   - 더 이상 참조되지 않는 `scripts/run_codex_review_iteration.ps1`, `run_codex_review_iteration_v2.ps1`, `run_codex_review_iteration_v3.ps1` 를 제거해 전체 `scripts/*.ps1` 문법 검사에서 남아 있던 parse 오류를 없앴다.
   - 활성 runner 인 `scripts/run_codex_review_iteration_v4.ps1` 는 긴 prompt 를 인자로 직접 넘기던 방식을 버리고, hourly audit 과 같은 비대화형 Codex CLI 호출 방식으로 바꿨다.
   - 이 변경 뒤 `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday -ReviewDate 2026-04-27 -TimeLabel 2205` 실행이 실제로 종료됐고, 산출물 `runtime-data/reports/codex/intraday/2026-04-27/iteration-2205.md` 생성과 완료 로그를 확인했다.
+  - recovery preflight 에서 root `.env` 가 없어서 KIS 계열 명령이 `KIS credentials are not configured` 로 막히는 것을 다시 확인했다.
+  - `.\scripts\rebuild_actual_ml_state.ps1` 를 실행해 남아 있던 demo/replay/test 흔적을 정리했고, 현재 실제 데이터 기준 feature/label row 는 모두 `0` 이라 ML 산출물 재생성은 아직 진행되지 않았다.
+  - `scripts/run_runtime_watchdog_loop.ps1` 는 dashboard snapshot 에 `latest_kis_verification` 이 없는 zero-state 에서 null access 로 죽지 않도록 보강했다.
+  - dashboard/live-runtime/watchdog helper 스크립트의 조기 종료 경로를 `exit` 대신 `return` 으로 바꿔, watchdog / autoboot / post-close maintenance 가 다른 helper 를 호출해도 부모 PowerShell 세션이 같이 종료되지 않게 정리했다.
+  - 이 수정 뒤 `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass` 와 `.\scripts\start_runtime_watchdog_background.ps1 -ForceRestart` 를 다시 검증했고, dashboard 와 watchdog 은 `running` 으로 유지되는 것을 확인했다.
+  - live runtime 은 계속 자동 기동을 시도할 수 있는 상태로 두었지만, 실제 KIS 자격정보가 복구되기 전까지는 listener 프로세스가 즉시 종료된다.
 
 - `2026-04-17`
   - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 `paper baseline alignment` 경로를 추가했다.

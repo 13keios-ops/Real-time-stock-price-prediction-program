@@ -150,7 +150,7 @@ if ($null -ne $existingListener) {
         }
         $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
         $payload | ConvertTo-Json -Depth 10
-        exit 0
+        return
     }
 }
 
@@ -162,7 +162,7 @@ if (Test-Path -LiteralPath $statePath) {
             $existingState.status = "running"
             $existingState.process_running = $true
             $existingState | ConvertTo-Json -Depth 10
-            exit 0
+            return
         }
     }
 }

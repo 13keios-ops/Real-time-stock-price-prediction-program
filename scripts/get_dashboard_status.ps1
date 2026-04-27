@@ -16,7 +16,7 @@ $statePath = Join-Path $RuntimeDataDir "reports\dashboard\state\server-state.jso
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Dashboard server state not found."
-    exit 0
+    return
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json

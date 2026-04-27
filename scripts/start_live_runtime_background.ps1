@@ -65,7 +65,7 @@ if (Test-Path -LiteralPath $statePath) {
             $existingState.status = "running"
             $existingState.process_running = $true
             $existingState | ConvertTo-Json -Depth 10
-            exit 0
+            return
         }
         if ($null -ne $existingProcess -and $ForceRestart) {
             Stop-Process -Id $existingProcess.Id -Force

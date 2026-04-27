@@ -16,13 +16,13 @@ $statePath = Join-Path $RuntimeDataDir "reports\live-runtime\state\listener-stat
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Live runtime state not found."
-    exit 0
+    return
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 if (-not $state.pid) {
     Write-Output "Live runtime pid is not recorded."
-    exit 0
+    return
 }
 
 $process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
@@ -40,7 +40,7 @@ if ($null -eq $process) {
     }
     $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
     Write-Output "Live runtime process was already not running."
-    exit 0
+    return
 }
 
 Stop-Process -Id $process.Id -Force

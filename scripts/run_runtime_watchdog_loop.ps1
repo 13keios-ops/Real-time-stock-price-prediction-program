@@ -97,6 +97,22 @@ function Read-DashboardSnapshot {
     return Read-JsonFile -Path $dashboardSnapshotPath
 }
 
+function Invoke-PowerShellScriptIsolated {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$Arguments = @()
+    )
+
+    $powershellExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+    & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "$ScriptPath failed with exit code $LASTEXITCODE"
+    }
+}
+
 while ($true) {
     $errors = @()
     $dashboardAction = "none"
@@ -179,7 +195,7 @@ while ($true) {
         $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
         $marketBarFreshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
         $verificationFreshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
-        $sessionStatus = [string]$latestVerification["session_status"]
+        $sessionStatus = if ($null -ne $latestVerification) { [string]$latestVerification["session_status"] } else { "" }
 
         if (
             ([string]$liveRuntimeStatus.status -eq "running") -and
@@ -242,10 +258,13 @@ while ($true) {
 
     if ((-not $maintenanceInProgress) -and $isWeekday -and $afterClose -and -not $mlMaintenanceAlreadyRan) {
         try {
-            & (Join-Path $WorkspaceRoot "scripts\run_post_close_ml_maintenance.ps1") `
-                -WorkspaceRoot $WorkspaceRoot `
-                -RuntimeDataDir $RuntimeDataDir `
-                -RestartLiveRuntime | Out-Null
+            Invoke-PowerShellScriptIsolated `
+                -ScriptPath (Join-Path $WorkspaceRoot "scripts\run_post_close_ml_maintenance.ps1") `
+                -Arguments @(
+                    "-WorkspaceRoot", $WorkspaceRoot,
+                    "-RuntimeDataDir", $RuntimeDataDir,
+                    "-RestartLiveRuntime"
+                )
             $mlMaintenanceAction = "post_close_ml_rebuild"
             $dashboardSnapshot = Read-DashboardSnapshot
         } catch {

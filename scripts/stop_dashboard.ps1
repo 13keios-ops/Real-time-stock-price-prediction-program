@@ -16,13 +16,13 @@ $statePath = Join-Path $RuntimeDataDir "reports\dashboard\state\server-state.jso
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Dashboard server state not found."
-    exit 0
+    return
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 if (-not $state.pid -and -not $state.port) {
     Write-Output "Dashboard server pid is not recorded."
-    exit 0
+    return
 }
 
 $process = $null
@@ -72,7 +72,7 @@ if ($null -eq $process) {
     }
     $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
     Write-Output "Dashboard server process was already not running. Marked state as stale."
-    exit 0
+    return
 }
 
 Stop-Process -Id $effectivePid -Force

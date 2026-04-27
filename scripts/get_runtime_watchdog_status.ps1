@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
         raw_status = "missing"
         message = "Runtime watchdog state not found."
     } | ConvertTo-Json -Depth 10
-    exit 0
+    return
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json

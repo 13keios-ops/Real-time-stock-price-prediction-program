@@ -67,7 +67,7 @@ if (Test-Path -LiteralPath $statePath) {
                 errors = $existingState.errors
                 raw_status = $existingState.status
             } | ConvertTo-Json -Depth 10
-            exit 0
+            return
         }
         if ($null -ne $existingProcess -and $ForceRestart) {
             Stop-Process -Id $existingProcess.Id -Force

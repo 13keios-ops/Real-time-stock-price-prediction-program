@@ -16,13 +16,13 @@ $statePath = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state\watchdog-
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Runtime watchdog state not found."
-    exit 0
+    return
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 if (-not $state.pid) {
     Write-Output "Runtime watchdog pid is not recorded."
-    exit 0
+    return
 }
 
 $process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
@@ -43,7 +43,7 @@ if ($null -eq $process) {
     }
     $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
     Write-Output "Runtime watchdog process was already not running. Marked state as stale."
-    exit 0
+    return
 }
 
 Stop-Process -Id $process.Id -Force

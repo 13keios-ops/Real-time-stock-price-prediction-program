@@ -44,7 +44,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
         raw_status = "missing"
         message = "실시간 수집기 상태 파일이 없습니다."
     } | ConvertTo-Json -Depth 10
-    exit 0
+    return
 }
 
 $state = Read-JsonFile -Path $statePath
@@ -55,7 +55,7 @@ if ($null -eq $state) {
         raw_status = "invalid"
         message = "실시간 수집기 상태 파일을 읽지 못했습니다."
     } | ConvertTo-Json -Depth 10
-    exit 0
+    return
 }
 $processRunning = $false
 if ($state["pid"]) {

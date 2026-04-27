@@ -72,6 +72,7 @@ The project now has a working local foundation for:
 - Repo review until deadline background start / status / stop scripts are available
 - Midday Codex review now keeps only `run_codex_review_iteration_v4.ps1` as the active runner; older broken variants were removed
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
+- Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
@@ -87,6 +88,7 @@ The project now has a working local foundation for:
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs
 - Post-close ML maintenance now uses a lock-aware batch rebuild path, so real-data-only feature/label regeneration and LightGBM retraining finish without the earlier SQLite lock/stall behavior
+- Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
 
 ## Recommended Dev Flow
 
