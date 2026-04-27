@@ -1,6 +1,6 @@
 ﻿param(
     [Parameter(Mandatory = $false)]
-    [string]$WorkspaceRoot = (Get-Location).Path,
+    [string]$WorkspaceRoot = (Split-Path -Parent $PSScriptRoot),
 
     [Parameter(Mandatory = $false)]
     [string]$RuntimeDataDir = "",
@@ -115,6 +115,44 @@ function Read-JsonOrDefault {
         return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     } catch {
         return $DefaultValue
+    }
+}
+
+function Resolve-GitExecutable {
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($gitCommand -and -not [string]::IsNullOrWhiteSpace($gitCommand.Source)) {
+        return $gitCommand.Source
+    }
+
+    $desktopRoot = Join-Path $env:LOCALAPPDATA "GitHubDesktop"
+    if (Test-Path -LiteralPath $desktopRoot) {
+        $desktopGit = Get-ChildItem -LiteralPath $desktopRoot -Directory -Filter "app-*" -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "resources\app\git\cmd\git.exe" } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+
+        if ($desktopGit) {
+            return $desktopGit
+        }
+    }
+
+    throw "git executable not found in PATH or GitHub Desktop."
+}
+
+function Get-GitStatusText {
+    try {
+        $script:GitExecutable = Resolve-GitExecutable
+        $output = & $script:GitExecutable -C $WorkspaceRoot status --short 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            return "git status failed: $($output.Trim())"
+        }
+        if (-not $output.Trim()) {
+            return "clean"
+        }
+        return $output.Trim()
+    } catch {
+        return "git status failed: $($_.Exception.Message)"
     }
 }
 
@@ -406,10 +444,7 @@ if ($ForceKisVerification -or $sessionInfo.should_run_kis_verify) {
     Write-Log "Skipped KIS verification because session status is $($sessionInfo.session_status)"
 }
 
-$gitStatus = git status --short | Out-String
-if (-not $gitStatus.Trim()) {
-    $gitStatus = "clean"
-}
+$gitStatus = Get-GitStatusText
 
 $repoSnapshot = Join-Lines @(
     "Top-level items:",
@@ -422,7 +457,7 @@ $repoSnapshot = Join-Lines @(
     (Get-FileList -Path (Join-Path $WorkspaceRoot "tests") -Limit 80),
     "",
     "Git status:",
-    $gitStatus.Trim()
+    $gitStatus
 )
 
 $hintContext = Join-Lines @(

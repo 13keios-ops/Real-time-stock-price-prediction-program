@@ -312,6 +312,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 가능하면 `pythonw.exe`를 우선 사용해 콘솔 종료 영향 없이 더 안정적으로 유지한다.
 또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
 `get_dashboard_status.ps1` 는 이제 `/health` 뿐 아니라 `/api/dashboard.json` 응답까지 확인해, 포트만 열려 있고 실제 payload 가 죽은 상태도 잡는다.
+이 dashboard / live-runtime / watchdog 계열 스크립트의 기본 `WorkspaceRoot` 는 이제 현재 shell 위치가 아니라 스크립트가 들어있는 저장소 root 를 기준으로 자동 계산한다.
 기본 `today` 화면과 `/api/dashboard.json` 은 최신 snapshot cache 를 우선 내려 더 빠르게 응답하고, `상태 업데이트` 또는 5분 자동 새로고침 때는 `/api/refresh` 로 새 snapshot 을 다시 만든 뒤 reload 한다.
 
 runtime watchdog background 시작 / 상태 / 중지:
@@ -390,6 +391,7 @@ Hourly Repo Audit 상태 확인:
 ```
 
 프로세스가 죽었는데 상태가 `waiting` 으로 남아 있으면 이 스크립트는 `stale` 로 해석해서 보여준다.
+repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 안의 내장 `git.exe` 를 찾아 현재 저장소 상태를 점검한다.
 
 ## 새 기능을 어디에 둘까
 
@@ -418,6 +420,7 @@ Hourly Repo Audit 상태 확인:
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
 - 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
+- git-autopush 관련 `-ScanRoot` 기본값은 더 이상 특정 드라이브 문자에 묶이지 않고, 현재 저장소의 상위 폴더를 자동 사용한다.
 
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 

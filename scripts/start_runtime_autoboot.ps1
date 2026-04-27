@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$WorkspaceRoot = (Get-Location).Path,
+    [string]$WorkspaceRoot = (Split-Path -Parent $PSScriptRoot),
 
     [Parameter(Mandatory = $false)]
     [string]$RuntimeDataDir = "",

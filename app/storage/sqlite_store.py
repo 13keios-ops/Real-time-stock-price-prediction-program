@@ -392,6 +392,25 @@ class SQLiteRuntimeStore:
         if last_error is not None:
             raise last_error
 
+    @staticmethod
+    def _is_missing_table_error(exc: sqlite3.OperationalError, table_name: str) -> bool:
+        return f"no such table: {table_name.lower()}" in str(exc).lower()
+
+    def _run_safe_read_query(
+        self,
+        query: str,
+        params: tuple[Any, ...] = (),
+        *,
+        single: bool = False,
+        missing_tables: tuple[str, ...] = (),
+    ) -> sqlite3.Row | list[sqlite3.Row] | None:
+        try:
+            return self._run_read_query(query, params, single=single)
+        except sqlite3.OperationalError as exc:
+            if missing_tables and any(self._is_missing_table_error(exc, table_name) for table_name in missing_tables):
+                return None if single else []
+            raise
+
     def insert_market_tick(self, event: MarketTickEvent) -> None:
         self._run_write_query(
             "INSERT INTO raw_market_ticks(symbol, event_time, price, volume, source) VALUES (?, ?, ?, ?, ?)",
@@ -727,7 +746,7 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, event_time"
-        rows = self._run_read_query(query, params)
+        rows = self._run_safe_read_query(query, params, missing_tables=("raw_market_ticks",))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_orderbook_snapshots(self, symbol: str | None = None) -> list[sqlite3.Row]:
@@ -737,7 +756,7 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, event_time"
-        rows = self._run_read_query(query, params)
+        rows = self._run_safe_read_query(query, params, missing_tables=("raw_orderbook_ticks",))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_minute_bars(self, symbol: str | None = None) -> list[sqlite3.Row]:
@@ -747,7 +766,7 @@ class SQLiteRuntimeStore:
             query += " WHERE symbol = ?"
             params = (symbol,)
         query += " ORDER BY symbol, bar_time"
-        rows = self._run_read_query(query, params)
+        rows = self._run_safe_read_query(query, params, missing_tables=("curated_minute_bars",))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_feature_rows(self, horizon_min: int) -> list[sqlite3.Row]:
@@ -768,28 +787,32 @@ class SQLiteRuntimeStore:
             WHERE labels.horizon_min = ?
             ORDER BY inputs.symbol, inputs.event_time
         """
-        rows = self._run_read_query(query, (horizon_min,))
+        rows = self._run_safe_read_query(
+            query,
+            (horizon_min,),
+            missing_tables=("feature_model_inputs", "feature_labels"),
+        )
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_latest_row(self, table_name: str, order_by_column: str) -> sqlite3.Row | None:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT 1"
-        row = self._run_read_query(query, single=True)
+        row = self._run_safe_read_query(query, single=True, missing_tables=(table_name,))
         return row if isinstance(row, sqlite3.Row) or row is None else None
 
     def fetch_all_rows(self, table_name: str, order_by_column: str) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column}"
-        rows = self._run_read_query(query)
+        rows = self._run_safe_read_query(query, missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT ?"
-        rows = self._run_read_query(query, (limit,))
+        rows = self._run_safe_read_query(query, (limit,), missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
 
     def fetch_rows_by_column(self, table_name: str, column_name: str, value: Any, order_by_column: str) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column}"
-        rows = self._run_read_query(query, (value,))
+        rows = self._run_safe_read_query(query, (value,), missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_latest_row_by_column(
@@ -800,10 +823,14 @@ class SQLiteRuntimeStore:
         order_by_column: str,
     ) -> sqlite3.Row | None:
         query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column} DESC LIMIT 1"
-        row = self._run_read_query(query, (value,), single=True)
+        row = self._run_safe_read_query(query, (value,), single=True, missing_tables=(table_name,))
         return row if isinstance(row, sqlite3.Row) or row is None else None
     def count_rows(self, table_name: str) -> int:
-        row = self._run_read_query(f"SELECT COUNT(*) AS count FROM {table_name}", single=True)
+        row = self._run_safe_read_query(
+            f"SELECT COUNT(*) AS count FROM {table_name}",
+            single=True,
+            missing_tables=(table_name,),
+        )
         if row is None:
             return 0
         return int(row["count"])

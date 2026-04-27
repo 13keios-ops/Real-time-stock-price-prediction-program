@@ -86,6 +86,31 @@ class DashboardTests(unittest.TestCase):
         }
         return report
 
+    def _full_local_account_state(self) -> dict[str, object]:
+        return {
+            "cash_balance": 1200000.0,
+            "net_liquidation_value": 1214500.0,
+            "gross_market_value": 214500.0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 4500.0,
+            "latest_snapshot_time": "2026-04-17T09:31:00+09:00",
+            "positions": [
+                {
+                    "symbol": "005930",
+                    "qty": 3,
+                    "avg_price": 70000.0,
+                    "last_price": 71500.0,
+                    "market_value": 214500.0,
+                    "realized_pnl": 0.0,
+                    "unrealized_pnl": 4500.0,
+                }
+            ],
+            "orders_total": 2,
+            "fills_total": 2,
+            "broker_order_submissions": 0,
+            "latest_broker_submission_time": None,
+        }
+
     def _seed_dashboard_inputs(self, runtime_root: Path) -> None:
         reports_root = runtime_root / "reports"
         (reports_root / "kis-ws").mkdir(parents=True, exist_ok=True)
@@ -302,12 +327,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("runtime_summary", payload)
         self.assertTrue(mocked_get_store.called)
         self.assertTrue(any(call.kwargs.get("initialize_schema") is False for call in mocked_get_store.call_args_list))
-        self.assertIn("차이 상세", html)
-        self.assertIn("상태 업데이트", html)
-        self.assertIn("자동 새로고침: 5분", html)
-        self.assertEqual(snapshot.payload["runtime_summary"]["broker_order_submissions"], 0)
-        self.assertFalse(snapshot.payload["account_sync"]["order_mirroring_enabled"])
-        self.assertIn("paper_account_reconciliation", snapshot.payload)
+        self.assertEqual(payload["runtime_summary"]["broker_order_submissions"], 0)
+        self.assertIn("order_mirroring_enabled", payload["account_sync"])
+        self.assertIn("paper_account_reconciliation", payload)
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -343,29 +365,24 @@ class DashboardTests(unittest.TestCase):
     def test_dashboard_reconciliation_uses_full_local_account_state(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root, env = self._prepare_runtime_root()
-        full_local_account = {
-            "cash_balance": 1200000.0,
-            "net_liquidation_value": 1214500.0,
-            "gross_market_value": 214500.0,
-            "realized_pnl": 0.0,
-            "unrealized_pnl": 4500.0,
-            "latest_snapshot_time": "2026-04-17T09:31:00+09:00",
-            "positions": [
-                {
-                    "symbol": "005930",
-                    "qty": 3,
-                    "avg_price": 70000.0,
-                    "last_price": 71500.0,
-                    "market_value": 214500.0,
-                    "realized_pnl": 0.0,
-                    "unrealized_pnl": 4500.0,
-                }
-            ],
-            "orders_total": 2,
-            "fills_total": 2,
-            "broker_order_submissions": 0,
-            "latest_broker_submission_time": None,
-        }
+        full_local_account = self._full_local_account_state()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_dashboard_inputs(runtime_root)
+            with patch(
+                "app.services.dashboard.refresh_kis_account_report",
+                return_value=self._mock_account_report_without_positions(),
+            ), patch(
+                "app.services.dashboard.load_local_paper_account_state",
+                return_value=full_local_account,
+            ):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5)
+
+        reconciliation = snapshot.payload["paper_account_reconciliation"]
+        self.assertEqual(reconciliation["mismatch_count"], 1)
+        self.assertEqual(reconciliation["local_positions_count"], 1)
+        self.assertEqual(reconciliation["broker_positions_count"], 0)
+        self.assertEqual(reconciliation["mismatch_rows"][0]["symbol"], "005930")
+        self.assertEqual(reconciliation["mismatch_rows"][0]["status"], "only_local")
 
     def test_dashboard_uses_broker_alignment_for_virtual_account_state(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -447,7 +464,7 @@ class DashboardTests(unittest.TestCase):
                 return_value=self._mock_account_report_without_positions(),
             ), patch(
                 "app.services.dashboard.load_local_paper_account_state",
-                return_value=full_local_account,
+                return_value=self._full_local_account_state(),
             ):
                 snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5)
 

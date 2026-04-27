@@ -9,6 +9,7 @@
 - watcher config: `autopush.json`
 - trigger: `version-change`
 - current opt-in: `enabled=true`
+- git-autopush helper default `ScanRoot`: current repository parent directory
 
 ## How The Script Detects A Version Change
 
@@ -53,3 +54,4 @@ git commit -m "chore(release): v0.2.1"
 - 이 저장소는 watcher opt-in 상태다.
 - watcher는 `VERSION` 변화를 기준으로만 동작한다.
 - `HEAD`가 이미 해당 버전을 포함하면 watcher는 새 auto-commit을 만들지 않고 기존 commit을 push할 수 있다.
+- 관련 watcher / audit 스크립트는 `git` 이 PATH 에 없어도 GitHub Desktop 내장 `git.exe` 를 우선 찾아 사용한다.

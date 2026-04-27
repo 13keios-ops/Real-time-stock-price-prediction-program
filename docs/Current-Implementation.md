@@ -51,6 +51,8 @@ The project now has a working local foundation for:
 - Dashboard ML tab now keeps showing the latest overall backtest / walk-forward / challenger artifacts even when the selected day has no new training or evaluation rows
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Dashboard foreground and background launch scripts now both avoid the Windows `WindowsApps\python.exe` alias and prefer a real Python interpreter path
+- Dashboard reads now treat a newly moved or empty SQLite runtime store as a valid zero-state instead of failing on missing tables
+- Dashboard, live-runtime, watchdog, and review helper scripts now resolve `WorkspaceRoot` from the script location by default instead of relying on the caller's current directory
 - Dashboard tab selection now persists across refresh with browser localStorage
 - Root `.env` auto-loading for local execution
 - Paper account product code defaulting for 8-digit account numbers
@@ -77,6 +79,8 @@ The project now has a working local foundation for:
 - Recent predictions now show baseline-price-relative expected move amounts and actual outcome amounts when the horizon has elapsed
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
+- Hourly repository audit now resolves GitHub Desktop's bundled `git.exe` when `git` is not available on PATH
+- Git autopush helper scripts now default their scan root to the current repository parent instead of a fixed drive path
 - Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs

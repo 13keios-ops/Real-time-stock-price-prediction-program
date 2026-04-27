@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$ScanRoot = "J:\\GitHub",
+    [string]$ScanRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
 
     [Parameter(Mandatory = $false)]
     [int]$PollSeconds = 60,
