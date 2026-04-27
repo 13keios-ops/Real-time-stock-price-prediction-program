@@ -120,3 +120,15 @@
 - 이 저장소의 공통 운영 팩 복사본 자리는 `templates/codex_starter/` 아래에 둔다.
 - 새 저장소를 시작할 때는 여기의 문서를 복사해 시작한다.
 - 복사 후에는 해당 저장소의 구조, 실행 명령, 검증 기준, 민감 정보 경계를 맞게 수정한다.
+
+<!-- NAS_BACKUP_START -->
+## NAS Backup Operations
+
+- This repository uses NAS full-backup recovery packages.
+- Baseline policy: full backups, latest 3 retained, weekly regular runs, forced backups for important periods.
+- Current NAS share-root baseline: \\192.168.0.2\backup
+- Keep RECOVERY.md plus scripts/run_weekly_nas_backup.ps1 and scripts/run_forced_nas_backup.ps1 aligned with any policy changes.
+- If the backup policy changes, update RECOVERY.md, README.md, AGENTS.md, and the backup scripts together.
+<!-- NAS_BACKUP_END -->
+
+

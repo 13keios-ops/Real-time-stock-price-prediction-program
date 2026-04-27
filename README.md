@@ -456,3 +456,27 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
   - 그 외 주제별 상세 설계 문서
 
 current truth는 canonical 문서에 남기고, 상세 설계와 배경 설명은 reference 문서에 둔다.
+
+<!-- NAS_BACKUP_START -->
+## NAS Backup
+
+- NAS share root: \\192.168.0.2\backup
+- Repository backup path: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
+- Full backups only, with the latest 3 packages retained.
+- Regular backup cadence: weekly.
+- Forced backups are used for important periods and risky changes.
+
+Weekly backup:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
+```
+
+Forced backup:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
+```
+
+See [RECOVERY.md](./RECOVERY.md) for the full recovery scope.
+<!-- NAS_BACKUP_END -->
+
+
