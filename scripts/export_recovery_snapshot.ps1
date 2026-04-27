@@ -153,6 +153,27 @@ function Get-FuturePackagesToPrune {
     return @($existing | Select-Object -Skip $keepExistingCount)
 }
 
+function Copy-RecoveryItem {
+    param(
+        [System.IO.FileSystemInfo]$Item,
+        [string]$SnapshotRoot
+    )
+
+    if ($Item.PSIsContainer) {
+        $targetPath = Join-Path $SnapshotRoot $Item.Name
+        New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
+
+        & robocopy $Item.FullName $targetPath /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -gt 7) {
+            throw "robocopy failed for $($Item.FullName) with exit code $LASTEXITCODE."
+        }
+
+        return
+    }
+
+    Copy-Item -LiteralPath $Item.FullName -Destination $SnapshotRoot -Force
+}
+
 $gitCommand = Get-GitCommand
 if (-not $gitCommand) {
     throw "git command was not found in PATH or in the newest GitHub Desktop bundle."
@@ -232,7 +253,7 @@ else {
 $headCommit | Set-Content -LiteralPath $headPath -Encoding UTF8
 
 foreach ($item in $itemsToCopy) {
-    Copy-Item -LiteralPath $item.FullName -Destination $snapshotRoot -Recurse -Force
+    Copy-RecoveryItem -Item $item -SnapshotRoot $snapshotRoot
 }
 
 $restoreNotes = @(
