@@ -55,6 +55,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check_local_setup.ps1
 2. Overlay repo-snapshot/ if you need the exported working-tree state.
 3. Restore secrets, watcher assets, and local Codex state through their separate recovery path.
 4. Run `scripts/check_local_setup.ps1` before resuming unattended work.
+5. If root `.env` is missing, run `scripts/restore_kis_env_interactive.ps1` from a visible PowerShell window to enter the `paper` KIS app key/secret first and save the file safely.
+6. If account fields are also needed later, rerun `scripts/restore_kis_env_interactive.ps1 -IncludeAccountFields`.
 
 ## Local Recovery Check
 

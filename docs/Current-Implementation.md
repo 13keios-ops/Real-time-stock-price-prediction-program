@@ -78,6 +78,7 @@ The project now has a working local foundation for:
 - Dashboard, watchdog, hourly-audit, and deadline-review helpers now verify their saved pid against the real command line before trusting `running` state or stopping a process
 - Runtime startup-launcher status now validates the saved `WorkspaceRoot`, `RuntimeDataDir`, and autoboot script path instead of checking only that the launcher file exists
 - Local setup recovery preflight is now available through `scripts/check_local_setup.ps1`, which checks root `.env`, Python modules, dashboard, live runtime, watchdog, runtime startup launcher, and NAS recovery-root reachability
+- Interactive KIS env restore is now available through `scripts/restore_kis_env_interactive.ps1`, which defaults to `paper` mode, prompts only for app key/secret in a visible PowerShell window, writes root `.env`, and immediately reruns live-runtime/watchdog/KIS verification checks
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -256,6 +257,12 @@ PC 재부팅 후 자동 시작 helper:
 .\scripts\get_runtime_startup_launcher_status.ps1
 .\scripts\remove_runtime_startup_launcher.ps1
 .\\scripts\\check_local_setup.ps1
+```
+
+To restore account fields later, rerun:
+
+```powershell
+.\scripts\restore_kis_env_interactive.ps1 -IncludeAccountFields
 ```
 
 `start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 복구용 루틴만 수행한다.

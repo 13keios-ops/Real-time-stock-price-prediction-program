@@ -83,6 +83,7 @@
 - root `.env` 가 나중에 복구되면, live runtime 상태 스크립트는 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
 - `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
+- `scripts/restore_kis_env_interactive.ps1` 는 visible PowerShell 입력 창에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장하고, 바로 live runtime / watchdog / KIS verification 까지 이어서 점검한다. 계좌 값은 나중에 `-IncludeAccountFields` 로 별도 복구할 수 있다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -360,6 +361,18 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 
 - `runtime-data/reports/recovery/latest-local-setup-check.json`
 - `runtime-data/reports/recovery/latest-local-setup-check.md`
+
+보안 입력으로 root `.env` 복구:
+
+```powershell
+.\scripts\restore_kis_env_interactive.ps1
+```
+
+계좌번호와 상품코드까지 함께 복구해야 하면:
+
+```powershell
+.\scripts\restore_kis_env_interactive.ps1 -IncludeAccountFields
+```
 
 월요일 시작 루틴 1회 실행:
 
