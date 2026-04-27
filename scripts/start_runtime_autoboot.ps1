@@ -24,6 +24,9 @@ param(
     [switch]$SkipAccountRefresh,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipRuntimeCleanup,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipDashboardBuild,
 
     [Parameter(Mandatory = $false)]
@@ -102,8 +105,18 @@ $kisAccount = $null
 $brokerPaperSync = $null
 $paperReconciliation = $null
 $paperAlignment = $null
+$runtimeCleanup = $null
 $runtimeReport = $null
 $errors = @()
+
+try {
+    if (-not $SkipRuntimeCleanup) {
+        Invoke-AppCommand -Arguments @("-m", "app", "--cleanup-runtime-test-data") -DiscardOutput
+        $runtimeCleanup = "ok"
+    }
+} catch {
+    $errors += "runtime_cleanup: $($_.Exception.Message)"
+}
 
 try {
     if (-not $SkipAccountRefresh) {
@@ -233,10 +246,12 @@ $payload = [ordered]@{
     broker_paper_sync = $brokerPaperSync
     paper_alignment = $paperAlignment
     paper_reconciliation = $paperReconciliation
+    runtime_cleanup = $runtimeCleanup
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_dashboard = [bool]$SkipDashboard
     skipped_live_runtime = [bool]$SkipLiveRuntime
     skipped_account_refresh = [bool]$SkipAccountRefresh
+    skipped_runtime_cleanup = [bool]$SkipRuntimeCleanup
     skipped_dashboard_build = [bool]$SkipDashboardBuild
     skipped_watchdog = [bool]$SkipWatchdog
     ok = ($errors.Count -eq 0)

@@ -36,7 +36,9 @@ if (-not $LogPath) {
 
 function Resolve-GitExecutable {
     $gitCommand = Get-Command git -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($gitCommand -and -not [string]::IsNullOrWhiteSpace($gitCommand.Source)) {
+    if ($gitCommand -and
+        -not [string]::IsNullOrWhiteSpace($gitCommand.Source) -and
+        (Test-Path -LiteralPath $gitCommand.Source)) {
         return $gitCommand.Source
     }
 

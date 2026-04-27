@@ -18,16 +18,25 @@ param(
     [switch]$SkipMlShadow,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipRuntimeCleanup,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipLiveRuntime,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipKisVerification,
 
     [Parameter(Mandatory = $false)]
+    [switch]$SkipWatchdog,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ForceDashboardRestart,
 
     [Parameter(Mandatory = $false)]
-    [switch]$ForceLiveRuntimeRestart
+    [switch]$ForceLiveRuntimeRestart,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceWatchdogRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,10 +89,18 @@ if (-not $SkipMlShadow) {
 
 $dashboardState = $null
 $liveRuntimeState = $null
+$watchdogState = $null
+$runtimeCleanup = $null
 $kisAccount = $null
 $paperReconciliation = $null
 $brokerPaperSync = $null
 $paperAlignment = $null
+
+if (-not $SkipRuntimeCleanup) {
+    Invoke-AppCommand -Arguments @("-m", "app", "--cleanup-runtime-test-data") -DiscardOutput
+    $runtimeCleanup = "ok"
+}
+
 Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
 $kisAccountPath = Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json"
 if (-not (Test-Path -LiteralPath $kisAccountPath)) {
@@ -142,6 +159,19 @@ if (-not $SkipLiveRuntime) {
         -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
 }
 
+if (-not $SkipWatchdog) {
+    $null = & (Join-Path $WorkspaceRoot "scripts\start_runtime_watchdog_background.ps1") `
+        -WorkspaceRoot $WorkspaceRoot `
+        -RuntimeDataDir $RuntimeDataDir `
+        -DashboardHost $DashboardHost `
+        -DashboardPort $DashboardPort `
+        -ForceRestart:$ForceWatchdogRestart
+    Start-Sleep -Seconds 2
+    $watchdogState = & (Join-Path $WorkspaceRoot "scripts\get_runtime_watchdog_status.ps1") `
+        -WorkspaceRoot $WorkspaceRoot `
+        -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+}
+
 $kisVerification = $null
 if (-not $SkipKisVerification) {
     Invoke-AppCommand -Arguments @("-m", "app", "--verify-kis-ws", "--symbols", $VerifySymbols, "--max-frames", "20", "--max-reconnects", "1")
@@ -167,6 +197,7 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     dashboard = $dashboardState
     live_runtime = $liveRuntimeState
+    watchdog = $watchdogState
     active_model_version = $registry.active_models.'15'.model_version
     challenger_recommended_action = $challenger.recommended_action
     challenger_walk_forward_gate_status = $challenger.walk_forward_gate_status
@@ -177,8 +208,11 @@ $challenger = if (Test-Path -LiteralPath $challengerPath) { Get-Content -Literal
     latest_paper_alignment = $paperAlignment
     latest_paper_reconciliation = $paperReconciliation
     latest_kis_verification = $kisVerification
+    runtime_cleanup = $runtimeCleanup
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
     skipped_ml_shadow = [bool]$SkipMlShadow
+    skipped_runtime_cleanup = [bool]$SkipRuntimeCleanup
     skipped_live_runtime = [bool]$SkipLiveRuntime
+    skipped_watchdog = [bool]$SkipWatchdog
     skipped_kis_verification = [bool]$SkipKisVerification
 } | ConvertTo-Json -Depth 10

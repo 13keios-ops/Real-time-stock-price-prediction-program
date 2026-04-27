@@ -344,7 +344,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 .\scripts\remove_runtime_startup_launcher.ps1
 ```
 
-`start_runtime_autoboot.ps1` 는 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
+`start_runtime_autoboot.ps1` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
 여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
@@ -381,7 +381,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 ```
 
 이 스크립트는 대시보드를 띄우고, shadow ML 갱신과 KIS 사전 점검을 순서대로 수행한 뒤 현재 active 모델과 주요 리포트 상태를 요약한다.
-이제 여기에 `실시간 수집기 background 시작`, `KIS 브로커 모의계좌 잔고 갱신`도 포함된다.
+이제 여기에 `demo/sample runtime cleanup`, `실시간 수집기 background 시작`, `runtime watchdog 시작`, `KIS 브로커 모의계좌 잔고 갱신`도 포함된다.
 
 실시간 수집기 background 시작 / 상태 / 중지:
 

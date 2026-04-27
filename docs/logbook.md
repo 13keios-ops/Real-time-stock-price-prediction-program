@@ -294,6 +294,10 @@
   - 최신 recovery package `real-time-stock-price-prediction-program-recovery-20260428-020032` 구조를 점검했고, `repo-snapshot` 루트에는 `.env` 가 포함되지 않는다는 것을 확인했다.
   - `restore_kis_env_interactive.ps1` 초안은 blank line 이 있는 `.env.example` 에서 `Lines` parameter binding 오류가 있었고, 이후 전체 프롬프트를 ASCII 로 정리하면서 기본 입력 범위를 `paper` KIS app key/secret 전용으로 단순화했다.
   - `restore_kis_env_interactive.ps1` 의 env line helper 는 빈 줄이 PowerShell function parameter binding 으로 들어가지 않도록 script-scope buffer 를 직접 읽고 쓰게 바꿨고, 계좌값을 나중에 넣는 흐름을 위해 빈 env value 저장도 허용했다.
+  - 내일 장 시작 전 점검에서 `start_monday_runtime.ps1` 설명과 달리 runtime watchdog 시작이 빠져 있던 것을 확인했고, 사전 시작 루틴에서도 dashboard / live runtime / watchdog 을 함께 올리고 요약에 포함하도록 맞췄다.
+  - git-autopush watcher 는 `ScanRoot=D:\GitHub` 상태였지만 현재 프로세스 PATH 의 오래된 `J:\Program Files\Git\Git\cmd\git.exe` 를 먼저 잡아 git 호출이 실패하고 있었다. watcher git 탐색은 이제 PATH 후보가 실제 파일로 존재할 때만 사용하고, 없으면 GitHub Desktop 내장 git 으로 넘어간다.
+  - runtime SQLite 에 남아 있던 `source=sample` 과 `*-demo-*` 행을 `python -m app --cleanup-runtime-test-data` 로 제거했고, 장전 시작 루틴과 PC 로그인 autoboot 가 같은 cleanup 을 먼저 수행하도록 보강했다.
+  - 현재 실제 데이터 기준 ML 상태는 feature/label row `0`, LightGBM training `not enough labeled feature rows`, active model `baseline-h15-v1` 이며 장중 KIS 수집이 시작되면 새 실제 row 를 기준으로 다시 학습할 준비 상태다.
   - `RECOVERY.md` 와 NAS package 의 `RESTORE-FIRST.txt` 가 요구하던 `scripts/check_local_setup.ps1` 가 실제로 비어 있었기 때문에, 복구 preflight 스크립트를 새로 추가했다.
   - 새 `check_local_setup.ps1` 는 root `.env`, Python executable, `websockets`/`lightgbm`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 한 번에 점검하고 `runtime-data/reports/recovery/latest-local-setup-check.{json,md}` 를 남긴다.
   - `2026-04-28 02:32 KST` 실제 실행 결과 dashboard=`running`, watchdog=`running`, NAS recovery root=`reachable`, Python=`F:\Programs\Python\Python314\python.exe`, blocker=`missing_root_env`, `live_runtime_blocked_missing_kis_credentials` 로 확인됐다.

@@ -269,6 +269,7 @@ To restore account fields later, rerun:
 
 - dashboard background start
 - live runtime background start
+- demo/sample runtime cleanup
 - broker paper-account refresh
 - paper-account reconciliation refresh
 - runtime report refresh
@@ -492,6 +493,7 @@ This currently:
 - starts the dashboard server when it is not already running
 - starts the live runtime listener when it is not already running
 - starts the runtime watchdog when it is not already running
+- removes demo/sample SQLite runtime rows unless skipped
 - refreshes runtime report and dashboard snapshot
 - runs shadow ML refresh unless skipped
 - refreshes the broker paper-account cache
