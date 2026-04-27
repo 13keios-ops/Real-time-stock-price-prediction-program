@@ -235,6 +235,7 @@ if ($DryRun) {
             $futurePrune | ForEach-Object { Write-Host "- $($_.FullName)" }
         }
     }
+    $global:LASTEXITCODE = 0
     return
 }
 
@@ -314,3 +315,5 @@ if ($prunedPackagePaths.Count -gt 0) {
     Write-Host "Pruned older packages:"
     $prunedPackagePaths | ForEach-Object { Write-Host "- $_" }
 }
+
+$global:LASTEXITCODE = 0
