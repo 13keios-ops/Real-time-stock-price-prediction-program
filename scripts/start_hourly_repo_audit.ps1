@@ -13,6 +13,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
@@ -74,7 +75,9 @@ if (Test-Path -LiteralPath $existingStatePath) {
     try {
         $existingState = Get-Content -LiteralPath $existingStatePath -Raw | ConvertFrom-Json
         if ($existingState.pid) {
-            $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
+            $existingProcess = Get-PowerShellScriptProcessRecord `
+                -ProcessId ([int]$existingState.pid) `
+                -ScriptPath (Join-Path $WorkspaceRoot "scripts\start_hourly_repo_audit.ps1")
             if ($null -ne $existingProcess) {
                 Write-Output "Hourly Repo Audit runner is already active with pid $($existingState.pid)."
                 exit 0

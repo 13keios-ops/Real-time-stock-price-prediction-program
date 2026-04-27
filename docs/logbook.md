@@ -73,6 +73,7 @@
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
 - paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
+- dashboard / watchdog / hourly audit / deadline review helper 는 이제 저장된 pid 만 믿지 않고 실제 command line 까지 확인해 stale pid 재사용 오판과 잘못된 stop 을 줄인다.
 
 ## Active Checklist
 
@@ -170,6 +171,10 @@
 - live runtime blocked-state recovery:
   - `.\scripts\get_live_runtime_status.ps1`: `status=failed`, `blocked_reason=missing_kis_credentials`, `env_file_exists=false`
   - `.\scripts\get_runtime_watchdog_status.ps1`: `live_runtime_action=blocked_missing_env`
+- background helper pid verification recovery:
+  - dashboard / watchdog / hourly audit / deadline review status parse check: `ok`
+  - `.\scripts\get_dashboard_status.ps1`: `status=running`
+  - `.\scripts\get_runtime_watchdog_status.ps1`: `status=running`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -282,6 +287,8 @@
   - `.\scripts\rebuild_actual_ml_state.ps1` 를 실행해 남아 있던 demo/replay/test 흔적을 정리했고, 현재 실제 데이터 기준 feature/label row 는 모두 `0` 이라 ML 산출물 재생성은 아직 진행되지 않았다.
   - `scripts/run_runtime_watchdog_loop.ps1` 는 dashboard snapshot 에 `latest_kis_verification` 이 없는 zero-state 에서 null access 로 죽지 않도록 보강했다.
   - dashboard/live-runtime/watchdog helper 스크립트의 조기 종료 경로를 `exit` 대신 `return` 으로 바꿔, watchdog / autoboot / post-close maintenance 가 다른 helper 를 호출해도 부모 PowerShell 세션이 같이 종료되지 않게 정리했다.
+  - dashboard / watchdog / hourly audit / deadline review background helper 는 이제 상태 파일 pid 가 살아 있어도 실제 명령줄이 맞는 프로세스인지까지 확인해, pid 재사용으로 `running` 오판하거나 잘못된 `Stop-Process` 를 날리지 않게 보강했다.
+  - reference 문서 `docs/Git-AutoPush-Manager.md` 의 watcher 예시 경로도 현재 저장소 이동 상태에 맞게 `D:\GitHub` 기준으로 정리했다.
   - 이 수정 뒤 `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass` 와 `.\scripts\start_runtime_watchdog_background.ps1 -ForceRestart` 를 다시 검증했고, dashboard 와 watchdog 은 `running` 으로 유지되는 것을 확인했다.
   - live runtime 상태 스크립트는 이제 stale pid 재사용을 실제 listener 프로세스로 오인하지 않도록 `python -m app --kis-ws-listen` 명령줄까지 확인하고, 상태 파일에 `blocked_reason` 과 마지막 실패 이유를 남긴다.
   - runtime watchdog 은 이제 root `.env` 가 없거나 KIS 자격정보가 비어 있는 경우 `live_runtime_action=blocked_missing_env` 로 남기고, 같은 실패 재기동을 매 cycle 반복하지 않는다.

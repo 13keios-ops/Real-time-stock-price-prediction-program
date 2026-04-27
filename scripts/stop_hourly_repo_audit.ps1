@@ -7,12 +7,14 @@
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $runnerStatePath = Join-Path $RuntimeDataDir "reports\codex\automation\state\runner-state.json"
+$runnerScriptPath = Join-Path $WorkspaceRoot "scripts\start_hourly_repo_audit.ps1"
 
 if (-not (Test-Path -LiteralPath $runnerStatePath)) {
     Write-Output "Hourly Repo Audit runner state not found."
@@ -25,7 +27,7 @@ if (-not $runnerState.pid) {
     exit 0
 }
 
-$process = Get-Process -Id $runnerState.pid -ErrorAction SilentlyContinue
+$process = Get-PowerShellScriptProcessRecord -ProcessId ([int]$runnerState.pid) -ScriptPath $runnerScriptPath
 if ($null -eq $process) {
     $payload = [ordered]@{
         automation_name = $runnerState.automation_name
@@ -44,12 +46,12 @@ if ($null -eq $process) {
     exit 0
 }
 
-Stop-Process -Id $runnerState.pid -Force
+Stop-Process -Id $process.ProcessId -Force
 
 $payload = [ordered]@{
     automation_name = $runnerState.automation_name
     status = "stopped"
-    pid = $runnerState.pid
+    pid = $process.ProcessId
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     workspace_root = $WorkspaceRoot
     runtime_data_dir = $RuntimeDataDir
@@ -58,5 +60,5 @@ $payload = [ordered]@{
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $runnerStatePath -Encoding UTF8
-Write-Output "Stopped Hourly Repo Audit runner pid $($runnerState.pid)."
+Write-Output "Stopped Hourly Repo Audit runner pid $($process.ProcessId)."
 

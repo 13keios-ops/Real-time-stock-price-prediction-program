@@ -7,12 +7,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $statePath = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state\watchdog-state.json"
+$watchdogScriptPath = Join-Path $WorkspaceRoot "scripts\run_runtime_watchdog_loop.ps1"
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Runtime watchdog state not found."
@@ -25,7 +27,7 @@ if (-not $state.pid) {
     return
 }
 
-$process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+$process = Get-PowerShellScriptProcessRecord -ProcessId ([int]$state.pid) -ScriptPath $watchdogScriptPath
 if ($null -eq $process) {
     $payload = [ordered]@{
         status = "stale"
@@ -46,11 +48,11 @@ if ($null -eq $process) {
     return
 }
 
-Stop-Process -Id $process.Id -Force
+Stop-Process -Id $process.ProcessId -Force
 
 $payload = [ordered]@{
     status = "stopped"
-    pid = $process.Id
+    pid = $process.ProcessId
     process_running = $false
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     workspace_root = $state.workspace_root
@@ -63,4 +65,4 @@ $payload = [ordered]@{
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
-Write-Output "Stopped runtime watchdog pid $($process.Id)."
+Write-Output "Stopped runtime watchdog pid $($process.ProcessId)."

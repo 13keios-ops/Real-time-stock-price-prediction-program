@@ -19,6 +19,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
@@ -29,6 +30,7 @@ $stateDir = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state"
 $statePath = Join-Path $stateDir "watchdog-state.json"
 $stdoutPath = Join-Path $logDir "runtime-watchdog.stdout.log"
 $stderrPath = Join-Path $logDir "runtime-watchdog.stderr.log"
+$scriptPath = Join-Path $WorkspaceRoot "scripts\run_runtime_watchdog_loop.ps1"
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
@@ -45,7 +47,7 @@ function Quote-PowerShellLiteral {
 if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
-        $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
+        $existingProcess = Get-PowerShellScriptProcessRecord -ProcessId ([int]$existingState.pid) -ScriptPath $scriptPath
         if ($null -ne $existingProcess -and -not $ForceRestart) {
             [ordered]@{
                 status = "running"
@@ -70,14 +72,13 @@ if (Test-Path -LiteralPath $statePath) {
             return
         }
         if ($null -ne $existingProcess -and $ForceRestart) {
-            Stop-Process -Id $existingProcess.Id -Force
+            Stop-Process -Id $existingProcess.ProcessId -Force
             Start-Sleep -Seconds 1
         }
     }
 }
 
 $powershellExe = Get-PowerShellExecutable
-$scriptPath = Join-Path $WorkspaceRoot "scripts\run_runtime_watchdog_loop.ps1"
 $commandText = @(
     "&",
     (Quote-PowerShellLiteral $scriptPath),

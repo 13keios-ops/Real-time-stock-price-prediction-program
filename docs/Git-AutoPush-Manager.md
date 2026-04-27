@@ -7,7 +7,7 @@ This document defines a safe way to monitor multiple local Git repositories unde
 Recommended target layout:
 
 ```text
-J:\GitHub\
+D:\GitHub\
   Project-A\
     .git\
     VERSION
@@ -63,7 +63,7 @@ The watcher keeps its own state and logs under `runtime-data/autopush/`.
 To place starter `VERSION` and `autopush.json` files across repositories under one root:
 
 ```powershell
-.\scripts\bootstrap_git_autopush_targets.ps1 -ScanRoot 'J:\GitHub'
+.\scripts\bootstrap_git_autopush_targets.ps1 -ScanRoot 'D:\GitHub'
 ```
 
 Bootstrap defaults:
@@ -75,13 +75,13 @@ Bootstrap defaults:
 To audit which repositories are currently safe to enable:
 
 ```powershell
-.\scripts\audit_git_autopush_targets.ps1 -ScanRoot 'J:\GitHub'
+.\scripts\audit_git_autopush_targets.ps1 -ScanRoot 'D:\GitHub'
 ```
 
 To flip one repository after it becomes safe:
 
 ```powershell
-.\scripts\set_git_autopush_enabled.ps1 -RepoPath 'J:\GitHub\Instargram Card News' -Enable
+.\scripts\set_git_autopush_enabled.ps1 -RepoPath 'D:\GitHub\Instargram Card News' -Enable
 ```
 
 The enable script refuses dirty or non-`main` repositories unless you explicitly opt into overrides.
@@ -182,19 +182,19 @@ Safety refinements in the current script:
 Run one scan:
 
 ```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'J:\GitHub' -Once
+.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -Once
 ```
 
 Run continuously:
 
 ```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60
+.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
 ```
 
 Optional recursive scan:
 
 ```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60 -Recurse
+.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60 -Recurse
 ```
 
 ## 9. Start At Windows Logon
@@ -202,13 +202,13 @@ Optional recursive scan:
 If you want the watcher to start automatically when Windows logs in:
 
 ```powershell
-.\scripts\register_git_autopush_task.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60
+.\scripts\register_git_autopush_task.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
 ```
 
 Recursive scan example:
 
 ```powershell
-.\scripts\register_git_autopush_task.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60 -Recurse
+.\scripts\register_git_autopush_task.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60 -Recurse
 ```
 
 This creates a Windows Scheduled Task named `GitAutoPushWatcher`.
@@ -226,7 +226,7 @@ These scripts are useful for direct operations and for Codex automations that sh
 If `Register-ScheduledTask` returns `Access is denied`, use the Startup-folder launcher instead:
 
 ```powershell
-.\scripts\install_git_autopush_startup_launcher.ps1 -ScanRoot 'J:\GitHub' -PollSeconds 60
+.\scripts\install_git_autopush_startup_launcher.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
 ```
 
 Remove it later with:
@@ -272,7 +272,7 @@ Recommended:
 
 Not recommended:
 
-- enabling every repository under `J:\GitHub`
+- enabling every repository under `D:\GitHub`
 - using `stage_mode = all` if you frequently change `VERSION` early
 - auto-pushing repositories with secrets, generated files, or unstable working trees
 

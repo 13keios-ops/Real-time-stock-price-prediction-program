@@ -19,6 +19,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
@@ -163,7 +164,9 @@ if (Test-Path -LiteralPath $existingStatePath) {
     try {
         $existingState = Get-Content -LiteralPath $existingStatePath -Raw | ConvertFrom-Json
         if ($existingState.pid) {
-            $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
+            $existingProcess = Get-PowerShellScriptProcessRecord `
+                -ProcessId ([int]$existingState.pid) `
+                -ScriptPath (Join-Path $WorkspaceRoot "scripts\run_repo_review_until_deadline.ps1")
             if ($null -ne $existingProcess) {
                 $activeStatuses = @("starting", "running", "waiting")
                 if ($activeStatuses -contains [string]$existingState.status) {
@@ -171,7 +174,7 @@ if (Test-Path -LiteralPath $existingStatePath) {
                     exit 0
                 }
 
-                Stop-Process -Id $existingState.pid -Force -ErrorAction SilentlyContinue
+                Stop-Process -Id $existingProcess.ProcessId -Force -ErrorAction SilentlyContinue
             }
         }
     } catch {

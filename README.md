@@ -80,6 +80,7 @@
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
+- dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -313,6 +314,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 가능하면 `pythonw.exe`를 우선 사용해 콘솔 종료 영향 없이 더 안정적으로 유지한다.
 또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
 `get_dashboard_status.ps1` 는 이제 `/health` 뿐 아니라 `/api/dashboard.json` 응답까지 확인해, 포트만 열려 있고 실제 payload 가 죽은 상태도 잡는다.
+dashboard / watchdog helper 는 저장된 pid 가 다른 프로세스로 재사용돼도 실제 `python -m app --serve-dashboard` / watchdog script 가 아니면 `running` 으로 보거나 끄지 않는다.
 이 dashboard / live-runtime / watchdog 계열 스크립트의 기본 `WorkspaceRoot` 는 이제 현재 shell 위치가 아니라 스크립트가 들어있는 저장소 root 를 기준으로 자동 계산한다.
 기본 `today` 화면과 `/api/dashboard.json` 은 최신 snapshot cache 를 우선 내려 더 빠르게 응답하고, `상태 업데이트` 또는 5분 자동 새로고침 때는 `/api/refresh` 로 새 snapshot 을 다시 만든 뒤 reload 한다.
 
@@ -393,6 +395,7 @@ Hourly Repo Audit 상태 확인:
 ```
 
 프로세스가 죽었는데 상태가 `waiting` 으로 남아 있으면 이 스크립트는 `stale` 로 해석해서 보여준다.
+hourly audit 와 deadline review runner 상태/중지 스크립트도 이제 실제 PowerShell script command line 을 확인해 stale pid 재사용 오판을 줄인다.
 repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 안의 내장 `git.exe` 를 찾아 현재 저장소 상태를 점검한다.
 
 ## 새 기능을 어디에 둘까

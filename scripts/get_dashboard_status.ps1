@@ -7,12 +7,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $statePath = Join-Path $RuntimeDataDir "reports\dashboard\state\server-state.json"
+
+function Get-DashboardProcessRecord {
+    param([int]$ProcessId)
+
+    return Get-PythonAppProcessRecord `
+        -ProcessId $ProcessId `
+        -RequiredCommandPatterns @('(?i)(^|\s)--serve-dashboard(\s|$)')
+}
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Dashboard server state not found."
@@ -22,7 +31,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 $processRunning = $false
 if ($state.pid) {
-    $processRunning = $null -ne (Get-Process -Id $state.pid -ErrorAction SilentlyContinue)
+    $processRunning = $null -ne (Get-DashboardProcessRecord -ProcessId ([int]$state.pid))
 }
 
 $effectiveStatus = $state.status
@@ -57,11 +66,13 @@ if ($state.port) {
     }
 }
 
-if ($processRunning -and $null -ne $tcpConnection -and $dashboardApiResponding) {
-    $effectiveStatus = "running"
-} elseif ((-not $processRunning) -and $null -ne $tcpConnection -and $dashboardResponding -and $dashboardApiResponding) {
+if ($null -ne $tcpConnection -and $dashboardResponding -and $dashboardApiResponding) {
     $effectiveStatus = "running"
     $processRunning = $true
+} elseif ([string]$state.status -eq "running") {
+    $effectiveStatus = if ($processRunning) { "warning" } else { "stale" }
+} elseif ([string]$state.status -eq "starting") {
+    $effectiveStatus = if ($processRunning) { "starting" } else { "stale" }
 }
 
 $output = [ordered]@{

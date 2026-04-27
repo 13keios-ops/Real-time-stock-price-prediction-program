@@ -74,6 +74,7 @@ The project now has a working local foundation for:
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
 - Live runtime status now verifies that the recorded pid is still the actual `python -m app --kis-ws-listen` process, so stale pid reuse no longer looks like a healthy listener
 - Live runtime start/status helpers now persist blocked reasons such as missing KIS credentials, including the common `root .env missing` recovery case
+- Dashboard, watchdog, hourly-audit, and deadline-review helpers now verify their saved pid against the real command line before trusting `running` state or stopping a process
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -365,6 +366,7 @@ This automation now:
 - carries forward stable open item ids across repeated runs
 - has a dedicated background launcher that leaves runner state in `runtime-data/reports/codex/automation/state/runner-state.json`
 - reports `stale` when the saved runner pid is no longer alive
+- verifies the saved runner pid against the actual PowerShell script command line before reporting `running` or stopping the runner
 
 ### 9. Local monitoring dashboard
 
@@ -449,6 +451,7 @@ This comparison uses the current full local virtual-paper account state, not the
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
 The dashboard status script now also checks `/api/dashboard.json`, not only `/health`, so a port-listening process without real payload responses no longer counts as healthy.
+Dashboard start/status/stop helpers now also verify that a saved pid still belongs to the real `python -m app --serve-dashboard` process before trusting or stopping it.
 The default page and `/api/dashboard.json` now serve the most recent cached snapshot first, while `/api/refresh` rebuilds the snapshot on demand.
 The dashboard snapshot can now be read reliably from PowerShell status scripts even when it contains long Korean text and large nested JSON blocks.
 

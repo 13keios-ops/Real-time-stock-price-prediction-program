@@ -7,12 +7,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $statePath = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state\watchdog-state.json"
+$watchdogScriptPath = Join-Path $WorkspaceRoot "scripts\run_runtime_watchdog_loop.ps1"
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     [ordered]@{
@@ -27,7 +29,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 $processRunning = $false
 if ($state.pid) {
-    $processRunning = $null -ne (Get-Process -Id $state.pid -ErrorAction SilentlyContinue)
+    $processRunning = $null -ne (Get-PowerShellScriptProcessRecord -ProcessId ([int]$state.pid) -ScriptPath $watchdogScriptPath)
 }
 
 $effectiveStatus = [string]$state.status

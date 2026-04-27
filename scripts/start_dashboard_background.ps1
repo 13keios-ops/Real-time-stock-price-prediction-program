@@ -24,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
@@ -92,6 +93,14 @@ function Get-ListeningConnection {
         Select-Object -First 1
 }
 
+function Get-DashboardProcessRecord {
+    param([int]$ProcessId)
+
+    return Get-PythonAppProcessRecord `
+        -ProcessId $ProcessId `
+        -RequiredCommandPatterns @('(?i)(^|\s)--serve-dashboard(\s|$)')
+}
+
 function Test-DashboardHealth {
     param([string]$BaseUrl)
     try {
@@ -157,12 +166,16 @@ if ($null -ne $existingListener) {
 if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
-        $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
+        $existingProcess = Get-DashboardProcessRecord -ProcessId ([int]$existingState.pid)
         if ($null -ne $existingProcess -and -not $ForceRestart) {
-            $existingState.status = "running"
+            $existingState.status = if (Test-DashboardHealth -BaseUrl ("http://{0}:{1}" -f $DashboardHost, $Port)) { "running" } else { "starting" }
             $existingState.process_running = $true
             $existingState | ConvertTo-Json -Depth 10
             return
+        }
+        if ($null -ne $existingProcess -and $ForceRestart) {
+            Stop-Process -Id $existingProcess.ProcessId -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
         }
     }
 }

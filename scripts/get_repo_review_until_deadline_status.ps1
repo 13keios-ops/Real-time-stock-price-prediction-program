@@ -7,12 +7,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $statePath = Join-Path $RuntimeDataDir "reports\codex\automation\state\until-deadline-runner-state.json"
+$runnerScriptPath = Join-Path $WorkspaceRoot "scripts\run_repo_review_until_deadline.ps1"
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Repo review until deadline state not found."
@@ -22,7 +24,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 $processRunning = $false
 if ($state.pid) {
-    $processRunning = $null -ne (Get-Process -Id $state.pid -ErrorAction SilentlyContinue)
+    $processRunning = $null -ne (Get-PowerShellScriptProcessRecord -ProcessId ([int]$state.pid) -ScriptPath $runnerScriptPath)
 }
 
 $effectiveStatus = $state.status

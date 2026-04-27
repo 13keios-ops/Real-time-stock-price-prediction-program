@@ -7,6 +7,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
@@ -15,6 +16,7 @@ if (-not $RuntimeDataDir) {
 $runnerStatePath = Join-Path $RuntimeDataDir "reports\codex\automation\state\runner-state.json"
 $progressPath = Join-Path $RuntimeDataDir "reports\codex\automation\state\latest-progress.json"
 $contextPath = Join-Path $RuntimeDataDir "reports\codex\automation\state\latest-context.md"
+$runnerScriptPath = Join-Path $WorkspaceRoot "scripts\start_hourly_repo_audit.ps1"
 
 if (-not (Test-Path -LiteralPath $runnerStatePath)) {
     Write-Output "Hourly Repo Audit runner state not found."
@@ -24,7 +26,7 @@ if (-not (Test-Path -LiteralPath $runnerStatePath)) {
 $runnerState = Get-Content -LiteralPath $runnerStatePath -Raw | ConvertFrom-Json
 $pidExists = $false
 if ($runnerState.pid) {
-    $pidExists = $null -ne (Get-Process -Id $runnerState.pid -ErrorAction SilentlyContinue)
+    $pidExists = $null -ne (Get-PowerShellScriptProcessRecord -ProcessId ([int]$runnerState.pid) -ScriptPath $runnerScriptPath)
 }
 
 $effectiveStatus = $runnerState.status

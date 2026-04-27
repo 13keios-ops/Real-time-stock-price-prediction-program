@@ -7,12 +7,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "common_process_helpers.ps1")
 
 if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
 $statePath = Join-Path $RuntimeDataDir "reports\dashboard\state\server-state.json"
+
+function Get-DashboardProcessRecord {
+    param([int]$ProcessId)
+
+    return Get-PythonAppProcessRecord `
+        -ProcessId $ProcessId `
+        -RequiredCommandPatterns @('(?i)(^|\s)--serve-dashboard(\s|$)')
+}
 
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Dashboard server state not found."
@@ -28,9 +37,9 @@ if (-not $state.pid -and -not $state.port) {
 $process = $null
 $effectivePid = $null
 if ($state.pid) {
-    $process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+    $process = Get-DashboardProcessRecord -ProcessId ([int]$state.pid)
     if ($null -ne $process) {
-        $effectivePid = $process.Id
+        $effectivePid = $process.ProcessId
     }
 }
 
@@ -43,10 +52,10 @@ if ($state.port) {
             $healthUrl = "{0}/health" -f ([string]$state.url).TrimEnd("/")
             $health = Invoke-WebRequest -UseBasicParsing $healthUrl -TimeoutSec 3
             if ($health.Content -match '"service"\s*:\s*"dashboard"') {
-                $process = Get-Process -Id $tcpConnection.OwningProcess -ErrorAction SilentlyContinue
+                $process = Get-DashboardProcessRecord -ProcessId ([int]$tcpConnection.OwningProcess)
                 $state.pid = $tcpConnection.OwningProcess
                 if ($null -ne $process) {
-                    $effectivePid = $process.Id
+                    $effectivePid = $process.ProcessId
                 }
             }
         } catch {
@@ -93,4 +102,4 @@ $payload = [ordered]@{
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
-Write-Output "Stopped dashboard server pid $($process.Id)."
+Write-Output "Stopped dashboard server pid $effectivePid."
