@@ -75,6 +75,7 @@ The project now has a working local foundation for:
 - Live runtime status now verifies that the recorded pid is still the actual `python -m app --kis-ws-listen` process, so stale pid reuse no longer looks like a healthy listener
 - Live runtime start/status helpers now persist blocked reasons such as missing KIS credentials, including the common `root .env missing` recovery case
 - Dashboard, watchdog, hourly-audit, and deadline-review helpers now verify their saved pid against the real command line before trusting `running` state or stopping a process
+- Local setup recovery preflight is now available through `scripts/check_local_setup.ps1`, which checks root `.env`, Python modules, dashboard, live runtime, watchdog, and NAS recovery-root reachability
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -252,6 +253,7 @@ PC 재부팅 후 자동 시작 helper:
 .\scripts\install_runtime_startup_launcher.ps1
 .\scripts\get_runtime_startup_launcher_status.ps1
 .\scripts\remove_runtime_startup_launcher.ps1
+.\\scripts\\check_local_setup.ps1
 ```
 
 `start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 복구용 루틴만 수행한다.
@@ -531,6 +533,8 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - Hourly audit backlog JSON: `runtime-data/reports/codex/automation/backlog/latest-priority-backlog.json`
 - Dashboard snapshot HTML: `runtime-data/reports/dashboard/latest-dashboard.html`
 - Dashboard snapshot JSON: `runtime-data/reports/dashboard/latest-dashboard.json`
+- Recovery setup check JSON: `runtime-data/reports/recovery/latest-local-setup-check.json`
+- Recovery setup check Markdown: `runtime-data/reports/recovery/latest-local-setup-check.md`
 - Model registry: `runtime-data/ml/registry.json`
 - Centroid artifacts: `runtime-data/ml/models/`
 

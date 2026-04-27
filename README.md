@@ -81,6 +81,7 @@
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
+- `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -345,6 +346,17 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
 `install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
+
+복구 직후 로컬 setup 점검:
+
+```powershell
+.\scripts\check_local_setup.ps1
+```
+
+이 스크립트는 root `.env`, `websockets`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 함께 확인하고 아래 보고서를 갱신한다.
+
+- `runtime-data/reports/recovery/latest-local-setup-check.json`
+- `runtime-data/reports/recovery/latest-local-setup-check.md`
 
 월요일 시작 루틴 1회 실행:
 

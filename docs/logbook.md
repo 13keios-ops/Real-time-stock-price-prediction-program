@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-27`
+- date: `2026-04-28`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -74,6 +74,7 @@
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
 - paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
 - dashboard / watchdog / hourly audit / deadline review helper 는 이제 저장된 pid 만 믿지 않고 실제 command line 까지 확인해 stale pid 재사용 오판과 잘못된 stop 을 줄인다.
+- `scripts/check_local_setup.ps1` 가 root `.env`, Python module, dashboard, live runtime, watchdog, NAS recovery root 를 한 번에 점검하고 recovery report를 남긴다.
 
 ## Active Checklist
 
@@ -175,6 +176,13 @@
   - dashboard / watchdog / hourly audit / deadline review status parse check: `ok`
   - `.\scripts\get_dashboard_status.ps1`: `status=running`
   - `.\scripts\get_runtime_watchdog_status.ps1`: `status=running`
+- local recovery setup check:
+  - `.\scripts\check_local_setup.ps1 -AsJson`: `ok=false`
+  - blockers: `missing_root_env`, `live_runtime_blocked_missing_kis_credentials`
+  - NAS recovery root reachable: `true`
+  - python executable resolved: `F:\Programs\Python\Python314\python.exe`
+  - websockets available: `true`
+  - lightgbm available: `true`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -271,6 +279,12 @@
 
 ## Recent Log
 
+- `2026-04-28`
+  - NAS recovery export root `\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports` 접근 가능을 다시 확인했다.
+  - 최신 recovery package `real-time-stock-price-prediction-program-recovery-20260428-020032` 구조를 점검했고, `repo-snapshot` 루트에는 `.env` 가 포함되지 않는다는 것을 확인했다.
+  - `RECOVERY.md` 와 NAS package 의 `RESTORE-FIRST.txt` 가 요구하던 `scripts/check_local_setup.ps1` 가 실제로 비어 있었기 때문에, 복구 preflight 스크립트를 새로 추가했다.
+  - 새 `check_local_setup.ps1` 는 root `.env`, Python executable, `websockets`/`lightgbm`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 한 번에 점검하고 `runtime-data/reports/recovery/latest-local-setup-check.{json,md}` 를 남긴다.
+  - `2026-04-28 02:32 KST` 실제 실행 결과 dashboard=`running`, watchdog=`running`, NAS recovery root=`reachable`, Python=`F:\Programs\Python\Python314\python.exe`, blocker=`missing_root_env`, `live_runtime_blocked_missing_kis_credentials` 로 확인됐다.
 - `2026-04-27`
   - 기존 작업 드라이브 고장 이후 저장소를 `D:\GitHub\Real-time-stock-price-prediction-program` 으로 옮긴 상태를 기준으로 전체 복구 점검을 시작했다.
   - root `runtime-data/` 가 비어 있거나 SQLite 스키마가 아직 없는 상태에서도 `python -m app --build-dashboard` 가 `no such table` 로 죽지 않고 0건 기준 snapshot 을 만들도록 SQLite read path 를 보강했다.
@@ -484,6 +498,7 @@ python -m app --build-dashboard
 .\\scripts\\start_runtime_watchdog_background.ps1
 .\\scripts\\get_runtime_watchdog_status.ps1
 .\\scripts\\stop_runtime_watchdog.ps1
+.\scripts\check_local_setup.ps1
 .\scripts\reconcile_paper_accounts.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1

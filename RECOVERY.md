@@ -43,12 +43,33 @@ Forced backup:
 powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
 `
 
+Local recovery check:
+
+`powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check_local_setup.ps1
+`
+
 ## Restore Order
 
 1. Restore the repository from GitHub or repository.bundle.
 2. Overlay repo-snapshot/ if you need the exported working-tree state.
 3. Restore secrets, watcher assets, and local Codex state through their separate recovery path.
-4. Run any repo-specific local validation script before resuming work.
+4. Run `scripts/check_local_setup.ps1` before resuming unattended work.
+
+## Local Recovery Check
+
+This check writes:
+
+- `runtime-data/reports/recovery/latest-local-setup-check.json`
+- `runtime-data/reports/recovery/latest-local-setup-check.md`
+
+It verifies:
+
+- root `.env` presence
+- Python executable detection
+- `websockets` and `lightgbm` module availability
+- dashboard / live runtime / watchdog status
+- NAS recovery-root reachability
 
 ## Repository Note
 
