@@ -37,6 +37,82 @@ $stderrPath = Join-Path $logDir "live-runtime.stderr.log"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
+function Get-LogTailSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $false)]
+        [int]$Tail = 20
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return ""
+    }
+
+    $lines = Get-Content -LiteralPath $Path -Tail $Tail -ErrorAction SilentlyContinue |
+        ForEach-Object { "$_".TrimEnd() } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    if (-not $lines) {
+        return ""
+    }
+
+    return ($lines -join [Environment]::NewLine).Trim()
+}
+
+function Get-BlockedReasonFromText {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+
+    if ($Text -match "KIS credentials are not configured") {
+        return "missing_kis_credentials"
+    }
+
+    return ""
+}
+
+function Get-LastNonEmptyLine {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+
+    $lines = $Text -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    if (-not $lines) {
+        return ""
+    }
+
+    return "$($lines[-1])".Trim()
+}
+
+function Get-LiveRuntimeProcessRecord {
+    param([int]$ProcessId)
+
+    if (-not $ProcessId) {
+        return $null
+    }
+
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+    if ($null -eq $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+        return $null
+    }
+
+    $commandLine = "$($process.CommandLine)"
+    if (
+        ($commandLine -match '(?i)(^|\s)-m\s+app(\s|$)') -and
+        ($commandLine -match '(?i)(^|\s)--kis-ws-listen(\s|$)')
+    ) {
+        return $process
+    }
+
+    return $null
+}
+
 function Resolve-PythonExecutable {
     try {
         $candidate = & py -3 -c "import sys; print(sys.executable)"
@@ -60,7 +136,7 @@ function Resolve-PythonExecutable {
 if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
-        $existingProcess = Get-Process -Id $existingState.pid -ErrorAction SilentlyContinue
+        $existingProcess = Get-LiveRuntimeProcessRecord -ProcessId ([int]$existingState.pid)
         if ($null -ne $existingProcess -and -not $ForceRestart) {
             $existingState.status = "running"
             $existingState.process_running = $true
@@ -68,7 +144,7 @@ if (Test-Path -LiteralPath $statePath) {
             return
         }
         if ($null -ne $existingProcess -and $ForceRestart) {
-            Stop-Process -Id $existingProcess.Id -Force
+            Stop-Process -Id $existingProcess.ProcessId -Force
             Start-Sleep -Seconds 1
         }
     }
@@ -103,6 +179,28 @@ $process = Start-Process `
 Start-Sleep -Seconds 3
 $process.Refresh()
 $status = if ($process.HasExited) { "failed" } else { "running" }
+$envFilePath = Join-Path $WorkspaceRoot ".env"
+$stdoutTail = ""
+$stderrTail = ""
+$failureReason = ""
+$blockedReason = ""
+$exitCode = $null
+$stoppedAt = $null
+
+if ($process.HasExited) {
+    $exitCode = $process.ExitCode
+    $stdoutTail = Get-LogTailSummary -Path $stdoutPath
+    $stderrTail = Get-LogTailSummary -Path $stderrPath
+    $failureReason = if ($stderrTail) {
+        Get-LastNonEmptyLine -Text $stderrTail
+    } elseif ($stdoutTail) {
+        Get-LastNonEmptyLine -Text $stdoutTail
+    } else {
+        "Live runtime exited immediately after launch."
+    }
+    $blockedReason = Get-BlockedReasonFromText -Text ($failureReason + [Environment]::NewLine + $stdoutTail)
+    $stoppedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
+}
 
 $payload = [ordered]@{
     status = $status
@@ -119,6 +217,32 @@ $payload = [ordered]@{
     stdout_log_path = $stdoutPath
     stderr_log_path = $stderrPath
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+    env_file_path = $envFilePath
+    env_file_exists = (Test-Path -LiteralPath $envFilePath)
+}
+
+if ($null -ne $exitCode) {
+    $payload.exit_code = $exitCode
+}
+
+if ($stoppedAt) {
+    $payload.stopped_at = $stoppedAt
+}
+
+if ($failureReason) {
+    $payload.failure_reason = $failureReason
+}
+
+if ($blockedReason) {
+    $payload.blocked_reason = $blockedReason
+}
+
+if ($stdoutTail) {
+    $payload.stdout_tail = $stdoutTail
+}
+
+if ($stderrTail) {
+    $payload.stderr_tail = $stderrTail
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8

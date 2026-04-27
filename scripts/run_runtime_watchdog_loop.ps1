@@ -167,23 +167,53 @@ while ($true) {
     }
 
     $liveRuntimeHealthy = $false
+    $liveRuntimeBlockedReason = ""
+    $liveRuntimeCredentialsBlocked = $false
+    $liveRuntimeBlockedAction = ""
     if ($null -ne $liveRuntimeStatus) {
         $liveRuntimeHealthy = ([string]$liveRuntimeStatus.status -eq "running")
+        $liveRuntimeBlockedReason = [string]$liveRuntimeStatus.blocked_reason
+        $liveRuntimeCredentialsBlocked = $liveRuntimeBlockedReason -eq "missing_kis_credentials"
+        $liveRuntimeBlockedAction = if ($liveRuntimeCredentialsBlocked) {
+            if (-not [bool]$liveRuntimeStatus.env_file_exists) {
+                "blocked_missing_env"
+            } else {
+                "blocked_missing_kis_credentials"
+            }
+        } else {
+            ""
+        }
     }
 
     if ((-not $maintenanceInProgress) -and (-not $liveRuntimeHealthy)) {
-        try {
-            $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
-                -WorkspaceRoot $WorkspaceRoot `
-                -RuntimeDataDir $RuntimeDataDir `
-                -ForceRestart
-            $liveRuntimeAction = "restart"
-            $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
-                -WorkspaceRoot $WorkspaceRoot `
-                -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
-        } catch {
-            $liveRuntimeAction = "restart_failed"
-            $errors += "live_runtime_restart: $($_.Exception.Message)"
+        if ($liveRuntimeCredentialsBlocked) {
+            $liveRuntimeAction = $liveRuntimeBlockedAction
+        } else {
+            try {
+                $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
+                    -WorkspaceRoot $WorkspaceRoot `
+                    -RuntimeDataDir $RuntimeDataDir `
+                    -ForceRestart
+                $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+                    -WorkspaceRoot $WorkspaceRoot `
+                    -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+
+                if ([string]$liveRuntimeStatus.status -eq "running") {
+                    $liveRuntimeAction = "restart"
+                } elseif ([string]$liveRuntimeStatus.blocked_reason -eq "missing_kis_credentials") {
+                    $liveRuntimeAction = if (-not [bool]$liveRuntimeStatus.env_file_exists) {
+                        "blocked_missing_env"
+                    } else {
+                        "blocked_missing_kis_credentials"
+                    }
+                } else {
+                    $liveRuntimeAction = "restart_failed"
+                    $errors += "live_runtime_restart: live runtime did not stay running after restart attempt"
+                }
+            } catch {
+                $liveRuntimeAction = "restart_failed"
+                $errors += "live_runtime_restart: $($_.Exception.Message)"
+            }
         }
     }
 

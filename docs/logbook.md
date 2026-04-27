@@ -68,6 +68,7 @@
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - `scripts/start_repo_review_until_deadline_background.ps1` 로 특정 시각까지 저장소 점검을 계속 돌리는 bounded runner가 추가되었다.
 - runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
+  - 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 같은 실패를 매 cycle 반복 재시도하지 않는다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
@@ -166,6 +167,9 @@
   - watchdog: `running`
   - live runtime: `blocked by missing KIS credentials`
   - root `.env`: `missing`
+- live runtime blocked-state recovery:
+  - `.\scripts\get_live_runtime_status.ps1`: `status=failed`, `blocked_reason=missing_kis_credentials`, `env_file_exists=false`
+  - `.\scripts\get_runtime_watchdog_status.ps1`: `live_runtime_action=blocked_missing_env`
 - live dashboard payload direct call: `predictions=4`, `signals=2`
 - live dashboard HTTP checks:
   - `/health`: `200 OK`
@@ -177,7 +181,8 @@
 - runtime watchdog status:
   - `status=running`
   - `dashboard_api_responding=true`
-  - `live_runtime.status=running`
+  - `live_runtime.status=failed`
+  - `live_runtime_action=blocked_missing_env`
 - latest autoboot verification:
   - `dashboard.status=running`
   - `live_runtime.status=running`
@@ -278,7 +283,8 @@
   - `scripts/run_runtime_watchdog_loop.ps1` 는 dashboard snapshot 에 `latest_kis_verification` 이 없는 zero-state 에서 null access 로 죽지 않도록 보강했다.
   - dashboard/live-runtime/watchdog helper 스크립트의 조기 종료 경로를 `exit` 대신 `return` 으로 바꿔, watchdog / autoboot / post-close maintenance 가 다른 helper 를 호출해도 부모 PowerShell 세션이 같이 종료되지 않게 정리했다.
   - 이 수정 뒤 `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass` 와 `.\scripts\start_runtime_watchdog_background.ps1 -ForceRestart` 를 다시 검증했고, dashboard 와 watchdog 은 `running` 으로 유지되는 것을 확인했다.
-  - live runtime 은 계속 자동 기동을 시도할 수 있는 상태로 두었지만, 실제 KIS 자격정보가 복구되기 전까지는 listener 프로세스가 즉시 종료된다.
+  - live runtime 상태 스크립트는 이제 stale pid 재사용을 실제 listener 프로세스로 오인하지 않도록 `python -m app --kis-ws-listen` 명령줄까지 확인하고, 상태 파일에 `blocked_reason` 과 마지막 실패 이유를 남긴다.
+  - runtime watchdog 은 이제 root `.env` 가 없거나 KIS 자격정보가 비어 있는 경우 `live_runtime_action=blocked_missing_env` 로 남기고, 같은 실패 재기동을 매 cycle 반복하지 않는다.
 
 - `2026-04-17`
   - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 `paper baseline alignment` 경로를 추가했다.

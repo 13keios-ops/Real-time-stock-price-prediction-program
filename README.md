@@ -79,6 +79,7 @@
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
+- live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -324,6 +325,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 ```
 
 runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 꺼져 있으면 다시 올린다.
+다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 watchdog 은 cached dashboard snapshot 의 `분봉 / 예측 / KIS 검증 신선도`도 함께 읽고, 정규장에는 stale 상태를 실제 재기동 신호로 쓸 수 있다.
 

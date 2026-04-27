@@ -72,6 +72,8 @@ The project now has a working local foundation for:
 - Repo review until deadline background start / status / stop scripts are available
 - Midday Codex review now keeps only `run_codex_review_iteration_v4.ps1` as the active runner; older broken variants were removed
 - Live runtime status and watchdog scripts now parse the cached dashboard snapshot with a serializer-based reader instead of relying on PowerShell `ConvertFrom-Json`
+- Live runtime status now verifies that the recorded pid is still the actual `python -m app --kis-ws-listen` process, so stale pid reuse no longer looks like a healthy listener
+- Live runtime start/status helpers now persist blocked reasons such as missing KIS credentials, including the common `root .env missing` recovery case
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -462,6 +464,7 @@ The watchdog keeps `dashboard` and `live runtime` alive.
 It does not rebuild dashboard snapshots itself anymore; snapshot refresh is handled by the dashboard client through `/api/refresh`.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 The watchdog now reads market-bar and KIS-verification freshness from the cached dashboard snapshot with the same serializer-based JSON reader used by the live-runtime status script.
+When root `.env` is missing or KIS credentials are not configured, the watchdog now records a blocked live-runtime state instead of retrying the same failing restart every cycle.
 
 ### 10. Monday runtime starter
 

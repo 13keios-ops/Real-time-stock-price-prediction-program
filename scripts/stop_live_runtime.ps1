@@ -14,6 +14,29 @@ if (-not $RuntimeDataDir) {
 
 $statePath = Join-Path $RuntimeDataDir "reports\live-runtime\state\listener-state.json"
 
+function Get-LiveRuntimeProcessRecord {
+    param([int]$ProcessId)
+
+    if (-not $ProcessId) {
+        return $null
+    }
+
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+    if ($null -eq $process -or [string]::IsNullOrWhiteSpace($process.CommandLine)) {
+        return $null
+    }
+
+    $commandLine = "$($process.CommandLine)"
+    if (
+        ($commandLine -match '(?i)(^|\s)-m\s+app(\s|$)') -and
+        ($commandLine -match '(?i)(^|\s)--kis-ws-listen(\s|$)')
+    ) {
+        return $process
+    }
+
+    return $null
+}
+
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Live runtime state not found."
     return
@@ -25,7 +48,7 @@ if (-not $state.pid) {
     return
 }
 
-$process = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+$process = Get-LiveRuntimeProcessRecord -ProcessId ([int]$state.pid)
 if ($null -eq $process) {
     $payload = [ordered]@{
         status = "stopped"
@@ -43,11 +66,11 @@ if ($null -eq $process) {
     return
 }
 
-Stop-Process -Id $process.Id -Force
+Stop-Process -Id $process.ProcessId -Force
 
 $payload = [ordered]@{
     status = "stopped"
-    pid = $process.Id
+    pid = $process.ProcessId
     process_running = $false
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     workspace_root = $state.workspace_root
