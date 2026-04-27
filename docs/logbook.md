@@ -153,6 +153,14 @@
   - feature rows written: `0`
   - label rows written: `0`
   - deleted leftover non-actual runtime rows: `raw_market_ticks=9`, `raw_orderbook_ticks=3`, `minute_bars=1`, `predictions=1`
+- git-autopush watcher scan-root reset:
+  - default `ScanRoot`: `D:\GitHub`
+  - stale `J:\GitHub\*` repo state pruned on next watcher cycle: `ok`
+- git-autopush watcher launcher restart:
+  - `launch_mode=startup-launcher`
+  - `scan_root=D:\GitHub`
+  - `managed_repo_count=4`
+  - `healthy=true`
 - runtime recovery preflight:
   - dashboard: `running`
   - watchdog: `running`
@@ -258,7 +266,8 @@
   - root `runtime-data/` 가 비어 있거나 SQLite 스키마가 아직 없는 상태에서도 `python -m app --build-dashboard` 가 `no such table` 로 죽지 않고 0건 기준 snapshot 을 만들도록 SQLite read path 를 보강했다.
   - `tests/test_dashboard.py` 에서 끊겨 있던 대시보드 회귀 테스트 3건을 정리했고, 새 위치 기준 전체 `67 tests OK` 를 다시 확인했다.
   - dashboard / live-runtime / watchdog / review helper 스크립트의 기본 `WorkspaceRoot` 를 현재 shell 위치 대신 script path 기준 repo root 로 바꿔, 저장소 이동 뒤 다른 폴더에서 실행해도 기본 경로가 어긋나지 않게 했다.
-  - git-autopush helper 의 기본 `ScanRoot` 를 고정 `J:\GitHub` 대신 현재 저장소의 상위 폴더로 바꿨다.
+  - git-autopush helper 의 기본 `ScanRoot` 를 `D:\GitHub` 로 고정했고, watcher state 도 현재 scan root 밖의 오래된 저장소 항목을 다음 cycle 에서 정리하도록 보강했다.
+  - `.\scripts\start_git_autopush_watcher.ps1 -ScanRoot D:\GitHub` 재기동 뒤 startup launcher 기준 `launch_mode=startup-launcher`, `managed_repo_count=4`, `healthy=true` 를 다시 확인했다.
   - `run_hourly_repo_audit_iteration.ps1` 는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 내장 `git.exe` 를 찾아 현재 저장소 상태를 읽는다.
   - 검증으로 `python -m unittest discover -s tests -p "test_*.py"`, `python -m app --build-runtime-report`, `python -m app --build-dashboard` 를 실제로 다시 실행해 통과를 확인했다.
   - 더 이상 참조되지 않는 `scripts/run_codex_review_iteration.ps1`, `run_codex_review_iteration_v2.ps1`, `run_codex_review_iteration_v3.ps1` 를 제거해 전체 `scripts/*.ps1` 문법 검사에서 남아 있던 parse 오류를 없앴다.

@@ -6,7 +6,7 @@ param(
     [switch]$EnsureRegistered,
 
     [Parameter(Mandatory = $false)]
-    [string]$ScanRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$ScanRoot = "D:\GitHub",
 
     [Parameter(Mandatory = $false)]
     [int]$PollSeconds = 60,

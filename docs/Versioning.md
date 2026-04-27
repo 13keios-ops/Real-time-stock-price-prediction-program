@@ -9,7 +9,7 @@
 - watcher config: `autopush.json`
 - trigger: `version-change`
 - current opt-in: `enabled=true`
-- git-autopush helper default `ScanRoot`: current repository parent directory
+- git-autopush helper default `ScanRoot`: `D:\GitHub`
 
 ## How The Script Detects A Version Change
 

@@ -83,7 +83,7 @@ The project now has a working local foundation for:
 - Hourly repository audit automation with carry-forward state files
 - Hourly repository audit now resolves GitHub Desktop's bundled `git.exe` when `git` is not available on PATH
 - Midday Codex review `v4` now uses the same non-interactive Codex CLI invocation pattern as the hourly audit path, so long prompts complete and return reliably
-- Git autopush helper scripts now default their scan root to the current repository parent instead of a fixed drive path
+- Git autopush helper scripts now default their scan root to `D:\GitHub`, and watcher state prunes repos that are no longer inside the active scan root
 - Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs

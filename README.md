@@ -420,7 +420,7 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
 - 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
-- git-autopush 관련 `-ScanRoot` 기본값은 더 이상 특정 드라이브 문자에 묶이지 않고, 현재 저장소의 상위 폴더를 자동 사용한다.
+- git-autopush 관련 `-ScanRoot` 기본값은 `D:\GitHub` 이다.
 
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 

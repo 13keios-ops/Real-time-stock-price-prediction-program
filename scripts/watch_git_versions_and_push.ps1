@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$ScanRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$ScanRoot = "D:\GitHub",
 
     [Parameter(Mandatory = $false)]
     [string]$ConfigFileName = "autopush.json",
@@ -201,8 +201,24 @@ function Export-State {
         [string]$Path
     )
 
+    $scanRootFullPath = ""
+    $scanRootPrefix = ""
+    if (-not [string]::IsNullOrWhiteSpace($State.scan_root)) {
+        $scanRootFullPath = [System.IO.Path]::GetFullPath($State.scan_root)
+        $scanRootPrefix = $scanRootFullPath.TrimEnd('\') + "\"
+    }
+
     $repos = [ordered]@{}
     foreach ($repoPath in ($State.repos.Keys | Sort-Object)) {
+        $repoFullPath = [System.IO.Path]::GetFullPath($repoPath)
+        if ($scanRootPrefix) {
+            $isScanRoot = $repoFullPath.Equals($scanRootFullPath, [System.StringComparison]::OrdinalIgnoreCase)
+            $isUnderScanRoot = $repoFullPath.StartsWith($scanRootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $isScanRoot -and -not $isUnderScanRoot) {
+                continue
+            }
+        }
+
         $repos[$repoPath] = [ordered]@{
             last_observed_version = $State.repos[$repoPath].last_observed_version
             last_pushed_version   = $State.repos[$repoPath].last_pushed_version
@@ -496,6 +512,37 @@ function Update-RepoState {
     $State.repos[$RepoPath].updated_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
 }
 
+function Remove-StaleRepoState {
+    param(
+        [hashtable]$State,
+        [string[]]$ActiveRepositories
+    )
+
+    $activeRepoMap = @{}
+    foreach ($activeRepository in $ActiveRepositories) {
+        $activeRepoPath = [System.IO.Path]::GetFullPath($activeRepository)
+        $activeRepoMap[$activeRepoPath] = $true
+    }
+
+    $staleRepoPaths = @(
+        $State.repos.Keys |
+            Where-Object { -not $activeRepoMap.ContainsKey([System.IO.Path]::GetFullPath($_)) }
+    )
+
+    foreach ($staleRepoPath in $staleRepoPaths) {
+        Write-Log "Pruned stale repo state outside current scan root: $staleRepoPath"
+    }
+
+    $filteredRepos = @{}
+    foreach ($repoPath in ($activeRepoMap.Keys | Sort-Object)) {
+        if ($State.repos.ContainsKey($repoPath)) {
+            $filteredRepos[$repoPath] = $State.repos[$repoPath]
+        }
+    }
+
+    $State.repos = $filteredRepos
+}
+
 function Process-Repository {
     param(
         [string]$RepoPath,
@@ -632,6 +679,7 @@ do {
         }
 
         $repositories = Get-ManagedRepositories -Root $ScanRoot -ConfigName $ConfigFileName -SearchRecursively:$Recurse
+        Remove-StaleRepoState -State $state -ActiveRepositories $repositories
 
         if (-not $repositories) {
             Write-Log "No managed repositories found under $ScanRoot"
