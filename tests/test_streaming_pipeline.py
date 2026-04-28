@@ -21,6 +21,7 @@ class StreamingPipelineTests(unittest.TestCase):
         env = {
             "RUNTIME_DATA_DIR": str(runtime_root),
             "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
         }
 
         with patch.dict(os.environ, env, clear=False):
@@ -59,6 +60,7 @@ class StreamingPipelineTests(unittest.TestCase):
         env = {
             "RUNTIME_DATA_DIR": str(runtime_root),
             "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
         }
 
         with patch.dict(os.environ, env, clear=False):
@@ -84,6 +86,7 @@ class StreamingPipelineTests(unittest.TestCase):
         env = {
             "RUNTIME_DATA_DIR": str(runtime_root),
             "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
         }
 
         with patch.dict(os.environ, env, clear=False):
@@ -102,6 +105,7 @@ class StreamingPipelineTests(unittest.TestCase):
         env = {
             "RUNTIME_DATA_DIR": str(runtime_root),
             "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
         }
 
         with patch.dict(os.environ, env, clear=False):

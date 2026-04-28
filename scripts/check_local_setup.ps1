@@ -68,6 +68,32 @@ function Test-PythonModule {
     }
 }
 
+function Get-EnvFileMap {
+    param([string]$LiteralPath)
+
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $LiteralPath)) {
+        return $map
+    }
+
+    foreach ($line in [System.IO.File]::ReadAllLines($LiteralPath, [System.Text.Encoding]::UTF8)) {
+        if ($line -match '^\s*#') {
+            continue
+        }
+
+        $separatorIndex = $line.IndexOf("=")
+        if ($separatorIndex -lt 1) {
+            continue
+        }
+
+        $key = $line.Substring(0, $separatorIndex).Trim()
+        $value = $line.Substring($separatorIndex + 1).Trim()
+        $map[$key] = $value
+    }
+
+    return $map
+}
+
 function Get-JsonScriptResult {
     param(
         [Parameter(Mandatory = $true)]
@@ -100,6 +126,25 @@ $watchdogStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "sc
 $runtimeStartupLauncherStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_runtime_startup_launcher_status.ps1")
 
 $envFileExists = Test-Path -LiteralPath $envFilePath
+$envValues = Get-EnvFileMap -LiteralPath $envFilePath
+$tradingMode = if ($envValues.ContainsKey("TRADING_MODE")) { [string]$envValues["TRADING_MODE"] } else { "" }
+$brokerPaperMirroringEnabled = (
+    $envValues.ContainsKey("ENABLE_BROKER_PAPER_MIRRORING") -and
+    [string]$envValues["ENABLE_BROKER_PAPER_MIRRORING"] -eq "true"
+)
+$paperAccountPresent = (
+    $envValues.ContainsKey("KIS_ACCOUNT_NO_PAPER") -and
+    -not [string]::IsNullOrWhiteSpace([string]$envValues["KIS_ACCOUNT_NO_PAPER"])
+)
+$paperAccountShapeValid = (
+    $paperAccountPresent -and
+    [string]$envValues["KIS_ACCOUNT_NO_PAPER"] -match '^\d{8}(-\d{2})?$'
+)
+$paperProductCodePresent = (
+    $envValues.ContainsKey("KIS_PRODUCT_CODE_PAPER") -and
+    -not [string]::IsNullOrWhiteSpace([string]$envValues["KIS_PRODUCT_CODE_PAPER"])
+)
+$paperProductCodeEffective = ($paperProductCodePresent -or $paperAccountPresent)
 $envExampleExists = Test-Path -LiteralPath $envExamplePath
 $secretsReadmeExists = Test-Path -LiteralPath $secretsReadmePath
 $nasRecoveryRootExists = Test-Path -LiteralPath $nasRecoveryRoot
@@ -117,6 +162,16 @@ if ([string]::IsNullOrWhiteSpace($pythonExecutable)) {
 if (-not $envFileExists) {
     $blockers += "missing_root_env"
     $nextActions += "Restore the root .env file from the external secrets recovery path."
+}
+
+if ($envFileExists -and $tradingMode -eq "paper" -and $brokerPaperMirroringEnabled -and -not $paperAccountPresent) {
+    $blockers += "kis_paper_account_missing"
+    $nextActions += "Fill KIS_ACCOUNT_NO_PAPER in root .env, then refresh the broker paper-account reports."
+}
+
+if ($envFileExists -and $tradingMode -eq "paper" -and $brokerPaperMirroringEnabled -and $paperAccountPresent -and -not $paperAccountShapeValid) {
+    $blockers += "kis_paper_account_invalid_format"
+    $nextActions += "Fill KIS_ACCOUNT_NO_PAPER with the full 8-digit paper account number, or 8 digits-2 digits if copied with a suffix."
 }
 
 if (-not $secretsReadmeExists) {
@@ -177,6 +232,12 @@ $payload = [ordered]@{
     runtime_data_dir = $RuntimeDataDir
     env_file_path = $envFilePath
     env_file_exists = $envFileExists
+    trading_mode = $tradingMode
+    broker_paper_mirroring_enabled = $brokerPaperMirroringEnabled
+    kis_paper_account_present = $paperAccountPresent
+    kis_paper_account_shape_valid = $paperAccountShapeValid
+    kis_paper_product_code_explicit_present = $paperProductCodePresent
+    kis_paper_product_code_effective = $paperProductCodeEffective
     env_example_exists = $envExampleExists
     secrets_readme_path = $secretsReadmePath
     secrets_readme_exists = $secretsReadmeExists
@@ -201,6 +262,12 @@ $mdLines = @(
     "- checked at: $($payload.checked_at)",
     "- ok: $($payload.ok)",
     "- env file exists: $envFileExists",
+    "- trading mode: $tradingMode",
+    "- broker paper mirroring enabled: $brokerPaperMirroringEnabled",
+    "- KIS paper account present: $paperAccountPresent",
+    "- KIS paper account shape valid: $paperAccountShapeValid",
+    "- KIS paper product code explicit present: $paperProductCodePresent",
+    "- KIS paper product code effective: $paperProductCodeEffective",
     "- env example exists: $envExampleExists",
     "- secrets readme exists: $secretsReadmeExists",
     "- NAS recovery root exists: $nasRecoveryRootExists",

@@ -80,6 +80,8 @@ The project now has a working local foundation for:
 - Runtime startup-launcher status now validates the saved `WorkspaceRoot`, `RuntimeDataDir`, and autoboot script path instead of checking only that the launcher file exists
 - Local setup recovery preflight is now available through `scripts/check_local_setup.ps1`, which checks root `.env`, Python modules, dashboard, live runtime, watchdog, runtime startup launcher, and NAS recovery-root reachability
 - Interactive KIS env restore is now available through `scripts/restore_kis_env_interactive.ps1`, which defaults to `paper` mode, prompts only for app key/secret in a visible PowerShell window, writes root `.env`, and immediately reruns live-runtime/watchdog/KIS verification checks
+- Paper account connection is now available through `scripts/connect_kis_paper_account_interactive.ps1`, which keeps existing paper app key/secret, asks only for the 8-digit paper account number, leaves `KIS_PRODUCT_CODE_PAPER` blank, enables broker paper mirroring, refreshes reconciliation, and restarts runtime helpers
+- `scripts/check_local_setup.ps1` now reports whether the paper account number is present and shaped as 8 digits or 8 digits-2 digits; explicit paper product code is optional
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -261,11 +263,19 @@ PC 재부팅 후 자동 시작 helper:
 .\\scripts\\check_local_setup.ps1
 ```
 
-To restore account fields later, rerun:
+To restore KIS app key/secret and account fields together, rerun:
 
 ```powershell
 .\scripts\restore_kis_env_interactive.ps1 -IncludeAccountFields
 ```
+
+To connect or repair only the KIS paper account number, use:
+
+```powershell
+.\scripts\connect_kis_paper_account_interactive.ps1
+```
+
+This paper-account connector does not ask for `KIS_PRODUCT_CODE_PAPER`. If the KIS paper-account screen has no product code, keep it blank; the app applies the paper default internally when a KIS REST call needs it.
 
 `start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 복구용 루틴만 수행한다.
 
@@ -583,7 +593,7 @@ This does not mean older data should be deleted. The rolling 60-day window is fo
 
 ## KIS Paper Account Note
 
-For paper mode, if the account information is only available as an 8-digit account number, the settings loader now treats `KIS_PRODUCT_CODE_PAPER` as `01` by default.
+For paper mode, if the account information is only available as an 8-digit account number, leave `KIS_PRODUCT_CODE_PAPER` blank. The settings loader treats it as the paper default internally when a KIS REST account/order call needs a product code.
 
 If `.env` still contains the template placeholder `?ш린???곹뭹肄붾뱶`, the loader also treats that as blank and falls back to `01`.
 

@@ -79,6 +79,8 @@
 - `scripts/check_local_setup.ps1` 가 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 를 한 번에 점검하고 recovery report를 남긴다.
 - live runtime status 는 이제 `.env` 복구 뒤 active trading mode 기준 KIS app key/secret 이 다시 준비되면 stale `missing_kis_credentials` block 을 자동 해제한다.
 - `scripts/restore_kis_env_interactive.ps1` 를 추가해 visible PowerShell 입력 창에서 기본적으로 `paper` KIS app key/secret 만 입력하고 root `.env` 저장 뒤 live runtime / watchdog / KIS verification 까지 바로 확인할 수 있게 했다.
+- `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 기존 paper app key/secret 을 유지한 채 8자리 모의계좌번호만 입력하고, `KIS_PRODUCT_CODE_PAPER` 는 빈 값으로 둔 상태에서 브로커 모의주문 미러링과 reconciliation 을 바로 켤 수 있게 했다.
+- `scripts/check_local_setup.ps1` 는 이제 모의계좌번호 존재 여부와 8자리 또는 8자리-2자리 형식을 점검하고, paper product code 는 명시값이 없어도 내부 기본값으로 유효하다고 판단한다.
 
 ## Active Checklist
 
@@ -121,6 +123,7 @@
 - [x] runtime watchdog background 제어 스크립트
 - [x] dashboard cached snapshot 우선 응답과 `/api/refresh` 갱신 경로
 - [x] 장중 connected-but-idle WebSocket 수집 상태 감지와 watchdog 복구
+- [x] KIS 모의계좌 연결과 로컬 가상투자 + 브로커 모의투자 동시 운용 활성화
 
 ## Version And Watcher
 
@@ -152,6 +155,23 @@
 - runtime writer focused tests: `1 test OK`
 - full test suite after repo-move recovery fixes: `67 tests OK`
 - full test suite after live-runtime watchdog hardening: `67 tests OK`
+- full test suite after KIS paper-account connector and test isolation update: `67 tests OK`
+- KIS paper account connection:
+  - `python -m app --kis-account-balance`: `ok=true`
+  - broker paper cash: `10,000,000`
+  - broker paper positions: `0`
+  - `KIS_PRODUCT_CODE_PAPER`: explicit `.env` value blank, effective paper default applied internally
+- broker paper sync and reconciliation after account connection:
+  - `python -m app --sync-broker-paper-orders`: `ok=true`, `status=no_submissions`
+  - `python -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`
+  - `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0`, `mirrored_order_count=0`
+- runtime status after paper account connection:
+  - dashboard URL: `http://127.0.0.1:8765`
+  - dashboard status: `running`
+  - live runtime status: `running`
+  - watchdog status: `running`
+  - setup check: `ok=true`, blockers `none`
+  - latest market bar / prediction / signal: `fresh`
 - targeted KIS WebSocket / streaming tests after timeout message hardening: `11 tests OK`
 - live runtime recovery status after patch:
   - dashboard URL: `http://127.0.0.1:8765`
@@ -302,6 +322,14 @@
 ## Recent Log
 
 - `2026-04-28`
+  - 모의투자 계좌 연결 실패 원인은 APP key/secret 이 아니라 `KIS_ACCOUNT_NO_PAPER` 값 누락/오입력으로 확인했다. 7자리 입력 상태에서는 KIS REST 가 `INPUT INVALID_CHECK_ACNO` 를 반환했다.
+  - 모의투자 계좌 화면에는 별도 `PRODUCT_CODE` 가 없으므로 `KIS_PRODUCT_CODE_PAPER` 는 `.env` 에 빈 값으로 두고, 설정 loader 가 KIS 호출 시 paper 기본값을 내부 적용하는 기준으로 정리했다.
+  - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 paper app key/secret 은 유지하고 8자리 또는 8자리-2자리 모의계좌번호만 입력하게 했다. 계좌번호 형식이 맞으면 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_PAPER_EXECUTION=true`, `ENABLE_BROKER_PAPER_MIRRORING=true` 를 함께 저장한다.
+  - 계좌 재입력 후 `python -m app --kis-account-balance` 는 `ok=true` 로 통과했고, 브로커 모의계좌는 현금 `10,000,000`, 보유종목 `0` 상태로 조회됐다.
+  - 브로커 기준 marker alignment 와 reconciliation 결과는 `aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0` 이다. 아직 브로커 제출 주문은 없어 `mirrored_order_count=0` 이 정상이다.
+  - dashboard / live runtime / watchdog 을 재시작했고 dashboard `http://127.0.0.1:8765`, live runtime, watchdog 모두 `running` 으로 확인했다. setup check 도 blocker 없이 `ok=true` 다.
+  - 실제 운영 `.env` 에 `ENABLE_BROKER_PAPER_MIRRORING=true` 가 켜져도 replay 테스트가 독립적으로 동작하도록 `tests/test_streaming_pipeline.py` 의 로컬-only 테스트에 미러링 해제 env 를 명시했다.
+  - 전체 테스트 `67 tests OK` 를 다시 통과했고, 테스트 중 생성된 demo/replay runtime row 는 `python -m app --cleanup-runtime-test-data` 로 정리한 뒤 broker sync / reconciliation / dashboard refresh 를 다시 수행했다.
   - NAS recovery export root `\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports` 접근 가능을 다시 확인했다.
   - 최신 recovery package `real-time-stock-price-prediction-program-recovery-20260428-020032` 구조를 점검했고, `repo-snapshot` 루트에는 `.env` 가 포함되지 않는다는 것을 확인했다.
   - `restore_kis_env_interactive.ps1` 초안은 blank line 이 있는 `.env.example` 에서 `Lines` parameter binding 오류가 있었고, 이후 전체 프롬프트를 ASCII 로 정리하면서 기본 입력 범위를 `paper` KIS app key/secret 전용으로 단순화했다.
@@ -541,6 +569,7 @@ python -m app --build-dashboard
 .\\scripts\\get_runtime_watchdog_status.ps1
 .\\scripts\\stop_runtime_watchdog.ps1
 .\scripts\check_local_setup.ps1
+.\scripts\connect_kis_paper_account_interactive.ps1
 .\scripts\reconcile_paper_accounts.ps1
 .\scripts\start_hourly_repo_audit_background.ps1
 .\scripts\get_hourly_repo_audit_status.ps1

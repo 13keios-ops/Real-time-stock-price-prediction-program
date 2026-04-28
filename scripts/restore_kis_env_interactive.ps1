@@ -130,6 +130,34 @@ function Read-RequiredSecretValue {
     }
 }
 
+function Test-PaperAccountNo {
+    param([string]$AccountNo)
+
+    return ("$AccountNo".Trim() -match '^\d{8}(-\d{2})?$')
+}
+
+function Read-PaperAccountNo {
+    param([string]$DefaultValue = "")
+
+    $defaultForPrompt = if (Test-PaperAccountNo -AccountNo $DefaultValue) { $DefaultValue.Trim() } else { "" }
+    while ($true) {
+        if ([string]::IsNullOrWhiteSpace($defaultForPrompt)) {
+            $value = Read-Host "KIS_ACCOUNT_NO_PAPER (8 digits, or 8 digits-2 digits)"
+        } else {
+            $value = Read-Host "KIS_ACCOUNT_NO_PAPER (8 digits, or 8 digits-2 digits; Enter keeps current)"
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                $value = $defaultForPrompt
+            }
+        }
+
+        if (Test-PaperAccountNo -AccountNo $value) {
+            return $value.Trim()
+        }
+
+        Write-Host "Use the full paper account number: 8 digits, or 8 digits-2 digits if copied with a suffix." -ForegroundColor Yellow
+    }
+}
+
 function Read-OptionalValue {
     param(
         [Parameter(Mandatory = $true)]
@@ -176,10 +204,6 @@ $currentAccountNo = (Get-EnvValue -Key "KIS_ACCOUNT_NO_$prefix").Trim()
 $currentProductCode = (Get-EnvValue -Key "KIS_PRODUCT_CODE_$prefix").Trim()
 $currentHtsId = (Get-EnvValue -Key "KIS_HTS_ID").Trim()
 
-if ([string]::IsNullOrWhiteSpace($currentProductCode) -and $prefix -eq "PAPER") {
-    $currentProductCode = "01"
-}
-
 Write-Host ""
 Write-Host "KIS .env restore" -ForegroundColor Cyan
 Write-Host "requested mode: $selectedTradingMode"
@@ -200,8 +224,14 @@ $productCode = $currentProductCode
 $htsId = $currentHtsId
 
 if ($IncludeAccountFields) {
-    $accountNo = Read-RequiredValue -Prompt "KIS_ACCOUNT_NO_$prefix" -DefaultValue $currentAccountNo
-    $productCode = Read-RequiredValue -Prompt "KIS_PRODUCT_CODE_$prefix" -DefaultValue $productCode
+    if ($prefix -eq "PAPER") {
+        $accountNo = Read-PaperAccountNo -DefaultValue $currentAccountNo
+        $productCode = ""
+        Write-Host "KIS_PRODUCT_CODE_PAPER: not required by the paper-account screen; app defaults internally when needed."
+    } else {
+        $accountNo = Read-RequiredValue -Prompt "KIS_ACCOUNT_NO_$prefix" -DefaultValue $currentAccountNo
+        $productCode = Read-RequiredValue -Prompt "KIS_PRODUCT_CODE_$prefix" -DefaultValue $productCode
+    }
     $htsId = Read-OptionalValue -Prompt "KIS_HTS_ID" -DefaultValue $currentHtsId
 }
 
@@ -211,6 +241,13 @@ Set-EnvValue -Key "KIS_APP_SECRET_$prefix" -Value $appSecret
 Set-EnvValue -Key "KIS_ACCOUNT_NO_$prefix" -Value $accountNo
 Set-EnvValue -Key "KIS_PRODUCT_CODE_$prefix" -Value $productCode
 Set-EnvValue -Key "KIS_HTS_ID" -Value $htsId
+if ($selectedTradingMode -eq "paper") {
+    Set-EnvValue -Key "ALLOW_LIVE_ORDERS" -Value "false"
+    if ($IncludeAccountFields) {
+        Set-EnvValue -Key "ENABLE_PAPER_EXECUTION" -Value "true"
+        Set-EnvValue -Key "ENABLE_BROKER_PAPER_MIRRORING" -Value "true"
+    }
+}
 
 [System.IO.File]::WriteAllLines($envPath, $script:EnvLines.ToArray(), [System.Text.Encoding]::UTF8)
 
@@ -221,7 +258,18 @@ Write-Host "trading mode: $selectedTradingMode"
 Write-Host "credential set updated: $prefix"
 Write-Host "account fields updated: $($IncludeAccountFields.IsPresent)"
 Write-Host "account: $(Get-MaskedAccount -AccountNo $accountNo)"
-Write-Host "product code: $productCode"
+if ($prefix -eq "PAPER" -and [string]::IsNullOrWhiteSpace($productCode)) {
+    Write-Host "product code: not entered; paper default is applied internally when needed"
+} else {
+    Write-Host "product code: $productCode"
+}
+if ($selectedTradingMode -eq "paper") {
+    Write-Host "paper execution: enabled"
+    if ($IncludeAccountFields) {
+        Write-Host "broker paper mirroring: enabled"
+    }
+    Write-Host "live orders: disabled"
+}
 Write-Host ""
 
 $liveRuntimeStatus = $null
