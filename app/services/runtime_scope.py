@@ -76,6 +76,12 @@ def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings)
     ]
     actual_order_ids = {str(row["order_id"]) for row in actual_orders}
     actual_order_minutes = {minute_key(str(row["event_time"])) for row in actual_orders if row.get("event_time")}
+    actual_fill_minutes = {
+        minute_key(str(row["event_time"]))
+        for row in [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")]
+        if str(row.get("order_id", "")) in actual_order_ids and row.get("event_time")
+    }
+    actual_account_minutes = {minute for minute in [*actual_order_minutes, *actual_fill_minutes] if minute}
     actual_snapshot_ids = {
         str(row["snapshot_id"])
         for row in sqlite_store.fetch_all_rows("paper_portfolio_snapshots", "event_time")
@@ -85,7 +91,7 @@ def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings)
             actual_symbol_minutes=actual_symbol_minutes,
             actual_order_ids=actual_order_ids,
             actual_global_minutes=actual_global_minutes,
-            actual_order_minutes=actual_order_minutes,
+            actual_order_minutes=actual_account_minutes,
         )
     }
     actual_position_symbols = {str(row["symbol"]) for row in actual_orders}

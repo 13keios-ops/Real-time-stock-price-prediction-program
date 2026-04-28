@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.services.kis_account import KisAccountReportResult
-from app.services.paper_alignment import align_local_paper_to_broker
+from app.services.paper_alignment import (
+    adjust_snapshot_for_fills_after_snapshot,
+    align_local_paper_to_broker,
+    apply_alignment_baseline,
+)
 from app.services.paper_reconciliation import load_local_paper_account_state
 from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, PaperPosition, PortfolioSnapshot
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
@@ -143,6 +147,95 @@ class PaperAlignmentTests(unittest.TestCase):
         self.assertEqual(local_state["orders_total"], 0)
         self.assertEqual(local_state["fills_total"], 0)
         self.assertEqual(local_state["broker_order_submissions"], 0)
+
+    def test_alignment_baseline_merges_post_alignment_position_updates_by_symbol(self) -> None:
+        _, _, runtime_root = self._prepare_runtime()
+        marker_dir = runtime_root / "reports" / "broker-paper"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / "latest-alignment.json").write_text(
+            """
+{
+  "ok": true,
+  "aligned_at": "2026-04-17T10:00:00+09:00",
+  "baseline_positions": [
+    {"symbol": "005930", "updated_at": "2026-04-17T10:00:00+09:00", "qty": 2},
+    {"symbol": "000660", "updated_at": "2026-04-17T10:00:00+09:00", "qty": 1}
+  ],
+  "baseline_snapshot": {
+    "snapshot_id": "portfolio-broker-aligned-test",
+    "event_time": "2026-04-17T10:00:00+09:00",
+    "cash_balance": 1000000.0,
+    "gross_market_value": 300000.0,
+    "net_liquidation_value": 1300000.0,
+    "open_positions": 2,
+    "realized_pnl": 0.0,
+    "unrealized_pnl": 0.0
+  }
+}
+""".strip(),
+            encoding="utf-8",
+        )
+
+        _, merged_positions, _ = apply_alignment_baseline(
+            latest_snapshot={
+                "snapshot_id": "portfolio-after-new-fill",
+                "event_time": "2026-04-17T10:05:00+09:00",
+            },
+            position_rows=[
+                {"symbol": "005930", "updated_at": "2026-04-17T10:05:00+09:00", "qty": 3},
+            ],
+            runtime_data_dir=runtime_root,
+        )
+
+        qty_by_symbol = {str(row["symbol"]): int(row["qty"]) for row in merged_positions}
+        self.assertEqual(qty_by_symbol, {"005930": 3, "000660": 1})
+
+    def test_adjust_snapshot_for_fills_after_snapshot_applies_cash_flow(self) -> None:
+        snapshot = {
+            "snapshot_id": "portfolio-before-fill",
+            "event_time": "2026-04-17T10:00:00+09:00",
+            "cash_balance": 1000000.0,
+            "gross_market_value": 0.0,
+            "net_liquidation_value": 1000000.0,
+            "open_positions": 0,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": 0.0,
+        }
+        adjusted = adjust_snapshot_for_fills_after_snapshot(
+            snapshot,
+            order_rows=[
+                {
+                    "order_id": "paper-order-actual-001",
+                    "event_time": "2026-04-17T10:01:00+09:00",
+                    "side": "buy",
+                }
+            ],
+            fill_rows=[
+                {
+                    "fill_id": "fill-actual-001",
+                    "order_id": "paper-order-actual-001",
+                    "event_time": "2026-04-17T10:02:00+09:00",
+                    "fill_price": 70000.0,
+                    "fill_qty": 3,
+                    "commission": 100.0,
+                    "tax": 50.0,
+                }
+            ],
+            open_positions=[
+                {
+                    "symbol": "005930",
+                    "qty": 3,
+                    "market_value": 214500.0,
+                    "unrealized_pnl": 4350.0,
+                }
+            ],
+        )
+
+        self.assertIsNotNone(adjusted)
+        self.assertTrue(adjusted["adjusted_from_fills"])
+        self.assertEqual(adjusted["cash_balance"], 789850.0)
+        self.assertEqual(adjusted["gross_market_value"], 214500.0)
+        self.assertEqual(adjusted["net_liquidation_value"], 1004350.0)
 
 
 if __name__ == "__main__":

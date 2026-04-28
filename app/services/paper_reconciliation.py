@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
@@ -11,7 +10,11 @@ from typing import Any
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
 from app.services.kis_account import KisAccountReportResult, refresh_kis_account_report
-from app.services.paper_alignment import apply_alignment_baseline, filter_rows_after_alignment
+from app.services.paper_alignment import (
+    adjust_snapshot_for_fills_after_snapshot,
+    apply_alignment_baseline,
+    filter_rows_after_alignment,
+)
 from app.storage.runtime_writer import get_sqlite_store
 from app.utils.time import now_local
 
@@ -96,6 +99,12 @@ def load_local_paper_account_state(settings: AppSettings) -> dict[str, Any]:
     )
 
     latest_snapshot_dict = latest_snapshot_dict or {}
+    latest_snapshot_dict = adjust_snapshot_for_fills_after_snapshot(
+        latest_snapshot_dict,
+        order_rows=order_rows,
+        fill_rows=fill_rows,
+        open_positions=open_positions,
+    )
     return {
         "cash_balance": float(latest_snapshot_dict.get("cash_balance", settings.strategy.paper_initial_cash) or settings.strategy.paper_initial_cash),
         "net_liquidation_value": float(latest_snapshot_dict.get("net_liquidation_value", settings.strategy.paper_initial_cash) or settings.strategy.paper_initial_cash),
@@ -103,6 +112,7 @@ def load_local_paper_account_state(settings: AppSettings) -> dict[str, Any]:
         "realized_pnl": float(latest_snapshot_dict.get("realized_pnl", 0.0) or 0.0),
         "unrealized_pnl": float(latest_snapshot_dict.get("unrealized_pnl", 0.0) or 0.0),
         "latest_snapshot_time": latest_snapshot_dict.get("event_time"),
+        "snapshot_adjusted_from_fills": bool(latest_snapshot_dict.get("adjusted_from_fills", False)),
         "positions": open_positions,
         "orders_total": len(order_rows),
         "fills_total": len(fill_rows),

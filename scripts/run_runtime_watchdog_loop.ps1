@@ -15,6 +15,9 @@ param(
     [int]$IntervalSeconds = 60,
 
     [Parameter(Mandatory = $false)]
+    [int]$DashboardRefreshIntervalSeconds = 300,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SinglePass
 )
 
@@ -79,6 +82,7 @@ function Write-WatchdogState {
         dashboard_host = $DashboardHost
         dashboard_port = $DashboardPort
         interval_seconds = $IntervalSeconds
+        dashboard_refresh_interval_seconds = $DashboardRefreshIntervalSeconds
         started_at = $startedAt
         last_checked_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
         dashboard_action = $DashboardAction
@@ -97,6 +101,18 @@ function Write-WatchdogState {
 
 function Read-DashboardSnapshot {
     return Read-JsonFile -Path $dashboardSnapshotPath
+}
+
+function Get-DashboardSnapshotAgeSeconds {
+    if (-not (Test-Path -LiteralPath $dashboardSnapshotPath)) {
+        return $null
+    }
+
+    try {
+        return ((Get-Date) - (Get-Item -LiteralPath $dashboardSnapshotPath).LastWriteTime).TotalSeconds
+    } catch {
+        return $null
+    }
 }
 
 function Read-KisVerification {
@@ -169,7 +185,7 @@ function Test-LiveRuntimeRecentlyStarted {
 
 function Invoke-DashboardRefresh {
     $refreshUrl = "http://{0}:{1}/api/refresh" -f $DashboardHost, $DashboardPort
-    $response = Invoke-WebRequest -UseBasicParsing $refreshUrl -TimeoutSec 20
+    $response = Invoke-WebRequest -UseBasicParsing $refreshUrl -TimeoutSec 120
     if ($response.StatusCode -ne 200) {
         throw "dashboard refresh returned HTTP $($response.StatusCode)"
     }
@@ -234,7 +250,13 @@ while ($true) {
         }
     }
 
-    if ((-not $maintenanceInProgress) -and $dashboardHealthy) {
+    $dashboardSnapshotAgeSeconds = Get-DashboardSnapshotAgeSeconds
+    $dashboardSnapshotNeedsRefresh = (
+        $null -eq $dashboardSnapshotAgeSeconds -or
+        [double]$dashboardSnapshotAgeSeconds -ge [double]$DashboardRefreshIntervalSeconds
+    )
+
+    if ((-not $maintenanceInProgress) -and $dashboardHealthy -and $dashboardSnapshotNeedsRefresh) {
         try {
             Invoke-DashboardRefresh
             $dashboardSnapshotAction = "server_refresh"
@@ -313,7 +335,22 @@ while ($true) {
     $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
     $marketBarFreshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
     $verificationFreshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
-    $marketBarState = if ($null -ne $marketBarFreshness) { [string]$marketBarFreshness["state"] } else { "missing" }
+    $liveMarketBarFreshness = if ($null -ne $liveRuntimeStatus) { $liveRuntimeStatus.market_bar_freshness } else { $null }
+    $liveVerificationFreshness = if ($null -ne $liveRuntimeStatus) { $liveRuntimeStatus.kis_verification_freshness } else { $null }
+    $marketBarState = if ($null -ne $liveMarketBarFreshness) {
+        [string]$liveMarketBarFreshness.state
+    } elseif ($null -ne $marketBarFreshness) {
+        [string]$marketBarFreshness["state"]
+    } else {
+        "missing"
+    }
+    $verificationState = if ($null -ne $liveVerificationFreshness) {
+        [string]$liveVerificationFreshness.state
+    } elseif ($null -ne $verificationFreshness) {
+        [string]$verificationFreshness["state"]
+    } else {
+        "missing"
+    }
     $liveRuntimeRecentlyStarted = Test-LiveRuntimeRecentlyStarted -LiveRuntimeStatus $liveRuntimeStatus
 
     if (
@@ -331,8 +368,7 @@ while ($true) {
         (-not $needsLiveRuntimeRecovery) -and
         (
             ($null -eq $latestVerification) -or
-            ($null -eq $verificationFreshness) -or
-            (@("stale", "missing") -contains [string]$verificationFreshness["state"])
+            (@("stale", "missing") -contains $verificationState)
         )
     ) {
         $needsVerificationRefresh = $true

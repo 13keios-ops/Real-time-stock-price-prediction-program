@@ -115,6 +115,28 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertLess(processor.portfolio_book.cash_balance, settings.strategy.paper_initial_cash)
             self.assertIn("005930", processor.portfolio_book.positions)
 
+    def test_online_pipeline_default_ids_are_unique_across_runtime_starts(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-unique-ids" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            first = OnlinePipelineProcessor(settings)
+            second = OnlinePipelineProcessor(settings)
+
+        first_order_id = first._next_scoped_id("paper-order")
+        second_order_id = second._next_scoped_id("paper-order")
+        self.assertNotEqual(first_order_id, second_order_id)
+        self.assertIn("paper-order-online-", first_order_id)
+        self.assertIn("paper-order-online-", second_order_id)
+
     def test_online_pipeline_writes_broker_submission_when_enabled(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "streaming-broker-mirror" / str(uuid.uuid4())

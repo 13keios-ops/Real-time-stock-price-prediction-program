@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +33,11 @@ from app.portfolio.allocator import PositionAllocator
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
 from app.services.broker_paper import BrokerPaperMirror
 from app.services.broker_paper_sync import BrokerPaperExecutionSync
-from app.services.paper_alignment import apply_alignment_baseline
+from app.services.paper_alignment import (
+    adjust_snapshot_for_fills_after_snapshot,
+    apply_alignment_baseline,
+    filter_rows_after_alignment,
+)
 from app.storage.contracts import MarketTickEvent, OrderEvent, OrderbookSnapshot, RiskEvent
 from app.storage.runtime_writer import RuntimeWriter
 from app.universe.watchlist import load_watchlist
@@ -83,7 +89,7 @@ class OnlinePipelineProcessor:
         max_hold_minutes: int | None = None,
         prediction_horizons: tuple[int, ...] = (15, 60),
         trading_horizon_min: int = 15,
-        id_namespace: str = "online",
+        id_namespace: str | None = None,
         raw_source: str = "kis-ws",
     ) -> None:
         self.settings = settings
@@ -96,7 +102,7 @@ class OnlinePipelineProcessor:
             horizon: load_prediction_model(settings, horizon_min=horizon)
             for horizon in self.prediction_horizons
         }
-        self.id_namespace = id_namespace
+        self.id_namespace = id_namespace or self._build_live_id_namespace()
         self.raw_source = raw_source
         self.signal_policy = SignalPolicy(
             strategy_version=settings.strategy.strategy_version,
@@ -144,6 +150,10 @@ class OnlinePipelineProcessor:
         self._last_broker_sync_minute: datetime | None = None
         self._restore_pending_order_state()
 
+    def _build_live_id_namespace(self) -> str:
+        timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
+        return f"online-{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
     def _restore_portfolio_state(self) -> None:
         sqlite_store = self.writer.sqlite_store
         if sqlite_store is None:
@@ -155,6 +165,23 @@ class OnlinePipelineProcessor:
             latest_snapshot=latest_snapshot_row,
             position_rows=position_rows,
             runtime_data_dir=self.settings.runtime_data_dir,
+        )
+        open_positions = [row for row in position_rows if int(row.get("qty", 0) or 0) > 0]
+        order_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        fill_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        latest_snapshot_row = adjust_snapshot_for_fills_after_snapshot(
+            latest_snapshot_row,
+            order_rows=order_rows,
+            fill_rows=fill_rows,
+            open_positions=open_positions,
         )
         self.portfolio_book.restore_from_runtime(latest_snapshot=latest_snapshot_row, position_rows=position_rows)
 

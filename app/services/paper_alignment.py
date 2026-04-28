@@ -118,11 +118,76 @@ def apply_alignment_baseline(
 
     baseline_positions = [dict(row) for row in (marker.get("baseline_positions") or [])]
     baseline_snapshot = marker.get("baseline_snapshot")
-    if not filtered_positions:
-        filtered_positions = baseline_positions
+    if baseline_positions:
+        positions_by_symbol = {
+            str(row.get("symbol") or ""): row
+            for row in baseline_positions
+            if str(row.get("symbol") or "")
+        }
+        for row in filtered_positions:
+            symbol = str(row.get("symbol") or "")
+            if symbol:
+                positions_by_symbol[symbol] = row
+        filtered_positions = list(positions_by_symbol.values())
     if filtered_snapshot is None and isinstance(baseline_snapshot, dict):
         filtered_snapshot = dict(baseline_snapshot)
     return filtered_snapshot, filtered_positions, marker
+
+
+def adjust_snapshot_for_fills_after_snapshot(
+    latest_snapshot: dict[str, Any] | None,
+    *,
+    order_rows: list[dict[str, Any]],
+    fill_rows: list[dict[str, Any]],
+    open_positions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not latest_snapshot:
+        return latest_snapshot
+
+    snapshot_time = _parse_iso_timestamp(latest_snapshot.get("event_time"))
+    orders_by_id = {str(row.get("order_id") or ""): row for row in order_rows}
+    cash_balance = float(latest_snapshot.get("cash_balance", 0.0) or 0.0)
+    latest_fill_time = snapshot_time
+    adjusted = False
+
+    for fill in sorted(fill_rows, key=lambda row: str(row.get("event_time") or "")):
+        fill_time = _parse_iso_timestamp(fill.get("event_time"))
+        if snapshot_time is not None and (fill_time is None or fill_time <= snapshot_time):
+            continue
+        order = orders_by_id.get(str(fill.get("order_id") or ""))
+        if not order:
+            continue
+        side = str(order.get("side") or "").lower()
+        gross = float(fill.get("fill_price", 0.0) or 0.0) * int(fill.get("fill_qty", 0) or 0)
+        fees = float(fill.get("commission", 0.0) or 0.0) + float(fill.get("tax", 0.0) or 0.0)
+        if side == "buy":
+            cash_balance -= gross + fees
+        elif side == "sell":
+            cash_balance += gross - fees
+        else:
+            continue
+        latest_fill_time = fill_time or latest_fill_time
+        adjusted = True
+
+    if not adjusted:
+        return latest_snapshot
+
+    gross_market_value = sum(float(row.get("market_value", 0.0) or 0.0) for row in open_positions)
+    unrealized_pnl = sum(float(row.get("unrealized_pnl", 0.0) or 0.0) for row in open_positions)
+    adjusted_snapshot = dict(latest_snapshot)
+    adjusted_snapshot.update(
+        {
+            "cash_balance": cash_balance,
+            "gross_market_value": gross_market_value,
+            "net_liquidation_value": cash_balance + gross_market_value,
+            "open_positions": len(open_positions),
+            "unrealized_pnl": unrealized_pnl,
+            "adjusted_from_fills": True,
+        }
+    )
+    if latest_fill_time is not None:
+        adjusted_snapshot["event_time"] = latest_fill_time.isoformat()
+    return adjusted_snapshot
 
 
 def _build_baseline_position_row(aligned_at: datetime, position: dict[str, Any]) -> dict[str, Any] | None:

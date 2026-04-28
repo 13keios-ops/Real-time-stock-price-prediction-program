@@ -55,7 +55,11 @@
 - 로컬 가상 계좌와 브로커 모의계좌를 비교하는 paper-account reconciliation 리포트
 - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 paper alignment
 - paper alignment marker 이후의 주문/체결/브로커 제출 수만 `현재 로컬 계좌 요약`에 집계해서, 오래된 누적 이력이 현재 상태처럼 보이지 않도록 정리
+- live runtime 재시작 뒤에도 주문/체결 ID가 겹치지 않도록 실행별 고유 namespace를 사용
+- broker paper sync 는 alignment marker 이전 제출 주문을 새 baseline 에 다시 적용하지 않음
 - 런타임 재시작 시 기존 로컬 가상 포트폴리오 상태 복원
+- 런타임과 broker paper sync 는 alignment baseline 이후 체결이 있으나 최신 스냅샷이 오래된 경우, 기준 현금에 이후 체결 현금흐름을 반영해 복원한다.
+- actual-only cleanup 은 실제 브로커 체결 시각에 생성된 포트폴리오 스냅샷을 실제 운용 데이터로 보존한다.
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
 - KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않으면 timeout 후 reconnect 해서 connected-but-idle 상태를 줄인다.
@@ -137,10 +141,12 @@
   - 이 비교는 화면의 날짜 필터와 무관하게 `현재 로컬 가상 계좌 전체 상태`를 기준으로 계산한다.
   - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-account-sync.{md,json}` 에 남는다.
   - 미러링이 꺼져 있으면 `mirroring_disabled` 상태가 정상일 수 있다.
+  - KIS 모의계좌의 원시 현금값은 체결 뒤에도 총 예수금처럼 남을 수 있어, 비교에는 `총자산 - 주식평가액` 으로 계산한 유효현금을 함께 사용한다.
 - `paper baseline alignment`
   - 브로커 모의계좌 기준으로 로컬 가상 계좌의 현재 상태를 다시 맞추는 정렬 단계다.
   - 이 경로는 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 정렬한다.
   - 정렬 이후 대시보드의 `로컬 모의운용 계좌` 요약은 marker 이후 주문/체결/브로커 제출 수만 현재 상태로 집계한다.
+  - marker 이후 새 체결이 일부 종목에만 생겨도 baseline 보유종목과 종목별로 병합해서 현재 보유수량을 비교한다.
   - 정렬 뒤에는 reconciliation, runtime report, dashboard 가 모두 브로커 기준 현재 상태를 우선 보여준다.
   - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
 
@@ -343,6 +349,7 @@ runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 watchdog 은 dashboard `/api/refresh` 로 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 정규장 `missing/stale` 분봉 상태를 복구한다.
+대시보드 snapshot 전체 재생성은 기본 5분 간격으로 제한하고, 실시간 지연 판단은 우선 live runtime 상태값을 사용해 CPU를 계속 쓰는 refresh 루프를 줄인다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:
 

@@ -83,6 +83,10 @@ The project now has a working local foundation for:
 - Paper account connection is now available through `scripts/connect_kis_paper_account_interactive.ps1`, which keeps existing paper app key/secret, asks only for the 8-digit paper account number, leaves `KIS_PRODUCT_CODE_PAPER` blank, enables broker paper mirroring, refreshes reconciliation, and restarts runtime helpers
 - `scripts/check_local_setup.ps1` now reports whether the paper account number is present and shaped as 8 digits or 8 digits-2 digits; explicit paper product code is optional
 - Paper dual-account verification is now available through `scripts/verify_paper_dual_account_match.ps1`, which can sync root `.env` `PAPER_INITIAL_CASH` to the KIS paper-account cash, align the local marker baseline, and write a local-vs-broker match report
+- Online runtime IDs now include a per-process unique namespace, so restarted live listeners do not reuse `paper-order-online-*` IDs and overwrite old SQLite rows
+- Broker paper sync now ignores broker submissions at or before the latest paper-alignment marker, so old broker fills are not reapplied to a fresh broker baseline
+- Paper alignment baseline positions are merged by symbol with post-alignment position updates, so a new fill in one symbol does not hide unchanged baseline holdings in reconciliation
+- Online runtime and broker paper sync now adjust restored cash from fills newer than the restored snapshot, so a stale baseline snapshot does not inflate local virtual equity after restart.
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -96,11 +100,14 @@ The project now has a working local foundation for:
 - Midday Codex review `v4` now uses the same non-interactive Codex CLI invocation pattern as the hourly audit path, so long prompts complete and return reliably
 - Git autopush helper scripts now default their scan root to `D:\GitHub`, and watcher state prunes repos that are no longer inside the active scan root
 - Actual-only runtime cleanup now removes demo/replay/test rows from raw ticks, orderbooks, minute bars, serving tables, and paper tables
+- Actual-only runtime cleanup now keeps portfolio snapshots written at actual broker fill minutes, not only order minutes.
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs
 - Post-close ML maintenance now uses a lock-aware batch rebuild path, so real-data-only feature/label regeneration and LightGBM retraining finish without the earlier SQLite lock/stall behavior
 - Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
 - Runtime watchdog now refreshes the dashboard snapshot through `/api/refresh`, uses the current market session plus the latest KIS verification file, and restarts regular-session live runtime when market bars are `missing` or `stale`
+- Runtime watchdog allows a longer dashboard `/api/refresh` timeout because a full snapshot rebuild can take around a minute on the current runtime dataset
+- Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 5-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
 
 ## Recommended Dev Flow
 

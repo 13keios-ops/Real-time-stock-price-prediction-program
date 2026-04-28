@@ -82,6 +82,13 @@
 - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 기존 paper app key/secret 을 유지한 채 8자리 모의계좌번호만 입력하고, `KIS_PRODUCT_CODE_PAPER` 는 빈 값으로 둔 상태에서 브로커 모의주문 미러링과 reconciliation 을 바로 켤 수 있게 했다.
 - `scripts/check_local_setup.ps1` 는 이제 모의계좌번호 존재 여부와 8자리 또는 8자리-2자리 형식을 점검하고, paper product code 는 명시값이 없어도 내부 기본값으로 유효하다고 판단한다.
 - `scripts/verify_paper_dual_account_match.ps1` 는 KIS 모의계좌 현금과 root `.env` 의 `PAPER_INITIAL_CASH` 를 맞추고, 로컬 가상 계좌와 브로커 모의계좌의 예수금/총자산/보유수량 일치 여부를 `latest-paper-dual-account-match.{md,json}` 로 남긴다.
+- live runtime 의 온라인 주문/체결 ID 는 실행별 고유 namespace 를 포함해 재시작 뒤에도 기존 `paper_orders` row 를 덮어쓰지 않는다.
+- broker paper sync 는 최신 alignment marker 이전 제출 주문을 무시해, 과거 브로커 체결이 새 baseline position 에 다시 적용되지 않도록 한다.
+- alignment baseline position 은 marker 이후 position update 와 종목별로 병합해, 새 체결이 생긴 종목 외의 기존 baseline 보유종목도 reconciliation 에 남긴다.
+- live runtime 과 broker paper sync 는 alignment baseline 이후 체결이 있으나 최신 snapshot 이 오래된 경우, 기준 현금에 이후 체결 현금흐름을 반영해 복원한다.
+- actual-only cleanup 은 실제 브로커 체결 시각에 생성된 portfolio snapshot 을 실제 운용 데이터로 보존한다.
+- runtime watchdog 의 dashboard `/api/refresh` timeout 은 현재 runtime dataset 기준 새 snapshot 생성 시간을 감안해 120초로 둔다.
+- runtime watchdog 의 dashboard full refresh 는 기본 5분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
 
 ## Active Checklist
 
@@ -158,6 +165,7 @@
 - full test suite after repo-move recovery fixes: `67 tests OK`
 - full test suite after live-runtime watchdog hardening: `67 tests OK`
 - full test suite after KIS paper-account connector and test isolation update: `67 tests OK`
+- full test suite after restart reconciliation and watchdog CPU fixes: `75 tests OK`
 - KIS paper account connection:
   - `python -m app --kis-account-balance`: `ok=true`
   - broker paper cash: `10,000,000`
@@ -172,6 +180,17 @@
   - root `.env` `PAPER_INITIAL_CASH`: `25,000,000 -> 10,000,000`
   - broker cash/local cash: `10,000,000 / 10,000,000`
   - `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
+- paper dual-account live mismatch root-cause check:
+  - cause: live runtime restart reused `paper-order-online-*` IDs, old fills stayed attached to overwritten orders, and broker sync applied pre-alignment submissions after a fresh marker
+  - fix: unique online ID namespace, pre-marker broker submission filter, and symbol-wise baseline/post-alignment position merge
+  - latest `.\scripts\verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched`, `mismatch_count=0`, `cash_gap=-121.596`, `total_asset_gap=378.404`, `mirrored_order_count=1`
+  - dashboard refresh measured: `/api/refresh` `200 OK`, about `47.69s`
+- restart reconciliation and CPU follow-up:
+  - cause: watchdog called dashboard `/api/refresh` every 60s even though one rebuild can take around a minute, keeping dashboard Python CPU active.
+  - cause: after alignment, runtime restore used a stale baseline snapshot without applying later fills, inflating local virtual cash/equity by the post-alignment buy cost after restart.
+  - fix: throttle watchdog full refresh to 5 minutes, prefer live-runtime freshness for stale detection, apply newer-fill cashflow during runtime/broker-sync restore, and preserve actual fill-minute snapshots in cleanup.
+  - latest `.\scripts\verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=-1600`, `mirrored_order_count=0`
+  - setup check: `.\scripts\check_local_setup.ps1 -AsJson` `ok=true`, blockers `none`
 - runtime status after paper account connection:
   - dashboard URL: `http://127.0.0.1:8765`
   - dashboard status: `running`
@@ -336,6 +355,11 @@
   - standalone KIS WebSocket 검증이 별도 연결 제한으로 실패하더라도 live runtime 이 fresh market bar 를 계속 만들고 있으면 대시보드 상단에서 즉시 장애로 오판하지 않도록 보강했다.
   - 중복 dashboard/live-runtime 프로세스가 남으면 예전 설정을 읽은 프로세스가 로컬 단독 체결을 만들 수 있으므로, ForceRestart/stop 경로가 같은 `python -m app --serve-dashboard` 와 `--kis-ws-listen` 프로세스를 모두 정리하도록 보강했다.
   - KIS 모의계좌의 `cash_balance` 는 체결 직후 예수금 총액처럼 남을 수 있어, reconciliation 과 alignment 는 `total_asset_amount - stock_evaluation_amount` 를 broker effective cash 로 함께 사용하도록 보강했다.
+  - 로컬/브로커 모의투자 불일치 원인은 예수금 시작값이 아니라 live runtime 재시작 후 `paper-order-online-*` ID 재사용으로 확인했다. SQLite `paper_orders` 는 새 주문이 기존 row 를 덮어썼지만 기존 `paper_fills` 와 broker submission 은 같은 ID 를 계속 참조해 로컬 장부가 왜곡됐다.
+  - alignment 직후에도 old broker submission 이 다시 처리되고, marker 이후 position row 가 하나라도 있으면 baseline positions 전체가 reconciliation 에서 빠지는 문제를 함께 확인했다.
+  - online runtime ID namespace 를 실행별로 고유화했고, broker sync 는 alignment marker 이전 제출 주문을 무시하며, baseline position 은 post-alignment update 와 종목별 병합하도록 보강했다.
+  - 보강 후 live runtime 상태에서 `.\scripts\verify_paper_dual_account_match.ps1 -AsJson` 결과 `ok=true`, `status=matched`, `mismatch_count=0`, `cash_gap=-121.596`, `total_asset_gap=378.404` 로 확인했다.
+  - dashboard `/api/refresh` 는 현재 데이터셋에서 약 47~103초 걸릴 수 있어 watchdog refresh timeout 을 120초로 늘렸다.
   - 모의투자 계좌 연결 실패 원인은 APP key/secret 이 아니라 `KIS_ACCOUNT_NO_PAPER` 값 누락/오입력으로 확인했다. 7자리 입력 상태에서는 KIS REST 가 `INPUT INVALID_CHECK_ACNO` 를 반환했다.
   - 모의투자 계좌 화면에는 별도 `PRODUCT_CODE` 가 없으므로 `KIS_PRODUCT_CODE_PAPER` 는 `.env` 에 빈 값으로 두고, 설정 loader 가 KIS 호출 시 paper 기본값을 내부 적용하는 기준으로 정리했다.
   - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 paper app key/secret 은 유지하고 8자리 또는 8자리-2자리 모의계좌번호만 입력하게 했다. 계좌번호 형식이 맞으면 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_PAPER_EXECUTION=true`, `ENABLE_BROKER_PAPER_MIRRORING=true` 를 함께 저장한다.

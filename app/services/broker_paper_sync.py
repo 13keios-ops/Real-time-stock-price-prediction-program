@@ -5,15 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
+import uuid
 
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
 from app.paper_trading.book import PaperPortfolioBook
 from app.paper_trading.engine import PaperTradingEngine
 from app.services.broker_paper import BrokerPaperMirror
-from app.services.paper_alignment import apply_alignment_baseline
+from app.services.paper_alignment import (
+    adjust_snapshot_for_fills_after_snapshot,
+    apply_alignment_baseline,
+    filter_rows_after_alignment,
+)
 from app.storage.contracts import BrokerOrderStatusSnapshot, Fill, OrderEvent
 from app.storage.runtime_writer import RuntimeWriter
 from app.utils.time import now_local
@@ -142,6 +148,8 @@ class BrokerPaperExecutionSync:
         self.engine = engine or PaperTradingEngine(slippage_bps=settings.strategy.slippage_bps)
         self.id_factory = id_factory
         self.broker_mirror = BrokerPaperMirror(settings)
+        timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
+        self._run_namespace = f"{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self._sequence = 0
         if portfolio_book is None:
             self._restore_portfolio_state()
@@ -158,6 +166,23 @@ class BrokerPaperExecutionSync:
             position_rows=position_rows,
             runtime_data_dir=self.settings.runtime_data_dir,
         )
+        open_positions = [row for row in position_rows if int(row.get("qty", 0) or 0) > 0]
+        order_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        fill_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_fills", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        latest_snapshot_row = adjust_snapshot_for_fills_after_snapshot(
+            latest_snapshot_row,
+            order_rows=order_rows,
+            fill_rows=fill_rows,
+            open_positions=open_positions,
+        )
         self.portfolio_book.restore_from_runtime(
             latest_snapshot=latest_snapshot_row,
             position_rows=position_rows,
@@ -167,7 +192,7 @@ class BrokerPaperExecutionSync:
         if self.id_factory is not None:
             return self.id_factory(prefix)
         self._sequence += 1
-        return f"{prefix}-{self._sequence:06d}"
+        return f"{prefix}-{self._run_namespace}-{self._sequence:06d}"
 
     def sync_recent_orders(self, *, lookback_days: int = 3) -> BrokerPaperSyncResult:
         synced_at = now_local(self.settings.timezone)
@@ -216,7 +241,11 @@ class BrokerPaperExecutionSync:
                 **payload,
             )
 
-        submission_rows = [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")]
+        submission_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
         if not submission_rows:
             payload = {
                 "ok": True,

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from app.config.settings import load_settings
 from app.services.paper_reconciliation import reconcile_paper_accounts
-from app.storage.contracts import BrokerOrderSubmission, PaperPosition, PortfolioSnapshot
+from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, PaperPosition, PortfolioSnapshot
 from app.storage.runtime_writer import RuntimeWriter
 
 
@@ -75,7 +75,14 @@ class PaperReconciliationTests(unittest.TestCase):
             )
         )
 
-    def _mock_report(self, *, broker_qty: int, cash_balance: int = 1000000) -> MagicMock:
+    def _mock_report(
+        self,
+        *,
+        broker_qty: int,
+        cash_balance: int = 1000000,
+        stock_evaluation_amount: int = 214500,
+        total_asset_amount: int = 1214500,
+    ) -> MagicMock:
         report = MagicMock()
         report.to_dict.return_value = {
             "ok": True,
@@ -89,11 +96,11 @@ class PaperReconciliationTests(unittest.TestCase):
                 "account_no_masked": "1234****",
                 "product_code": "01",
                 "cash_balance": cash_balance,
-                "stock_evaluation_amount": 214500,
-                "total_evaluation_amount": 1214500,
+                "stock_evaluation_amount": stock_evaluation_amount,
+                "total_evaluation_amount": total_asset_amount,
                 "total_purchase_amount": 210000,
                 "total_profit_loss_amount": 4500,
-                "total_asset_amount": 1214500,
+                "total_asset_amount": total_asset_amount,
                 "positions": [
                     {
                         "symbol": "005930",
@@ -149,6 +156,94 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertTrue(result.comparison["balance_match"])
         self.assertEqual(result.comparison["cash_gap"], 0.0)
         self.assertEqual(result.comparison["raw_cash_gap"], -214500.0)
+
+    def test_reconcile_paper_accounts_adjusts_stale_snapshot_from_newer_fill(self) -> None:
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            snapshot_time = datetime.fromisoformat("2026-04-17T09:30:00+09:00")
+            fill_time = datetime.fromisoformat("2026-04-17T09:31:00+09:00")
+            writer.write_portfolio_snapshot(
+                PortfolioSnapshot(
+                    snapshot_id="portfolio-before-fill",
+                    event_time=snapshot_time,
+                    cash_balance=1000000.0,
+                    gross_market_value=0.0,
+                    net_liquidation_value=1000000.0,
+                    open_positions=0,
+                    realized_pnl=0.0,
+                    unrealized_pnl=0.0,
+                )
+            )
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-actual-001",
+                    symbol="005930",
+                    event_time=snapshot_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="filled",
+                )
+            )
+            writer.write_fill(
+                Fill(
+                    fill_id="fill-actual-001",
+                    order_id="paper-order-actual-001",
+                    event_time=fill_time,
+                    fill_price=70000.0,
+                    fill_qty=3,
+                    commission=100.0,
+                    tax=50.0,
+                )
+            )
+            writer.write_paper_position(
+                PaperPosition(
+                    symbol="005930",
+                    opened_at=fill_time,
+                    updated_at=fill_time,
+                    qty=3,
+                    avg_price=70050.0,
+                    last_price=71500.0,
+                    market_value=214500.0,
+                    cost_basis=210150.0,
+                    realized_pnl=0.0,
+                    unrealized_pnl=4350.0,
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-actual-001",
+                    local_order_id="paper-order-actual-001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=snapshot_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="100001",
+                    broker_branch_no="001",
+                    detail={"message": "ok"},
+                )
+            )
+            with patch(
+                "app.services.paper_reconciliation.refresh_kis_account_report",
+                return_value=self._mock_report(
+                    broker_qty=3,
+                    cash_balance=1004350,
+                    stock_evaluation_amount=214500,
+                    total_asset_amount=1004350,
+                ),
+            ):
+                result = reconcile_paper_accounts(project_root=root)
+
+        self.assertEqual(result.status, "aligned")
+        self.assertTrue(result.local_account["snapshot_adjusted_from_fills"])
+        self.assertEqual(result.local_account["cash_balance"], 789850.0)
+        self.assertEqual(result.comparison["cash_gap"], 0.0)
 
 
 if __name__ == "__main__":
