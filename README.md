@@ -58,6 +58,7 @@
 - 런타임 재시작 시 기존 로컬 가상 포트폴리오 상태 복원
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
+- KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않으면 timeout 후 reconnect 해서 connected-but-idle 상태를 줄인다.
 - 장중에는 15분·60분 예측을 함께 기록하고, 신호와 주문은 15분 기준으로만 생성
 - 샘플 WebSocket replay 데이터를 `kis-ws-replay` 출처와 `*-replay-*` ID로 분리
 - 오염된 분(minute)을 대시보드 actual runtime 범위에서 제외하는 stricter filter
@@ -333,7 +334,7 @@ runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보
 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
-watchdog 은 cached dashboard snapshot 의 `분봉 / 예측 / KIS 검증 신선도`도 함께 읽고, 정규장에는 stale 상태를 실제 재기동 신호로 쓸 수 있다.
+watchdog 은 dashboard `/api/refresh` 로 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 정규장 `missing/stale` 분봉 상태를 복구한다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:
 

@@ -71,6 +71,8 @@
   - 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 같은 실패를 매 cycle 반복 재시도하지 않는다.
 - `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
+- KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않는 연결을 계속 정상으로 보지 않고 timeout 후 reconnect 한다.
+- runtime watchdog 은 매 cycle dashboard `/api/refresh` 로 snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 장중 `missing/stale` 분봉 상태를 복구한다.
 - runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
 - paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
 - dashboard / watchdog / hourly audit / deadline review helper 는 이제 저장된 pid 만 믿지 않고 실제 command line 까지 확인해 stale pid 재사용 오판과 잘못된 stop 을 줄인다.
@@ -118,6 +120,7 @@
 - [x] PC 재부팅 후 dashboard/live runtime 자동 시작용 autoboot 스크립트
 - [x] runtime watchdog background 제어 스크립트
 - [x] dashboard cached snapshot 우선 응답과 `/api/refresh` 갱신 경로
+- [x] 장중 connected-but-idle WebSocket 수집 상태 감지와 watchdog 복구
 
 ## Version And Watcher
 
@@ -148,6 +151,15 @@
 - sqlite store focused tests: `3 tests OK`
 - runtime writer focused tests: `1 test OK`
 - full test suite after repo-move recovery fixes: `67 tests OK`
+- full test suite after live-runtime watchdog hardening: `67 tests OK`
+- targeted KIS WebSocket / streaming tests after timeout message hardening: `11 tests OK`
+- live runtime recovery status after patch:
+  - dashboard URL: `http://127.0.0.1:8765`
+  - dashboard status: `running`
+  - live runtime status: `running`
+  - watchdog status: `running`
+  - latest market bar / prediction / signal: `fresh`
+  - KIS WebSocket verification: `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session`
 - `python -m app --build-dashboard`: `ok`
 - PowerShell recovery scripts updated to default to repo-root resolution: `ok`
 - all `scripts/*.ps1` parse check after legacy review-script cleanup: `ok`
@@ -490,6 +502,14 @@
   - 대시보드 예측현황 탭에 오전/오후, 시간대별, 상승/하락 통계를 추가했고 recent list limit 을 `100` 으로 늘렸다.
   - 대시보드 LightGBM 상태는 이제 최신 학습 실행에 연결된 검증 정확도만 사용한다.
   - 브로커 모의계좌 자동 주문 미러링이 아직 없다는 점을 대시보드와 문서에 명시했다.
+- `2026-04-28`
+  - 장중 점검 결과 dashboard HTTP server 자체는 살아 있었지만 기본 `/api/dashboard.json` 이 오래된 cached snapshot 을 내려주고, live runtime 은 WebSocket 연결 로그만 남긴 채 한동안 데이터가 갱신되지 않는 connected-but-idle 상태를 확인했다.
+  - 단일 종목 KIS WebSocket verification 은 `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session` 으로 성공해 KIS 자격정보와 endpoint 자체는 정상으로 좁혔다.
+  - KIS WebSocket listener 에 frame timeout 과 구독 간 짧은 delay 를 추가해 프레임 없는 연결이 무한 대기하지 않고 reconnect 하도록 보강했다.
+  - runtime watchdog 이 dashboard `/api/refresh` 를 호출해 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 기준으로 장중 `missing/stale` market bar 상태를 복구하도록 보강했다.
+  - `get_live_runtime_status.ps1` 는 최신 KIS verification 파일을 우선 읽고, 실행 중인 listener 의 단순 INFO 로그를 failure reason 으로 표시하지 않도록 정리했다.
+  - 패치 후 live runtime, watchdog, dashboard 를 재시작했고 dashboard URL `http://127.0.0.1:8765` 기준 최신 market bar / prediction / signal 이 `fresh` 상태로 갱신되는 것을 확인했다.
+  - 전체 테스트 `67 tests OK`, runtime cleanup, runtime report/dashboard rebuild 를 다시 수행했다.
 
 ## Next Commands
 

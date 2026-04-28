@@ -163,12 +163,15 @@ class KisWebSocketQuoteClient:
     profile: KisAuthProfile
     token_manager: KisTokenManager
     reconnect_backoff_seconds: int = 5
+    frame_timeout_seconds: int = 30
+    subscription_delay_seconds: float = 0.1
 
     def describe(self) -> dict[str, str | int]:
         return {
             "transport": "websocket",
             "endpoint": self.profile.websocket_tryitout_url,
             "reconnect_backoff_seconds": self.reconnect_backoff_seconds,
+            "frame_timeout_seconds": self.frame_timeout_seconds,
             "status": "active",
         }
 
@@ -258,11 +261,12 @@ class KisWebSocketQuoteClient:
                     **self._connection_kwargs(),
                 ) as connection:
                     LOGGER.info(
-                        "Connected to KIS WebSocket endpoint=%s symbols=%s",
+                        "Connected to KIS WebSocket endpoint=%s symbols=%s subscriptions=%s",
                         self.profile.websocket_tryitout_url,
                         ",".join(symbols),
+                        len(subscriptions),
                     )
-                    for subscription in subscriptions:
+                    for index, subscription in enumerate(subscriptions):
                         await connection.send(
                             json.dumps(
                                 subscription.to_message(
@@ -272,8 +276,20 @@ class KisWebSocketQuoteClient:
                                 ensure_ascii=False,
                             )
                         )
+                        if self.subscription_delay_seconds > 0 and index < len(subscriptions) - 1:
+                            await asyncio.sleep(self.subscription_delay_seconds)
                     while unbounded or frames_seen < max_frames:
-                        frame = await connection.recv()
+                        try:
+                            frame = await asyncio.wait_for(
+                                connection.recv(),
+                                timeout=self.frame_timeout_seconds,
+                            )
+                        except asyncio.TimeoutError as exc:
+                            message = (
+                                "KIS WebSocket produced no frames for "
+                                f"{self.frame_timeout_seconds}s after subscription."
+                            )
+                            raise KisApiError(message) from exc
                         frames_seen += 1
                         yield frame
                 break

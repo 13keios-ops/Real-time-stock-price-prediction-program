@@ -28,6 +28,8 @@ if (-not $RuntimeDataDir) {
 $stateDir = Join-Path $RuntimeDataDir "reports\runtime-watchdog\state"
 $statePath = Join-Path $stateDir "watchdog-state.json"
 $dashboardSnapshotPath = Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json"
+$kisVerificationPath = Join-Path $RuntimeDataDir "reports\kis-ws\latest-verification.json"
+$marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
 $mlMaintenanceStatePath = Join-Path $RuntimeDataDir "reports\ml-maintenance\state\latest-post-close-ml.json"
 $mlMaintenanceLockPath = Join-Path $RuntimeDataDir "reports\ml-maintenance\state\maintenance-in-progress.json"
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
@@ -97,6 +99,82 @@ function Read-DashboardSnapshot {
     return Read-JsonFile -Path $dashboardSnapshotPath
 }
 
+function Read-KisVerification {
+    return Read-JsonFile -Path $kisVerificationPath
+}
+
+function Get-MarketTimeSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Default
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return $Default
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]+)`""
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if ($match -and $match -match $pattern) {
+        return $Matches[1]
+    }
+
+    return $Default
+}
+
+function Get-CurrentMarketSessionStatus {
+    $now = Get-Date
+    if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
+        return "weekend"
+    }
+
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $sessionClose = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_close" -Default "15:30"))
+    $currentTime = $now.TimeOfDay
+
+    if ($currentTime -lt $sessionOpen) {
+        return "pre-open"
+    }
+    if ($currentTime -gt $sessionClose) {
+        return "post-close"
+    }
+    return "regular-session"
+}
+
+function Test-LiveRuntimeRecentlyStarted {
+    param(
+        [Parameter(Mandatory = $false)]
+        [object]$LiveRuntimeStatus,
+
+        [Parameter(Mandatory = $false)]
+        [int]$GraceSeconds = 90
+    )
+
+    if ($null -eq $LiveRuntimeStatus -or [string]::IsNullOrWhiteSpace([string]$LiveRuntimeStatus.started_at)) {
+        return $false
+    }
+
+    try {
+        $startedAt = [DateTimeOffset]::Parse([string]$LiveRuntimeStatus.started_at)
+        return (([DateTimeOffset]::Now - $startedAt).TotalSeconds -lt $GraceSeconds)
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-DashboardRefresh {
+    $refreshUrl = "http://{0}:{1}/api/refresh" -f $DashboardHost, $DashboardPort
+    $response = Invoke-WebRequest -UseBasicParsing $refreshUrl -TimeoutSec 20
+    if ($response.StatusCode -ne 200) {
+        throw "dashboard refresh returned HTTP $($response.StatusCode)"
+    }
+}
+
 function Invoke-PowerShellScriptIsolated {
     param(
         [Parameter(Mandatory = $true)]
@@ -153,6 +231,16 @@ while ($true) {
         } catch {
             $dashboardAction = "restart_failed"
             $errors += "dashboard_restart: $($_.Exception.Message)"
+        }
+    }
+
+    if ((-not $maintenanceInProgress) -and $dashboardHealthy) {
+        try {
+            Invoke-DashboardRefresh
+            $dashboardSnapshotAction = "server_refresh"
+        } catch {
+            $dashboardSnapshotAction = "server_refresh_failed"
+            $errors += "dashboard_refresh: $($_.Exception.Message)"
         }
     }
 
@@ -219,44 +307,35 @@ while ($true) {
 
     $needsLiveRuntimeRecovery = $false
     $needsVerificationRefresh = $false
-    if ($null -ne $dashboardSnapshot) {
-        $latestVerification = $dashboardSnapshot["latest_kis_verification"]
-        $systemStatus = $dashboardSnapshot["system_status"]
-        $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
-        $marketBarFreshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
-        $verificationFreshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
-        $sessionStatus = if ($null -ne $latestVerification) { [string]$latestVerification["session_status"] } else { "" }
+    $currentSessionStatus = Get-CurrentMarketSessionStatus
+    $latestVerification = Read-KisVerification
+    $systemStatus = if ($null -ne $dashboardSnapshot) { $dashboardSnapshot["system_status"] } else { $null }
+    $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
+    $marketBarFreshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
+    $verificationFreshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
+    $marketBarState = if ($null -ne $marketBarFreshness) { [string]$marketBarFreshness["state"] } else { "missing" }
+    $liveRuntimeRecentlyStarted = Test-LiveRuntimeRecentlyStarted -LiveRuntimeStatus $liveRuntimeStatus
 
-        if (
-            ([string]$liveRuntimeStatus.status -eq "running") -and
-            ($sessionStatus -eq "regular-session") -and
-            ($null -ne $marketBarFreshness) -and
-            ([string]$marketBarFreshness["state"] -eq "stale")
-        ) {
-            $needsLiveRuntimeRecovery = $true
-        }
-
-        if (
-            ($sessionStatus -eq "regular-session") -and
-            (
-                ($null -eq $latestVerification) -or
-                ($null -eq $verificationFreshness) -or
-                (@("stale", "missing") -contains [string]$verificationFreshness["state"])
-            )
-        ) {
-            $needsVerificationRefresh = $true
-        }
+    if (
+        ($null -ne $liveRuntimeStatus) -and
+        ([string]$liveRuntimeStatus.status -eq "running") -and
+        ($currentSessionStatus -eq "regular-session") -and
+        (-not $liveRuntimeRecentlyStarted) -and
+        (@("missing", "stale") -contains $marketBarState)
+    ) {
+        $needsLiveRuntimeRecovery = $true
     }
 
-    if ((-not $maintenanceInProgress) -and $needsVerificationRefresh) {
-        try {
-            & python -m app --verify-kis-ws --symbols $symbolForVerification --max-frames 10 --max-reconnects 1 | Out-Null
-            $dashboardSnapshotAction = "refresh_kis_verification"
-            $dashboardSnapshot = Read-DashboardSnapshot
-        } catch {
-            $dashboardSnapshotAction = "refresh_kis_verification_failed"
-            $errors += "kis_verification_refresh: $($_.Exception.Message)"
-        }
+    if (
+        ($currentSessionStatus -eq "regular-session") -and
+        (-not $needsLiveRuntimeRecovery) -and
+        (
+            ($null -eq $latestVerification) -or
+            ($null -eq $verificationFreshness) -or
+            (@("stale", "missing") -contains [string]$verificationFreshness["state"])
+        )
+    ) {
+        $needsVerificationRefresh = $true
     }
 
     if ((-not $maintenanceInProgress) -and $needsLiveRuntimeRecovery) {
@@ -264,14 +343,33 @@ while ($true) {
             $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
                 -RuntimeDataDir $RuntimeDataDir `
+                -Symbols $symbolForVerification `
                 -ForceRestart
-            $liveRuntimeAction = "restart_stale_runtime"
+            $liveRuntimeAction = "restart_stale_runtime_single_symbol"
             $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
                 -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+            try {
+                Invoke-DashboardRefresh
+                $dashboardSnapshot = Read-DashboardSnapshot
+            } catch {
+                $errors += "dashboard_refresh_after_live_restart: $($_.Exception.Message)"
+            }
         } catch {
             $liveRuntimeAction = "restart_stale_runtime_failed"
             $errors += "live_runtime_stale_restart: $($_.Exception.Message)"
+        }
+    }
+
+    if ((-not $maintenanceInProgress) -and $needsVerificationRefresh) {
+        try {
+            & python -m app --verify-kis-ws --symbols $symbolForVerification --max-frames 10 --max-reconnects 1 | Out-Null
+            $dashboardSnapshotAction = "refresh_kis_verification"
+            Invoke-DashboardRefresh
+            $dashboardSnapshot = Read-DashboardSnapshot
+        } catch {
+            $dashboardSnapshotAction = "refresh_kis_verification_failed"
+            $errors += "kis_verification_refresh: $($_.Exception.Message)"
         }
     }
 

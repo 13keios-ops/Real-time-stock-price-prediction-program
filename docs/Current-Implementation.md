@@ -20,6 +20,7 @@ The project now has a working local foundation for:
 - Paper-trading state updates for replay and online flows
 - Runtime and backtest report generation
 - KIS WebSocket listening with reconnect handling and control-frame skipping
+- KIS WebSocket listening now times out and reconnects when a subscribed connection produces no frames, instead of staying indefinitely connected-but-idle
 - KIS WebSocket verification report generation
 - KIS verification separation between connection readiness and market-data flow
 - Local monitoring dashboard snapshot generation and HTTP serving
@@ -96,6 +97,7 @@ The project now has a working local foundation for:
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs
 - Post-close ML maintenance now uses a lock-aware batch rebuild path, so real-data-only feature/label regeneration and LightGBM retraining finish without the earlier SQLite lock/stall behavior
 - Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
+- Runtime watchdog now refreshes the dashboard snapshot through `/api/refresh`, uses the current market session plus the latest KIS verification file, and restarts regular-session live runtime when market bars are `missing` or `stale`
 
 ## Recommended Dev Flow
 
@@ -476,9 +478,10 @@ Runtime watchdog start / status / stop:
 ```
 
 The watchdog keeps `dashboard` and `live runtime` alive.
-It does not rebuild dashboard snapshots itself anymore; snapshot refresh is handled by the dashboard client through `/api/refresh`.
+It asks the dashboard server to rebuild the cached snapshot through `/api/refresh` on each cycle, so status scripts are not pinned to an old JSON file.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
-The watchdog now reads market-bar and KIS-verification freshness from the cached dashboard snapshot with the same serializer-based JSON reader used by the live-runtime status script.
+The watchdog reads market-bar freshness from the refreshed dashboard snapshot and uses the current market session plus the latest KIS verification file before deciding whether to restart live runtime.
+During the regular session, `missing` or `stale` market bars trigger a live-runtime restart after a short startup grace period.
 When root `.env` is missing or KIS credentials are not configured, the watchdog now records a blocked live-runtime state instead of retrying the same failing restart every cycle.
 If `.env` is restored later and the active trading-mode app key/secret become available again, the stale blocked state is cleared back to `stopped` so the next watchdog cycle can retry the listener automatically.
 

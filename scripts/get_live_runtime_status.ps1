@@ -14,6 +14,7 @@ if (-not $RuntimeDataDir) {
 
 $statePath = Join-Path $RuntimeDataDir "reports\live-runtime\state\listener-state.json"
 $dashboardPath = Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json"
+$kisVerificationPath = Join-Path $RuntimeDataDir "reports\kis-ws\latest-verification.json"
 $envFilePath = Join-Path $WorkspaceRoot ".env"
 
 Add-Type -AssemblyName System.Web.Extensions
@@ -194,6 +195,59 @@ function Get-LastNonEmptyLine {
     return "$($lines[-1])".Trim()
 }
 
+function Get-TimestampFreshness {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Timestamp,
+
+        [Parameter(Mandatory = $false)]
+        [double]$FreshMinutes = 60,
+
+        [Parameter(Mandatory = $false)]
+        [double]$StaleMinutes = 240
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Timestamp)) {
+        return [ordered]@{
+            available = $false
+            timestamp = $null
+            age_minutes = $null
+            state = "missing"
+            label = "missing"
+            note = "timestamp missing"
+        }
+    }
+
+    try {
+        $parsed = [DateTimeOffset]::Parse($Timestamp)
+        $ageMinutes = [Math]::Round(([DateTimeOffset]::Now - $parsed).TotalMinutes, 2)
+        $state = if ($ageMinutes -le $FreshMinutes) {
+            "fresh"
+        } elseif ($ageMinutes -le $StaleMinutes) {
+            "stale"
+        } else {
+            "old"
+        }
+        return [ordered]@{
+            available = $true
+            timestamp = $Timestamp
+            age_minutes = $ageMinutes
+            state = $state
+            label = $state
+            note = "$ageMinutes minutes old"
+        }
+    } catch {
+        return [ordered]@{
+            available = $false
+            timestamp = $Timestamp
+            age_minutes = $null
+            state = "invalid"
+            label = "invalid"
+            note = "timestamp parse failed"
+        }
+    }
+}
+
 function Get-LiveRuntimeMessage {
     param(
         [string]$BlockedReason,
@@ -272,6 +326,12 @@ $failureReason = if ($storedFailureReason -and $storedFailureReason -ne ".") {
 } else {
     ""
 }
+if ($failureReason -eq "0" -or $failureReason -eq ".") {
+    $failureReason = ""
+}
+if ($processRunning) {
+    $failureReason = ""
+}
 $envFileExists = Test-Path -LiteralPath $envFilePath
 $credentialStatus = Get-KisCredentialStatus -EnvFilePath $envFilePath
 $credentialsReadyForQuotes = [bool]$credentialStatus["ready_for_quotes"]
@@ -298,9 +358,23 @@ if (($blockedReason -eq "missing_kis_credentials") -and (($failureReason -eq "."
 $message = Get-LiveRuntimeMessage -BlockedReason $blockedReason -EnvFileExists $envFileExists -FailureReason $failureReason
 
 $dashboardPayload = Read-JsonFile -Path $dashboardPath
+$latestKisVerification = Read-JsonFile -Path $kisVerificationPath
 
 $systemStatus = if ($null -ne $dashboardPayload) { $dashboardPayload["system_status"] } else { $null }
 $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
+$dashboardKisVerification = if ($null -ne $dashboardPayload -and $null -ne $dashboardPayload["latest_kis_verification"]) {
+    $dashboardPayload["latest_kis_verification"]
+} else {
+    $null
+}
+$effectiveKisVerification = if ($null -ne $latestKisVerification) { $latestKisVerification } else { $dashboardKisVerification }
+$effectiveKisVerificationFreshness = if ($null -ne $latestKisVerification) {
+    Get-TimestampFreshness -Timestamp ([string]$latestKisVerification["verified_at"])
+} elseif ($null -ne $freshness) {
+    $freshness["latest_kis_verification"]
+} else {
+    $null
+}
 
 [string]$rawStatus = "$($state["status"])"
 $effectiveStatus = if ($processRunning) {
@@ -414,7 +488,7 @@ if (
     market_bar_freshness = if ($null -ne $freshness) { $freshness["latest_market_bar"] } else { $null }
     prediction_freshness = if ($null -ne $freshness) { $freshness["latest_prediction"] } else { $null }
     signal_freshness = if ($null -ne $freshness) { $freshness["latest_signal"] } else { $null }
-    kis_verification_freshness = if ($null -ne $freshness) { $freshness["latest_kis_verification"] } else { $null }
-    session_status = if ($null -ne $dashboardPayload -and $null -ne $dashboardPayload["latest_kis_verification"]) { $dashboardPayload["latest_kis_verification"]["session_status"] } else { $null }
+    kis_verification_freshness = $effectiveKisVerificationFreshness
+    session_status = if ($null -ne $effectiveKisVerification) { $effectiveKisVerification["session_status"] } else { $null }
     raw_status = $rawStatus
 } | ConvertTo-Json -Depth 10
