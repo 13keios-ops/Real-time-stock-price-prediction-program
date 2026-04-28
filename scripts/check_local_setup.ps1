@@ -194,9 +194,13 @@ if ([string]$dashboardStatus.status -ne "running") {
     $nextActions += "Restart the dashboard and confirm the /health response."
 }
 
-if ([string]$watchdogStatus.status -ne "running") {
+$watchdogStatusValue = [string]$watchdogStatus.status
+$watchdogProcessRunning = [bool]$watchdogStatus.process_running
+if ($watchdogStatusValue -ne "running" -and -not ($watchdogStatusValue -eq "warning" -and $watchdogProcessRunning)) {
     $blockers += "watchdog_not_running"
     $nextActions += "Restart the runtime watchdog."
+} elseif ($watchdogStatusValue -eq "warning") {
+    $nextActions += "Inspect runtime watchdog warning details if the warning persists across the next cycle."
 }
 
 if (-not [bool]$runtimeStartupLauncherStatus.installed) {

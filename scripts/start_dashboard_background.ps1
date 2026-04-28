@@ -101,6 +101,16 @@ function Get-DashboardProcessRecord {
         -RequiredCommandPatterns @('(?i)(^|\s)--serve-dashboard(\s|$)')
 }
 
+function Get-DashboardProcessRecords {
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = "$($_.CommandLine)"
+            -not [string]::IsNullOrWhiteSpace($commandLine) -and
+            $commandLine -match '(?i)(^|\s)-m\s+app(\s|$)' -and
+            $commandLine -match '(?i)(^|\s)--serve-dashboard(\s|$)'
+        }
+}
+
 function Test-DashboardHealth {
     param([string]$BaseUrl)
     try {
@@ -160,6 +170,16 @@ if ($null -ne $existingListener) {
         $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
         $payload | ConvertTo-Json -Depth 10
         return
+    }
+}
+
+if ($ForceRestart) {
+    $dashboardProcesses = @(Get-DashboardProcessRecords)
+    foreach ($dashboardProcess in $dashboardProcesses) {
+        Stop-Process -Id $dashboardProcess.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    if ($dashboardProcesses.Count -gt 0) {
+        Start-Sleep -Seconds 1
     }
 }
 

@@ -140,7 +140,13 @@ function Invoke-AppCommand {
     )
 
     if ($DiscardOutput) {
-        & python @Arguments | Out-Null
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & python @Arguments 1>$null 2>$null
+        } finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
     } else {
         & python @Arguments
     }
@@ -156,7 +162,31 @@ function Read-JsonFile {
         return $null
     }
 
-    return Get-Content -LiteralPath $LiteralPath -Raw | ConvertFrom-Json
+    return Get-Content -LiteralPath $LiteralPath -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Get-NumberOrNull {
+    param([object]$Value)
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace("$Value")) {
+        return $null
+    }
+
+    try {
+        return [double]::Parse("$Value", [System.Globalization.CultureInfo]::InvariantCulture)
+    } catch {
+        return $null
+    }
+}
+
+function Format-EnvNumber {
+    param([double]$Value)
+
+    if ([Math]::Abs($Value - [Math]::Round($Value)) -lt 0.0001) {
+        return ([long][Math]::Round($Value)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    return $Value.ToString("0.########", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Test-NeedsBrokerPaperAlignment {
@@ -222,6 +252,19 @@ try {
     Write-Host ""
     Write-Host "Refreshing broker paper account..." -ForegroundColor Cyan
     Invoke-AppCommand -Arguments @("-m", "app", "--kis-account-balance") -DiscardOutput
+    $accountReport = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account.json")
+    if ($null -eq $accountReport -or $null -eq $accountReport.account_snapshot) {
+        $accountReport = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\kis-account\latest-account-paper.json")
+    }
+    $brokerCash = $null
+    if ($null -ne $accountReport -and $null -ne $accountReport.account_snapshot) {
+        $brokerCash = Get-NumberOrNull -Value $accountReport.account_snapshot.cash_balance
+    }
+    if ($null -ne $brokerCash -and $brokerCash -gt 0) {
+        Set-EnvValue -Key "PAPER_INITIAL_CASH" -Value (Format-EnvNumber -Value $brokerCash)
+        [System.IO.File]::WriteAllLines($envPath, $script:EnvLines.ToArray(), [System.Text.Encoding]::UTF8)
+        Write-Host "local paper initial cash: $(Format-EnvNumber -Value $brokerCash) (synced to broker paper cash)"
+    }
     Invoke-AppCommand -Arguments @("-m", "app", "--sync-broker-paper-orders") -DiscardOutput
     $brokerPaperSync = Read-JsonFile -LiteralPath (Join-Path $RuntimeDataDir "reports\broker-paper\latest-sync.json")
     Invoke-AppCommand -Arguments @("-m", "app", "--reconcile-paper-accounts") -DiscardOutput

@@ -37,6 +37,16 @@ function Get-LiveRuntimeProcessRecord {
     return $null
 }
 
+function Get-LiveRuntimeProcessRecords {
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = "$($_.CommandLine)"
+            -not [string]::IsNullOrWhiteSpace($commandLine) -and
+            $commandLine -match '(?i)(^|\s)-m\s+app(\s|$)' -and
+            $commandLine -match '(?i)(^|\s)--kis-ws-listen(\s|$)'
+        }
+}
+
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Live runtime state not found."
     return
@@ -66,11 +76,19 @@ if ($null -eq $process) {
     return
 }
 
-Stop-Process -Id $process.ProcessId -Force
+$processesToStop = @(Get-LiveRuntimeProcessRecords)
+if ($processesToStop.Count -eq 0) {
+    $processesToStop = @($process)
+}
+
+foreach ($processToStop in $processesToStop) {
+    Stop-Process -Id $processToStop.ProcessId -Force -ErrorAction SilentlyContinue
+}
 
 $payload = [ordered]@{
     status = "stopped"
     pid = $process.ProcessId
+    stopped_pids = @($processesToStop | ForEach-Object { $_.ProcessId })
     process_running = $false
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     workspace_root = $state.workspace_root
@@ -80,4 +98,5 @@ $payload = [ordered]@{
 }
 
 $payload | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding UTF8
-Write-Output "Stopped live runtime pid $($process.Id)."
+$stoppedPidText = (($processesToStop | ForEach-Object { "$($_.ProcessId)" }) -join ", ")
+Write-Output "Stopped live runtime pid(s) $stoppedPidText."

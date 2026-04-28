@@ -23,6 +23,16 @@ function Get-DashboardProcessRecord {
         -RequiredCommandPatterns @('(?i)(^|\s)--serve-dashboard(\s|$)')
 }
 
+function Get-DashboardProcessRecords {
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = "$($_.CommandLine)"
+            -not [string]::IsNullOrWhiteSpace($commandLine) -and
+            $commandLine -match '(?i)(^|\s)-m\s+app(\s|$)' -and
+            $commandLine -match '(?i)(^|\s)--serve-dashboard(\s|$)'
+        }
+}
+
 if (-not (Test-Path -LiteralPath $statePath)) {
     Write-Output "Dashboard server state not found."
     return
@@ -84,11 +94,19 @@ if ($null -eq $process) {
     return
 }
 
-Stop-Process -Id $effectivePid -Force
+$processesToStop = @(Get-DashboardProcessRecords)
+if ($processesToStop.Count -eq 0 -and $effectivePid) {
+    $processesToStop = @($process)
+}
+
+foreach ($processToStop in $processesToStop) {
+    Stop-Process -Id $processToStop.ProcessId -Force -ErrorAction SilentlyContinue
+}
 
 $payload = [ordered]@{
     status = "stopped"
     pid = $effectivePid
+    stopped_pids = @($processesToStop | ForEach-Object { $_.ProcessId })
     stopped_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
     host = $state.host
     port = $state.port

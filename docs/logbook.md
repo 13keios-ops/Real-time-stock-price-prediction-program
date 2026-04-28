@@ -81,6 +81,7 @@
 - `scripts/restore_kis_env_interactive.ps1` 를 추가해 visible PowerShell 입력 창에서 기본적으로 `paper` KIS app key/secret 만 입력하고 root `.env` 저장 뒤 live runtime / watchdog / KIS verification 까지 바로 확인할 수 있게 했다.
 - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 기존 paper app key/secret 을 유지한 채 8자리 모의계좌번호만 입력하고, `KIS_PRODUCT_CODE_PAPER` 는 빈 값으로 둔 상태에서 브로커 모의주문 미러링과 reconciliation 을 바로 켤 수 있게 했다.
 - `scripts/check_local_setup.ps1` 는 이제 모의계좌번호 존재 여부와 8자리 또는 8자리-2자리 형식을 점검하고, paper product code 는 명시값이 없어도 내부 기본값으로 유효하다고 판단한다.
+- `scripts/verify_paper_dual_account_match.ps1` 는 KIS 모의계좌 현금과 root `.env` 의 `PAPER_INITIAL_CASH` 를 맞추고, 로컬 가상 계좌와 브로커 모의계좌의 예수금/총자산/보유수량 일치 여부를 `latest-paper-dual-account-match.{md,json}` 로 남긴다.
 
 ## Active Checklist
 
@@ -124,6 +125,7 @@
 - [x] dashboard cached snapshot 우선 응답과 `/api/refresh` 갱신 경로
 - [x] 장중 connected-but-idle WebSocket 수집 상태 감지와 watchdog 복구
 - [x] KIS 모의계좌 연결과 로컬 가상투자 + 브로커 모의투자 동시 운용 활성화
+- [x] 로컬 가상투자와 KIS 모의투자의 시작 예수금 동기화 및 일치 점검 스크립트
 
 ## Version And Watcher
 
@@ -165,6 +167,11 @@
   - `python -m app --sync-broker-paper-orders`: `ok=true`, `status=no_submissions`
   - `python -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`
   - `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0`, `mirrored_order_count=0`
+- paper dual-account match:
+  - `.\scripts\verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker -AsJson`: `ok=true`
+  - root `.env` `PAPER_INITIAL_CASH`: `25,000,000 -> 10,000,000`
+  - broker cash/local cash: `10,000,000 / 10,000,000`
+  - `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
 - runtime status after paper account connection:
   - dashboard URL: `http://127.0.0.1:8765`
   - dashboard status: `running`
@@ -322,6 +329,13 @@
 ## Recent Log
 
 - `2026-04-28`
+  - 로컬 가상투자와 KIS 모의투자가 같은 예수금에서 출발하도록 root `.env` 의 `PAPER_INITIAL_CASH` 를 KIS 모의계좌 현금 `10,000,000` 으로 동기화했다.
+  - `scripts/verify_paper_dual_account_match.ps1` 를 추가했다. `-SyncInitialCash -AlignToBroker` 는 장 시작 전 기준 맞춤용이고, `-AsJson` 단독 실행은 운용 중 비파괴 점검용이다.
+  - 최신 dual-account match 결과는 `matched_waiting_first_submission`, broker cash/local cash `10,000,000 / 10,000,000`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0` 이다.
+  - `check_local_setup.ps1` 는 watchdog 프로세스가 살아 있고 일시 `warning` 만 남은 경우를 `watchdog_not_running` blocker 로 오판하지 않도록 보정했다.
+  - standalone KIS WebSocket 검증이 별도 연결 제한으로 실패하더라도 live runtime 이 fresh market bar 를 계속 만들고 있으면 대시보드 상단에서 즉시 장애로 오판하지 않도록 보강했다.
+  - 중복 dashboard/live-runtime 프로세스가 남으면 예전 설정을 읽은 프로세스가 로컬 단독 체결을 만들 수 있으므로, ForceRestart/stop 경로가 같은 `python -m app --serve-dashboard` 와 `--kis-ws-listen` 프로세스를 모두 정리하도록 보강했다.
+  - KIS 모의계좌의 `cash_balance` 는 체결 직후 예수금 총액처럼 남을 수 있어, reconciliation 과 alignment 는 `total_asset_amount - stock_evaluation_amount` 를 broker effective cash 로 함께 사용하도록 보강했다.
   - 모의투자 계좌 연결 실패 원인은 APP key/secret 이 아니라 `KIS_ACCOUNT_NO_PAPER` 값 누락/오입력으로 확인했다. 7자리 입력 상태에서는 KIS REST 가 `INPUT INVALID_CHECK_ACNO` 를 반환했다.
   - 모의투자 계좌 화면에는 별도 `PRODUCT_CODE` 가 없으므로 `KIS_PRODUCT_CODE_PAPER` 는 `.env` 에 빈 값으로 두고, 설정 loader 가 KIS 호출 시 paper 기본값을 내부 적용하는 기준으로 정리했다.
   - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 paper app key/secret 은 유지하고 8자리 또는 8자리-2자리 모의계좌번호만 입력하게 했다. 계좌번호 형식이 맞으면 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_PAPER_EXECUTION=true`, `ENABLE_BROKER_PAPER_MIRRORING=true` 를 함께 저장한다.

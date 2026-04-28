@@ -144,16 +144,21 @@ def _build_baseline_position_row(aligned_at: datetime, position: dict[str, Any])
 
 
 def _build_baseline_snapshot(aligned_at: datetime, snapshot_dict: dict[str, Any], open_positions: int) -> dict[str, Any]:
+    gross_market_value = float(snapshot_dict.get("stock_evaluation_amount", 0.0) or 0.0)
+    net_liquidation_value = float(
+        snapshot_dict.get("total_asset_amount", 0.0)
+        or snapshot_dict.get("total_evaluation_amount", 0.0)
+        or 0.0
+    )
+    cash_balance = float(snapshot_dict.get("cash_balance", 0.0) or 0.0)
+    if net_liquidation_value and gross_market_value:
+        cash_balance = net_liquidation_value - gross_market_value
     return {
         "snapshot_id": f"portfolio-broker-aligned-{aligned_at.strftime('%Y%m%d%H%M%S')}",
         "event_time": aligned_at.isoformat(),
-        "cash_balance": float(snapshot_dict.get("cash_balance", 0.0) or 0.0),
-        "gross_market_value": float(snapshot_dict.get("stock_evaluation_amount", 0.0) or 0.0),
-        "net_liquidation_value": float(
-            snapshot_dict.get("total_asset_amount", 0.0)
-            or snapshot_dict.get("total_evaluation_amount", 0.0)
-            or 0.0
-        ),
+        "cash_balance": cash_balance,
+        "gross_market_value": gross_market_value,
+        "net_liquidation_value": net_liquidation_value,
         "open_positions": open_positions,
         "realized_pnl": 0.0,
         "unrealized_pnl": float(snapshot_dict.get("total_profit_loss_amount", 0.0) or 0.0),
@@ -167,7 +172,7 @@ def align_local_paper_to_broker(project_root: Path) -> PaperAlignmentResult:
     broker_report = refresh_kis_account_report(
         project_root=project_root,
         account_mode="paper",
-        force_refresh=False,
+        force_refresh=True,
         max_age_seconds=300,
     )
     if not broker_report.ok or not broker_report.account_snapshot:

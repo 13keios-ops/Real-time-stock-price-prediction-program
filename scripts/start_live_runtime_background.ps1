@@ -113,6 +113,16 @@ function Get-LiveRuntimeProcessRecord {
     return $null
 }
 
+function Get-LiveRuntimeProcessRecords {
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = "$($_.CommandLine)"
+            -not [string]::IsNullOrWhiteSpace($commandLine) -and
+            $commandLine -match '(?i)(^|\s)-m\s+app(\s|$)' -and
+            $commandLine -match '(?i)(^|\s)--kis-ws-listen(\s|$)'
+        }
+}
+
 function Resolve-PythonExecutable {
     try {
         $candidate = & py -3 -c "import sys; print(sys.executable)"
@@ -131,6 +141,16 @@ function Resolve-PythonExecutable {
     }
 
     throw "Python executable could not be resolved."
+}
+
+if ($ForceRestart) {
+    $runningLiveProcesses = @(Get-LiveRuntimeProcessRecords)
+    foreach ($liveProcess in $runningLiveProcesses) {
+        Stop-Process -Id $liveProcess.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    if ($runningLiveProcesses.Count -gt 0) {
+        Start-Sleep -Seconds 1
+    }
 }
 
 if (Test-Path -LiteralPath $statePath) {

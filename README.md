@@ -128,6 +128,10 @@
   - `ENABLE_BROKER_PAPER_MIRRORING=true` 이면 로컬 가상 주문을 브로커 모의계좌에도 함께 제출한다.
   - 다만 브로커 쪽 거절, 부분 체결, 체결 시차가 있으면 주문 직후에는 보유 수량과 예수금이 잠시 다를 수 있다.
   - 대시보드의 비교 카드와 `최근 브로커 제출 주문` 표에서 현재 동기화 상태를 확인한다.
+- `로컬 시작 예수금 동기화`
+  - 장 시작 전에는 `scripts/verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker` 로 KIS 모의계좌 예수금을 root `.env` 의 `PAPER_INITIAL_CASH` 에 맞추고, 브로커 기준 marker 정렬까지 갱신한다.
+  - 이후 수시 점검은 `scripts/verify_paper_dual_account_match.ps1 -AsJson` 으로 한다.
+  - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.{md,json}` 에 남는다.
 - `paper-account reconciliation`
   - 로컬 가상 계좌와 브로커 모의계좌의 보유 수량, 예수금, 총자산을 비교하는 점검 리포트다.
   - 이 비교는 화면의 날짜 필터와 무관하게 `현재 로컬 가상 계좌 전체 상태`를 기준으로 계산한다.

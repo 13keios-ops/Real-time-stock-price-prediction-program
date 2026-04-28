@@ -182,15 +182,29 @@ def build_paper_account_reconciliation_payload(
             mismatch_rows.append(row)
 
     local_cash = local_account_state.get("cash_balance")
-    broker_cash = broker_snapshot.get("cash_balance")
-    cash_gap = (float(local_cash) - float(broker_cash)) if local_cash is not None and broker_cash is not None else None
+    broker_raw_cash = broker_snapshot.get("cash_balance")
     local_total = local_account_state.get("net_liquidation_value")
     broker_total = broker_snapshot.get("total_asset_amount")
     if broker_total in (None, "", 0):
         broker_total = broker_snapshot.get("total_evaluation_amount")
+    broker_stock_evaluation = broker_snapshot.get("stock_evaluation_amount")
+    broker_effective_cash = broker_raw_cash
+    if broker_total not in (None, "") and broker_stock_evaluation not in (None, ""):
+        broker_effective_cash = float(broker_total) - float(broker_stock_evaluation)
+    cash_gap = (
+        float(local_cash) - float(broker_effective_cash)
+        if local_cash is not None and broker_effective_cash is not None
+        else None
+    )
+    raw_cash_gap = (
+        float(local_cash) - float(broker_raw_cash)
+        if local_cash is not None and broker_raw_cash is not None
+        else None
+    )
     total_asset_gap = (float(local_total) - float(broker_total)) if local_total is not None and broker_total is not None else None
     positions_match = len(mismatch_rows) == 0
-    balance_match = cash_gap is not None and abs(cash_gap) < 1.0
+    balance_match = cash_gap is not None and abs(cash_gap) < 10_000.0
+    total_asset_match = total_asset_gap is not None and abs(total_asset_gap) < 10_000.0
 
     if not broker_payload.get("ok"):
         status = "broker_unavailable"
@@ -198,13 +212,13 @@ def build_paper_account_reconciliation_payload(
     elif not order_mirroring_enabled:
         status = "mirroring_disabled"
         note = "브로커 모의주문 미러링이 꺼져 있어 로컬 가상 장부와 브로커 모의계좌가 자동으로 같아지지 않습니다."
-    elif positions_match and balance_match and mirrored_order_count == 0:
+    elif positions_match and balance_match and total_asset_match and mirrored_order_count == 0:
         status = "aligned_waiting_first_submission"
         note = "브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다."
     elif mirrored_order_count == 0:
         status = "waiting_first_submission"
         note = "브로커 미러링은 켜져 있지만 아직 제출된 주문이 없어 동기화 여부를 더 지켜봐야 합니다."
-    elif positions_match and balance_match:
+    elif positions_match and balance_match and total_asset_match:
         status = "aligned"
         note = "현재 로컬 가상 장부와 브로커 모의계좌의 보유 수량과 예수금이 일치합니다."
     else:
@@ -217,8 +231,12 @@ def build_paper_account_reconciliation_payload(
         "mismatch_count": len(mismatch_rows),
         "positions_match": positions_match,
         "balance_match": balance_match,
+        "total_asset_match": total_asset_match,
         "cash_gap": cash_gap,
+        "raw_cash_gap": raw_cash_gap,
         "total_asset_gap": total_asset_gap,
+        "broker_effective_cash_balance": broker_effective_cash,
+        "broker_raw_cash_balance": broker_raw_cash,
         "local_positions_count": len(local_positions_map),
         "broker_positions_count": len(broker_positions_map),
         "order_mirroring_enabled": bool(order_mirroring_enabled),

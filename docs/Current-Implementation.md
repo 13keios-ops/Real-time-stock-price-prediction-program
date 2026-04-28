@@ -82,6 +82,7 @@ The project now has a working local foundation for:
 - Interactive KIS env restore is now available through `scripts/restore_kis_env_interactive.ps1`, which defaults to `paper` mode, prompts only for app key/secret in a visible PowerShell window, writes root `.env`, and immediately reruns live-runtime/watchdog/KIS verification checks
 - Paper account connection is now available through `scripts/connect_kis_paper_account_interactive.ps1`, which keeps existing paper app key/secret, asks only for the 8-digit paper account number, leaves `KIS_PRODUCT_CODE_PAPER` blank, enables broker paper mirroring, refreshes reconciliation, and restarts runtime helpers
 - `scripts/check_local_setup.ps1` now reports whether the paper account number is present and shaped as 8 digits or 8 digits-2 digits; explicit paper product code is optional
+- Paper dual-account verification is now available through `scripts/verify_paper_dual_account_match.ps1`, which can sync root `.env` `PAPER_INITIAL_CASH` to the KIS paper-account cash, align the local marker baseline, and write a local-vs-broker match report
 - Runtime helper scripts now `return` control to the caller instead of terminating the parent PowerShell session, so autoboot/watchdog/post-close flows can compose dashboard/live-runtime helpers safely
 - Runtime autoboot and Monday startup now fail fast when a nested `python -m app ...` command fails instead of silently continuing
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
@@ -276,6 +277,7 @@ To connect or repair only the KIS paper account number, use:
 ```
 
 This paper-account connector does not ask for `KIS_PRODUCT_CODE_PAPER`. If the KIS paper-account screen has no product code, keep it blank; the app applies the paper default internally when a KIS REST call needs it.
+After a successful broker balance refresh, it also syncs root `.env` `PAPER_INITIAL_CASH` to the broker paper cash so the local virtual book and KIS paper account start from the same cash baseline.
 
 `start_runtime_autoboot.ps1` 는 PC 로그인 직후 가볍게 복구용 루틴만 수행한다.
 
@@ -298,7 +300,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 
 The current strategy default is `ENABLE_BROKER_PAPER_MIRRORING=true`.
 
-When enabled, the local paper engine still records its own simulated fills immediately, while the broker paper account receives matching order submissions through KIS REST. Dashboard sync cards show whether balances and holdings still match.
+When enabled, local virtual orders are submitted to the KIS paper account and broker status/fill sync is used to keep the local virtual book aligned with the broker result. Dashboard sync cards show whether balances and holdings still match.
 
 Broker baseline alignment:
 
@@ -472,6 +474,15 @@ python -m app --reconcile-paper-accounts
 
 This comparison uses the current full local virtual-paper account state, not the date-filtered dashboard slice.
 
+Sync the local starting cash to the broker paper account and verify the two books match:
+
+```powershell
+.\scripts\verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker -AsJson
+.\scripts\verify_paper_dual_account_match.ps1 -AsJson
+```
+
+The first command is the 장 시작 전 reset/check path. The second command is the non-mutating status check after runtime starts. The latest result is written to `runtime-data/reports/reconciliation/latest-paper-dual-account-match.{md,json}`.
+
 If an old dashboard server is still holding port `8765`, the start / status / stop scripts now detect the actual port owner and replace it cleanly.
 The background launcher now prefers `pythonw.exe` when available, falls back to the real `python.exe` when needed, and waits for `/health` before marking the server as running.
 The dashboard status script now also checks `/api/dashboard.json`, not only `/health`, so a port-listening process without real payload responses no longer counts as healthy.
@@ -550,6 +561,8 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - KIS verification report JSON: `runtime-data/reports/kis-ws/latest-verification.json`
 - Paper reconciliation report: `runtime-data/reports/reconciliation/latest-paper-account-sync.md`
 - Paper reconciliation report JSON: `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
+- Paper dual-account match report: `runtime-data/reports/reconciliation/latest-paper-dual-account-match.md`
+- Paper dual-account match report JSON: `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
 - Hourly audit review history: `runtime-data/reports/codex/automation/history/`
 - Hourly audit research notes: `runtime-data/reports/codex/automation/research/`
 - Hourly audit draft: `runtime-data/reports/codex/automation/drafts/latest-improvement-draft.md`

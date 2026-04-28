@@ -75,7 +75,7 @@ class PaperReconciliationTests(unittest.TestCase):
             )
         )
 
-    def _mock_report(self, *, broker_qty: int) -> MagicMock:
+    def _mock_report(self, *, broker_qty: int, cash_balance: int = 1000000) -> MagicMock:
         report = MagicMock()
         report.to_dict.return_value = {
             "ok": True,
@@ -88,7 +88,7 @@ class PaperReconciliationTests(unittest.TestCase):
             "account_snapshot": {
                 "account_no_masked": "1234****",
                 "product_code": "01",
-                "cash_balance": 1000000,
+                "cash_balance": cash_balance,
                 "stock_evaluation_amount": 214500,
                 "total_evaluation_amount": 1214500,
                 "total_purchase_amount": 210000,
@@ -134,6 +134,21 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertEqual(result.status, "needs_review")
         self.assertEqual(result.mismatch_count, 1)
         self.assertEqual(result.comparison["mismatch_rows"][0]["qty_gap"], -1)
+
+    def test_reconcile_paper_accounts_uses_effective_cash_after_broker_fill(self) -> None:
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_local_state(root)
+            with patch(
+                "app.services.paper_reconciliation.refresh_kis_account_report",
+                return_value=self._mock_report(broker_qty=3, cash_balance=1214500),
+            ):
+                result = reconcile_paper_accounts(project_root=root)
+
+        self.assertEqual(result.status, "aligned")
+        self.assertTrue(result.comparison["balance_match"])
+        self.assertEqual(result.comparison["cash_gap"], 0.0)
+        self.assertEqual(result.comparison["raw_cash_gap"], -214500.0)
 
 
 if __name__ == "__main__":

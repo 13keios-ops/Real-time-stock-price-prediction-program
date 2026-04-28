@@ -540,6 +540,7 @@ def _build_status_alerts(
     training_freshness = freshness.get("latest_training", {}) or {}
     evaluation_freshness = freshness.get("latest_evaluation", {}) or {}
     latest_kis = latest_kis_verification or {}
+    live_market_data_fresh = runtime_status == "running" and market_bar_freshness.get("state") == "fresh"
 
     if runtime_status != "running":
         alerts.append(
@@ -568,11 +569,12 @@ def _build_status_alerts(
             )
 
     kis_failure_message = latest_kis.get("error") or latest_kis.get("status_note") or "실시간 수신이 확인되지 않았습니다."
-    if latest_kis and (
+    kis_regular_session_failure = latest_kis and (
         (session_status == "regular-session" and latest_kis.get("ok") is False)
         or (session_status == "regular-session" and latest_kis.get("connection_ready") is False)
         or (session_status == "regular-session" and latest_kis.get("market_data_flow_ok") is False)
-    ):
+    )
+    if kis_regular_session_failure and not live_market_data_fresh:
         alerts.append(
             {
                 "level": "warning",
