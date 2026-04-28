@@ -260,6 +260,76 @@ class DashboardTests(unittest.TestCase):
             )
         )
 
+    def _seed_after_close_prediction_runtime(self, root: Path) -> None:
+        settings = load_settings(project_root=root)
+        writer = RuntimeWriter.from_settings(settings)
+        base_time = datetime.fromisoformat("2026-04-13T15:30:00+09:00")
+        writer.write_market_tick(
+            MarketTickEvent(symbol="005930", event_time=base_time, price=70000, volume=100, source="kis-ws")
+        )
+        writer.write_minute_bar(
+            MinuteBar(
+                symbol="005930",
+                bar_time=base_time,
+                open=69900,
+                high=70100,
+                low=69850,
+                close=70000,
+                volume=100,
+                trade_count=5,
+            )
+        )
+        writer.write_prediction(
+            Prediction(
+                prediction_id="pred-h15-online-unit-close-001",
+                symbol="005930",
+                event_time=base_time,
+                horizon_min=15,
+                model_version="baseline-h15-v1",
+                probability_up=0.8,
+                probability_flat=0.1,
+                probability_down=0.1,
+            )
+        )
+
+    def _seed_many_actual_predictions_runtime(self, root: Path, count: int = 8) -> None:
+        settings = load_settings(project_root=root)
+        writer = RuntimeWriter.from_settings(settings)
+        first_time = datetime.fromisoformat("2026-04-13T10:00:00+09:00")
+        for index in range(count):
+            base_time = first_time + timedelta(minutes=index)
+            future_time = base_time + timedelta(minutes=15)
+            base_price = 70000 + index * 10
+            future_price = base_price + 700
+            for event_time, price in ((base_time, base_price), (future_time, future_price)):
+                writer.write_market_tick(
+                    MarketTickEvent(symbol="005930", event_time=event_time, price=price, volume=100 + index, source="kis-ws")
+                )
+                writer.write_minute_bar(
+                    MinuteBar(
+                        symbol="005930",
+                        bar_time=event_time,
+                        open=price - 100,
+                        high=price + 100,
+                        low=price - 150,
+                        close=price,
+                        volume=100 + index,
+                        trade_count=5,
+                    )
+                )
+            writer.write_prediction(
+                Prediction(
+                    prediction_id=f"pred-h15-online-unit-many-{index:03d}",
+                    symbol="005930",
+                    event_time=base_time,
+                    horizon_min=15,
+                    model_version="baseline-h15-v1",
+                    probability_up=0.8,
+                    probability_flat=0.1,
+                    probability_down=0.1,
+                )
+            )
+
     def test_build_dashboard_snapshot_creates_files(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root, env = self._prepare_runtime_root()
@@ -359,7 +429,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('"runtime_summary"', payload)
         self.assertIn("실시간 주가 예측 대시보드", html)
         self.assertIn("모의계좌(실제)", html)
-        self.assertIn('http-equiv="refresh" content="300"', html)
+        self.assertIn("fetch('/api/refresh'", html)
+        self.assertIn("refreshIntervalMs = 600000", html)
         self.assertIn("data-subtab-group", html)
 
     def test_dashboard_reconciliation_uses_full_local_account_state(self) -> None:
@@ -553,6 +624,39 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(row["success_text"], "성공")
         self.assertEqual(snapshot.payload["prediction_summary"]["evaluated"], 1)
         self.assertEqual(snapshot.payload["prediction_summary"]["pending"], 0)
+
+    def test_dashboard_prediction_view_closes_after_market_without_future_bar(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_dashboard_inputs(runtime_root)
+            self._seed_after_close_prediction_runtime(root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, range_key="all")
+
+        recent_predictions = snapshot.payload["recent_predictions"]
+        self.assertEqual(len(recent_predictions), 1)
+        row = recent_predictions[0]
+        self.assertEqual(row["actual_label_text"], "결과 없음")
+        self.assertEqual(row["actual_change_text"], "결과 없음")
+        self.assertEqual(row["success_text"], "결과 없음")
+        self.assertEqual(row["result_status"], "no_result")
+        self.assertEqual(snapshot.payload["prediction_summary"]["evaluated"], 0)
+        self.assertEqual(snapshot.payload["prediction_summary"]["pending"], 0)
+        self.assertEqual(snapshot.payload["prediction_summary"]["no_result"], 1)
+
+    def test_dashboard_prediction_detail_shows_all_selected_predictions(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_dashboard_inputs(runtime_root)
+            self._seed_many_actual_predictions_runtime(root, count=8)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, range_key="all")
+
+        self.assertEqual(len(snapshot.payload["recent_predictions"]), 5)
+        self.assertEqual(len(snapshot.payload["prediction_details"]), 8)
+        self.assertEqual(snapshot.payload["prediction_summary"]["total"], 8)
 
 
 if __name__ == "__main__":

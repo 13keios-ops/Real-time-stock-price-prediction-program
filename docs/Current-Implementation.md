@@ -34,8 +34,8 @@ The project now has a working local foundation for:
 - Dashboard top alerts no longer raise `오늘 학습 부재` by default; they only surface training/evaluation when the latest artifact is actually missing or stale
 - Dashboard status script now normalizes the saved server-state file after a successful health check so stale `starting` state does not linger
 - Dashboard prediction view now shows baseline price, expected move amount, actual outcome amount, and success status
-- Dashboard prediction view now resolves actual outcomes with the first same-day minute bar at or after the target horizon, so sparse intraday data no longer leaves most rows stuck as `대기 중`
-- Dashboard prediction view now supports up to 100 recent rows and adds AM/PM, hour-slot, and up/down stats
+- Dashboard prediction view now resolves actual outcomes with the first same-day minute bar at or after the target horizon, and marks post-close impossible outcomes as `결과 없음` instead of leaving them permanently `대기 중`
+- Dashboard prediction view keeps the recent summary capped but the prediction-detail tab now shows all selected-period prediction rows
 - Dashboard signal/order view now explains blocked sell signals and combines signal, order, and fill context
 - Dashboard daily-report view now summarizes selected-period performance, insights, and next actions
 - Virtual-paper account view now uses vertical subtabs for overview, holdings, and trade activity
@@ -48,7 +48,7 @@ The project now has a working local foundation for:
 - Dashboard SQLite reads now skip schema initialization, use lock-aware retry, and are less likely to fail under live runtime writes
 - Dashboard HTTP endpoints now return a temporary-unavailable response instead of dropping the connection when SQLite is briefly locked
 - Dashboard default page and default JSON API now prefer the latest cached snapshot so the UI responds faster under load
-- Dashboard manual refresh and 5-minute auto refresh now rebuild the snapshot through `/api/refresh` before reloading the page
+- Dashboard manual refresh and 10-minute auto refresh now rebuild the snapshot through `/api/refresh` before reloading the page
 - Dashboard ML tab now keeps showing the latest overall backtest / walk-forward / challenger artifacts even when the selected day has no new training or evaluation rows
 - Dashboard background launch now resolves a real Python executable instead of relying on the Windows app alias
 - Dashboard foreground and background launch scripts now both avoid the Windows `WindowsApps\python.exe` alias and prefer a real Python interpreter path
@@ -92,7 +92,7 @@ The project now has a working local foundation for:
 - Paper reconciliation now uses a longer SQLite write timeout and retry window under live-runtime contention
 - Online runtime now records both 15-minute and 60-minute predictions, while signals and order decisions stay on the 15-minute horizon
 - Dashboard trading tab now shows program state, symbol names, prediction result text, blocked sell-signal reasons, and local paper-engine operating status
-- Dashboard trading tab now defaults to 5-minute auto-refresh and provides a manual `?곹깭 ?낅뜲?댄듃` button
+- Dashboard trading tab now defaults to 10-minute auto-refresh and provides a manual `상태 업데이트` button
 - Recent predictions now show baseline-price-relative expected move amounts and actual outcome amounts when the horizon has elapsed
 - KIS REST snapshot retry/backoff for short rate-limit bursts
 - Hourly repository audit automation with carry-forward state files
@@ -107,7 +107,7 @@ The project now has a working local foundation for:
 - Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
 - Runtime watchdog now refreshes the dashboard snapshot through `/api/refresh`, uses the current market session plus the latest KIS verification file, and restarts regular-session live runtime when market bars are `missing` or `stale`
 - Runtime watchdog allows a longer dashboard `/api/refresh` timeout because a full snapshot rebuild can take around a minute on the current runtime dataset
-- Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 5-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
+- Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 10-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
 
 ## Recommended Dev Flow
 
@@ -424,9 +424,9 @@ This serves:
 
 Default dashboard behavior:
 
-- auto-refresh every 5 minutes
+- auto-refresh every 10 minutes
 - manual refresh from the `상태 업데이트` button
-- recent predictions show `기준가`, `예상 변동`, and `실제 결과`
+- recent predictions show `기준가`, `예상 변동`, and `실제 결과`; prediction detail shows all selected-period rows
 - top area shows current runtime state, version, and period filter
 - tabs are `모의투자(가상)`, `모의계좌(실제)`, `실 운용계좌`, `머신러닝 현황`, `상태 및 설정`, `예측현황`, `신호 & 주문현황`, `체결과 분봉`, `오늘의 리포트`, `기타`
 - `모의투자(가상)` tab shows local virtual-book status, holdings, buy/sell/fill summary, and strategy summary
@@ -506,7 +506,7 @@ Runtime watchdog start / status / stop:
 ```
 
 The watchdog keeps `dashboard` and `live runtime` alive.
-It asks the dashboard server to rebuild the cached snapshot through `/api/refresh` on each cycle, so status scripts are not pinned to an old JSON file.
+It asks the dashboard server to rebuild the cached snapshot through `/api/refresh` when the cached snapshot is older than the 10-minute default, so status scripts are not pinned to an old JSON file without forcing a rebuild on every watchdog cycle.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 The watchdog reads market-bar freshness from the refreshed dashboard snapshot and uses the current market session plus the latest KIS verification file before deciding whether to restart live runtime.
 During the regular session, `missing` or `stale` market bars trigger a live-runtime restart after a short startup grace period.

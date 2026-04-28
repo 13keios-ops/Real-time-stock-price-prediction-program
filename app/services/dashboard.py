@@ -308,12 +308,55 @@ def _actual_move_text(
     amount: float | None,
     pct: float | None,
     *,
-    target_time_reached: bool,
+    result_status: str,
     has_actual_value: bool,
 ) -> str:
     if has_actual_value:
         return _format_signed_change(amount, pct)
-    return "결과 없음" if target_time_reached else "대기 중"
+    return "결과 없음" if result_status == "no_result" else "대기 중"
+
+
+def _parse_market_clock(value: str | None, *, fallback: str = "15:30") -> time:
+    raw = str(value or fallback).strip() or fallback
+    try:
+        hour_text, minute_text, *_ = raw.split(":")
+        return time(int(hour_text), int(minute_text))
+    except (TypeError, ValueError):
+        hour_text, minute_text = fallback.split(":")
+        return time(int(hour_text), int(minute_text))
+
+
+def _prediction_outcome_is_closed(
+    *,
+    event_time: datetime | None,
+    target_time: datetime | None,
+    latest_symbol_time: datetime | None,
+    settings,
+) -> bool:
+    if event_time is None or target_time is None:
+        return True
+
+    timezone = get_timezone(settings.timezone)
+    now = now_local(settings.timezone)
+    event_local = event_time.astimezone(timezone)
+    target_local = target_time.astimezone(timezone)
+    latest_local = latest_symbol_time.astimezone(timezone) if latest_symbol_time is not None else None
+    close_time = _parse_market_clock(settings.market_calendar.session_close)
+    close_at = datetime.combine(event_local.date(), close_time, tzinfo=timezone)
+
+    if latest_symbol_time is not None and latest_symbol_time >= target_time:
+        return True
+    if now >= target_local:
+        return True
+    if event_local.date() < now.date():
+        return True
+    if now >= close_at and target_local > close_at:
+        return True
+    if latest_local is not None and latest_local.date() > event_local.date():
+        return True
+    if latest_local is not None and latest_local.date() == event_local.date() and latest_local >= close_at and target_local > latest_local:
+        return True
+    return False
 
 
 def _classify_actual_label(actual_return_pct: float | None, threshold_pct: float) -> str | None:
@@ -780,7 +823,7 @@ def _prediction_view(
 
         actual_change_amount: float | None = None
         actual_return_pct: float | None = None
-        target_time_reached = False
+        result_status = "pending"
         if event_time is not None:
             target_time = event_time + timedelta(minutes=horizon_min)
             future_bar = _find_first_same_day_bar_at_or_after(
@@ -789,7 +832,6 @@ def _prediction_view(
                 target_time=target_time,
             )
             latest_symbol_time = latest_bar_time_by_symbol.get(symbol)
-            target_time_reached = latest_symbol_time is not None and latest_symbol_time >= target_time
             if future_bar and base_close not in (None, 0):
                 future_close = float(future_bar["close"])
                 actual_change_amount = future_close - base_close
@@ -799,8 +841,31 @@ def _prediction_view(
                 if label_row and base_close not in (None, 0):
                     actual_return_pct = float(label_row.get("future_return_pct", 0.0))
                     actual_change_amount = base_close * actual_return_pct / 100.0
+            result_status = (
+                "no_result"
+                if actual_return_pct is None
+                and _prediction_outcome_is_closed(
+                    event_time=event_time,
+                    target_time=target_time,
+                    latest_symbol_time=latest_symbol_time,
+                    settings=settings,
+                )
+                else "pending"
+            )
         actual_label = _classify_actual_label(actual_return_pct, threshold_pct)
         success = actual_label == top_label if actual_label is not None else None
+        if actual_label is not None:
+            result_status = "evaluated"
+        actual_label_text = (
+            _translate_prediction_label(actual_label)
+            if actual_label is not None
+            else ("결과 없음" if result_status == "no_result" else "대기 중")
+        )
+        success_text = (
+            "성공"
+            if success is True
+            else ("실패" if success is False else ("결과 없음" if result_status == "no_result" else "대기 중"))
+        )
 
         rendered.append(
             {
@@ -822,15 +887,16 @@ def _prediction_view(
                 "actual_change_pct": None if actual_return_pct is None else round(actual_return_pct, 4),
                 "actual_change_amount": actual_change_amount,
                 "actual_label": actual_label,
-                "actual_label_text": _translate_prediction_label(actual_label) if actual_label is not None else "대기 중",
+                "actual_label_text": actual_label_text,
                 "actual_change_text": _actual_move_text(
                     actual_change_amount,
                     actual_return_pct,
-                    target_time_reached=target_time_reached,
+                    result_status=result_status,
                     has_actual_value=actual_change_amount is not None and actual_return_pct is not None,
                 ),
+                "result_status": result_status,
                 "success": success,
-                "success_text": "성공" if success is True else ("실패" if success is False else "대기 중"),
+                "success_text": success_text,
             }
         )
     return rendered
@@ -890,13 +956,16 @@ def _summarize_runtime_from_rows(
 
 def _prediction_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
     evaluated = [row for row in rows if row.get("success") is not None]
+    pending = [row for row in rows if str(row.get("result_status") or "pending") == "pending"]
+    no_result = [row for row in rows if str(row.get("result_status") or "") == "no_result"]
     success_count = sum(1 for row in evaluated if row.get("success") is True)
     predicted_change_values = [abs(float(row.get("predicted_change_amount") or 0.0)) for row in rows if row.get("predicted_change_amount") is not None]
     actual_change_values = [abs(float(row.get("actual_change_amount") or 0.0)) for row in evaluated if row.get("actual_change_amount") is not None]
     return {
         "total": len(rows),
         "evaluated": len(evaluated),
-        "pending": max(len(rows) - len(evaluated), 0),
+        "pending": len(pending),
+        "no_result": len(no_result),
         "success_count": success_count,
         "success_rate": (success_count / len(evaluated)) if evaluated else None,
         "avg_predicted_change_amount": (sum(predicted_change_values) / len(predicted_change_values)) if predicted_change_values else None,
@@ -1354,6 +1423,7 @@ def collect_dashboard_payload(
     )
     signal_views = _signal_view(signal_rows, symbol_names)
     recent_predictions = _reverse_recent(prediction_views, recent_limit)
+    prediction_details = list(reversed(prediction_views))
     recent_signals = _reverse_recent(signal_views, recent_limit)
     recent_orders = _reverse_recent(order_rows, recent_limit)
     recent_fills = _reverse_recent(fill_rows, recent_limit)
@@ -1657,6 +1727,7 @@ def collect_dashboard_payload(
         "paper_account_reconciliation": paper_account_reconciliation,
         "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
+        "prediction_details": prediction_details,
         "recent_signals": recent_signals,
         "recent_orders": recent_orders,
         "recent_fills": recent_fills,
@@ -1892,7 +1963,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
             row["predicted_change_text"],
             row["actual_change_text"],
         ]
-        for row in payload.get("recent_predictions", [])
+        for row in (payload.get("prediction_details") or payload.get("recent_predictions", []))
     ]
     prediction_rows = [
         [
@@ -2379,7 +2450,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
 
-    refresh_meta = f'<meta http-equiv="refresh" content="{max(refresh_seconds, 1)}">' if live_mode else ""
+    refresh_meta = ""
     refresh_text = _refresh_interval_text(refresh_seconds)
 
     prediction_rows = [
@@ -2512,6 +2583,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"예측 총건수: {prediction_summary.get('total', 0)}",
         f"결과 확정: {prediction_summary.get('evaluated', 0)}",
         f"대기 중: {prediction_summary.get('pending', 0)}",
+        f"결과 없음: {prediction_summary.get('no_result', 0)}",
         f"예측 성공: {prediction_summary.get('success_count', 0)}",
         f"성공률: {_ratio_pct(prediction_summary.get('success_rate'), 1)}",
     ]
@@ -3069,7 +3141,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             (
                 "predictions-detail",
                 "예측 상세",
-                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다."), note="최근 예측 목록은 최신 순으로 최대 100건까지 보여줍니다."),
+                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다."), note="예측 상세는 선택한 기간의 예측을 최신 순으로 모두 보여줍니다. 기본 오늘 화면에서는 당일 예측 전체가 표시됩니다."),
             ),
             (
                 "predictions-notes",
@@ -3335,11 +3407,20 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       }});
       window.addEventListener('hashchange', () => activate(window.location.hash.slice(1)));
       if (refreshButton) {{
-        refreshButton.addEventListener('click', () => {{
+        const triggerRefresh = () => {{
           refreshButton.disabled = true;
           refreshButton.textContent = '업데이트 중...';
-          window.location.reload();
+          fetch('/api/refresh', {{ cache: 'no-store' }})
+            .catch(() => null)
+            .finally(() => window.location.reload());
+        }};
+        refreshButton.addEventListener('click', () => {{
+          triggerRefresh();
         }});
+        const refreshIntervalMs = {max(refresh_seconds, 1) * 1000};
+        window.setTimeout(() => {{
+          triggerRefresh();
+        }}, refreshIntervalMs);
       }}
     }})();
   </script>
@@ -3384,7 +3465,7 @@ class DashboardServeInfo:
 def build_dashboard_snapshot(
     project_root: Path,
     *,
-    refresh_seconds: int = 300,
+    refresh_seconds: int = 600,
     recent_limit: int = 100,
     range_key: str | None = None,
     selected_date: str | None = None,
@@ -3522,7 +3603,7 @@ def prepare_dashboard_server(
     *,
     host: str = "127.0.0.1",
     port: int = 8765,
-    refresh_seconds: int = 300,
+    refresh_seconds: int = 600,
     recent_limit: int = 100,
 ) -> tuple[ThreadingHTTPServer, DashboardServeInfo]:
     snapshot = build_dashboard_snapshot(

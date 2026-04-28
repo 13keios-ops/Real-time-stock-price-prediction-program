@@ -15,6 +15,9 @@ param(
     [int]$IntervalSeconds = 60,
 
     [Parameter(Mandatory = $false)]
+    [int]$DashboardRefreshIntervalSeconds = 600,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ForceRestart
 )
 
@@ -58,6 +61,7 @@ if (Test-Path -LiteralPath $statePath) {
                 dashboard_host = $existingState.dashboard_host
                 dashboard_port = $existingState.dashboard_port
                 interval_seconds = $existingState.interval_seconds
+                dashboard_refresh_interval_seconds = $existingState.dashboard_refresh_interval_seconds
                 started_at = $existingState.started_at
                 last_checked_at = $existingState.last_checked_at
                 dashboard_action = $existingState.dashboard_action
@@ -91,7 +95,9 @@ $commandText = @(
     "-DashboardPort",
     $DashboardPort,
     "-IntervalSeconds",
-    $IntervalSeconds
+    $IntervalSeconds,
+    "-DashboardRefreshIntervalSeconds",
+    $DashboardRefreshIntervalSeconds
 ) -join " "
 $process = Start-Process `
     -FilePath $powershellExe `
@@ -120,6 +126,7 @@ $payload = [ordered]@{
     dashboard_host = $DashboardHost
     dashboard_port = $DashboardPort
     interval_seconds = $IntervalSeconds
+    dashboard_refresh_interval_seconds = $DashboardRefreshIntervalSeconds
     stdout_log_path = $stdoutPath
     stderr_log_path = $stderrPath
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")

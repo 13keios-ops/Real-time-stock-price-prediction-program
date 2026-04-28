@@ -19,7 +19,7 @@
 - KIS 브로커 모의계좌 잔고 조회와 캐시 리포트 생성이 된다.
 - 대시보드는 정규장 밖 KIS REST snapshot 분과 raw 집계를 실제 운용 데이터 범위에서 제외한다.
 - 대시보드는 마지막 탭 선택 상태를 새로고침 뒤에도 유지한다.
-- 대시보드는 기본 자동 새로고침 주기가 5분이고, 수동 `상태 업데이트` 버튼으로 즉시 갱신할 수 있다.
+- 대시보드는 기본 자동 새로고침 주기가 10분이고, 수동 `상태 업데이트` 버튼으로 즉시 갱신할 수 있다.
 - 대시보드는 상단 상태 영역과 10개 탭 구조를 사용한다.
 - 대시보드는 `조회 범위`와 `기준 날짜` 기준으로 특정일 / 최근 기간 / 전체 누적 데이터를 선택해 볼 수 있다.
 - 대시보드는 `모의투자(가상) / 모의계좌(실제) / 실 운용계좌 / 머신러닝 현황 / 상태 및 설정 / 예측현황 / 신호 & 주문현황 / 체결과 분봉 / 오늘의 리포트 / 기타` 탭을 제공한다.
@@ -45,7 +45,7 @@
 - 예측현황의 `실제 결과` 와 `성공 여부` 는 이제 목표 시각의 정확한 분봉이 없어도 같은 거래일의 가장 가까운 후속 분봉으로 계산한다.
 - 대시보드 기본 `오늘` 조회는 현재 날짜에 장중 기록이 없으면 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
 - 장후 재학습과 실제 데이터 재구축은 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 의 batch 경로를 통해 lock 충돌에 더 강하게 수행된다.
-- 대시보드 예측현황 탭은 오전/오후, 시간대별, 상승/하락 통계를 보여주고 최근 예측은 최대 100개까지 표시한다.
+- 대시보드 예측현황 탭은 오전/오후, 시간대별, 상승/하락 통계를 보여주고 예측 상세는 선택 기간 전체 예측을 표시한다.
 - 대시보드 머신러닝 현황은 실제 데이터 기반 학습 결과만 표시하고, 연구용 fallback 값은 더 이상 대신 보여주지 않는다.
 - 로컬 가상 모의운용은 재시작 시 SQLite 기준 마지막 포트폴리오 상태를 복원한다.
 - 브로커 모의계좌 주문 제출 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켤 수 있다.
@@ -58,7 +58,7 @@
   - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
   - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
 - 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
-- 대시보드 `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
+- 대시보드 `상태 업데이트` 버튼과 10분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
 - 대시보드 상단은 `실시간 분봉 지연`, `최근 예측 기록 정지`, `KIS 실시간 검증 실패` 같은 정규장 경고와 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 장외 안내를 구분해 표시한다.
 - 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
@@ -88,7 +88,8 @@
 - live runtime 과 broker paper sync 는 alignment baseline 이후 체결이 있으나 최신 snapshot 이 오래된 경우, 기준 현금에 이후 체결 현금흐름을 반영해 복원한다.
 - actual-only cleanup 은 실제 브로커 체결 시각에 생성된 portfolio snapshot 을 실제 운용 데이터로 보존한다.
 - runtime watchdog 의 dashboard `/api/refresh` timeout 은 현재 runtime dataset 기준 새 snapshot 생성 시간을 감안해 120초로 둔다.
-- runtime watchdog 의 dashboard full refresh 는 기본 5분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
+- runtime watchdog 의 dashboard full refresh 는 기본 10분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
+- 예측 결과 계산은 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 15분/60분 예측을 `대기 중`이 아니라 `결과 없음`으로 닫는다.
 
 ## Active Checklist
 
@@ -166,6 +167,12 @@
 - full test suite after live-runtime watchdog hardening: `67 tests OK`
 - full test suite after KIS paper-account connector and test isolation update: `67 tests OK`
 - full test suite after restart reconciliation and watchdog CPU fixes: `75 tests OK`
+- dashboard refresh/prediction pending update:
+  - `python -m unittest tests.test_dashboard`: `12 tests OK`
+  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
+  - PowerShell `scripts/*.ps1` parse check: `ok`
+  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
+  - latest dashboard prediction summary: `total=4828`, `evaluated=4296`, `pending=0`, `no_result=532`, `prediction_details=4828`
 - KIS paper account connection:
   - `python -m app --kis-account-balance`: `ok=true`
   - broker paper cash: `10,000,000`

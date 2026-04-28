@@ -46,6 +46,7 @@ if ((@("starting", "running", "warning") -contains $effectiveStatus) -and (-not 
     dashboard_host = $state.dashboard_host
     dashboard_port = $state.dashboard_port
     interval_seconds = $state.interval_seconds
+    dashboard_refresh_interval_seconds = $state.dashboard_refresh_interval_seconds
     started_at = $state.started_at
     last_checked_at = $state.last_checked_at
     dashboard_action = $state.dashboard_action

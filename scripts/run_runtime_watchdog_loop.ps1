@@ -15,7 +15,7 @@ param(
     [int]$IntervalSeconds = 60,
 
     [Parameter(Mandatory = $false)]
-    [int]$DashboardRefreshIntervalSeconds = 300,
+    [int]$DashboardRefreshIntervalSeconds = 600,
 
     [Parameter(Mandatory = $false)]
     [switch]$SinglePass
