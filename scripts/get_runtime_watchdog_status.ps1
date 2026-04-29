@@ -47,6 +47,9 @@ if ((@("starting", "running", "warning") -contains $effectiveStatus) -and (-not 
     dashboard_port = $state.dashboard_port
     interval_seconds = $state.interval_seconds
     dashboard_refresh_interval_seconds = $state.dashboard_refresh_interval_seconds
+    pre_open_warmup_minutes = $state.pre_open_warmup_minutes
+    market_session_status = $state.market_session_status
+    live_runtime_should_run = $state.live_runtime_should_run
     started_at = $state.started_at
     last_checked_at = $state.last_checked_at
     dashboard_action = $state.dashboard_action

@@ -80,7 +80,7 @@
 - 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
 - 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
 - post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
-- post-close ML maintenance 와 runtime watchdog 은 장외에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 한다.
+- post-close ML maintenance 와 runtime watchdog 은 장외에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켠다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
@@ -352,7 +352,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 .\scripts\stop_runtime_watchdog.ps1
 ```
 
-runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 장마감 후 WebSocket 재연결 루프를 막는다.
+runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 장마감 후 WebSocket 재연결 루프를 막는다. 다만 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다.
 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.

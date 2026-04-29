@@ -18,6 +18,9 @@ param(
     [int]$DashboardRefreshIntervalSeconds = 600,
 
     [Parameter(Mandatory = $false)]
+    [int]$PreOpenWarmupMinutes = 60,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ForceRestart
 )
 
@@ -62,6 +65,9 @@ if (Test-Path -LiteralPath $statePath) {
                 dashboard_port = $existingState.dashboard_port
                 interval_seconds = $existingState.interval_seconds
                 dashboard_refresh_interval_seconds = $existingState.dashboard_refresh_interval_seconds
+                pre_open_warmup_minutes = $existingState.pre_open_warmup_minutes
+                market_session_status = $existingState.market_session_status
+                live_runtime_should_run = $existingState.live_runtime_should_run
                 started_at = $existingState.started_at
                 last_checked_at = $existingState.last_checked_at
                 dashboard_action = $existingState.dashboard_action
@@ -97,7 +103,9 @@ $commandText = @(
     "-IntervalSeconds",
     $IntervalSeconds,
     "-DashboardRefreshIntervalSeconds",
-    $DashboardRefreshIntervalSeconds
+    $DashboardRefreshIntervalSeconds,
+    "-PreOpenWarmupMinutes",
+    $PreOpenWarmupMinutes
 ) -join " "
 $process = Start-Process `
     -FilePath $powershellExe `
@@ -127,6 +135,7 @@ $payload = [ordered]@{
     dashboard_port = $DashboardPort
     interval_seconds = $IntervalSeconds
     dashboard_refresh_interval_seconds = $DashboardRefreshIntervalSeconds
+    pre_open_warmup_minutes = $PreOpenWarmupMinutes
     stdout_log_path = $stdoutPath
     stderr_log_path = $stderrPath
     started_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")

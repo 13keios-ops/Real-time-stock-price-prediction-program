@@ -110,7 +110,7 @@ The project now has a working local foundation for:
 - Runtime watchdog regular-session stale recovery restarts live runtime with the configured watchlist instead of narrowing the production listener to the single KIS verification symbol.
 - Runtime watchdog allows a longer dashboard `/api/refresh` timeout because a full snapshot rebuild can take around a minute on the current runtime dataset
 - Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 10-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
-- Runtime watchdog now holds or stops live runtime during pre-open, post-close, and weekend sessions instead of keeping an idle WebSocket reconnect loop alive.
+- Runtime watchdog now holds or stops live runtime during most off-session periods instead of keeping an idle WebSocket reconnect loop alive, but starts a 60-minute pre-open warmup so the listener is already alive by the regular-session open.
 - Live runtime status now clears harmless INFO log tails when the listener is intentionally stopped.
 - The paper-trading spread gate default is now `MAX_SPREAD_BPS=25.0`, matching the observed 2026-04-29 Samsung Electronics paper feed spread while keeping confidence/time/long-only gates active.
 
@@ -510,8 +510,9 @@ Runtime watchdog start / status / stop:
 .\scripts\stop_runtime_watchdog.ps1
 ```
 
-The watchdog keeps `dashboard` alive and keeps `live runtime` alive only during the regular session.
+The watchdog keeps `dashboard` alive and keeps `live runtime` alive during the regular session plus the pre-open warmup window.
 Outside the regular session, it leaves live runtime stopped or stops an already-running listener to prevent post-close WebSocket reconnect churn.
+During the 60 minutes before the regular-session open, the watchdog treats live runtime as required and starts it as a pre-open warmup.
 It asks the dashboard server to rebuild the cached snapshot through `/api/refresh` when the cached snapshot is older than the 10-minute default, so status scripts are not pinned to an old JSON file without forcing a rebuild on every watchdog cycle.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 The watchdog reads market-bar freshness from the refreshed dashboard snapshot and uses the current market session plus the latest KIS verification file before deciding whether to restart live runtime.

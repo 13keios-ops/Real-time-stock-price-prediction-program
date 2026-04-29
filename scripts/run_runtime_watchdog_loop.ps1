@@ -18,6 +18,9 @@ param(
     [int]$DashboardRefreshIntervalSeconds = 600,
 
     [Parameter(Mandatory = $false)]
+    [int]$PreOpenWarmupMinutes = 60,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SinglePass
 )
 
@@ -71,7 +74,9 @@ function Write-WatchdogState {
         [string]$MlMaintenanceAction,
         [string[]]$Errors,
         [object]$DashboardStatus,
-        [object]$LiveRuntimeStatus
+        [object]$LiveRuntimeStatus,
+        [string]$MarketSessionStatus,
+        [bool]$LiveRuntimeShouldRun
     )
 
     $payload = [ordered]@{
@@ -83,6 +88,9 @@ function Write-WatchdogState {
         dashboard_port = $DashboardPort
         interval_seconds = $IntervalSeconds
         dashboard_refresh_interval_seconds = $DashboardRefreshIntervalSeconds
+        pre_open_warmup_minutes = $PreOpenWarmupMinutes
+        market_session_status = $MarketSessionStatus
+        live_runtime_should_run = $LiveRuntimeShouldRun
         started_at = $startedAt
         last_checked_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
         dashboard_action = $DashboardAction
@@ -162,6 +170,26 @@ function Get-CurrentMarketSessionStatus {
     return "regular-session"
 }
 
+function Test-LiveRuntimeShouldRun {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionStatus
+    )
+
+    if ($SessionStatus -eq "regular-session") {
+        return $true
+    }
+    if ($SessionStatus -ne "pre-open" -or $PreOpenWarmupMinutes -le 0) {
+        return $false
+    }
+
+    $now = Get-Date
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $warmupStart = $sessionOpen.Subtract([TimeSpan]::FromMinutes($PreOpenWarmupMinutes))
+
+    return ($now.TimeOfDay -ge $warmupStart) -and ($now.TimeOfDay -lt $sessionOpen)
+}
+
 function Test-LiveRuntimeRecentlyStarted {
     param(
         [Parameter(Mandatory = $false)]
@@ -219,6 +247,7 @@ while ($true) {
     $mlMaintenanceLock = Read-JsonFile -Path $mlMaintenanceLockPath
     $maintenanceInProgress = $null -ne $mlMaintenanceLock
     $currentSessionStatus = Get-CurrentMarketSessionStatus
+    $liveRuntimeShouldRun = Test-LiveRuntimeShouldRun -SessionStatus $currentSessionStatus
 
     try {
         $dashboardStatus = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
@@ -299,7 +328,7 @@ while ($true) {
     if (
         (-not $maintenanceInProgress) -and
         $liveRuntimeHealthy -and
-        ($currentSessionStatus -ne "regular-session")
+        (-not $liveRuntimeShouldRun)
     ) {
         try {
             $null = & (Join-Path $WorkspaceRoot "scripts\stop_live_runtime.ps1") `
@@ -319,7 +348,7 @@ while ($true) {
     if ((-not $maintenanceInProgress) -and (-not $liveRuntimeHealthy)) {
         if ($liveRuntimeCredentialsBlocked) {
             $liveRuntimeAction = $liveRuntimeBlockedAction
-        } elseif ($currentSessionStatus -ne "regular-session") {
+        } elseif (-not $liveRuntimeShouldRun) {
             $liveRuntimeAction = "off_session_hold_$currentSessionStatus"
         } else {
             try {
@@ -332,7 +361,11 @@ while ($true) {
                     -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
 
                 if ([string]$liveRuntimeStatus.status -eq "running") {
-                    $liveRuntimeAction = "restart"
+                    $liveRuntimeAction = if ($currentSessionStatus -eq "pre-open") {
+                        "pre_open_warmup_start"
+                    } else {
+                        "restart"
+                    }
                 } elseif ([string]$liveRuntimeStatus.blocked_reason -eq "missing_kis_credentials") {
                     $liveRuntimeAction = if (-not [bool]$liveRuntimeStatus.env_file_exists) {
                         "blocked_missing_env"
@@ -484,7 +517,9 @@ while ($true) {
         -MlMaintenanceAction $mlMaintenanceAction `
         -Errors $errors `
         -DashboardStatus $dashboardStatus `
-        -LiveRuntimeStatus $liveRuntimeStatus
+        -LiveRuntimeStatus $liveRuntimeStatus `
+        -MarketSessionStatus $currentSessionStatus `
+        -LiveRuntimeShouldRun $liveRuntimeShouldRun
 
     if ($SinglePass) {
         break

@@ -91,6 +91,7 @@
 - runtime watchdog 의 dashboard full refresh 는 기본 10분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
 - 예측 결과 계산은 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 15분/60분 예측을 `대기 중`이 아니라 `결과 없음`으로 닫는다.
 - runtime watchdog 과 post-close ML maintenance 는 장외에 live runtime 을 다시 켜지 않고, 켜져 있으면 중지해 장마감 후 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
+- runtime watchdog 은 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다.
 - runtime watchdog 의 정규장 stale 복구는 live runtime 을 검증용 단일 종목이 아니라 설정된 watchlist 로 다시 시작한다.
 - live runtime status 는 의도적으로 중지된 상태에서 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
 - 모의운용 spread gate 기본값은 `MAX_SPREAD_BPS=25.0` 이다. 2026-04-29 실제 삼성전자 feed 의 호가 스프레드가 약 22bp 수준이라 기존 15bp 기준에서는 모든 주문 후보가 차단됐다.
@@ -194,6 +195,14 @@
   - PowerShell `scripts/*.ps1` parse check: `ok`
   - `python -m app --build-runtime-report`: `ok`
   - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
+- 2026-04-30 pre-open essential runtime activation:
+  - runtime watchdog policy now keeps live runtime stopped during most off-session periods but starts it during the 60-minute pre-open warmup.
+  - watchdog restarted at `2026-04-30 08:01 KST`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=true`, `live_runtime_action=pre_open_warmup_start`
+  - live runtime started with watchlist at `2026-04-30 08:01:59 KST`: `status=running`, `watchlist_file=config/watchlist.txt`, prediction horizons `15/60`
+  - 70-second follow-up check: watchdog/live runtime/dashboard all `running`, watchdog action returned to `none`
+  - 5-second CPU delta sample for dashboard, live runtime, watchdog, and git watcher: `0.000 CPU seconds` each
+  - PowerShell `scripts/*.ps1` parse check: `ok`
+  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
 - KIS paper account connection:
   - `python -m app --kis-account-balance`: `ok=true`
   - broker paper cash: `10,000,000`
