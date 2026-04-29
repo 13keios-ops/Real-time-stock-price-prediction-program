@@ -107,6 +107,7 @@ The project now has a working local foundation for:
 - Post-close ML maintenance no longer restarts live runtime outside the regular session
 - Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
 - Runtime watchdog now refreshes the dashboard snapshot through `/api/refresh`, uses the current market session plus the latest KIS verification file, and restarts regular-session live runtime when market bars are `missing` or `stale`
+- Runtime watchdog regular-session stale recovery restarts live runtime with the configured watchlist instead of narrowing the production listener to the single KIS verification symbol.
 - Runtime watchdog allows a longer dashboard `/api/refresh` timeout because a full snapshot rebuild can take around a minute on the current runtime dataset
 - Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 10-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
 - Runtime watchdog now holds or stops live runtime during pre-open, post-close, and weekend sessions instead of keeping an idle WebSocket reconnect loop alive.

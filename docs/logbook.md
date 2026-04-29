@@ -91,6 +91,7 @@
 - runtime watchdog 의 dashboard full refresh 는 기본 10분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
 - 예측 결과 계산은 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 15분/60분 예측을 `대기 중`이 아니라 `결과 없음`으로 닫는다.
 - runtime watchdog 과 post-close ML maintenance 는 장외에 live runtime 을 다시 켜지 않고, 켜져 있으면 중지해 장마감 후 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
+- runtime watchdog 의 정규장 stale 복구는 live runtime 을 검증용 단일 종목이 아니라 설정된 watchlist 로 다시 시작한다.
 - live runtime status 는 의도적으로 중지된 상태에서 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
 - 모의운용 spread gate 기본값은 `MAX_SPREAD_BPS=25.0` 이다. 2026-04-29 실제 삼성전자 feed 의 호가 스프레드가 약 22bp 수준이라 기존 15bp 기준에서는 모든 주문 후보가 차단됐다.
 
@@ -178,6 +179,7 @@
   - latest dashboard prediction summary: `total=4828`, `evaluated=4296`, `pending=0`, `no_result=532`, `prediction_details=4828`
 - 2026-04-29 daily runtime review and closeout:
   - today's actual runtime rows: `raw_market_ticks=254560`, `raw_orderbook_ticks=102039`, `minute_bars=381`, `predictions=762`, `signals=381`, `orders=0`, `fills=0`
+  - cause of single-symbol continuous bars: watchdog stale recovery had restarted live runtime with verification symbol `005930`; patched to restart with configured watchlist for the next regular session
   - latest dashboard prediction summary: `total=762`, `evaluated=707`, `pending=0`, `no_result=55`, `success_rate=0.121641`, `prediction_details=762`
   - no orders were submitted because every signal hit `spread_gate=spread_too_wide`; local `.env` and tracked default strategy were moved from `MAX_SPREAD_BPS=15.0` to `25.0` for the next paper run
   - post-close ML maintenance rerun at `2026-04-29 17:41-17:43 KST`: `status=ok`, `feature_rows=3888`, `labels=7189`, `LightGBM validation_accuracy=0.667104`

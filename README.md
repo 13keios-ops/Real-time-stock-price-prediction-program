@@ -81,6 +81,7 @@
 - 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
 - post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
 - post-close ML maintenance 와 runtime watchdog 은 장외에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 한다.
+- runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트

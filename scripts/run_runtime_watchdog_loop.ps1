@@ -401,9 +401,8 @@ while ($true) {
             $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
                 -RuntimeDataDir $RuntimeDataDir `
-                -Symbols $symbolForVerification `
                 -ForceRestart
-            $liveRuntimeAction = "restart_stale_runtime_single_symbol"
+            $liveRuntimeAction = "restart_stale_runtime_watchlist"
             $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
                 -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
