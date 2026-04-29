@@ -218,6 +218,7 @@ while ($true) {
     $dashboardSnapshot = $null
     $mlMaintenanceLock = Read-JsonFile -Path $mlMaintenanceLockPath
     $maintenanceInProgress = $null -ne $mlMaintenanceLock
+    $currentSessionStatus = Get-CurrentMarketSessionStatus
 
     try {
         $dashboardStatus = & (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1") `
@@ -295,9 +296,31 @@ while ($true) {
         }
     }
 
+    if (
+        (-not $maintenanceInProgress) -and
+        $liveRuntimeHealthy -and
+        ($currentSessionStatus -ne "regular-session")
+    ) {
+        try {
+            $null = & (Join-Path $WorkspaceRoot "scripts\stop_live_runtime.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir
+            $liveRuntimeAction = "off_session_stop_$currentSessionStatus"
+            $liveRuntimeStatus = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+            $liveRuntimeHealthy = $false
+        } catch {
+            $liveRuntimeAction = "off_session_stop_failed"
+            $errors += "live_runtime_off_session_stop: $($_.Exception.Message)"
+        }
+    }
+
     if ((-not $maintenanceInProgress) -and (-not $liveRuntimeHealthy)) {
         if ($liveRuntimeCredentialsBlocked) {
             $liveRuntimeAction = $liveRuntimeBlockedAction
+        } elseif ($currentSessionStatus -ne "regular-session") {
+            $liveRuntimeAction = "off_session_hold_$currentSessionStatus"
         } else {
             try {
                 $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
@@ -329,7 +352,6 @@ while ($true) {
 
     $needsLiveRuntimeRecovery = $false
     $needsVerificationRefresh = $false
-    $currentSessionStatus = Get-CurrentMarketSessionStatus
     $latestVerification = Read-KisVerification
     $systemStatus = if ($null -ne $dashboardSnapshot) { $dashboardSnapshot["system_status"] } else { $null }
     $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
@@ -426,8 +448,7 @@ while ($true) {
                 -ScriptPath (Join-Path $WorkspaceRoot "scripts\run_post_close_ml_maintenance.ps1") `
                 -Arguments @(
                     "-WorkspaceRoot", $WorkspaceRoot,
-                    "-RuntimeDataDir", $RuntimeDataDir,
-                    "-RestartLiveRuntime"
+                    "-RuntimeDataDir", $RuntimeDataDir
                 )
             $mlMaintenanceAction = "post_close_ml_rebuild"
             $dashboardSnapshot = Read-DashboardSnapshot

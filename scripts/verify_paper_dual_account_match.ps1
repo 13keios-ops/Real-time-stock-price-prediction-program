@@ -216,7 +216,11 @@ if ($null -eq $accountReport -or $null -eq $accountReport.account_snapshot) {
 }
 
 $brokerCashFromAccount = Get-NumberOrNull -Value $accountReport.account_snapshot.cash_balance
+$brokerPositionCountFromAccount = [int]($accountReport.account_snapshot.position_row_count | ForEach-Object { if ($null -eq $_) { 0 } else { $_ } })
 if ($SyncInitialCash) {
+    if ($brokerPositionCountFromAccount -gt 0) {
+        throw "Broker paper account has open positions, so PAPER_INITIAL_CASH should not be synchronized to current cash. Run this only before the first submission or after closing/realigning positions."
+    }
     if ($null -eq $brokerCashFromAccount -or $brokerCashFromAccount -le 0) {
         throw "Broker paper cash is unavailable, so PAPER_INITIAL_CASH cannot be synchronized."
     }
@@ -257,7 +261,12 @@ $totalAssetGap = Get-NumberOrNull -Value $comparison.total_asset_gap
 $mismatchCount = [int]($comparison.mismatch_count | ForEach-Object { if ($null -eq $_) { 0 } else { $_ } })
 $mirroredOrderCount = [int]($comparison.mirrored_order_count | ForEach-Object { if ($null -eq $_) { 0 } else { $_ } })
 $localPositionCount = if ($null -eq $localAccount.positions) { 0 } else { @($localAccount.positions).Count }
-$initialCashMatchesBroker = Test-NearEqual -Left $initialCashAfter -Right $brokerCash
+$initialCashCheckRequired = ($brokerPositionCountFromAccount -eq 0 -and $localPositionCount -eq 0)
+$initialCashMatchesBroker = if ($initialCashCheckRequired) {
+    Test-NearEqual -Left $initialCashAfter -Right $brokerCash
+} else {
+    $true
+}
 $balanceMatch = if ($null -ne $comparison.balance_match) { [bool]$comparison.balance_match } else { Test-NearZero -Value $cashGap }
 $totalAssetMatch = if ($null -ne $comparison.total_asset_match) { [bool]$comparison.total_asset_match } else { Test-NearZero -Value $totalAssetGap }
 $accountsMatch = (
@@ -279,7 +288,7 @@ if ($ok -and $mirroredOrderCount -eq 0) {
     $status = "matched_waiting_first_submission"
 } elseif ($ok) {
     $status = "matched"
-} elseif (-not $initialCashMatchesBroker) {
+} elseif ($initialCashCheckRequired -and -not $initialCashMatchesBroker) {
     $status = "initial_cash_mismatch"
 } else {
     $status = "needs_review"
@@ -297,6 +306,7 @@ $payload = [ordered]@{
     env = [ordered]@{
         paper_initial_cash_before = $initialCashBefore
         paper_initial_cash_after = $initialCashAfter
+        initial_cash_check_required = $initialCashCheckRequired
         initial_cash_matches_broker_cash = $initialCashMatchesBroker
         trading_mode = if ($envAfter.ContainsKey("TRADING_MODE")) { $envAfter["TRADING_MODE"] } else { "" }
         broker_paper_mirroring_enabled = $mirroringEnabled
@@ -307,7 +317,7 @@ $payload = [ordered]@{
         account_no_masked = $accountReport.account_snapshot.account_no_masked
         cash_balance = $brokerCash
         total_asset_amount = $brokerTotal
-        position_count = [int]($accountReport.account_snapshot.position_row_count | ForEach-Object { if ($null -eq $_) { 0 } else { $_ } })
+        position_count = $brokerPositionCountFromAccount
     }
     local_account = [ordered]@{
         cash_balance = $localCash
@@ -344,6 +354,7 @@ $mdLines = @(
     "- status: $($payload.status)",
     "- local initial cash before: $($payload.env.paper_initial_cash_before)",
     "- local initial cash after: $($payload.env.paper_initial_cash_after)",
+    "- initial cash check required: $($payload.env.initial_cash_check_required)",
     "- broker cash: $(Format-Money -Value $payload.broker_account.cash_balance)",
     "- local cash: $(Format-Money -Value $payload.local_account.cash_balance)",
     "- cash gap: $(Format-Money -Value $payload.comparison.cash_gap)",

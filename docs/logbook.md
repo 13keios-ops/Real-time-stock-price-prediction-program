@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- date: `2026-04-28`
+- date: `2026-04-29`
 - current version: `0.2.0`
 - latest release commit: `8f601ba`
 - watcher mode: `VERSION` change trigger
@@ -90,6 +90,9 @@
 - runtime watchdog 의 dashboard `/api/refresh` timeout 은 현재 runtime dataset 기준 새 snapshot 생성 시간을 감안해 120초로 둔다.
 - runtime watchdog 의 dashboard full refresh 는 기본 10분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
 - 예측 결과 계산은 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 15분/60분 예측을 `대기 중`이 아니라 `결과 없음`으로 닫는다.
+- runtime watchdog 과 post-close ML maintenance 는 장외에 live runtime 을 다시 켜지 않고, 켜져 있으면 중지해 장마감 후 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
+- live runtime status 는 의도적으로 중지된 상태에서 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
+- 모의운용 spread gate 기본값은 `MAX_SPREAD_BPS=25.0` 이다. 2026-04-29 실제 삼성전자 feed 의 호가 스프레드가 약 22bp 수준이라 기존 15bp 기준에서는 모든 주문 후보가 차단됐다.
 
 ## Active Checklist
 
@@ -173,6 +176,22 @@
   - PowerShell `scripts/*.ps1` parse check: `ok`
   - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
   - latest dashboard prediction summary: `total=4828`, `evaluated=4296`, `pending=0`, `no_result=532`, `prediction_details=4828`
+- 2026-04-29 daily runtime review and closeout:
+  - today's actual runtime rows: `raw_market_ticks=254560`, `raw_orderbook_ticks=102039`, `minute_bars=381`, `predictions=762`, `signals=381`, `orders=0`, `fills=0`
+  - latest dashboard prediction summary: `total=762`, `evaluated=707`, `pending=0`, `no_result=55`, `success_rate=0.121641`, `prediction_details=762`
+  - no orders were submitted because every signal hit `spread_gate=spread_too_wide`; local `.env` and tracked default strategy were moved from `MAX_SPREAD_BPS=15.0` to `25.0` for the next paper run
+  - post-close ML maintenance rerun at `2026-04-29 17:41-17:43 KST`: `status=ok`, `feature_rows=3888`, `labels=7189`, `LightGBM validation_accuracy=0.667104`
+  - latest backtest: `rows_evaluated=763`, `trades_taken=255`, `overall_accuracy=0.162516`, `cumulative_net_return_pct=11.815401`
+  - latest walk-forward: `folds=377`, `rows_evaluated=3770`, `overall_accuracy=0.434748`, `cumulative_net_return_pct=26.58323`
+  - latest challenger: `recommended_action=review_required`, `best_candidate=fresh_centroid`, `walk_forward_gate_status=needs_review`
+  - broker paper sync: `ok=true`, `status=no_submissions`
+  - paper reconciliation: `ok=true`, `status=aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=-7700`, current positions `2`
+  - dual-account check: `ok=true`, `status=matched_waiting_first_submission`; open positions mean current broker cash is not expected to equal root `.env` `PAPER_INITIAL_CASH`
+  - watchdog single pass after patch: `live_runtime_action=off_session_hold_post-close`, live runtime stayed `stopped`
+  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
+  - PowerShell `scripts/*.ps1` parse check: `ok`
+  - `python -m app --build-runtime-report`: `ok`
+  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
 - KIS paper account connection:
   - `python -m app --kis-account-balance`: `ok=true`
   - broker paper cash: `10,000,000`

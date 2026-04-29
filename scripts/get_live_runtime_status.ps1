@@ -307,6 +307,7 @@ $processRunning = $false
 if ($state["pid"]) {
     $processRunning = $null -ne (Get-LiveRuntimeProcessRecord -ProcessId ([int]$state["pid"]))
 }
+[string]$rawStatus = "$($state["status"])"
 
 $stdoutLogPath = "$($state["stdout_log_path"])"
 $stderrLogPath = "$($state["stderr_log_path"])"
@@ -355,6 +356,14 @@ if (($blockedReason -eq "missing_kis_credentials") -and $credentialsReadyForQuot
 if (($blockedReason -eq "missing_kis_credentials") -and (($failureReason -eq ".") -or [string]::IsNullOrWhiteSpace($failureReason))) {
     $failureReason = $knownCredentialsFailureReason
 }
+if (
+    (-not $processRunning) -and
+    ($rawStatus -eq "stopped") -and
+    [string]::IsNullOrWhiteSpace($blockedReason) -and
+    [string]::IsNullOrWhiteSpace($storedFailureReason)
+) {
+    $failureReason = ""
+}
 $message = Get-LiveRuntimeMessage -BlockedReason $blockedReason -EnvFileExists $envFileExists -FailureReason $failureReason
 
 $dashboardPayload = Read-JsonFile -Path $dashboardPath
@@ -376,7 +385,6 @@ $effectiveKisVerificationFreshness = if ($null -ne $latestKisVerification) {
     $null
 }
 
-[string]$rawStatus = "$($state["status"])"
 $effectiveStatus = if ($processRunning) {
     "running"
 } elseif ($blockedReason -eq "missing_kis_credentials") {

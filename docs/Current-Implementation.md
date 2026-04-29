@@ -104,10 +104,14 @@ The project now has a working local foundation for:
 - Actual-only ML rebuild now recreates feature rows, labels, LightGBM training, backtest, walk-forward, challenger, runtime report, and dashboard from real runtime data only
 - Dashboard `today` range now falls back to the latest real market date when the current calendar date has no intraday data yet, while ML `today` counts still follow the actual calendar day of training/evaluation runs
 - Post-close ML maintenance now uses a lock-aware batch rebuild path, so real-data-only feature/label regeneration and LightGBM retraining finish without the earlier SQLite lock/stall behavior
+- Post-close ML maintenance no longer restarts live runtime outside the regular session
 - Runtime watchdog now tolerates dashboard snapshots that do not yet have a KIS verification record, instead of crashing on a null access during zero-state recovery
 - Runtime watchdog now refreshes the dashboard snapshot through `/api/refresh`, uses the current market session plus the latest KIS verification file, and restarts regular-session live runtime when market bars are `missing` or `stale`
 - Runtime watchdog allows a longer dashboard `/api/refresh` timeout because a full snapshot rebuild can take around a minute on the current runtime dataset
 - Runtime watchdog now throttles full dashboard `/api/refresh` rebuilds to a 10-minute default and uses live-runtime freshness first, reducing sustained CPU load from repeated snapshot rebuilds.
+- Runtime watchdog now holds or stops live runtime during pre-open, post-close, and weekend sessions instead of keeping an idle WebSocket reconnect loop alive.
+- Live runtime status now clears harmless INFO log tails when the listener is intentionally stopped.
+- The paper-trading spread gate default is now `MAX_SPREAD_BPS=25.0`, matching the observed 2026-04-29 Samsung Electronics paper feed spread while keeping confidence/time/long-only gates active.
 
 ## Recommended Dev Flow
 
@@ -206,26 +210,26 @@ This now runs:
 
 Latest verified actual-only rebuild result:
 
-- feature rows written: `6188`
-- label rows written: `10882`
+- feature rows written: `3888`
+- label rows written: `7189`
 - latest LightGBM:
-  - `train_rows=4696`
-  - `validation_rows=1174`
-  - `validation_accuracy=0.856048`
+  - `train_rows=3052`
+  - `validation_rows=763`
+  - `validation_accuracy=0.667104`
 - latest backtest:
-  - `rows_evaluated=1174`
-  - `trades_taken=484`
-  - `overall_accuracy=0.072402`
-  - `cumulative_net_return_pct=-64.229295`
+  - `rows_evaluated=763`
+  - `trades_taken=255`
+  - `overall_accuracy=0.162516`
+  - `cumulative_net_return_pct=11.815401`
 - latest walk-forward:
-  - `folds=582`
-  - `rows_evaluated=5820`
-  - `overall_accuracy=0.440722`
-  - `cumulative_net_return_pct=-67.492498`
+  - `folds=377`
+  - `rows_evaluated=3770`
+  - `overall_accuracy=0.434748`
+  - `cumulative_net_return_pct=26.58323`
 - latest challenger:
-  - `best_candidate=latest_lightgbm`
-  - `recommended_action=keep_active`
-  - `decision_reason=The top challenger does not have enough trades.`
+  - `best_candidate=fresh_centroid`
+  - `recommended_action=review_required`
+  - `decision_reason=Walk-forward overall accuracy is too low (0.4347).`
   - `walk_forward_gate_status=needs_review`
 
 ### 5. KIS WebSocket live listener
@@ -505,7 +509,8 @@ Runtime watchdog start / status / stop:
 .\scripts\stop_runtime_watchdog.ps1
 ```
 
-The watchdog keeps `dashboard` and `live runtime` alive.
+The watchdog keeps `dashboard` alive and keeps `live runtime` alive only during the regular session.
+Outside the regular session, it leaves live runtime stopped or stops an already-running listener to prevent post-close WebSocket reconnect churn.
 It asks the dashboard server to rebuild the cached snapshot through `/api/refresh` when the cached snapshot is older than the 10-minute default, so status scripts are not pinned to an old JSON file without forcing a rebuild on every watchdog cycle.
 Watchdog state is written to `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`.
 The watchdog reads market-bar freshness from the refreshed dashboard snapshot and uses the current market session plus the latest KIS verification file before deciding whether to restart live runtime.

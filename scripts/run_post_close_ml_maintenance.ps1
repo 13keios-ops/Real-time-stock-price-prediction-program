@@ -55,9 +55,56 @@ function Invoke-AppCommand {
     }
 }
 
+function Get-MarketTimeSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Default
+    )
+
+    $marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return $Default
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]+)`""
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if ($match -and $match -match $pattern) {
+        return $Matches[1]
+    }
+
+    return $Default
+}
+
+function Get-CurrentMarketSessionStatus {
+    $now = Get-Date
+    if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
+        return "weekend"
+    }
+
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $sessionClose = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_close" -Default "15:30"))
+    $currentTime = $now.TimeOfDay
+
+    if ($currentTime -lt $sessionOpen) {
+        return "pre-open"
+    }
+    if ($currentTime -gt $sessionClose) {
+        return "post-close"
+    }
+    return "regular-session"
+}
+
 $startedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss zzz")
 $liveRuntimeWasRunning = $false
 $dashboardWasRunning = $false
+$marketSessionStatus = Get-CurrentMarketSessionStatus
+$liveRuntimeRestarted = $false
+$liveRuntimeRestartSkippedReason = ""
 $errors = @()
 
 ([ordered]@{
@@ -67,6 +114,7 @@ $errors = @()
     runtime_data_dir = $RuntimeDataDir
     horizon_min = $HorizonMin
     restart_live_runtime = [bool]$RestartLiveRuntime
+    market_session_status = $marketSessionStatus
 }) | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $lockPath -Encoding UTF8
 
 try {
@@ -107,15 +155,18 @@ try {
 } catch {
     $errors += "post_close_ml: $($_.Exception.Message)"
 } finally {
-    if ($RestartLiveRuntime -and $liveRuntimeWasRunning) {
+    if ($RestartLiveRuntime -and $liveRuntimeWasRunning -and $marketSessionStatus -eq "regular-session") {
         try {
             & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
                 -WorkspaceRoot $WorkspaceRoot `
                 -RuntimeDataDir $RuntimeDataDir `
                 -ForceRestart | Out-Null
+            $liveRuntimeRestarted = $true
         } catch {
             $errors += "live_runtime_restart: $($_.Exception.Message)"
         }
+    } elseif ($RestartLiveRuntime -and $liveRuntimeWasRunning) {
+        $liveRuntimeRestartSkippedReason = "off_session_$marketSessionStatus"
     }
     if ($dashboardWasRunning) {
         try {
@@ -141,8 +192,10 @@ $payload = [ordered]@{
     workspace_root = $WorkspaceRoot
     runtime_data_dir = $RuntimeDataDir
     horizon_min = $HorizonMin
+    market_session_status = $marketSessionStatus
     live_runtime_was_running = $liveRuntimeWasRunning
-    live_runtime_restarted = [bool]$RestartLiveRuntime -and $liveRuntimeWasRunning
+    live_runtime_restarted = $liveRuntimeRestarted
+    live_runtime_restart_skipped_reason = $liveRuntimeRestartSkippedReason
     dashboard_was_running = $dashboardWasRunning
     rebuild_state = $rebuildState
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }

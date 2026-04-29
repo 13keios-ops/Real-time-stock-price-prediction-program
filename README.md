@@ -80,6 +80,7 @@
 - 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
 - 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
 - post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
+- post-close ML maintenance 와 runtime watchdog 은 장외에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 한다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
@@ -87,6 +88,7 @@
 - `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
 - root `.env` 가 나중에 복구되면, live runtime 상태 스크립트는 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
+- live runtime 이 정상 중지된 상태에서는 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
 - `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
 - `scripts/restore_kis_env_interactive.ps1` 는 visible PowerShell 입력 창에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장하고, 바로 live runtime / watchdog / KIS verification 까지 이어서 점검한다. 계좌 값은 나중에 `-IncludeAccountFields` 로 별도 복구할 수 있다.
@@ -150,6 +152,10 @@
   - marker 이후 새 체결이 일부 종목에만 생겨도 baseline 보유종목과 종목별로 병합해서 현재 보유수량을 비교한다.
   - 정렬 뒤에는 reconciliation, runtime report, dashboard 가 모두 브로커 기준 현재 상태를 우선 보여준다.
   - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
+- `모의주문 spread 게이트`
+  - `MAX_SPREAD_BPS` 기본 운용값은 현재 `25.0` 이다.
+  - 2026-04-29 실제 삼성전자 호가가 약 22bp 수준으로 들어와 기존 15bp 기준에서는 모든 주문 후보가 차단됐기 때문에, 모의운용 검증을 위해 25bp까지 허용한다.
+  - 그래도 시간대, 신뢰도, 매수 전용 정책, 포지션 한도는 계속 적용된다.
 
 ## 저장소 구조
 
@@ -345,7 +351,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 .\scripts\stop_runtime_watchdog.ps1
 ```
 
-runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 꺼져 있으면 다시 올린다.
+runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 장마감 후 WebSocket 재연결 루프를 막는다.
 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
