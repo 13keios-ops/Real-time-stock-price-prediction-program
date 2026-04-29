@@ -201,6 +201,7 @@
   - live runtime started with watchlist at `2026-04-30 08:01:59 KST`: `status=running`, `watchlist_file=config/watchlist.txt`, prediction horizons `15/60`
   - 70-second follow-up check: watchdog/live runtime/dashboard all `running`, watchdog action returned to `none`
   - 5-second CPU delta sample for dashboard, live runtime, watchdog, and git watcher: `0.000 CPU seconds` each
+  - pre-open KIS WebSocket verification at `2026-04-30 08:08 KST`: `session_status=pre-open`, `credentials_ready=true`, `approval_key_issued=true`, `market_data_expected=false`, `ok=false` is expected before regular-session frames
   - PowerShell `scripts/*.ps1` parse check: `ok`
   - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
 - KIS paper account connection:
