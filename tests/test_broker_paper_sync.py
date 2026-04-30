@@ -6,6 +6,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_rest import KisDailyOrderFillRecord
 from app.config.settings import load_settings
 from app.services.broker_paper_sync import BrokerPaperExecutionSync, sync_broker_paper_orders
@@ -116,6 +117,58 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(int(latest_position["qty"]), 3)
         self.assertEqual(str(latest_order["status"]), "filled")
         self.assertEqual(sqlite_store.count_rows("broker_paper_order_status_snapshots"), 1)
+
+    def test_sync_rate_limit_keeps_submitted_order_pending(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+
+            with patch(
+                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                side_effect=KisApiError("KIS REST quote error: EGW00201 rate limit"),
+            ):
+                result = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "rate_limited")
+        self.assertEqual(result.open_order_count, 1)
+        self.assertEqual(result.pending_symbols, ["005930"])
+        self.assertIsNotNone(result.error)
+        self.assertIsNotNone(latest_order)
+        self.assertEqual(str(latest_order["status"]), "submitted")
 
     def test_manual_sync_generated_ids_are_unique_across_runs(self) -> None:
         root, env = self._prepare_runtime()

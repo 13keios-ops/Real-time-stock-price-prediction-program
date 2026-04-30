@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any, Callable
 import uuid
 
+from app.brokers.kis_auth import KisApiError
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
 from app.paper_trading.book import PaperPortfolioBook
 from app.paper_trading.engine import PaperTradingEngine
-from app.services.broker_paper import BrokerPaperMirror
+from app.services.broker_paper import BrokerPaperMirror, is_kis_rate_limit_error
 from app.services.paper_alignment import (
     adjust_snapshot_for_fills_after_snapshot,
     apply_alignment_baseline,
@@ -44,9 +45,10 @@ class BrokerPaperSyncResult:
     pending_symbols: list[str]
     report_markdown_path: Path
     report_json_path: Path
+    error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "ok": self.ok,
             "synced_at": self.synced_at,
             "status": self.status,
@@ -61,6 +63,9 @@ class BrokerPaperSyncResult:
             "report_markdown_path": str(self.report_markdown_path),
             "report_json_path": str(self.report_json_path),
         }
+        if self.error:
+            payload["error"] = self.error
+        return payload
 
 
 def _report_paths(runtime_data_dir: Path) -> tuple[Path, Path]:
@@ -121,6 +126,8 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         "## Pending Symbols",
         "",
     ]
+    if payload.get("error"):
+        lines.insert(10, f"- `error`: {payload.get('error')}")
     if pending_symbols:
         lines.extend(f"- `{symbol}`" for symbol in pending_symbols)
     else:
@@ -275,7 +282,45 @@ class BrokerPaperExecutionSync:
         for row in sqlite_store.fetch_all_rows("broker_paper_order_status_snapshots", "synced_at"):
             latest_status_by_order[str(row["local_order_id"])] = dict(row)
 
-        broker_rows = self.broker_mirror.fetch_recent_order_fills(lookback_days=lookback_days)
+        try:
+            broker_rows = self.broker_mirror.fetch_recent_order_fills(lookback_days=lookback_days)
+        except KisApiError as exc:
+            if not is_kis_rate_limit_error(exc):
+                raise
+            pending_symbols: set[str] = set()
+            open_order_count = 0
+            final_order_count = 0
+            for submission in submission_rows:
+                local_order_id = str(submission["local_order_id"])
+                paper_order = paper_orders.get(local_order_id, {})
+                previous_snapshot = latest_status_by_order.get(local_order_id) or {}
+                status = str(previous_snapshot.get("status") or paper_order.get("status") or submission.get("status") or "submitted")
+                if status in FINAL_BROKER_ORDER_STATUSES:
+                    final_order_count += 1
+                    continue
+                open_order_count += 1
+                pending_symbols.add(str(submission.get("symbol") or paper_order.get("symbol") or ""))
+            pending_symbols.discard("")
+            payload = {
+                "ok": False,
+                "synced_at": synced_at.isoformat(),
+                "status": "rate_limited",
+                "error": str(exc),
+                "total_submissions": len(submission_rows),
+                "matched_orders": 0,
+                "updated_orders": 0,
+                "applied_fill_events": 0,
+                "applied_fill_qty": 0,
+                "open_order_count": open_order_count,
+                "final_order_count": final_order_count,
+                "pending_symbols": sorted(pending_symbols),
+            }
+            _write_report(markdown_path, json_path, payload)
+            return BrokerPaperSyncResult(
+                report_markdown_path=markdown_path,
+                report_json_path=json_path,
+                **payload,
+            )
         broker_lookup: dict[tuple[str, str, str], Any] = {}
         broker_lookup_fallback: dict[tuple[str, str], Any] = {}
         for row in broker_rows:

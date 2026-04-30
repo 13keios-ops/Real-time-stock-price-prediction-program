@@ -486,6 +486,7 @@ python -m app --reconcile-paper-accounts
 
 This comparison uses the current full local virtual-paper account state, not the date-filtered dashboard slice.
 For broker paper accounts, the dashboard and reconciliation compare cash with the broker effective cash value calculated as `total_asset_amount - stock_evaluation_amount`. The raw KIS cash value is still retained separately as `raw_cash_gap` because it can differ after fills.
+Broker paper order-fill sync retries KIS `EGW00201` rate-limit responses. If the broker still rejects the lookup, sync writes a `rate_limited` report and keeps submitted broker symbols pending instead of clearing them or crashing the runtime.
 
 Sync the local starting cash to the broker paper account and verify the two books match:
 

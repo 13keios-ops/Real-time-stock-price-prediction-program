@@ -97,6 +97,7 @@
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
 - KIS REST rate-limit backoff 재시도
+- 브로커 모의계좌 주문/체결 조회도 KIS `EGW00201` rate-limit 에 대해 재시도하고, 계속 막히면 기존 제출 주문을 pending 으로 유지한 채 `rate_limited` 리포트를 남긴다.
 - runtime autoboot 와 Monday runtime 스크립트는 이제 내부 `python -m app ...` 실행이 실패하면 즉시 오류로 처리한다.
 - paper-account reconciliation 기록은 live runtime 이 DB를 쓰는 중에도 더 오래 재시도하도록 보강했다.
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조

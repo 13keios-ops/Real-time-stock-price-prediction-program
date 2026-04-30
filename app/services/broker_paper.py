@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from datetime import datetime
 from datetime import timedelta
 
-from app.brokers.kis_auth import KisTokenManager, get_kis_profile
+from app.brokers.kis_auth import KisApiError, KisTokenManager, get_kis_profile
 from app.brokers.kis_quote_rest import (
     KisAccountBalanceSnapshot,
     KisCashOrderResult,
@@ -15,6 +17,15 @@ from app.brokers.kis_quote_rest import (
 from app.config.settings import AppSettings
 from app.storage.contracts import BrokerOrderSubmission, PaperOrder
 from app.utils.time import now_local
+
+
+LOGGER = logging.getLogger(__name__)
+ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
+
+
+def is_kis_rate_limit_error(exc: KisApiError) -> bool:
+    message = str(exc).lower()
+    return "egw00201" in message or "rate limit" in message or "too many" in message
 
 
 class BrokerPaperMirror:
@@ -47,10 +58,30 @@ class BrokerPaperMirror:
     def fetch_recent_order_fills(self, *, lookback_days: int = 3) -> list[KisDailyOrderFillRecord]:
         end_date = now_local(self.settings.timezone).date()
         start_date = end_date - timedelta(days=max(lookback_days - 1, 0))
-        return self.client.get_daily_order_fills(
-            start_date=start_date.strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
-        )
+        start_date_text = start_date.strftime("%Y%m%d")
+        end_date_text = end_date.strftime("%Y%m%d")
+        last_error: KisApiError | None = None
+        for attempt in range(len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                return self.client.get_daily_order_fills(
+                    start_date=start_date_text,
+                    end_date=end_date_text,
+                )
+            except KisApiError as exc:
+                last_error = exc
+                if not is_kis_rate_limit_error(exc) or attempt >= len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS):
+                    raise
+                delay_seconds = ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS[attempt]
+                LOGGER.warning(
+                    "KIS broker paper order-fill query rate-limited on attempt %s/%s. Retrying after %.1fs.",
+                    attempt + 1,
+                    len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS) + 1,
+                    delay_seconds,
+                )
+                time.sleep(delay_seconds)
+        if last_error is not None:
+            raise last_error
+        raise KisApiError("KIS broker paper order-fill query did not return a result.")
 
     def cancel_submitted_order(
         self,

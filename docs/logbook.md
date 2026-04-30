@@ -83,6 +83,7 @@
 - `scripts/check_local_setup.ps1` 는 이제 모의계좌번호 존재 여부와 8자리 또는 8자리-2자리 형식을 점검하고, paper product code 는 명시값이 없어도 내부 기본값으로 유효하다고 판단한다.
 - `scripts/verify_paper_dual_account_match.ps1` 는 KIS 모의계좌 현금과 root `.env` 의 `PAPER_INITIAL_CASH` 를 맞추고, 로컬 가상 계좌와 브로커 모의계좌의 예수금/총자산/보유수량 일치 여부를 `latest-paper-dual-account-match.{md,json}` 로 남긴다.
 - 대시보드 `account_sync` 상태는 브로커 원시 현금값 대신 `총자산 - 주식평가액` 으로 계산한 유효현금을 기준으로 reconciliation 과 같은 기준의 일치 여부를 표시하고, 원시 현금 차이는 `raw_cash_gap` 으로 따로 남긴다.
+- broker paper order-fill sync 는 KIS `EGW00201` rate-limit 이 나오면 짧게 재시도하고, 계속 막히면 실패로 죽지 않고 `rate_limited` 리포트를 남긴 뒤 기존 제출 주문을 pending 으로 유지한다.
 - live runtime 의 온라인 주문/체결 ID 는 실행별 고유 namespace 를 포함해 재시작 뒤에도 기존 `paper_orders` row 를 덮어쓰지 않는다.
 - broker paper sync 는 최신 alignment marker 이전 제출 주문을 무시해, 과거 브로커 체결이 새 baseline position 에 다시 적용되지 않도록 한다.
 - alignment baseline position 은 marker 이후 position update 와 종목별로 병합해, 새 체결이 생긴 종목 외의 기존 baseline 보유종목도 reconciliation 에 남긴다.
@@ -161,13 +162,16 @@
   - latest walk-forward: `folds=734`, `rows_evaluated=7340`, `overall_accuracy=0.440054`, `cumulative_net_return_pct=-96.657339`
   - latest challenger: `recommended_action=review_required`, `best_candidate=latest_lightgbm`, `walk_forward_gate_status=needs_review`, active model kept at `baseline-h15-v1`
   - broker order status sync was retried but KIS returned `EGW00201`; baseline alignment was used for closeout reconciliation instead
+  - broker paper order-fill sync now retries KIS rate-limit and returns a safe `rate_limited` report without clearing pending submitted orders
+  - latest post-alignment `python -m app --sync-broker-paper-orders`: `ok=true`, `status=no_submissions`
   - broker baseline alignment: `ok=true`, broker positions `005380` and `373220`, broker cash balance `8879244`, broker total asset `9958789`
   - paper reconciliation after alignment: `ok=true`, `status=aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
   - dashboard account sync now uses broker effective cash, so latest dashboard shows `account_sync.status=일치`, `cash_gap=0`, `raw_cash_gap=88045`
   - `python -m unittest tests.test_dashboard`: `13 tests OK`
-  - `python -m unittest discover -s tests -p "test_*.py"`: `78 tests OK`
+  - `python -m unittest tests.test_broker_paper_sync`: `4 tests OK`
+  - `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
   - `python -m app --build-runtime-report`: `ok`
-  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
+  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}` at `2026-04-30T17:10:05+09:00`
 - dashboard/runtime cleanup targeted tests: `6 tests OK`
 - redesigned dashboard tests: `6 tests OK`
 - broker mirroring focused tests: `17 tests OK`
