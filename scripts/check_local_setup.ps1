@@ -24,6 +24,7 @@ $envFilePath = Join-Path $WorkspaceRoot ".env"
 $envExamplePath = Join-Path $WorkspaceRoot ".env.example"
 $secretsReadmePath = Join-Path (Split-Path -Parent $WorkspaceRoot) "secrets\README.local.md"
 $nasRecoveryRoot = "\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports"
+$marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
 
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
@@ -119,6 +120,72 @@ function Get-JsonScriptResult {
     }
 }
 
+function Get-MarketTimeSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Default
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return $Default
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]+)`""
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if ($match -and $match -match $pattern) {
+        return $Matches[1]
+    }
+
+    return $Default
+}
+
+function Get-CurrentMarketSessionStatus {
+    $now = Get-Date
+    if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
+        return "weekend"
+    }
+
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $sessionClose = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_close" -Default "15:30"))
+    $currentTime = $now.TimeOfDay
+
+    if ($currentTime -lt $sessionOpen) {
+        return "pre-open"
+    }
+    if ($currentTime -gt $sessionClose) {
+        return "post-close"
+    }
+    return "regular-session"
+}
+
+function Test-LiveRuntimeShouldRun {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionStatus,
+
+        [Parameter(Mandatory = $false)]
+        [int]$PreOpenWarmupMinutes = 60
+    )
+
+    if ($SessionStatus -eq "regular-session") {
+        return $true
+    }
+    if ($SessionStatus -ne "pre-open" -or $PreOpenWarmupMinutes -le 0) {
+        return $false
+    }
+
+    $now = Get-Date
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $warmupStart = $sessionOpen.Subtract([TimeSpan]::FromMinutes($PreOpenWarmupMinutes))
+
+    return ($now.TimeOfDay -ge $warmupStart) -and ($now.TimeOfDay -lt $sessionOpen)
+}
+
 $pythonExecutable = Resolve-PythonExecutable
 $dashboardStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_dashboard_status.ps1")
 $liveRuntimeStatus = Get-JsonScriptResult -ScriptPath (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1")
@@ -150,6 +217,8 @@ $secretsReadmeExists = Test-Path -LiteralPath $secretsReadmePath
 $nasRecoveryRootExists = Test-Path -LiteralPath $nasRecoveryRoot
 $websocketsAvailable = Test-PythonModule -PythonExecutable $pythonExecutable -ModuleName "websockets"
 $lightgbmAvailable = Test-PythonModule -PythonExecutable $pythonExecutable -ModuleName "lightgbm"
+$currentSessionStatus = Get-CurrentMarketSessionStatus
+$liveRuntimeShouldRun = Test-LiveRuntimeShouldRun -SessionStatus $currentSessionStatus
 
 $blockers = @()
 $nextActions = @()
@@ -221,9 +290,11 @@ if ([string]$liveRuntimeStatus.status -ne "running") {
         } else {
             $nextActions += "Restore root .env and then restart the live runtime."
         }
-    } else {
+    } elseif ($liveRuntimeShouldRun) {
         $blockers += "live_runtime_not_running"
         $nextActions += "Inspect the live runtime stderr/stdout logs and restart it."
+    } else {
+        $nextActions += "Live runtime is stopped because the current market session is $currentSessionStatus."
     }
 }
 
@@ -250,6 +321,8 @@ $payload = [ordered]@{
     python_executable = $pythonExecutable
     websockets_available = $websocketsAvailable
     lightgbm_available = $lightgbmAvailable
+    current_session_status = $currentSessionStatus
+    live_runtime_should_run = $liveRuntimeShouldRun
     dashboard_status = $dashboardStatus
     live_runtime_status = $liveRuntimeStatus
     watchdog_status = $watchdogStatus
@@ -278,6 +351,8 @@ $mdLines = @(
     "- python executable: $pythonExecutable",
     "- websockets available: $websocketsAvailable",
     "- lightgbm available: $lightgbmAvailable",
+    "- current session status: $currentSessionStatus",
+    "- live runtime should run: $liveRuntimeShouldRun",
     "- dashboard status: $($dashboardStatus.status)",
     "- live runtime status: $($liveRuntimeStatus.status)",
     "- watchdog status: $($watchdogStatus.status)",

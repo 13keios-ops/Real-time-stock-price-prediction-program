@@ -71,6 +71,23 @@
 
 ## 최신 검증 결과
 
+- `2026-05-01 00시대` 전체 점검과 복구:
+- 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
+- 공백 오류 검사 `git diff --check`: `ok`
+- 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`
+- 실행 리포트 생성 `python -m app --build-runtime-report`: `ok`
+- 실행 리포트 행 수: `raw_market_ticks=1523101`, `raw_orderbook_ticks=1244192`, `minute_bars=7614`, `feature_rows=7614`, `labels=13889`, `predictions=13041`, `signals=6521`, `orders=1165`, `fills=114`, `broker_order_submissions=46`
+- 대시보드 서버 시작 지연 원인은 서버가 포트를 열기 전에 무거운 스냅샷 재생성을 먼저 수행하던 구조였다. 기존 캐시 스냅샷이 있으면 서버를 먼저 열도록 수정했다.
+- 실시간 수집기 상태가 오래된 KIS 검증 파일의 `regular-session` 값을 현재 장 상태처럼 보여주던 문제를 수정했다. 이제 현재 장 상태와 마지막 KIS 검증 당시 장 상태를 분리해서 보여준다.
+- 로컬 setup 점검은 현재 장 상태와 장전 준비 시간을 계산해, 장외나 장전 준비 전 실시간 수집기 중지를 정상으로 해석한다.
+- SQLite 연결을 명시적으로 닫도록 수정해 테스트 중 반복되던 `unclosed database` 경고를 제거했다.
+- PowerShell 파싱 검사: `scripts/get_live_runtime_status.ps1`, `scripts/check_local_setup.ps1` 모두 `parse ok`
+- 대시보드 단위 테스트 `python -m unittest tests.test_dashboard`: `13 tests OK`
+- 로컬 setup 점검 `scripts/check_local_setup.ps1 -AsJson`: `ok=true`
+- 대시보드 상태: `running`, `http://127.0.0.1:8765`, `/health`와 `/api/dashboard.json` 응답 `ok`
+- 실행 감시기 상태: `running`, 장 상태 `pre-open`, `live_runtime_should_run=false`
+- 실시간 수집기 상태: `stopped`, 현재 장 상태 `pre-open`, 장전 준비 시작 전이므로 정상 대기
+- 로컬 가상투자와 KIS 모의투자 정합성 `scripts/verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`
 - `2026-04-30` 로컬 `AGENTS.md` 재구성:
 - `D:/GitHub/ref_AGENTS.md`는 공통 설계 기준서로만 참고하고, 현재 저장소의 실제 구조와 기준 문서를 먼저 확인한 뒤 `AGENTS.md`를 다시 작성했다.
 - 현재 존재하는 `app/`, `scripts/`, `tests/`, `runtime-data/`, `docs/` 기준으로 작업 순서, 운영 안전 규칙, 주요 명령, 검증 기준을 구체화했다.

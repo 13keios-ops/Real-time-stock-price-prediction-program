@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import time
 from collections.abc import Iterable
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -307,7 +308,7 @@ class SQLiteRuntimeStore:
             )
             """,
         ]
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=NORMAL")
             for statement in statements:
@@ -360,7 +361,7 @@ class SQLiteRuntimeStore:
             if delay_seconds > 0:
                 time.sleep(delay_seconds)
             try:
-                with self._connect() as connection:
+                with closing(self._connect()) as connection:
                     cursor = connection.execute(query, params)
                     return cursor.fetchone() if single else list(cursor)
             except sqlite3.OperationalError as exc:
@@ -379,7 +380,7 @@ class SQLiteRuntimeStore:
             if delay_seconds > 0:
                 time.sleep(delay_seconds)
             try:
-                with self._connect() as connection:
+                with closing(self._connect()) as connection:
                     connection.execute(query, params)
                     connection.commit()
                 return
@@ -842,7 +843,7 @@ class SQLiteRuntimeStore:
             if delay_seconds > 0:
                 time.sleep(delay_seconds)
             try:
-                with self._connect() as connection:
+                with closing(self._connect()) as connection:
                     for table_name in table_name_list:
                         connection.execute(f"DELETE FROM {table_name}")
                     connection.commit()
@@ -864,7 +865,7 @@ class SQLiteRuntimeStore:
             if delay_seconds > 0:
                 time.sleep(delay_seconds)
             try:
-                with self._connect() as connection:
+                with closing(self._connect()) as connection:
                     connection.executemany(query, params_list)
                     connection.commit()
                 return

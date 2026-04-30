@@ -3627,11 +3627,18 @@ def prepare_dashboard_server(
     refresh_seconds: int = 600,
     recent_limit: int = 100,
 ) -> tuple[ThreadingHTTPServer, DashboardServeInfo]:
-    snapshot = build_dashboard_snapshot(
-        project_root=project_root,
-        refresh_seconds=refresh_seconds,
-        recent_limit=recent_limit,
-    )
+    settings = load_settings(project_root=project_root)
+    report_dir = settings.runtime_data_dir / "reports" / "dashboard"
+    snapshot_html_path = report_dir / "latest-dashboard.html"
+    snapshot_json_path = report_dir / "latest-dashboard.json"
+    if not snapshot_html_path.exists() or not snapshot_json_path.exists():
+        snapshot = build_dashboard_snapshot(
+            project_root=project_root,
+            refresh_seconds=refresh_seconds,
+            recent_limit=recent_limit,
+        )
+        snapshot_html_path = snapshot.snapshot_html_path
+        snapshot_json_path = snapshot.snapshot_json_path
     server = ThreadingHTTPServer((host, port), _make_dashboard_handler(project_root=project_root, refresh_seconds=refresh_seconds, recent_limit=recent_limit))
     actual_host, actual_port = server.server_address
     return server, DashboardServeInfo(
@@ -3639,6 +3646,6 @@ def prepare_dashboard_server(
         port=int(actual_port),
         refresh_seconds=refresh_seconds,
         url=f"http://{actual_host}:{actual_port}",
-        snapshot_html_path=snapshot.snapshot_html_path,
-        snapshot_json_path=snapshot.snapshot_json_path,
+        snapshot_html_path=snapshot_html_path,
+        snapshot_json_path=snapshot_json_path,
     )

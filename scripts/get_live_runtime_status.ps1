@@ -16,6 +16,7 @@ $statePath = Join-Path $RuntimeDataDir "reports\live-runtime\state\listener-stat
 $dashboardPath = Join-Path $RuntimeDataDir "reports\dashboard\latest-dashboard.json"
 $kisVerificationPath = Join-Path $RuntimeDataDir "reports\kis-ws\latest-verification.json"
 $envFilePath = Join-Path $WorkspaceRoot ".env"
+$marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
 
 Add-Type -AssemblyName System.Web.Extensions
 
@@ -248,6 +249,49 @@ function Get-TimestampFreshness {
     }
 }
 
+function Get-MarketTimeSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Default
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return $Default
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]+)`""
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if ($match -and $match -match $pattern) {
+        return $Matches[1]
+    }
+
+    return $Default
+}
+
+function Get-CurrentMarketSessionStatus {
+    $now = Get-Date
+    if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
+        return "weekend"
+    }
+
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $sessionClose = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_close" -Default "15:30"))
+    $currentTime = $now.TimeOfDay
+
+    if ($currentTime -lt $sessionOpen) {
+        return "pre-open"
+    }
+    if ($currentTime -gt $sessionClose) {
+        return "post-close"
+    }
+    return "regular-session"
+}
+
 function Get-LiveRuntimeMessage {
     param(
         [string]$BlockedReason,
@@ -368,6 +412,7 @@ $message = Get-LiveRuntimeMessage -BlockedReason $blockedReason -EnvFileExists $
 
 $dashboardPayload = Read-JsonFile -Path $dashboardPath
 $latestKisVerification = Read-JsonFile -Path $kisVerificationPath
+$currentSessionStatus = Get-CurrentMarketSessionStatus
 
 $systemStatus = if ($null -ne $dashboardPayload) { $dashboardPayload["system_status"] } else { $null }
 $freshness = if ($null -ne $systemStatus) { $systemStatus["freshness"] } else { $null }
@@ -497,6 +542,9 @@ if (
     prediction_freshness = if ($null -ne $freshness) { $freshness["latest_prediction"] } else { $null }
     signal_freshness = if ($null -ne $freshness) { $freshness["latest_signal"] } else { $null }
     kis_verification_freshness = $effectiveKisVerificationFreshness
-    session_status = if ($null -ne $effectiveKisVerification) { $effectiveKisVerification["session_status"] } else { $null }
+    session_status = $currentSessionStatus
+    current_session_status = $currentSessionStatus
+    latest_kis_verification_session_status = if ($null -ne $effectiveKisVerification) { $effectiveKisVerification["session_status"] } else { $null }
+    latest_kis_verification_verified_at = if ($null -ne $effectiveKisVerification) { $effectiveKisVerification["verified_at"] } else { $null }
     raw_status = $rawStatus
 } | ConvertTo-Json -Depth 10
