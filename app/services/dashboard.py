@@ -11,8 +11,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+from time import sleep
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from app.config.settings import load_settings
 from app.models.lightgbm_model import find_latest_lightgbm_artifact
@@ -54,6 +56,28 @@ def _safe_load_json(path: Path) -> dict[str, Any] | list[Any] | None:
         return json.loads(path.read_text(encoding="utf-8").lstrip("\ufeff"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _write_text_with_retries(path: Path, content: str, *, encoding: str = "utf-8", attempts: int = 6) -> None:
+    last_error: OSError | None = None
+    for attempt in range(max(attempts, 1)):
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(content, encoding=encoding)
+            temp_path.replace(path)
+            return
+        except OSError as exc:
+            last_error = exc
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if attempt + 1 >= attempts:
+                break
+            sleep(0.2 * (attempt + 1))
+
+    if last_error is not None:
+        raise last_error
 
 
 def _load_cached_dashboard_payload(project_root: Path) -> dict[str, Any] | None:
@@ -3502,8 +3526,12 @@ def build_dashboard_snapshot(
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / "latest-dashboard.json"
     html_path = report_dir / "latest-dashboard.html"
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    html_path.write_text(_render_dashboard_html(payload, refresh_seconds=refresh_seconds, live_mode=False), encoding="utf-8")
+    _write_text_with_retries(json_path, json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_text_with_retries(
+        html_path,
+        _render_dashboard_html(payload, refresh_seconds=refresh_seconds, live_mode=False),
+        encoding="utf-8",
+    )
     return DashboardSnapshotResult(snapshot_html_path=html_path, snapshot_json_path=json_path, payload=payload)
 
 

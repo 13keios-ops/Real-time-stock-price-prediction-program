@@ -78,6 +78,8 @@
 - 실행 리포트 생성 `python -m app --build-runtime-report`: `ok`
 - 실행 리포트 행 수: `raw_market_ticks=1523101`, `raw_orderbook_ticks=1244192`, `minute_bars=7614`, `feature_rows=7614`, `labels=13889`, `predictions=13041`, `signals=6521`, `orders=1165`, `fills=114`, `broker_order_submissions=46`
 - 대시보드 서버 시작 지연 원인은 서버가 포트를 열기 전에 무거운 스냅샷 재생성을 먼저 수행하던 구조였다. 기존 캐시 스냅샷이 있으면 서버를 먼저 열도록 수정했다.
+- 대시보드 스냅샷 저장 중 상태 점검이 같은 JSON 파일을 읽어 Windows 파일 잠금 충돌이 1회 발생한 로그를 확인했다. 스냅샷 저장을 임시 파일 교체와 짧은 재시도 방식으로 보강했다.
+- 보강 뒤 `python -m unittest tests.test_dashboard`, `python -m unittest discover -s tests -p "test_*.py"`, `python -m app --build-dashboard`, `git diff --check` 를 다시 통과했다.
 - 실시간 수집기 상태가 오래된 KIS 검증 파일의 `regular-session` 값을 현재 장 상태처럼 보여주던 문제를 수정했다. 이제 현재 장 상태와 마지막 KIS 검증 당시 장 상태를 분리해서 보여준다.
 - 로컬 setup 점검은 현재 장 상태와 장전 준비 시간을 계산해, 장외나 장전 준비 전 실시간 수집기 중지를 정상으로 해석한다.
 - SQLite 연결을 명시적으로 닫도록 수정해 테스트 중 반복되던 `unclosed database` 경고를 제거했다.
