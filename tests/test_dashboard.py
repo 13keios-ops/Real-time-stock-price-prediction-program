@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 
 from app.config.settings import load_settings
 
-from app.services.dashboard import build_dashboard_snapshot, collect_dashboard_payload, prepare_dashboard_server
+from app.services.dashboard import (
+    _build_account_sync_status,
+    build_dashboard_snapshot,
+    collect_dashboard_payload,
+    prepare_dashboard_server,
+)
 from app.services.orchestrator import run_synthetic_dev_cycle
 from app.services.runtime import run_demo_pipeline
 from app.services.streaming import build_sample_ws_frames, replay_ws_frames
@@ -400,6 +405,32 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["runtime_summary"]["broker_order_submissions"], 0)
         self.assertIn("order_mirroring_enabled", payload["account_sync"])
         self.assertIn("paper_account_reconciliation", payload)
+
+    def test_account_sync_uses_broker_effective_cash(self) -> None:
+        account_sync = _build_account_sync_status(
+            {
+                "cash_balance": 1_000_000,
+                "positions": [
+                    {"symbol": "005930", "qty": 3},
+                ],
+            },
+            {
+                "cash_balance": 900_000,
+                "stock_evaluation_amount": 214_500,
+                "total_asset_amount": 1_214_500,
+                "positions": [
+                    {"symbol": "005930", "holding_qty": 3},
+                ],
+            },
+            order_mirroring_enabled=True,
+            mirrored_order_count=1,
+        )
+
+        self.assertTrue(account_sync["positions_match"])
+        self.assertTrue(account_sync["balance_match"])
+        self.assertEqual(account_sync["cash_gap"], 0)
+        self.assertEqual(account_sync["raw_cash_gap"], 100_000)
+        self.assertEqual(account_sync["status"], "일치")
 
     def test_dashboard_server_serves_health_and_json(self) -> None:
         root = Path(__file__).resolve().parents[1]

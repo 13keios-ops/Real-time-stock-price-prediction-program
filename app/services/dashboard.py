@@ -1137,11 +1137,29 @@ def _build_account_sync_status(
         for row in (paper_account_view.get("positions") or [])
         if int(row.get("holding_qty", 0) or 0) > 0
     }
-    local_cash = local_account_summary.get("cash_balance")
-    broker_cash = paper_account_view.get("cash_balance")
+    def _float_or_none(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    local_cash = _float_or_none(local_account_summary.get("cash_balance"))
+    broker_raw_cash = _float_or_none(paper_account_view.get("cash_balance"))
+    broker_stock_value = _float_or_none(paper_account_view.get("stock_evaluation_amount"))
+    broker_total_asset = _float_or_none(paper_account_view.get("total_asset_amount"))
+    broker_effective_cash = (
+        broker_total_asset - broker_stock_value
+        if broker_total_asset is not None and broker_stock_value is not None
+        else broker_raw_cash
+    )
     cash_gap = None
-    if local_cash is not None and broker_cash is not None:
-        cash_gap = float(local_cash) - float(broker_cash)
+    raw_cash_gap = None
+    if local_cash is not None and broker_effective_cash is not None:
+        cash_gap = local_cash - broker_effective_cash
+    if local_cash is not None and broker_raw_cash is not None:
+        raw_cash_gap = local_cash - broker_raw_cash
     positions_match = local_positions == broker_positions
     balance_match = cash_gap is not None and abs(cash_gap) < 1.0
     if order_mirroring_enabled:
@@ -1160,6 +1178,9 @@ def _build_account_sync_status(
         "positions_match": positions_match,
         "balance_match": balance_match,
         "cash_gap": cash_gap,
+        "raw_cash_gap": raw_cash_gap,
+        "broker_effective_cash_balance": broker_effective_cash,
+        "broker_raw_cash_balance": broker_raw_cash,
         "local_positions": local_positions,
         "broker_positions": broker_positions,
         "status": "일치" if positions_match and balance_match else "불일치",
