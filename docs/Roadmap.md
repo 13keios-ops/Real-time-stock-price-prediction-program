@@ -1,4 +1,4 @@
-﻿# Project Roadmap
+# 프로젝트 로드맵
 
 ## 역할
 
@@ -10,7 +10,7 @@
 2. KIS 연동과 raw 저장 구현
 3. minute bar / feature / label 구현
 4. baseline 학습과 backtest 구현
-5. walk-forward와 runtime report 구현
+5. 워크포워드와 실행 리포트 구현
 6. 실제 KIS WebSocket 장중 검증
 7. challenger 모델 비교
 8. NLP 이벤트 확장

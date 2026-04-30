@@ -1,19 +1,20 @@
-﻿# Dashboard Plan
+# 대시보드 계획
 
 ## 역할
 
-이 문서는 향후 연구용 대시보드에서 먼저 보여줄 화면 기준을 정리하는 reference 문서다.
+이 문서는 연구용 대시보드에서 우선 보여줄 화면 기준을 정리하는 참고 문서다.
 
 ## 우선 화면
 
-- runtime summary
+- 런타임 요약
 - 최근 예측과 신호
-- active model과 평가 지표
-- paper 주문, 체결, 포지션
-- backtest와 walk-forward 결과 비교
+- 활성 모델과 평가 지표
+- 모의 주문, 체결, 포지션
+- 백테스트와 walk-forward 결과 비교
 - 리스크 이벤트와 수집 상태
 
 ## 현재 상태
 
-- 아직 웹 대시보드는 구현 전
-- 현재는 `runtime-data/reports/` 아래 Markdown과 JSON이 대시보드 대체 역할을 함
+- 웹 대시보드는 이미 구현되어 있다.
+- 최신 기준은 `README.md`와 `docs/Current-Implementation.md`를 우선한다.
+- 이 문서는 초기 화면 우선순위를 설명하는 참고 문서로만 유지한다.

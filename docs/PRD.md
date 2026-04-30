@@ -1,4 +1,4 @@
-﻿# Product Requirements Document
+# 제품 요구사항 문서
 
 ## 역할
 
@@ -16,7 +16,7 @@
 - 로컬 연구용 프로그램
 - 실시간 수집과 재현 가능한 연구 흐름
 - paper trading 중심 검증
-- live 주문은 기본 비활성화
+- live 주문 기본 비활성화
 
 ## 포함 범위
 
@@ -25,7 +25,7 @@
 - minute bar / feature / label
 - baseline 모델 학습
 - backtest / walk-forward
-- runtime report
+- 실행 리포트
 
 ## 제외 범위
 

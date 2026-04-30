@@ -1,20 +1,20 @@
-﻿# Order Lifecycle
+# 주문 생명주기
 
 ## 역할
 
 모의주문과 향후 실주문 확장에 필요한 주문 상태 전이 기준을 정리하는 참고 문서다.
 
-## 상태 머신
+## 상태 흐름
 
-- created
-- queued
-- sent
-- acknowledged
-- partially_filled
-- filled
-- cancelled
-- rejected
-- recovery_pending
+- `created`
+- `queued`
+- `sent`
+- `acknowledged`
+- `partially_filled`
+- `filled`
+- `cancelled`
+- `rejected`
+- `recovery_pending`
 
 ## 기본 원칙
 
@@ -26,7 +26,7 @@
 
 - 현재는 paper trading 중심으로 주문/체결/포지션 흐름을 기록한다.
 - 실전 주문은 기본 비활성화 상태를 유지한다.
-- 실계좌 확장은 이 상태 머신을 그대로 따라가야 한다.
+- 실계좌 확장은 이 상태 흐름을 그대로 따라가야 한다.
 
 ## 확인 포인트
 

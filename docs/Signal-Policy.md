@@ -1,4 +1,4 @@
-﻿# Signal Policy
+# 신호 정책
 
 ## 역할
 

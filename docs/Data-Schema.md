@@ -1,18 +1,18 @@
-﻿# Data Schema
+# 데이터 스키마
 
 ## 역할
 
-이 문서는 SQLite와 논리 스키마 기준을 정리하는 reference 문서다.
+이 문서는 SQLite와 논리 스키마 기준을 정리하는 참고 문서다.
 
 ## 현재 저장 범위
 
-- raw: market ticks, orderbook ticks
-- curated: minute bars
-- feature: inputs, labels
-- serving: predictions, trade signals, target positions
-- paper: orders, order events, fills, positions, portfolio snapshots
-- ops: risk events, reconciliation runs, replay runs
-- ml: training runs, model evaluations
+- 원시 데이터: 체결 tick, 호가 tick
+- 가공 데이터: 분봉
+- 특징 데이터: 모델 입력, 라벨
+- 서빙 데이터: 예측, 거래 신호, 목표 포지션
+- 모의운용 데이터: 주문, 주문 이벤트, 체결, 포지션, 포트폴리오 스냅샷
+- 운영 데이터: 리스크 이벤트, 정합성 점검, replay 실행 기록
+- 머신러닝 데이터: 학습 실행, 모델 평가
 
 ## 현재 코드 기준
 
@@ -20,5 +20,5 @@
 
 ## 다음 보강
 
-- SQLite와 migration SQL의 차이를 더 줄이기
-- 필요 시 evaluation 전용 요약 테이블 추가
+- SQLite 실제 구조와 migration SQL의 차이를 더 줄인다.
+- 필요하면 평가 전용 요약 테이블을 추가한다.

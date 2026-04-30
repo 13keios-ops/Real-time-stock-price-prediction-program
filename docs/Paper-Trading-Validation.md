@@ -1,4 +1,4 @@
-﻿# Paper Trading Validation Plan
+# 모의투자 검증 계획
 
 ## 역할
 

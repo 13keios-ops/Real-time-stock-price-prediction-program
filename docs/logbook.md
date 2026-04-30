@@ -1,641 +1,97 @@
-﻿# Logbook
+# 작업 기록
 
-## Current Snapshot
+## 현재 스냅샷
 
-- date: `2026-04-30`
-- current version: `0.2.0`
-- latest release commit: `8f601ba`
-- watcher mode: `VERSION` change trigger
-- watcher repo opt-in: enabled
-- canonical docs synced: yes
-- runtime startup launcher installed: yes
+- 날짜: `2026-04-30`
+- 현재 버전: `0.2.0`
+- 최근 릴리스 커밋: `8f601ba`
+- 감시기 방식: `VERSION` 변경 감지
+- 저장소 자동 점검 참여: 켜짐
+- 기준 문서 동기화: 예
+- 실행 자동시작 실행기 설치: 예
 
-## Current State
+## 현재 상태
 
-- Python 기반 로컬 연구, 수집, 예측 골격이 구현되어 있다.
-- KIS REST 현재가와 호가 조회가 구현되어 있다.
-- KIS WebSocket 파서와 listener 준비가 되어 있고 reconnect 인자가 추가되어 있다.
-- KIS WebSocket readiness / verification report 경로가 추가되어 있다.
-- KIS 브로커 모의계좌 잔고 조회와 캐시 리포트 생성이 된다.
-- 대시보드는 정규장 밖 KIS REST snapshot 분과 raw 집계를 실제 운용 데이터 범위에서 제외한다.
-- 대시보드는 마지막 탭 선택 상태를 새로고침 뒤에도 유지한다.
-- 대시보드는 기본 자동 새로고침 주기가 10분이고, 수동 `상태 업데이트` 버튼으로 즉시 갱신할 수 있다.
-- 대시보드는 상단 상태 영역과 10개 탭 구조를 사용한다.
-- 대시보드는 `조회 범위`와 `기준 날짜` 기준으로 특정일 / 최근 기간 / 전체 누적 데이터를 선택해 볼 수 있다.
-- 대시보드는 `모의투자(가상) / 모의계좌(실제) / 실 운용계좌 / 머신러닝 현황 / 상태 및 설정 / 예측현황 / 신호 & 주문현황 / 체결과 분봉 / 오늘의 리포트 / 기타` 탭을 제공한다.
-- SQLite 기반 raw tick, orderbook, minute bar, feature, label, prediction, paper trading, evaluation 저장이 된다.
-- centroid baseline 학습, validation-tail backtest, walk-forward backtest가 된다.
-- LightGBM 학습 artifact 저장이 된다.
-- gap_rows / max_train_rows 를 받는 walk-forward backtest가 된다.
-- baseline / linear-score / centroid를 비교하는 challenger 구조가 추가되었다.
-- latest LightGBM challenger 비교가 추가되었다.
-- challenger 추천 action, walk-forward gate, leaderboard 기록이 추가되었다.
-- active model은 registry로만 명시하고, registry가 없으면 baseline builtin으로 fallback 한다.
-- runtime report와 backtest report가 `runtime-data/reports/` 아래에 생성된다.
-- 로컬 운영용 dashboard snapshot과 HTTP serving이 추가되었다.
-- KIS REST collector는 짧은 rate-limit burst에 대해 retry/backoff를 한다.
-- synthetic 데이터는 이제 `up/down/flat`이 섞이도록 조정되어 연구 지표가 더 의미 있게 나온다.
-- Hourly Repo Audit 자동화 스크립트와 상태 파일 구조가 추가되었다.
-- audit progress 상태 파일의 배열 정합성 방어가 추가되었다.
-- 다음 ML 운영 기준은 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM` 으로 확정됐다.
-- 과거 데이터는 학습창 밖으로 밀리더라도 삭제하지 않고 warm/cold 비교 자산으로 보관한다.
-- PC 로그인 후 자동 시작을 위한 runtime autoboot 스크립트와 startup launcher 설치/삭제/상태 스크립트가 추가되었다.
-- actual-only runtime cleanup 이 raw tick / orderbook / minute bar / serving / paper rows까지 실제 운용 기준으로 정리한다.
-- actual-only ML rebuild 경로가 추가되어 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 실데이터 기준으로 다시 만든다.
-- 예측현황의 `실제 결과` 와 `성공 여부` 는 이제 목표 시각의 정확한 분봉이 없어도 같은 거래일의 가장 가까운 후속 분봉으로 계산한다.
-- 대시보드 기본 `오늘` 조회는 현재 날짜에 장중 기록이 없으면 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
-- 장후 재학습과 실제 데이터 재구축은 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 의 batch 경로를 통해 lock 충돌에 더 강하게 수행된다.
-- 대시보드 예측현황 탭은 오전/오후, 시간대별, 상승/하락 통계를 보여주고 예측 상세는 선택 기간 전체 예측을 표시한다.
-- 대시보드 머신러닝 현황은 실제 데이터 기반 학습 결과만 표시하고, 연구용 fallback 값은 더 이상 대신 보여주지 않는다.
-- 로컬 가상 모의운용은 재시작 시 SQLite 기준 마지막 포트폴리오 상태를 복원한다.
-- 브로커 모의계좌 주문 제출 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켤 수 있다.
-- 대시보드 `모의계좌(실제)` 탭은 브로커 제출 주문 수와 최근 브로커 제출 주문 표를 함께 보여준다.
-- 로컬 가상 계좌와 브로커 모의계좌를 비교하는 `paper-account reconciliation` 리포트가 추가되었다.
-- 대시보드 `모의계좌(실제)` 탭은 `최근 동기화 점검` 과 `차이 상세` 카드로 현재 계좌 차이를 보여준다.
-- 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추는 marker 기반 `paper baseline alignment` 경로가 추가되었다.
-  - 대시보드 `로컬 모의운용 계좌` 카드도 이제 alignment marker 를 따라가므로, 오래된 pre-alignment 포지션을 현재 상태처럼 다시 보여주지 않는다.
-  - 대시보드 `로컬 모의운용 계좌` 요약의 주문/체결/브로커 제출 수 역시 marker 이후 현재 활동만 집계한다.
-  - 대시보드 SQLite 읽기 경로는 스키마 초기화를 건드리지 않는 read path 와 retry 로직으로 잠금 충돌에 더 강해졌다.
-  - 대시보드 HTTP 응답은 SQLite 잠금이 잠시 생겨도 연결이 바로 끊기지 않고 일시 점검 안내 응답으로 내려간다.
-- 대시보드 기본 화면과 기본 JSON API는 최신 cached snapshot 을 우선 사용하도록 바뀌었다.
-- 대시보드 `상태 업데이트` 버튼과 10분 자동 새로고침은 `/api/refresh` 를 먼저 호출해 snapshot 을 다시 만든 뒤 화면을 갱신한다.
-- 대시보드는 `KIS 검증 / 최근 분봉 / 최근 예측 / 최근 신호 / 최근 학습 / 최근 평가 / 대시보드 생성` 신선도를 함께 계산해 상태 탭에 표시한다.
-- 대시보드 상단은 `실시간 분봉 지연`, `최근 예측 기록 정지`, `KIS 실시간 검증 실패` 같은 정규장 경고와 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 장외 안내를 구분해 표시한다.
-- 머신러닝 현황 탭은 오늘 학습이 없어도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여준다.
-- 대시보드 상단 경고는 이제 최신 학습/평가 산출물이 실제로 `없음` 또는 `지연`일 때만 학습 관련 경고를 올린다.
-- `scripts/get_dashboard_status.ps1` 는 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해 `starting` 상태가 오래 남지 않게 했다.
-- dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일 경로를 우선 잡는다.
-- runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
-- `scripts/start_repo_review_until_deadline_background.ps1` 로 특정 시각까지 저장소 점검을 계속 돌리는 bounded runner가 추가되었다.
-- runtime watchdog 은 dashboard 와 live runtime 이 둘 다 살아 있는지 보고, 죽으면 다시 올린다.
-  - 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 같은 실패를 매 cycle 반복 재시도하지 않는다.
-- `start_runtime_autoboot.ps1` 는 이제 runtime watchdog 도 함께 시작한다.
-- `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽어 한글/대용량 payload 에도 신선도 값을 안정적으로 읽는다.
-- KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않는 연결을 계속 정상으로 보지 않고 timeout 후 reconnect 한다.
-- runtime watchdog 은 매 cycle dashboard `/api/refresh` 로 snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 장중 `missing/stale` 분봉 상태를 복구한다.
-- runtime autoboot 와 Monday startup 스크립트는 하위 `python -m app ...` 명령 실패를 더 이상 성공처럼 넘기지 않는다.
-- paper-account reconciliation 는 live runtime 과 동시 접근 시 더 오래 재시도하도록 보강했다.
-- dashboard / watchdog / hourly audit / deadline review helper 는 이제 저장된 pid 만 믿지 않고 실제 command line 까지 확인해 stale pid 재사용 오판과 잘못된 stop 을 줄인다.
-- `scripts/check_local_setup.ps1` 가 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 를 한 번에 점검하고 recovery report를 남긴다.
-- live runtime status 는 이제 `.env` 복구 뒤 active trading mode 기준 KIS app key/secret 이 다시 준비되면 stale `missing_kis_credentials` block 을 자동 해제한다.
-- `scripts/restore_kis_env_interactive.ps1` 를 추가해 visible PowerShell 입력 창에서 기본적으로 `paper` KIS app key/secret 만 입력하고 root `.env` 저장 뒤 live runtime / watchdog / KIS verification 까지 바로 확인할 수 있게 했다.
-- `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 기존 paper app key/secret 을 유지한 채 8자리 모의계좌번호만 입력하고, `KIS_PRODUCT_CODE_PAPER` 는 빈 값으로 둔 상태에서 브로커 모의주문 미러링과 reconciliation 을 바로 켤 수 있게 했다.
-- `scripts/check_local_setup.ps1` 는 이제 모의계좌번호 존재 여부와 8자리 또는 8자리-2자리 형식을 점검하고, paper product code 는 명시값이 없어도 내부 기본값으로 유효하다고 판단한다.
-- `scripts/verify_paper_dual_account_match.ps1` 는 KIS 모의계좌 현금과 root `.env` 의 `PAPER_INITIAL_CASH` 를 맞추고, 로컬 가상 계좌와 브로커 모의계좌의 예수금/총자산/보유수량 일치 여부를 `latest-paper-dual-account-match.{md,json}` 로 남긴다.
-- 대시보드 `account_sync` 상태는 브로커 원시 현금값 대신 `총자산 - 주식평가액` 으로 계산한 유효현금을 기준으로 reconciliation 과 같은 기준의 일치 여부를 표시하고, 원시 현금 차이는 `raw_cash_gap` 으로 따로 남긴다.
-- broker paper order-fill sync 는 KIS `EGW00201` rate-limit 이 나오면 짧게 재시도하고, 계속 막히면 실패로 죽지 않고 `rate_limited` 리포트를 남긴 뒤 기존 제출 주문을 pending 으로 유지한다.
-- live runtime 의 온라인 주문/체결 ID 는 실행별 고유 namespace 를 포함해 재시작 뒤에도 기존 `paper_orders` row 를 덮어쓰지 않는다.
-- broker paper sync 는 최신 alignment marker 이전 제출 주문을 무시해, 과거 브로커 체결이 새 baseline position 에 다시 적용되지 않도록 한다.
-- alignment baseline position 은 marker 이후 position update 와 종목별로 병합해, 새 체결이 생긴 종목 외의 기존 baseline 보유종목도 reconciliation 에 남긴다.
-- live runtime 과 broker paper sync 는 alignment baseline 이후 체결이 있으나 최신 snapshot 이 오래된 경우, 기준 현금에 이후 체결 현금흐름을 반영해 복원한다.
-- actual-only cleanup 은 실제 브로커 체결 시각에 생성된 portfolio snapshot 을 실제 운용 데이터로 보존한다.
-- runtime watchdog 의 dashboard `/api/refresh` timeout 은 현재 runtime dataset 기준 새 snapshot 생성 시간을 감안해 120초로 둔다.
-- runtime watchdog 의 dashboard full refresh 는 기본 10분 간격으로 제한하고, live runtime status 의 freshness 를 우선 사용해 반복 snapshot rebuild CPU 부하를 줄인다.
-- 예측 결과 계산은 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 15분/60분 예측을 `대기 중`이 아니라 `결과 없음`으로 닫는다.
-- runtime watchdog 과 post-close ML maintenance 는 장외에 live runtime 을 다시 켜지 않고, 켜져 있으면 중지해 장마감 후 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
-- runtime watchdog 은 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다.
-- runtime watchdog 의 정규장 stale 복구는 live runtime 을 검증용 단일 종목이 아니라 설정된 watchlist 로 다시 시작한다.
-- live runtime status 는 의도적으로 중지된 상태에서 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
-- 모의운용 spread gate 기본값은 `MAX_SPREAD_BPS=25.0` 이다. 2026-04-29 실제 삼성전자 feed 의 호가 스프레드가 약 22bp 수준이라 기존 15bp 기준에서는 모든 주문 후보가 차단됐다.
+- Python 기반 로컬 연구, 수집, 예측, 모의운용 흐름이 구현되어 있다.
+- KIS REST 현재가/호가 조회, KIS WebSocket 파서와 수신기, 재연결 처리가 준비되어 있다.
+- SQLite와 JSONL 기반 실행 저장소에 원시 체결, 호가, 분봉, 특징, 라벨, 예측, 신호, 주문, 체결, 평가를 기록한다.
+- 15분과 60분 예측을 기록하되, 신호와 주문 판단은 15분 기준으로 수행한다.
+- 현재 15분 활성 모델은 `baseline-h15-v1` 이고, LightGBM은 장후 재학습과 도전자 모델 비교에 사용한다.
+- LightGBM은 정상 학습되지만 워크포워드 기준이 약하면 자동 승격하지 않는다.
+- 운영 학습창은 `최근 60거래일 + 오늘 데이터` 기준이며, 오래된 데이터는 삭제하지 않고 비교와 회귀 검증에 보관한다.
+- 로컬 대시보드는 `http://127.0.0.1:8765` 에서 실행되며, 기본 자동 새로고침 주기는 10분이다.
+- 대시보드는 기본 화면과 `/api/dashboard.json` 에서 최신 캐시 스냅샷을 우선 사용하고, 수동 갱신과 자동 새로고침 때 `/api/refresh` 로 다시 생성한다.
+- 대시보드는 실제 운용 데이터만 기본 표시하고 `sample`, `synthetic`, `demo`, 재생 전용 행, 정규장 밖 스냅샷 분봉을 제외한다.
+- 예측 상세 탭은 선택 기간의 전체 예측을 보여준다.
+- 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 예측은 `대기 중`이 아니라 `결과 없음`으로 닫는다.
+- 로컬 가상 계좌와 KIS 모의계좌는 시작 예수금 동기화와 브로커 기준 정렬을 통해 비교한다.
+- KIS 모의계좌 상품코드는 화면에 없으면 `.env` 에 빈 값으로 두고, 앱 내부에서 모의투자 기본값을 적용한다.
+- 브로커 모의계좌 주문 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켜진다.
+- 브로커 주문/체결 조회가 KIS 호출 제한에 걸리면 재시도하고, 계속 막히면 안전하게 `rate_limited` 리포트를 남긴다.
+- 실행 감시기는 정규장에는 대시보드와 실시간 수집기를 복구하고, 장외에는 실시간 수집기를 다시 켜지 않아 CPU 재연결 루프를 줄인다.
+- 정규장 시작 60분 전부터는 장전 준비 단계로 실시간 수집기를 미리 켠다.
+- PC 로그인 후 자동 복구용 실행 자동시작과 시작프로그램 실행기가 준비되어 있다.
+- 매시간 저장소 점검 자동화는 git 추적 파일을 직접 수정하지 않고 `runtime-data/reports/codex/automation/` 아래에만 산출물을 남긴다.
 
-## Active Checklist
+## 활성 체크리스트
 
 - [x] KIS REST 수집 구현
-- [x] SQLite 적재와 runtime writer 구현
-- [x] minute bar / feature / label 생성 구현
-- [x] baseline 학습 구현
-- [x] validation-tail backtest 구현
-- [x] walk-forward backtest 구현
-- [x] runtime report 구현
-- [x] VERSION 기반 watcher opt-in 정리
-- [x] README와 logbook 기준으로 오래된 주제 문서 역할 재정리
-- [x] 다중 모델 challenger 비교 구조
-- [x] challenger 추천과 실제 승격 상태 분리
-- [x] challenger walk-forward gate
-- [x] Hourly Repo Audit 자동화 기본 구조
-- [x] Hourly Repo Audit 상태 이어받기 재실행 검증
-- [x] Hourly Repo Audit 백그라운드 runner 시작
-- [x] Hourly Repo Audit progress 배열 정합성 보강
+- [x] SQLite 적재와 실행 기록기 구현
+- [x] 분봉 / 특징 / 라벨 생성 구현
+- [x] 기준 모델 학습 구현
+- [x] 검증 꼬리구간 백테스트 구현
+- [x] 워크포워드 백테스트 구현
+- [x] 실행 리포트 구현
+- [x] VERSION 기반 감시기 참여 설정 정리
+- [x] 다중 모델 도전자 비교 구조
 - [x] LightGBM 학습 파이프라인 추가
-- [x] 로컬 모니터링 dashboard 추가
-- [x] dashboard background start/status/stop 스크립트 추가
-- [x] monday runtime starter 스크립트 추가
-- [x] dashboard 실제 운용 데이터 전용 필터와 test runtime cleanup
-- [x] replay 데이터를 실제 운용 데이터와 분리하고 old dashboard port-owner 추적 보강
-- [x] dashboard 한글 기본 UI와 3탭 전환 구조
-- [x] dashboard 10탭 구조와 상단 상태 영역
-- [x] dashboard 전 탭 공통 세로 보조탭 구조
-- [x] dashboard 긴 표와 목록의 내부 스크롤 패널
-- [x] dashboard 날짜 / 기간 필터
-- [x] dashboard 학습 탭의 오프라인 연구 결과 / 실운용 데이터 해석 구분
-- [x] dashboard 학습 탭의 실운용 학습 상태 / 오프라인 연구 결과 구조 분리
+- [x] 로컬 모니터링 대시보드 추가
+- [x] 대시보드 10탭 구조와 한글 UI
+- [x] 대시보드 기본 새로고침 10분과 수동 갱신 경로
+- [x] 대시보드 예측 상세 전체 표시
 - [x] 실제 KIS WebSocket 장중 수신 검증
-- [x] KIS 브로커 모의계좌 잔고 조회와 dashboard 반영
-- [x] 브로커 모의계좌 주문 제출 미러링과 대시보드 반영
-- [x] 실시간 수집기 background 실행과 상태 확인 스크립트
-- [x] 장중 15분·60분 예측 동시 기록과 15분 신호 기준 대시보드 반영
-- [x] 최근 예측의 기준가 대비 예상 변동 금액과 실제 결과 표시
-- [x] PC 재부팅 후 dashboard/live runtime 자동 시작용 autoboot 스크립트
-- [x] runtime watchdog background 제어 스크립트
-- [x] dashboard cached snapshot 우선 응답과 `/api/refresh` 갱신 경로
-- [x] 장중 connected-but-idle WebSocket 수집 상태 감지와 watchdog 복구
-- [x] KIS 모의계좌 연결과 로컬 가상투자 + 브로커 모의투자 동시 운용 활성화
-- [x] 로컬 가상투자와 KIS 모의투자의 시작 예수금 동기화 및 일치 점검 스크립트
+- [x] KIS 브로커 모의계좌 잔고 조회와 대시보드 반영
+- [x] 브로커 모의계좌 주문 제출 미러링
+- [x] 로컬 가상투자와 KIS 모의투자의 시작 예수금 동기화
+- [x] 실행 감시기 백그라운드 제어 스크립트
+- [x] 장중 유휴 WebSocket 수집 상태 감지와 복구
+- [x] 장외 실시간 수집기 재기동 제한으로 CPU 사용 절감
+- [x] git 추적 Markdown 문서의 사람이 읽는 본문 한글 정리
 
-## Version And Watcher
+## 버전과 감시기
 
-- watcher가 보는 기준 파일은 root `VERSION` 이다.
-- 저장소 opt-in 파일은 root `autopush.json` 이다.
+- 감시기가 보는 기준 파일은 root `VERSION` 이다.
+- 저장소 참여 설정 파일은 root `autopush.json` 이다.
 - 현재 설정은 `enabled=true`, `trigger=version-change`, `branch=main` 이다.
 - 버전을 바꾸는 명령은 `scripts/bump_version.ps1` 를 사용한다.
-- watcher 확인 위치
-  - `runtime-data/autopush/git-autopush.log`
-  - `runtime-data/autopush/git-autopush-state.json`
+- 감시기 확인 위치:
+- `runtime-data/autopush/git-autopush.log`
+- `runtime-data/autopush/git-autopush-state.json`
 
-## Latest Verified Results
+## 최신 검증 결과
 
-- 2026-04-30 daily runtime review and closeout:
-  - actual runtime rows: `raw_market_ticks=619669`, `raw_orderbook_ticks=612546`, `minute_bars=3725`, `feature_rows=3725`, `labels=6700`, `predictions=7450`, `signals=3725`, `orders=1036`, `fills=5`, `broker_order_submissions=10`
-  - prediction summary: `total=7450`, `evaluated=6700`, `pending=0`, `no_result=750`, `success_rate=0.110149`
-  - post-close ML maintenance at `2026-04-30 16:05-16:08 KST`: `status=ok`, `features_written=7613`, `labels_written=13889`, LightGBM `train_rows=5912`, `validation_rows=1478`, `validation_accuracy=0.751691`
-  - latest backtest: `rows_evaluated=1478`, `trades_taken=777`, `overall_accuracy=0.104871`, `cumulative_net_return_pct=-150.552985`
-  - latest walk-forward: `folds=734`, `rows_evaluated=7340`, `overall_accuracy=0.440054`, `cumulative_net_return_pct=-96.657339`
-  - latest challenger: `recommended_action=review_required`, `best_candidate=latest_lightgbm`, `walk_forward_gate_status=needs_review`, active model kept at `baseline-h15-v1`
-  - broker order status sync was retried but KIS returned `EGW00201`; baseline alignment was used for closeout reconciliation instead
-  - broker paper order-fill sync now retries KIS rate-limit and returns a safe `rate_limited` report without clearing pending submitted orders
-  - latest post-alignment `python -m app --sync-broker-paper-orders`: `ok=true`, `status=no_submissions`
-  - broker baseline alignment: `ok=true`, broker positions `005380` and `373220`, broker cash balance `8879244`, broker total asset `9958789`
-  - paper reconciliation after alignment: `ok=true`, `status=aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
-  - dashboard account sync now uses broker effective cash, so latest dashboard shows `account_sync.status=일치`, `cash_gap=0`, `raw_cash_gap=88045`
-  - `python -m unittest tests.test_dashboard`: `13 tests OK`
-  - `python -m unittest tests.test_broker_paper_sync`: `4 tests OK`
-  - `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
-  - `python -m app --build-runtime-report`: `ok`
-  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}` at `2026-04-30T17:10:05+09:00`
-- dashboard/runtime cleanup targeted tests: `6 tests OK`
-- redesigned dashboard tests: `6 tests OK`
-- broker mirroring focused tests: `17 tests OK`
-- dashboard + broker sync tests: `6 tests OK`
-- runtime scope out-of-session filter test: `1 test OK`
-- streaming replay isolation tests: `3 tests OK`
-- dashboard korean tab UI tests: `4 tests OK`
-- targeted streaming tests: `3 tests OK`
-- targeted dashboard tests: `5 tests OK`
-- paper-account reconciliation tests: `2 tests OK`
-- full test suite: `49 tests OK`
-- sparse-future-bar dashboard test: `1 test OK`
-- sparse-future-bar research label test: `1 test OK`
-- sqlite store focused tests: `2 tests OK`
-- sqlite store focused tests: `3 tests OK`
-- runtime writer focused tests: `1 test OK`
-- full test suite after repo-move recovery fixes: `67 tests OK`
-- full test suite after live-runtime watchdog hardening: `67 tests OK`
-- full test suite after KIS paper-account connector and test isolation update: `67 tests OK`
-- full test suite after restart reconciliation and watchdog CPU fixes: `75 tests OK`
-- dashboard refresh/prediction pending update:
-  - `python -m unittest tests.test_dashboard`: `12 tests OK`
-  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
-  - PowerShell `scripts/*.ps1` parse check: `ok`
-  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
-  - latest dashboard prediction summary: `total=4828`, `evaluated=4296`, `pending=0`, `no_result=532`, `prediction_details=4828`
-- 2026-04-29 daily runtime review and closeout:
-  - today's actual runtime rows: `raw_market_ticks=254560`, `raw_orderbook_ticks=102039`, `minute_bars=381`, `predictions=762`, `signals=381`, `orders=0`, `fills=0`
-  - cause of single-symbol continuous bars: watchdog stale recovery had restarted live runtime with verification symbol `005930`; patched to restart with configured watchlist for the next regular session
-  - latest dashboard prediction summary: `total=762`, `evaluated=707`, `pending=0`, `no_result=55`, `success_rate=0.121641`, `prediction_details=762`
-  - no orders were submitted because every signal hit `spread_gate=spread_too_wide`; local `.env` and tracked default strategy were moved from `MAX_SPREAD_BPS=15.0` to `25.0` for the next paper run
-  - post-close ML maintenance rerun at `2026-04-29 17:41-17:43 KST`: `status=ok`, `feature_rows=3888`, `labels=7189`, `LightGBM validation_accuracy=0.667104`
-  - latest backtest: `rows_evaluated=763`, `trades_taken=255`, `overall_accuracy=0.162516`, `cumulative_net_return_pct=11.815401`
-  - latest walk-forward: `folds=377`, `rows_evaluated=3770`, `overall_accuracy=0.434748`, `cumulative_net_return_pct=26.58323`
-  - latest challenger: `recommended_action=review_required`, `best_candidate=fresh_centroid`, `walk_forward_gate_status=needs_review`
-  - broker paper sync: `ok=true`, `status=no_submissions`
-  - paper reconciliation: `ok=true`, `status=aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=-7700`, current positions `2`
-  - dual-account check: `ok=true`, `status=matched_waiting_first_submission`; open positions mean current broker cash is not expected to equal root `.env` `PAPER_INITIAL_CASH`
-  - watchdog single pass after patch: `live_runtime_action=off_session_hold_post-close`, live runtime stayed `stopped`
-  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
-  - PowerShell `scripts/*.ps1` parse check: `ok`
-  - `python -m app --build-runtime-report`: `ok`
-  - `python -m app --build-dashboard`: `ok`, generated `runtime-data/reports/dashboard/latest-dashboard.{html,json}`
-- 2026-04-30 pre-open essential runtime activation:
-  - runtime watchdog policy now keeps live runtime stopped during most off-session periods but starts it during the 60-minute pre-open warmup.
-  - watchdog restarted at `2026-04-30 08:01 KST`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=true`, `live_runtime_action=pre_open_warmup_start`
-  - live runtime started with watchlist at `2026-04-30 08:01:59 KST`: `status=running`, `watchlist_file=config/watchlist.txt`, prediction horizons `15/60`
-  - 70-second follow-up check: watchdog/live runtime/dashboard all `running`, watchdog action returned to `none`
-  - 5-second CPU delta sample for dashboard, live runtime, watchdog, and git watcher: `0.000 CPU seconds` each
-  - pre-open KIS WebSocket verification at `2026-04-30 08:08 KST`: `session_status=pre-open`, `credentials_ready=true`, `approval_key_issued=true`, `market_data_expected=false`, `ok=false` is expected before regular-session frames
-  - PowerShell `scripts/*.ps1` parse check: `ok`
-  - `python -m unittest discover -s tests -p "test_*.py"`: `77 tests OK`
-- KIS paper account connection:
-  - `python -m app --kis-account-balance`: `ok=true`
-  - broker paper cash: `10,000,000`
-  - broker paper positions: `0`
-  - `KIS_PRODUCT_CODE_PAPER`: explicit `.env` value blank, effective paper default applied internally
-- broker paper sync and reconciliation after account connection:
-  - `python -m app --sync-broker-paper-orders`: `ok=true`, `status=no_submissions`
-  - `python -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`
-  - `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0`, `mirrored_order_count=0`
-- paper dual-account match:
-  - `.\scripts\verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker -AsJson`: `ok=true`
-  - root `.env` `PAPER_INITIAL_CASH`: `25,000,000 -> 10,000,000`
-  - broker cash/local cash: `10,000,000 / 10,000,000`
-  - `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
-- paper dual-account live mismatch root-cause check:
-  - cause: live runtime restart reused `paper-order-online-*` IDs, old fills stayed attached to overwritten orders, and broker sync applied pre-alignment submissions after a fresh marker
-  - fix: unique online ID namespace, pre-marker broker submission filter, and symbol-wise baseline/post-alignment position merge
-  - latest `.\scripts\verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched`, `mismatch_count=0`, `cash_gap=-121.596`, `total_asset_gap=378.404`, `mirrored_order_count=1`
-  - dashboard refresh measured: `/api/refresh` `200 OK`, about `47.69s`
-- restart reconciliation and CPU follow-up:
-  - cause: watchdog called dashboard `/api/refresh` every 60s even though one rebuild can take around a minute, keeping dashboard Python CPU active.
-  - cause: after alignment, runtime restore used a stale baseline snapshot without applying later fills, inflating local virtual cash/equity by the post-alignment buy cost after restart.
-  - fix: throttle watchdog full refresh to 5 minutes, prefer live-runtime freshness for stale detection, apply newer-fill cashflow during runtime/broker-sync restore, and preserve actual fill-minute snapshots in cleanup.
-  - latest `.\scripts\verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=-1600`, `mirrored_order_count=0`
-  - setup check: `.\scripts\check_local_setup.ps1 -AsJson` `ok=true`, blockers `none`
-- runtime status after paper account connection:
-  - dashboard URL: `http://127.0.0.1:8765`
-  - dashboard status: `running`
-  - live runtime status: `running`
-  - watchdog status: `running`
-  - setup check: `ok=true`, blockers `none`
-  - latest market bar / prediction / signal: `fresh`
-- targeted KIS WebSocket / streaming tests after timeout message hardening: `11 tests OK`
-- live runtime recovery status after patch:
-  - dashboard URL: `http://127.0.0.1:8765`
-  - dashboard status: `running`
-  - live runtime status: `running`
-  - watchdog status: `running`
-  - latest market bar / prediction / signal: `fresh`
-  - KIS WebSocket verification: `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session`
-- `python -m app --build-dashboard`: `ok`
-- PowerShell recovery scripts updated to default to repo-root resolution: `ok`
-- all `scripts/*.ps1` parse check after legacy review-script cleanup: `ok`
-- `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday ... -TimeLabel 2205`: `ok`
-- runtime recovery helper parse check after nested-script return fix: `ok`
-- `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass`: `ok`
-- `.\scripts\rebuild_actual_ml_state.ps1`: `ok`
-  - feature rows written: `0`
-  - label rows written: `0`
-  - deleted leftover non-actual runtime rows: `raw_market_ticks=9`, `raw_orderbook_ticks=3`, `minute_bars=1`, `predictions=1`
-- git-autopush watcher scan-root reset:
-  - default `ScanRoot`: `D:\GitHub`
-  - stale `J:\GitHub\*` repo state pruned on next watcher cycle: `ok`
-- git-autopush watcher launcher restart:
-  - `launch_mode=startup-launcher`
-  - `scan_root=D:\GitHub`
-  - `managed_repo_count=4`
-  - `healthy=true`
-- runtime recovery preflight:
-  - dashboard: `running`
-  - watchdog: `running`
-  - live runtime: `blocked by missing KIS credentials`
-  - root `.env`: `missing`
-- live runtime blocked-state recovery:
-  - `.\scripts\get_live_runtime_status.ps1`: `status=failed`, `blocked_reason=missing_kis_credentials`, `env_file_exists=false`
-  - `.\scripts\get_runtime_watchdog_status.ps1`: `live_runtime_action=blocked_missing_env`
-- live runtime blocked-state auto-clear recovery:
-  - temp `.env` with dummy KIS app key/secret: `credentials_ready_for_quotes=true`
-  - `.\scripts\get_live_runtime_status.ps1 -WorkspaceRoot <temp>`: `status=stopped`
-  - stale `blocked_reason` and stale credentials failure message: `cleared`
-- background helper pid verification recovery:
-  - dashboard / watchdog / hourly audit / deadline review status parse check: `ok`
-  - `.\scripts\get_dashboard_status.ps1`: `status=running`
-  - `.\scripts\get_runtime_watchdog_status.ps1`: `status=running`
-- local recovery setup check:
-  - `.\scripts\check_local_setup.ps1 -AsJson`: `ok=false`
-  - blockers: `missing_root_env`, `live_runtime_blocked_missing_kis_credentials`
-  - NAS recovery root reachable: `true`
-  - python executable resolved: `F:\Programs\Python\Python314\python.exe`
-  - websockets available: `true`
-  - lightgbm available: `true`
-- runtime startup launcher recovery:
-  - previous launcher state: `workspace_root_mismatch`, `runtime_data_dir_mismatch`, `autoboot_script_missing`
-  - `.\scripts\install_runtime_startup_launcher.ps1`: `ok`
-  - `.\scripts\get_runtime_startup_launcher_status.ps1`: `installed=true`, `ok=true`
-- live dashboard payload direct call: `predictions=4`, `signals=2`
-- live dashboard HTTP checks:
-  - `/health`: `200 OK`
-  - `/api/dashboard.json`: `200 OK`
-- latest dashboard review:
-  - `status_alerts` populated
-  - freshness badges rendered for KIS verification / market bar / prediction / signal / training / evaluation / dashboard generation
-  - latest overall ML artifacts still shown when today's training and evaluation counts are zero
-- runtime watchdog status:
-  - `status=running`
-  - `dashboard_api_responding=true`
-  - `live_runtime.status=failed`
-  - `live_runtime_action=blocked_missing_env`
-- latest autoboot verification:
-  - `dashboard.status=running`
-  - `live_runtime.status=running`
-  - `watchdog.status=running`
-  - `ok=true`
-- latest live reconciliation verification:
-  - `python -m app --reconcile-paper-accounts`: `ok=true`
-- latest autoboot verification after fail-fast hardening:
-  - `dashboard.dashboard_api_responding=true`
-  - `paper_reconciliation.ok=true`
-  - `ok=true`
-- actual-only cleanup after rebuild:
-  - raw market test rows: `0`
-  - raw orderbook test rows: `0`
-  - prediction test rows: `0`
-- latest actual-only feature rebuild:
-  - feature rows written: `6188`
-  - label rows written: `10882`
-- latest actual-only LightGBM training:
-  - model version: `lightgbm-h15-v1`
-  - train rows: `4696`
-  - validation rows: `1174`
-  - validation accuracy: `0.856048`
-  - feature count: `6`
-- latest actual-only backtest:
-  - rows evaluated: `1174`
-  - trades taken: `484`
-  - overall accuracy: `0.072402`
-  - cumulative net return pct: `-64.229295`
-- latest actual-only walk-forward:
-  - folds: `582`
-  - rows evaluated: `5820`
-  - overall accuracy: `0.440722`
-  - cumulative net return pct: `-67.492498`
-- latest actual-only challenger review:
-  - recommended action: `keep_active`
-  - best candidate: `latest_lightgbm`
-  - promoted model: `none`
-  - decision reason: `The top challenger does not have enough trades.`
-- 최신 synthetic dev cycle:
-  - training accuracy: `0.866667`
-  - backtest trades: `13`
-  - backtest cumulative net return pct: `25.870005`
-  - walk-forward folds: `3`
-  - walk-forward gap rows: `15`
-  - walk-forward max train rows: `40`
-  - walk-forward trades: `26`
-  - walk-forward cumulative net return pct: `30.874830`
-- 최신 challenger review:
-  - active model version: `baseline-h15-v1`
-  - best candidate: `active_model`
-  - best model version: `baseline-h15-v1`
-  - recommended action: `keep_active`
-  - walk-forward gate status: `needs_review`
-  - decision reason: `The top challenger matches the current active model.`
-  - candidates compared: `5`
-- 최신 LightGBM training:
-  - model version: `lightgbm-h15-v1`
-  - validation accuracy: `0.0`
-  - activation applied: `false`
-- 최신 KIS verification:
-  - `connection_ready=true`
-  - `market_data_flow_ok=true`
-  - `session_status=regular-session`
-  - `frames_received=20`
-  - `control_frames=2`
-- 최신 KIS broker account:
-  - `ok=true`
-  - `cash_balance=10000000`
-  - `total_evaluation_amount=10000000`
-  - `position_row_count=0`
-- 최신 paper-account reconciliation:
-  - `status=aligned_waiting_first_submission`
-  - `mismatch_count=0`
-  - `cash_gap=0.0`
-  - `total_asset_gap=0.0`
-- 최신 KIS REST preflight:
-  - current price 조회: `ok`
-  - orderbook 조회: `ok`
-  - single-symbol KIS dev cycle: `success_events=1`, `failure_events=0`
+- `2026-04-30` 문서 한글화 정리:
+- git 추적 중인 Markdown 문서의 사람이 읽는 제목과 설명을 한글 기준으로 정리했다.
+- 명령어, 파일 경로, 환경변수, API 이름, 모델명, 상태 키는 실행 정확성을 위해 원문 식별자를 유지했다.
+- `docs/logbook.md` 는 오래된 누적 로그 대신 현재 상태와 최신 결과 중심으로 압축했다.
+- git 추적 Markdown 본문 스캔: 영어-only 설명 문장 `0건`
+- 공백 오류 검사 `git diff --check`: `ok`
+- 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
+- 테스트가 만든 `.tmp-tests` 임시 산출물은 워크스페이스 내부 경로 확인 뒤 삭제했다.
+- `2026-04-30` 장마감 실행 검토:
+- 실제 실행 행: `raw_market_ticks=619669`, `raw_orderbook_ticks=612546`, `minute_bars=3725`, `feature_rows=3725`, `labels=6700`, `predictions=7450`, `signals=3725`, `orders=1036`, `fills=5`, `broker_order_submissions=10`
+- 예측 요약: `total=7450`, `evaluated=6700`, `pending=0`, `no_result=750`, `success_rate=0.110149`
+- 장후 머신러닝 관리: `status=ok`, `features_written=7613`, `labels_written=13889`, LightGBM `train_rows=5912`, `validation_rows=1478`, `validation_accuracy=0.751691`
+- 최신 백테스트: `rows_evaluated=1478`, `trades_taken=777`, `overall_accuracy=0.104871`, `cumulative_net_return_pct=-150.552985`
+- 최신 워크포워드: `folds=734`, `rows_evaluated=7340`, `overall_accuracy=0.440054`, `cumulative_net_return_pct=-96.657339`
+- 최신 도전자 모델 비교: `recommended_action=review_required`, `best_candidate=latest_lightgbm`, `walk_forward_gate_status=needs_review`, 활성 모델은 `baseline-h15-v1` 유지
+- 브로커 기준 정렬 뒤 모의계좌 정합성: `ok=true`, `status=aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0`
+- 대시보드 계좌 동기화: `account_sync.status=일치`, `cash_gap=0`, `raw_cash_gap=88045`
+- 전체 테스트: `python -m unittest discover -s tests -p "test_*.py"` 기준 `79 tests OK`
+- 실행 리포트 생성: `python -m app --build-runtime-report` 기준 `ok`
+- 대시보드 생성: `python -m app --build-dashboard` 기준 `ok`
 
-## Recent Log
-
-- `2026-04-28`
-  - 로컬 가상투자와 KIS 모의투자가 같은 예수금에서 출발하도록 root `.env` 의 `PAPER_INITIAL_CASH` 를 KIS 모의계좌 현금 `10,000,000` 으로 동기화했다.
-  - `scripts/verify_paper_dual_account_match.ps1` 를 추가했다. `-SyncInitialCash -AlignToBroker` 는 장 시작 전 기준 맞춤용이고, `-AsJson` 단독 실행은 운용 중 비파괴 점검용이다.
-  - 최신 dual-account match 결과는 `matched_waiting_first_submission`, broker cash/local cash `10,000,000 / 10,000,000`, `mismatch_count=0`, `cash_gap=0`, `total_asset_gap=0` 이다.
-  - `check_local_setup.ps1` 는 watchdog 프로세스가 살아 있고 일시 `warning` 만 남은 경우를 `watchdog_not_running` blocker 로 오판하지 않도록 보정했다.
-  - standalone KIS WebSocket 검증이 별도 연결 제한으로 실패하더라도 live runtime 이 fresh market bar 를 계속 만들고 있으면 대시보드 상단에서 즉시 장애로 오판하지 않도록 보강했다.
-  - 중복 dashboard/live-runtime 프로세스가 남으면 예전 설정을 읽은 프로세스가 로컬 단독 체결을 만들 수 있으므로, ForceRestart/stop 경로가 같은 `python -m app --serve-dashboard` 와 `--kis-ws-listen` 프로세스를 모두 정리하도록 보강했다.
-  - KIS 모의계좌의 `cash_balance` 는 체결 직후 예수금 총액처럼 남을 수 있어, reconciliation 과 alignment 는 `total_asset_amount - stock_evaluation_amount` 를 broker effective cash 로 함께 사용하도록 보강했다.
-  - 로컬/브로커 모의투자 불일치 원인은 예수금 시작값이 아니라 live runtime 재시작 후 `paper-order-online-*` ID 재사용으로 확인했다. SQLite `paper_orders` 는 새 주문이 기존 row 를 덮어썼지만 기존 `paper_fills` 와 broker submission 은 같은 ID 를 계속 참조해 로컬 장부가 왜곡됐다.
-  - alignment 직후에도 old broker submission 이 다시 처리되고, marker 이후 position row 가 하나라도 있으면 baseline positions 전체가 reconciliation 에서 빠지는 문제를 함께 확인했다.
-  - online runtime ID namespace 를 실행별로 고유화했고, broker sync 는 alignment marker 이전 제출 주문을 무시하며, baseline position 은 post-alignment update 와 종목별 병합하도록 보강했다.
-  - 보강 후 live runtime 상태에서 `.\scripts\verify_paper_dual_account_match.ps1 -AsJson` 결과 `ok=true`, `status=matched`, `mismatch_count=0`, `cash_gap=-121.596`, `total_asset_gap=378.404` 로 확인했다.
-  - dashboard `/api/refresh` 는 현재 데이터셋에서 약 47~103초 걸릴 수 있어 watchdog refresh timeout 을 120초로 늘렸다.
-  - 모의투자 계좌 연결 실패 원인은 APP key/secret 이 아니라 `KIS_ACCOUNT_NO_PAPER` 값 누락/오입력으로 확인했다. 7자리 입력 상태에서는 KIS REST 가 `INPUT INVALID_CHECK_ACNO` 를 반환했다.
-  - 모의투자 계좌 화면에는 별도 `PRODUCT_CODE` 가 없으므로 `KIS_PRODUCT_CODE_PAPER` 는 `.env` 에 빈 값으로 두고, 설정 loader 가 KIS 호출 시 paper 기본값을 내부 적용하는 기준으로 정리했다.
-  - `scripts/connect_kis_paper_account_interactive.ps1` 를 추가해 paper app key/secret 은 유지하고 8자리 또는 8자리-2자리 모의계좌번호만 입력하게 했다. 계좌번호 형식이 맞으면 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_PAPER_EXECUTION=true`, `ENABLE_BROKER_PAPER_MIRRORING=true` 를 함께 저장한다.
-  - 계좌 재입력 후 `python -m app --kis-account-balance` 는 `ok=true` 로 통과했고, 브로커 모의계좌는 현금 `10,000,000`, 보유종목 `0` 상태로 조회됐다.
-  - 브로커 기준 marker alignment 와 reconciliation 결과는 `aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0` 이다. 아직 브로커 제출 주문은 없어 `mirrored_order_count=0` 이 정상이다.
-  - dashboard / live runtime / watchdog 을 재시작했고 dashboard `http://127.0.0.1:8765`, live runtime, watchdog 모두 `running` 으로 확인했다. setup check 도 blocker 없이 `ok=true` 다.
-  - 실제 운영 `.env` 에 `ENABLE_BROKER_PAPER_MIRRORING=true` 가 켜져도 replay 테스트가 독립적으로 동작하도록 `tests/test_streaming_pipeline.py` 의 로컬-only 테스트에 미러링 해제 env 를 명시했다.
-  - 전체 테스트 `67 tests OK` 를 다시 통과했고, 테스트 중 생성된 demo/replay runtime row 는 `python -m app --cleanup-runtime-test-data` 로 정리한 뒤 broker sync / reconciliation / dashboard refresh 를 다시 수행했다.
-  - NAS recovery export root `\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports` 접근 가능을 다시 확인했다.
-  - 최신 recovery package `real-time-stock-price-prediction-program-recovery-20260428-020032` 구조를 점검했고, `repo-snapshot` 루트에는 `.env` 가 포함되지 않는다는 것을 확인했다.
-  - `restore_kis_env_interactive.ps1` 초안은 blank line 이 있는 `.env.example` 에서 `Lines` parameter binding 오류가 있었고, 이후 전체 프롬프트를 ASCII 로 정리하면서 기본 입력 범위를 `paper` KIS app key/secret 전용으로 단순화했다.
-  - `restore_kis_env_interactive.ps1` 의 env line helper 는 빈 줄이 PowerShell function parameter binding 으로 들어가지 않도록 script-scope buffer 를 직접 읽고 쓰게 바꿨고, 계좌값을 나중에 넣는 흐름을 위해 빈 env value 저장도 허용했다.
-  - 내일 장 시작 전 점검에서 `start_monday_runtime.ps1` 설명과 달리 runtime watchdog 시작이 빠져 있던 것을 확인했고, 사전 시작 루틴에서도 dashboard / live runtime / watchdog 을 함께 올리고 요약에 포함하도록 맞췄다.
-  - git-autopush watcher 는 `ScanRoot=D:\GitHub` 상태였지만 현재 프로세스 PATH 의 오래된 `J:\Program Files\Git\Git\cmd\git.exe` 를 먼저 잡아 git 호출이 실패하고 있었다. watcher git 탐색은 이제 PATH 후보가 실제 파일로 존재할 때만 사용하고, 없으면 GitHub Desktop 내장 git 으로 넘어간다.
-  - runtime SQLite 에 남아 있던 `source=sample` 과 `*-demo-*` 행을 `python -m app --cleanup-runtime-test-data` 로 제거했고, 장전 시작 루틴과 PC 로그인 autoboot 가 같은 cleanup 을 먼저 수행하도록 보강했다.
-  - 현재 실제 데이터 기준 ML 상태는 feature/label row `0`, LightGBM training `not enough labeled feature rows`, active model `baseline-h15-v1` 이며 장중 KIS 수집이 시작되면 새 실제 row 를 기준으로 다시 학습할 준비 상태다.
-  - `RECOVERY.md` 와 NAS package 의 `RESTORE-FIRST.txt` 가 요구하던 `scripts/check_local_setup.ps1` 가 실제로 비어 있었기 때문에, 복구 preflight 스크립트를 새로 추가했다.
-  - 새 `check_local_setup.ps1` 는 root `.env`, Python executable, `websockets`/`lightgbm`, dashboard, live runtime, watchdog, NAS recovery root 접근 여부를 한 번에 점검하고 `runtime-data/reports/recovery/latest-local-setup-check.{json,md}` 를 남긴다.
-  - `2026-04-28 02:32 KST` 실제 실행 결과 dashboard=`running`, watchdog=`running`, NAS recovery root=`reachable`, Python=`F:\Programs\Python\Python314\python.exe`, blocker=`missing_root_env`, `live_runtime_blocked_missing_kis_credentials` 로 확인됐다.
-  - live runtime status script 는 이제 root `.env` 가 나중에 복구되면 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고, 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
-  - Windows Startup launcher 가 여전히 예전 `J:\GitHub\...` 경로를 가리키고 있다는 것을 확인했고, `get_runtime_startup_launcher_status.ps1` 가 현재 repo root / runtime-data / autoboot script 일치 여부까지 검증하도록 보강했다.
-  - `install_runtime_startup_launcher.ps1` 를 다시 실행해 startup launcher 를 현재 `D:\GitHub\Real-time-stock-price-prediction-program` 경로로 재설치했다.
-  - `check_local_setup.ps1` 는 이제 runtime startup launcher stale path 도 blocker 로 잡는다.
-  - `Desktop/Documents/Downloads`, sibling `secrets`, NAS recovery package, HKCU environment, PowerShell history 범위를 다시 확인했지만 재사용 가능한 KIS root `.env` 또는 자격정보 복구본은 찾지 못했다.
-  - root `.env` 를 평문 채팅으로 받지 않고 현재 로컬에서 직접 입력할 수 있도록 `scripts/restore_kis_env_interactive.ps1` 를 추가했다.
-- `2026-04-27`
-  - 기존 작업 드라이브 고장 이후 저장소를 `D:\GitHub\Real-time-stock-price-prediction-program` 으로 옮긴 상태를 기준으로 전체 복구 점검을 시작했다.
-  - root `runtime-data/` 가 비어 있거나 SQLite 스키마가 아직 없는 상태에서도 `python -m app --build-dashboard` 가 `no such table` 로 죽지 않고 0건 기준 snapshot 을 만들도록 SQLite read path 를 보강했다.
-  - `tests/test_dashboard.py` 에서 끊겨 있던 대시보드 회귀 테스트 3건을 정리했고, 새 위치 기준 전체 `67 tests OK` 를 다시 확인했다.
-  - dashboard / live-runtime / watchdog / review helper 스크립트의 기본 `WorkspaceRoot` 를 현재 shell 위치 대신 script path 기준 repo root 로 바꿔, 저장소 이동 뒤 다른 폴더에서 실행해도 기본 경로가 어긋나지 않게 했다.
-  - git-autopush helper 의 기본 `ScanRoot` 를 `D:\GitHub` 로 고정했고, watcher state 도 현재 scan root 밖의 오래된 저장소 항목을 다음 cycle 에서 정리하도록 보강했다.
-  - `.\scripts\start_git_autopush_watcher.ps1 -ScanRoot D:\GitHub` 재기동 뒤 startup launcher 기준 `launch_mode=startup-launcher`, `managed_repo_count=4`, `healthy=true` 를 다시 확인했다.
-  - `run_hourly_repo_audit_iteration.ps1` 는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 내장 `git.exe` 를 찾아 현재 저장소 상태를 읽는다.
-  - 검증으로 `python -m unittest discover -s tests -p "test_*.py"`, `python -m app --build-runtime-report`, `python -m app --build-dashboard` 를 실제로 다시 실행해 통과를 확인했다.
-  - 더 이상 참조되지 않는 `scripts/run_codex_review_iteration.ps1`, `run_codex_review_iteration_v2.ps1`, `run_codex_review_iteration_v3.ps1` 를 제거해 전체 `scripts/*.ps1` 문법 검사에서 남아 있던 parse 오류를 없앴다.
-  - 활성 runner 인 `scripts/run_codex_review_iteration_v4.ps1` 는 긴 prompt 를 인자로 직접 넘기던 방식을 버리고, hourly audit 과 같은 비대화형 Codex CLI 호출 방식으로 바꿨다.
-  - 이 변경 뒤 `.\scripts\run_codex_review_iteration_v4.ps1 -ReviewKind intraday -ReviewDate 2026-04-27 -TimeLabel 2205` 실행이 실제로 종료됐고, 산출물 `runtime-data/reports/codex/intraday/2026-04-27/iteration-2205.md` 생성과 완료 로그를 확인했다.
-  - recovery preflight 에서 root `.env` 가 없어서 KIS 계열 명령이 `KIS credentials are not configured` 로 막히는 것을 다시 확인했다.
-  - `.\scripts\rebuild_actual_ml_state.ps1` 를 실행해 남아 있던 demo/replay/test 흔적을 정리했고, 현재 실제 데이터 기준 feature/label row 는 모두 `0` 이라 ML 산출물 재생성은 아직 진행되지 않았다.
-  - `scripts/run_runtime_watchdog_loop.ps1` 는 dashboard snapshot 에 `latest_kis_verification` 이 없는 zero-state 에서 null access 로 죽지 않도록 보강했다.
-  - dashboard/live-runtime/watchdog helper 스크립트의 조기 종료 경로를 `exit` 대신 `return` 으로 바꿔, watchdog / autoboot / post-close maintenance 가 다른 helper 를 호출해도 부모 PowerShell 세션이 같이 종료되지 않게 정리했다.
-  - dashboard / watchdog / hourly audit / deadline review background helper 는 이제 상태 파일 pid 가 살아 있어도 실제 명령줄이 맞는 프로세스인지까지 확인해, pid 재사용으로 `running` 오판하거나 잘못된 `Stop-Process` 를 날리지 않게 보강했다.
-  - reference 문서 `docs/Git-AutoPush-Manager.md` 의 watcher 예시 경로도 현재 저장소 이동 상태에 맞게 `D:\GitHub` 기준으로 정리했다.
-  - 이 수정 뒤 `.\scripts\run_runtime_watchdog_loop.ps1 -SinglePass` 와 `.\scripts\start_runtime_watchdog_background.ps1 -ForceRestart` 를 다시 검증했고, dashboard 와 watchdog 은 `running` 으로 유지되는 것을 확인했다.
-  - live runtime 상태 스크립트는 이제 stale pid 재사용을 실제 listener 프로세스로 오인하지 않도록 `python -m app --kis-ws-listen` 명령줄까지 확인하고, 상태 파일에 `blocked_reason` 과 마지막 실패 이유를 남긴다.
-  - runtime watchdog 은 이제 root `.env` 가 없거나 KIS 자격정보가 비어 있는 경우 `live_runtime_action=blocked_missing_env` 로 남기고, 같은 실패 재기동을 매 cycle 반복하지 않는다.
-
-- `2026-04-17`
-  - 브로커 모의계좌 기준으로 로컬 가상 계좌 현재 상태를 맞추는 marker 기반 `paper baseline alignment` 경로를 추가했다.
-  - 이 정렬은 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 다시 맞춘다.
-  - `python -m app --align-local-paper-to-broker`, `--sync-broker-paper-orders`, `--reconcile-paper-accounts` 재실행 결과 현재 상태는 `aligned_waiting_first_submission`, `mismatch_count=0`, `cash_gap=0.0`, `total_asset_gap=0.0` 이다.
-  - `start_runtime_autoboot.ps1` 를 다시 돌려 dashboard, live runtime, watchdog, broker account refresh, reconciliation 이 모두 `ok=true` 로 끝나는 것을 확인했다.
-  - 이후 대시보드 `로컬 모의운용 계좌` 요약은 alignment marker 이전 누적 주문/체결을 현재 상태처럼 세지 않고, marker 이후 활동만 현재 상태로 집계하도록 보강했다.
-  - 대시보드 `로컬 모의운용 계좌` 카드가 pre-alignment stale 포지션을 현재 상태처럼 보여주던 문제를 고쳤고, 최신 dashboard JSON 기준 `open_positions=0`, `cash_balance=10000000.0`, `reconciliation_status=aligned_waiting_first_submission` 으로 확인했다.
-  - `paper_reconciliation` 상태 문구도 `브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다.` 처럼 실제 해석이 드러나도록 정리했다.
-  - 대시보드 상태 리뷰를 다시 수행했고, `KIS 검증 / 분봉 / 예측 / 신호 / 학습 / 평가 / 대시보드 생성` 신선도 표시를 추가했다.
-  - 대시보드 상단에 즉시 조치가 필요한 항목을 보여주는 상태 경고 카드를 추가했다.
-  - 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과가 머신러닝 탭에 계속 보이도록 정리했다.
-  - dashboard 상태 조회 스크립트가 실제 응답 기준으로 상태 파일을 다시 써서 `starting` 값이 오래 남는 문제를 줄였다.
-  - live runtime 상태 스크립트와 runtime watchdog 이 PowerShell `ConvertFrom-Json` 대신 serializer 기반 JSON reader 로 cached dashboard snapshot 을 읽도록 바꿨다.
-  - 이 수정으로 `latest-dashboard.json` 의 한글/긴 JSON 때문에 생기던 파싱 실패가 사라졌고, 분봉·예측·KIS 검증 신선도 값이 다시 정상 표시되기 시작했다.
-  - 대시보드 상단 경고는 이제 장마감 후 `KIS 검증은 장외 기준으로 기록되었습니다` 같은 안내형 메시지로 낮춰 보이고, `오늘 학습 부재`는 실제 최신 학습/평가가 없거나 stale 할 때만 띄우도록 정리했다.
-  - KIS WebSocket 연결 옵션은 ping timeout 영향이 덜하도록 보정했고, 장중 disconnect 원인 추적을 위해 오류는 그대로 verification report 에 남긴다.
-- `2026-04-18`
-  - 예측현황의 실제 결과 계산이 정확한 `+15분/+60분` 분봉만 찾던 문제를 고쳤다.
-  - 이제 같은 거래일 안에서 목표 시각 이후 가장 가까운 실제 분봉을 사용해 실제 결과와 성공 여부를 채운다.
-  - feature / label 생성도 같은 방식으로 바꿔서 sparse intraday data 에서도 15분·60분 라벨이 비어 있지 않게 정리했다.
-  - 연구용 SQLite / writer 경로를 lock-aware batch 모드로 분리해 `--rebuild-actual-ml` 이 더 이상 과도하게 느리거나 SQLite 잠금으로 자주 실패하지 않게 했다.
-  - `--rebuild-actual-ml` 는 이제 `runtime-data/reports/actual-ml/latest-rebuild.json` 을 함께 남기고, post-close maintenance 상태에도 최신 rebuild 결과가 반영된다.
-  - 대시보드 기본 `오늘` 조회는 장후/자정 이후에도 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여주도록 바꿨다.
-  - 최신 actual-only rebuild 결과는 `features=6188`, `labels=10882`, `LightGBM validation_accuracy=0.856048`, `walk_forward overall_accuracy=0.440722` 이다.
-  - dashboard start script 가 조용히 실패하던 경우를 줄이기 위해 Windows 앱 별칭 `python.exe` 를 피하고 실제 Python 실행 파일을 우선 찾도록 보강했다.
-  - 오전 10시 같은 특정 시각까지 저장소 전체점검을 계속 돌릴 수 있도록 bounded repo review runner와 상태/중지 스크립트를 추가했다.
-  - bounded repo review runner 는 workspace 경로 공백 때문에 하위 iteration 호출이 끊기던 문제를 수정했고, timeout 이후에도 다음 재시작이 막히지 않도록 기존 pid 정리 경로를 보강했다.
-- `2026-04-11`
-  - v0.2.0 release commit and push completed.
-  - watcher가 이 저장소의 `VERSION=0.2.0` 변화를 감지하고 push 상태를 갱신했다.
-  - walk-forward backtest와 KIS WebSocket reconnect 준비를 추가했다.
-  - SQLite `paper_positions.opened_at` 호환성 보강을 넣었다.
-  - canonical 운영 문서 세트를 `AGENTS / README / logbook / Versioning` 기준으로 재정리했다.
-  - 깨진 legacy `docs/*.md`를 UTF-8 기준의 reference 문서로 전면 정리했다.
-  - root `.env` 자동 로딩을 추가했다.
-  - challenger review CLI와 report 경로를 추가했다.
-  - KIS WebSocket verification CLI와 report 경로를 추가했다.
-  - 실제 장중 검증은 현재 환경에 `.env`와 `websockets`가 없어 아직 미완료 상태다.
-- `2026-04-12`
-  - challenger 승격 추천 규칙과 leaderboard 기록을 추가했다.
-  - challenger 리포트는 이제 `recommended_model_version`, `promotion_requested`, `promotion_applied`, `promoted_model_version`, `active_model_version_after_run` 를 분리 기록한다.
-  - root `.env`와 `websockets` 준비가 완료되어 KIS WebSocket 연결 준비 검증은 통과했다.
-  - `2026-04-12 00:54 KST` 검증은 일요일 야간이라 control frame만 들어왔고 시장 데이터 수신 검증은 아직 남아 있다.
-  - paper 계좌번호만 8자리일 때 상품코드 `01`을 기본값으로 쓰도록 설정 로더를 보강했다.
-  - KIS verification report는 이제 `connection_ready` 와 `market_data_flow_ok` 를 분리해서 기록한다.
-  - 매시간 저장소 전체 점검을 위한 Hourly Repo Audit 자동화 스크립트, 상태 스키마, 상태 파일 경로를 추가했다.
-  - 자동화 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이도록 분리했다.
-  - `2026-04-12 09:32 KST` 수동 재실행이 성공했고 `latest-progress.json` 과 backlog가 stable id 기반으로 이어받기 되는 것을 확인했다.
-  - `AUD-001`은 현재 회차 기준 resolved로 내려갔고, 주요 open item은 `AUD-004`, `AUD-002`, `AUD-003`, `AUD-005` 순서로 정리되었다.
-  - background 시작용 `scripts/start_hourly_repo_audit_background.ps1` 를 추가했고 runner 상태는 `runtime-data/reports/codex/automation/state/runner-state.json` 으로 확인한다.
-  - `2026-04-12 09:40 KST` background runner를 실제로 시작했고 첫 즉시 실행이 진행 중이다.
-  - 이후 확인 결과 자체 background runner는 `09:40` 회차까지만 완료했고 `10:00` 회차까지 유지되지 않았다. 앞으로는 Codex 자동화를 우선 스케줄러로 쓰고, 상태 스크립트는 죽은 pid 를 `stale` 로 해석한다.
-  - walk-forward는 `gap_rows=15` 와 `max_train_rows` 를 지원하도록 확장했다.
-  - `max_train_rows=30/40/50` 실험을 실제로 돌렸고, `30`은 성능이 크게 악화됐고 `40`은 현재 최고값과 같아 최신 기준선으로 유지했다.
-  - 최신 challenger는 validation 성능이 좋아도 walk-forward gate가 약하면 `review_required` 로 남기도록 바뀌었다.
-  - Hourly Repo Audit 재실행으로 `AUD-006` 은 resolved 로 내려갔고, 새 문서 동기화 항목 `AUD-007` 이 확인되었다.
-  - ML 운영 방향을 `최근 60거래일 + 오늘 데이터`, `장중 추론`, `장후 재학습`, `메인 모델 LightGBM`, `보조 모델 baseline/centroid/linear-score` 로 확정했다.
-  - `최근 60거래일 + 오늘 데이터` 는 운영용 학습창 기준이며, 더 오래된 데이터는 drift 점검, 구간 비교, 회귀 검증, challenger 평가용으로 계속 보관하는 방향으로 정리했다.
-  - LightGBM 학습 파이프라인을 실제 코드로 추가했다.
-  - LightGBM artifact는 이제 자동으로 active model이 되지 않고 shadow challenger로 남는다.
-  - active runtime model을 명시적으로 `baseline-h15-v1` 로 되돌렸다.
-  - challenger report는 이제 `latest_lightgbm` 후보를 함께 기록한다.
-  - 현재 기준으로는 월요일 runtime/paper 운용은 `baseline active + LightGBM shadow` 조합이 가장 안전하다.
-  - 월요일 전 preflight로 `run_ml_shadow_cycle`, KIS WebSocket verification, KIS 현재가/호가 조회를 다시 실행했다.
-  - KIS REST 연속 호출에서 보이던 `EGW00201` rate-limit 오류를 collector retry/backoff로 완화했고, 이후 single-symbol `run-kis-dev-cycle`이 `success=1 failure=0`으로 통과했다.
-  - 월요일 운영 중 화면으로 볼 수 있도록 `latest-dashboard.html/json` 생성과 `run_dashboard.ps1` 기반 로컬 HTTP 대시보드를 추가했다.
-  - dashboard는 active model, KIS readiness, 포트폴리오, 최근 예측/신호/주문/체결/분봉, audit backlog를 한 화면에서 보여준다.
-  - dashboard는 이제 기본적으로 `sample`, `synthetic`, `demo` 데이터를 제외한 실제 KIS 기반 운용 데이터만 보여준다.
-  - dashboard actual-runtime 범위에서 정규장 밖 KIS REST snapshot 분과 raw 집계도 제외하도록 보강했다.
-  - dashboard 탭 선택 상태를 localStorage에 저장해 새로고침 뒤에도 같은 탭에 머물도록 보강했다.
-  - dashboard 거래 현황에 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`의 역할 차이를 설명 문구로 분리했다.
-  - sample WebSocket replay는 이제 `kis-ws-replay` 출처와 `pred-replay-*`, `paper-order-replay-*` 같은 replay 전용 ID를 사용한다.
-  - dashboard actual-runtime 필터는 실제 출처만 존재하는 minute만 허용하고, 실제/테스트 출처가 섞인 minute는 제외하도록 강화했다.
-  - `scripts/cleanup_runtime_test_data.ps1` 와 `python -m app --cleanup-runtime-test-data` 를 추가해 기존 SQLite의 test serving/paper 흔적을 정리할 수 있게 했다.
-  - 현재 root runtime 데이터 정리 결과 demo prediction/signal/order/fill/portfolio snapshot/reconciliation/replay 항목은 제거됐고, 실제 시간대와 맞는 항목만 남겼다.
-  - replay/online legacy serving rows를 다시 정리했고, 최신 dashboard JSON/API 기준 최근 prediction/signal/order/fill은 `0` 건으로 확인됐다.
-  - dashboard 전용 테스트 2건을 추가했고 전체 테스트는 `40 tests OK`로 다시 확인했다.
-  - `run_dashboard.ps1`의 PowerShell 예약 변수 `$Host` 충돌을 수정해 기본 실행이 바로 되도록 보정했다.
-  - dashboard background start/status/stop 스크립트를 추가해 장중에 서버를 따로 띄우고 상태를 확인하거나 중지할 수 있게 했다.
-  - `start_monday_runtime.ps1`를 추가해 대시보드 시작, shadow ML 갱신, KIS 사전 점검, runtime/dashboard 리포트 갱신을 한 번에 묶었다.
-  - `start_dashboard_background.ps1`의 공백 포함 경로 전달 방식을 `-File` 에서 `-Command` 호출로 바꿔, `J:\GitHub\Real-time stock price prediction program` 같은 경로에서도 dashboard server가 정상 시작되도록 수정했다.
-  - 이후 남아 있던 오래된 dashboard port owner 문제를 정리했고, `start_dashboard_background.ps1`, `get_dashboard_status.ps1`, `stop_dashboard.ps1`가 이제 상태 파일 pid뿐 아니라 실제 `8765` 포트 점유 프로세스와 `/health` 응답을 함께 확인한다.
-  - dashboard 기본 언어를 한글로 바꿨고, 본문을 `거래 현황`, `학습 현황`, `그 외` 3개 탭으로 나눠 클릭 시 화면 전환되도록 정리했다.
-  - dashboard 학습 탭에 `학습 데이터 해석` 카드를 추가해, 실제 운용 라벨이 없을 때는 현재 값이 저장된 오프라인 연구 결과라는 점을 명확히 표시하도록 보강했다.
-  - dashboard 학습 탭을 `실운용 학습 상태`와 `오프라인 연구 결과`로 다시 나눠, 활성 모델 상태와 연구용 챌린저 결과가 같은 종류의 값처럼 보이지 않도록 정리했다.
-  - background dashboard 실행이 Windows `python.exe` 앱 별칭에 막히지 않도록 `run_dashboard.ps1` 가 실제 Python executable 경로를 먼저 찾게 수정했다.
-- `2026-04-13`
-  - `KIS 브로커 모의계좌 잔고 조회`를 추가했고 결과를 `runtime-data/reports/kis-account/latest-account.json` 과 `.md`로 남기도록 정리했다.
-  - paper 계좌의 `KIS_PRODUCT_CODE_PAPER` 가 `.env.example` placeholder 문자열이어도 자동으로 빈값으로 간주하고 `01`을 적용하도록 설정 로더를 보강했다.
-  - KIS REST 클라이언트는 이제 `EGW00121`, `EGW00123` 토큰 오류를 만나면 access token을 자동 재발급한 뒤 한 번 더 재시도한다.
-  - 실제 장중 재검증 결과 `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session` 으로 확인됐다.
-  - 실제 브로커 모의계좌 조회 결과 현재 예수금 `10,000,000원`, 보유 종목 `0건`이 확인됐다.
-  - 대시보드 거래 탭은 이제 `로컬 모의운용 계좌`와 `브로커 모의계좌 잔고`를 분리해서 보여준다.
-  - `start_monday_runtime.ps1` 는 이제 KIS 브로커 모의계좌 잔고를 함께 갱신하고 요약에 포함한다.
-  - `start_dashboard_background.ps1` 는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 background 로 띄운다.
-  - 가능하면 `pythonw.exe` 를 우선 사용해 콘솔 종료 영향 없이 background 대시보드가 더 안정적으로 유지되도록 보강했다.
-  - dashboard background 시작 후 `/health` 응답을 기다린 뒤 상태 파일을 `running` 으로 기록하도록 보강했다.
-  - 장중 기준으로 `start_dashboard_background -> 25초 유지 -> get_dashboard_status -> /health -> /` 재검증이 성공했고, 포트 `8765`의 실제 소유 PID와 상태 파일 PID가 일치하는 것을 확인했다.
-  - 실시간 수집기 background 제어 스크립트 `start_live_runtime_background / get_live_runtime_status / stop_live_runtime` 를 추가했다.
-  - 실시간 수집기는 현재 watchlist 10종목을 상시 수집 중이며, 장중 기준으로 15분·60분 예측을 함께 기록하고 신호는 15분 기준으로만 생성한다.
-  - `2026-04-13 13:48 KST` 이후 live runtime 을 실제로 시작했고, `running` 상태와 KIS WebSocket 연결을 다시 확인했다.
-  - `2026-04-13 13:52 KST` 기준 collect_dashboard_payload 직접 확인 결과 `raw_market_ticks=804`, `raw_orderbook_ticks=857`, `minute_bars=15`, `predictions=29`, `signals=16`, `orders=5`, `fills=5`, `positions=5` 로 증가한 것을 확인했다.
-  - 대시보드 거래 탭은 이제 종목 이름, 예측 결과, 차단된 매도 신호 설명, 로컬 모의운용 상태, 현재 프로그램 상태를 함께 표시한다.
-  - `최근 신호`의 `매도`는 실제 매도 주문이 아니라 하락 확률 우세에 따른 raw 신호이며, 현재 매수 전용 전략 때문에 차단된다는 설명을 화면에 추가했다.
-  - `최근 체결과 분봉`에는 실제 장중 KIS 데이터 기반 분봉이라는 설명을 추가했고, 주문/체결이 없어도 시장 데이터만으로 분봉이 생길 수 있음을 명시했다.
-  - 대시보드 기본 자동 새로고침 주기를 `5분`으로 조정했고, 상단에 수동 `상태 업데이트` 버튼을 추가했다.
-  - 최근 예측 표는 이제 `예측 결과/최고 확률` 대신 `기준가`, `예상 변동`, `실제 결과`를 표시한다.
-  - 대시보드를 상단 상태 영역 + `모의투자(가상) / 모의계좌(실제) / 실 운용계좌 / 머신러닝 현황 / 상태 및 설정 / 예측현황 / 신호 & 주문현황 / 체결과 분봉 / 오늘의 리포트 / 기타` 10탭 구조로 재설계했다.
-  - 대시보드 상단에 `조회 범위`와 `기준 날짜` 필터를 추가해 특정일, 최근 3일/7일/30일, 전체 누적 데이터를 선택해서 볼 수 있게 했다.
-  - 로컬 모의운용 계좌는 현재 보유 수량이 `0`인 종료 포지션을 제외하고 실제 보유 종목만 보이도록 정리했다.
-  - 대시보드 전용 테스트를 새 10탭 구조와 기간 필터 기준으로 갱신했고 `tests.test_dashboard` 전체가 다시 통과했다.
-  - 예측현황 탭은 이제 선택 기간 전체 기준으로 `예측 건수 / 확정 건수 / 성공률 / 수평선별 집계`를 계산하고, 최근 표에는 기준가·예상 변동·실제 결과·성공 여부를 함께 보여준다.
-  - 신호 & 주문현황 탭은 신호, 주문, 체결을 묶어서 보여주고, `매도 신호`는 현재 매수 전용 전략에서 차단된 원시 신호일 수 있음을 설명한다.
-  - 오늘의 리포트 탭은 선택 기간 기준 예측 성공률, 체결 수, 실현 손익, 고찰, 다음 접근 방향을 자동 요약한다.
-  - background dashboard 시작 스크립트는 공백 경로가 있는 저장소에서도 안정적으로 서버를 띄우고 `/health` 확인 뒤 `running` 상태를 기록하도록 다시 보강했다.
-  - 전체 테스트 `49 tests OK`를 다시 확인했다.
-- `2026-04-17`
-  - 로컬 가상 주문을 브로커 모의계좌에도 함께 제출할 수 있는 미러링 경로를 추가했다.
-  - 미러링 제출 이력은 `broker_paper_order_submissions` 테이블과 JSONL에 남기고, 대시보드 `모의계좌(실제)` 탭에서 최근 제출 주문을 볼 수 있게 했다.
-  - 런타임 재시작 시 `paper_portfolio_snapshots` 와 `paper_positions` 를 읽어 로컬 가상 포트폴리오 상태를 복원하도록 보강했다.
-  - 대시보드 `상태 및 설정` 과 `모의계좌(실제)` 비교 카드에 브로커 주문 자동 연동 여부와 제출 주문 수를 반영했다.
-  - 로컬 가상 계좌와 브로커 모의계좌를 직접 비교하는 `paper-account reconciliation` 서비스와 리포트를 추가했다.
-  - 최신 비교 결과는 `runtime-data/reports/reconciliation/latest-paper-account-sync.{md,json}` 에 남고, dashboard와 runtime report에도 함께 반영된다.
-  - 현재 실제 상태에서는 브로커 미러링이 꺼져 있어 `mirroring_disabled` 가 기록되고, 로컬 장부의 `005930` 28주 보유와 브로커 모의계좌의 빈 포지션이 차이로 잡힌다.
-  - 대시보드 동기화 카드는 날짜 필터 범위가 아니라 현재 로컬 가상 계좌 전체 상태를 기준으로 차이를 계산하도록 맞췄다.
-  - `scripts/reconcile_paper_accounts.ps1` 와 `python -m app --reconcile-paper-accounts` 명령을 추가했다.
-  - `start_monday_runtime.ps1` 와 `start_runtime_autoboot.ps1` 는 이제 브로커 계좌 갱신 뒤 reconciliation 도 함께 수행한다.
-  - 관련 검증으로 `tests.test_settings`, `tests.test_kis_http_clients`, `tests.test_streaming_pipeline`, `tests.test_runtime_cleanup`, `tests.test_dashboard` 를 각각 다시 통과시켰다.
-  - 전체 `discover` 실행은 15분 제한에서도 완료되지 않아, 이번 턴은 변경 영향 범위 중심의 집중 테스트를 canonical 검증으로 기록한다.
-  - dashboard 기본 화면과 기본 API는 이제 최신 cached snapshot 을 먼저 내려 더 빠르게 응답한다.
-  - dashboard `상태 업데이트` 버튼과 5분 자동 새로고침은 `/api/refresh` 로 snapshot 을 다시 만든 뒤 화면을 갱신한다.
-  - `get_dashboard_status.ps1` 는 `/health` 와 `/api/dashboard.json` 을 모두 확인해, 포트만 열려 있고 실제 payload 는 죽은 상태를 더 정확히 잡는다.
-  - `start_runtime_watchdog_background.ps1`, `get_runtime_watchdog_status.ps1`, `stop_runtime_watchdog.ps1` 를 추가했다.
-  - runtime watchdog 은 dashboard 와 live runtime 이 내려가면 다시 올리는 역할만 맡고, snapshot rebuild 는 dashboard client 쪽 `/api/refresh` 로 분리했다.
-  - `start_runtime_autoboot.ps1` 는 이제 watchdog 도 함께 시작하고 상태 요약에 포함한다.
-  - SQLite 쓰기 경로에 reconciliation 전용 retry 를 추가해, live runtime 이 돌고 있을 때도 `python -m app --reconcile-paper-accounts` 가 더 안정적으로 끝나게 했다.
-  - runtime writer 는 설정 단계에서 SQLite timeout / retry 값을 오버라이드할 수 있게 보강했다.
-  - `paper_reconciliation` 는 이제 더 긴 SQLite write timeout / retry 조합으로 기록한다.
-  - `start_runtime_autoboot.ps1`, `start_monday_runtime.ps1`, `refresh_kis_account.ps1`, `reconcile_paper_accounts.ps1` 는 하위 `python -m app ...` 명령이 실패하면 즉시 오류로 처리한다.
-  - `start_runtime_autoboot.ps1 -SkipDashboardBuild` 재검증 결과 `dashboard`, `live_runtime`, `watchdog`, `paper_reconciliation` 모두 정상으로 확인했다.
-- `모의투자(가상)` 탭은 `상태 설명 / 보유 종목 / 매수·매도 및 체결현황` 세로 하위 탭 구조로 바꿨다.
-- 열린 포지션이 없을 때도 `최근 종료 포지션`이 보여서 가상 운용 이력을 바로 확인할 수 있게 했다.
-- `매수·매도 및 체결현황` 안에는 `매수 주문 / 매도 주문 / 체결 / 최근 신호` 확장 탭을 넣어 필요한 내용만 펼쳐서 보게 했다.
-- 나머지 상위 탭도 같은 세로 보조탭 구조로 통일해서 레이아웃 일관성을 맞췄다.
-- 표와 목록이 긴 영역은 이제 내부 스크롤 패널로 보여, 누적 데이터가 많아도 화면 전체가 과도하게 길어지지 않는다.
-- `2026-04-15`
-  - `scripts/start_runtime_autoboot.ps1` 를 추가해 PC 로그인 직후 dashboard, live runtime, broker paper-account refresh, runtime/dashboard rebuild를 한 번에 수행하도록 정리했다.
-  - `scripts/install_runtime_startup_launcher.ps1`, `scripts/get_runtime_startup_launcher_status.ps1`, `scripts/remove_runtime_startup_launcher.ps1` 를 추가해 Windows 시작프로그램 폴더에 launcher를 설치하거나 제거할 수 있게 했다.
-  - 재부팅 후에는 기존 월요일 전용 준비 스크립트보다 가벼운 autoboot 경로를 기본 자동 시작 루틴으로 사용한다.
-  - `C:\Users\Keios\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\RealTimeStockRuntime.cmd` 에 launcher 설치를 완료했다.
-  - `start_runtime_autoboot.ps1` 실검증 결과 dashboard=`running`, live_runtime=`running`, broker paper account refresh=`ok` 로 확인됐다.
-- `2026-04-16`
-  - `rebuild_actual_ml_state` 경로를 추가해 실제 데이터만 남기고 ML 상태를 다시 만드는 흐름을 구현했다.
-  - runtime cleanup 은 이제 demo/replay/synthetic 원시 체결·호가와 파생 분봉·서빙·페이퍼 운용 흔적까지 함께 정리한다.
-  - 실제 runtime 데이터 기준으로 feature rows `978`, labels `861`, training runs `1`, evaluations `8` 상태를 재구축했다.
-  - 최신 actual-only LightGBM 학습 결과는 train `386`, validation `97`, accuracy `0.711340` 으로 확인됐다.
-  - 최신 actual-only backtest 는 cumulative net return pct `-6.650134`, walk-forward 는 `-22.894859` 로 확인됐다.
-  - 최신 challenger 결과는 `review_required` 이며, walk-forward gate 미달 때문에 자동 승격을 하지 않는다.
-  - 대시보드 예측현황 탭에 오전/오후, 시간대별, 상승/하락 통계를 추가했고 recent list limit 을 `100` 으로 늘렸다.
-  - 대시보드 LightGBM 상태는 이제 최신 학습 실행에 연결된 검증 정확도만 사용한다.
-  - 브로커 모의계좌 자동 주문 미러링이 아직 없다는 점을 대시보드와 문서에 명시했다.
-- `2026-04-28`
-  - 장중 점검 결과 dashboard HTTP server 자체는 살아 있었지만 기본 `/api/dashboard.json` 이 오래된 cached snapshot 을 내려주고, live runtime 은 WebSocket 연결 로그만 남긴 채 한동안 데이터가 갱신되지 않는 connected-but-idle 상태를 확인했다.
-  - 단일 종목 KIS WebSocket verification 은 `connection_ready=true`, `market_data_flow_ok=true`, `session_status=regular-session` 으로 성공해 KIS 자격정보와 endpoint 자체는 정상으로 좁혔다.
-  - KIS WebSocket listener 에 frame timeout 과 구독 간 짧은 delay 를 추가해 프레임 없는 연결이 무한 대기하지 않고 reconnect 하도록 보강했다.
-  - runtime watchdog 이 dashboard `/api/refresh` 를 호출해 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 기준으로 장중 `missing/stale` market bar 상태를 복구하도록 보강했다.
-  - `get_live_runtime_status.ps1` 는 최신 KIS verification 파일을 우선 읽고, 실행 중인 listener 의 단순 INFO 로그를 failure reason 으로 표시하지 않도록 정리했다.
-  - 패치 후 live runtime, watchdog, dashboard 를 재시작했고 dashboard URL `http://127.0.0.1:8765` 기준 최신 market bar / prediction / signal 이 `fresh` 상태로 갱신되는 것을 확인했다.
-  - 전체 테스트 `67 tests OK`, runtime cleanup, runtime report/dashboard rebuild 를 다시 수행했다.
-
-## Next Commands
+## 다음 명령
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
@@ -645,7 +101,6 @@ python -m app --train-lightgbm --horizon-min 15
 .\scripts\run_ml_shadow_cycle.ps1
 python -m app --run-challengers --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
-python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 python -m app --build-runtime-report
 python -m app --build-dashboard
@@ -653,17 +108,12 @@ python -m app --build-dashboard
 .\scripts\start_dashboard_background.ps1
 .\scripts\get_dashboard_status.ps1
 .\scripts\stop_dashboard.ps1
-.\scripts\start_monday_runtime.ps1
 .\scripts\start_live_runtime_background.ps1
 .\scripts\get_live_runtime_status.ps1
 .\scripts\stop_live_runtime.ps1
-.\scripts\start_runtime_autoboot.ps1
-.\scripts\install_runtime_startup_launcher.ps1
-.\scripts\get_runtime_startup_launcher_status.ps1
-.\scripts\remove_runtime_startup_launcher.ps1
-.\\scripts\\start_runtime_watchdog_background.ps1
-.\\scripts\\get_runtime_watchdog_status.ps1
-.\\scripts\\stop_runtime_watchdog.ps1
+.\scripts\start_runtime_watchdog_background.ps1
+.\scripts\get_runtime_watchdog_status.ps1
+.\scripts\stop_runtime_watchdog.ps1
 .\scripts\check_local_setup.ps1
 .\scripts\connect_kis_paper_account_interactive.ps1
 .\scripts\reconcile_paper_accounts.ps1

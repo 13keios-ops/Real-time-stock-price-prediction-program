@@ -1,4 +1,4 @@
-﻿# Portfolio And Reconciliation
+# 포트폴리오와 정합성 점검
 
 ## 역할
 
@@ -15,7 +15,7 @@
 - prediction, signal, target, order, fill, position 사이의 연결이 맞는지 확인한다.
 - backtest, replay, runtime, broker 상태 차이를 추적한다.
 
-## 현재 권장 체크
+## 현재 권장 점검
 
 - 주문 수와 체결 수 차이
 - 포지션 수량 불일치

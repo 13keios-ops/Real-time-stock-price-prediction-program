@@ -1,4 +1,4 @@
-﻿# Runtime Configuration
+# 런타임 설정
 
 ## 역할
 

@@ -1,4 +1,4 @@
-﻿# Replay And Recovery
+# Replay와 복구
 
 ## 역할
 
@@ -9,7 +9,7 @@
 - runtime 흐름이 중간에 끊겨도 상태를 복원할 수 있게 한다.
 - 장후 replay로 runtime 결과를 다시 계산해 차이를 찾는다.
 
-## recovery 기본 원칙
+## 복구 기본 원칙
 
 - 시작 시 최근 상태를 먼저 읽는다.
 - 수집이 끊겼다면 gap 여부를 남긴다.
@@ -23,5 +23,5 @@
 
 ## 현재 연결점
 
-- runtime-data 아래 raw 기록과 report 경로를 함께 사용한다.
+- `runtime-data/` 아래 raw 기록과 report 경로를 함께 사용한다.
 - reconciliation, portfolio, signal policy 문서와 같이 읽는 것이 좋다.

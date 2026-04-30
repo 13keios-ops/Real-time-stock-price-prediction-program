@@ -1,4 +1,4 @@
-﻿# Machine Learning Operations Plan
+# 머신러닝 운영 계획
 
 ## 역할
 
@@ -7,36 +7,33 @@
 
 ## 현재 추천 운영 방식
 
-- 운영용 메인 모델은 `LightGBM` 으로 간다.
+- 운영용 메인 모델은 `LightGBM` 으로 둔다.
 - `baseline`, `centroid`, `linear-score` 는 보조 모델과 비교 기준으로 유지한다.
-- 장중에는 `추론` 중심으로 돌리고, 장후에는 `재학습` 중심으로 돌린다.
+- 장중에는 추론 중심으로 돌리고, 장후에는 재학습 중심으로 돌린다.
 - 학습창은 `최근 60거래일 + 오늘 데이터` 를 기본으로 쓴다.
 - 예측 수평선은 우선 `15분`, 이후 `60분`으로 확장한다.
-- 모델 자체보다 `데이터 품질`, `라벨 정의`, `walk-forward 검증`을 먼저 고정한다.
+- 모델 자체보다 데이터 품질, 라벨 정의, walk-forward 검증을 먼저 고정한다.
 
 ## 데이터 기준
 
-- 입력 데이터는 raw tick, orderbook, minute bar, feature, label 흐름으로 정리한다.
+- 입력 데이터는 원시 체결, 원시 호가, 분봉, 특징, 라벨 흐름으로 정리한다.
 - 학습용 데이터는 SQLite canonical 저장본을 기준으로 만든다.
 - synthetic 데이터는 로컬 파이프라인 검증용이고, 실전 기준 평가는 실제 수집 데이터로 다시 검증한다.
 - 학습 입력은 아래처럼 나눈다.
   - 느린 특징: 최근 60거래일의 추세, 변동성, 거래대금, 이동평균 이격, 고점/저점 거리
   - 빠른 특징: 장중 1분 수익률, 호가 불균형, 스프레드, VWAP 이격, 장중 누적 거래량 비율
   - 이벤트 특징: 뉴스, 공시, 검색량, 반응 지표
-- 장중 late row는 미래 라벨이 아직 안 생기면 즉시 학습에 넣지 않고, 라벨이 닫힌 뒤 다음 재학습 회차에서 반영한다.
+- 장중 late row는 미래 라벨이 아직 없으면 즉시 학습에 넣지 않고, 라벨이 닫힌 뒤 다음 재학습 회차에서 반영한다.
 
 ## 데이터 보관 기준
 
 - `최근 60거래일 + 오늘 데이터` 는 운영용 학습창 기준이다.
 - 이보다 오래된 데이터는 버리지 않는 것을 기본으로 한다.
 - 추천 보관 계층은 아래와 같다.
-  - hot: 최근 60거래일 + 오늘 데이터
-    - active 학습, 장중 추론 보조, 장후 재학습
-  - warm: 최근 6개월~12개월
-    - challenger 비교, walk-forward 확장, drift 점검, 구간 비교
-  - cold: 그 이전 데이터
-    - 재현, 회귀 검증, 구조 변경 전후 비교, 장애 분석
-- 저장 공간이 허용되면 raw 데이터와 가공 데이터 모두 보관하고, 학습에만 rolling window 를 적용한다.
+  - hot: 최근 60거래일 + 오늘 데이터. active 학습, 장중 추론 보조, 장후 재학습에 사용한다.
+  - warm: 최근 6개월~12개월. challenger 비교, walk-forward 확장, drift 점검, 구간 비교에 사용한다.
+  - cold: 그 이전 데이터. 재현, 회귀 검증, 구조 변경 전후 비교, 장애 분석에 사용한다.
+- 저장 공간이 허용되면 원시 데이터와 가공 데이터 모두 보관하고, 학습에만 rolling window 를 적용한다.
 - 즉, `학습창은 롤링`, `데이터 저장은 보존`이 기본 원칙이다.
 
 ## 모델 선정 사유
@@ -122,4 +119,4 @@
 - `python -m app --train-lightgbm --horizon-min 15` 로 LightGBM artifact를 만들 수 있다.
 - 이 학습은 현재 기본값으로 active model을 자동 교체하지 않는다.
 - active model은 `python -m app --set-active-builtin --builtin-model baseline --horizon-min 15` 같은 명시적 명령이나 challenger promotion으로만 바뀐다.
-- 따라서 현재 운영 posture는 `baseline active + latest LightGBM challenger` 이다.
+- 따라서 현재 운영 자세는 `baseline active + latest LightGBM challenger` 이다.

@@ -1,4 +1,4 @@
-﻿# Validation And Accuracy Improvement Plan
+# 검증과 정확도 개선 계획
 
 ## 역할
 
@@ -21,16 +21,16 @@
 
 ## 비교 기준
 
-- accuracy
+- 정확도
 - 거래 수
 - 누적 수익률
 - fold 간 편차
-- signal coverage
-- cost sensitivity
+- 신호 발생 범위
+- 비용 민감도
 
 ## 다음 확장
 
-- challenger leaderboard
+- 도전자 모델 순위표
 - feature 통계 리포트
 - 일자별 regime 비교
 - model registry 자동 승격 규칙

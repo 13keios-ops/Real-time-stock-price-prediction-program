@@ -1,4 +1,4 @@
-﻿# NLP Event Pipeline
+# NLP 이벤트 파이프라인
 
 ## 역할
 

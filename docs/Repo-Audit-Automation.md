@@ -1,8 +1,8 @@
-﻿# Repo Audit Automation
+﻿# 저장소 점검 자동화
 
 ## 목적
 
-Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 자동화 산출물을 이어받아 아래 작업을 반복한다.
+매시간 저장소 점검은 이 저장소 전체를 매시간 다시 읽고, 이전 자동화 산출물을 이어받아 아래 작업을 반복한다.
 
 - 구조 점검
 - 누락된 구체화 식별
@@ -10,7 +10,7 @@ Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 �
 - 웹서치 기반 개선 제안
 - 다음 회차용 상태 갱신
 
-자동화는 repo-tracked 파일을 수정하지 않고 `runtime-data/reports/codex/automation/` 아래에만 산출물을 남긴다.
+자동화는 git 추적 파일을 수정하지 않고 `runtime-data/reports/codex/automation/` 아래에만 산출물을 남긴다.
 
 ## 스크립트
 
@@ -19,17 +19,17 @@ Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 �
 - `scripts/start_hourly_repo_audit.ps1`
   - 즉시 1회 실행 후 매시간 반복
 - `scripts/start_hourly_repo_audit_background.ps1`
-  - 백그라운드에서 runner를 시작하고 바로 상태를 반환
+  - 백그라운드에서 실행기를 시작하고 바로 상태를 반환
 - `scripts/get_hourly_repo_audit_status.ps1`
-  - 현재 runner 상태 확인
+  - 현재 실행기 상태 확인
 - `scripts/stop_hourly_repo_audit.ps1`
-  - 현재 runner 중지
+  - 현재 실행기 중지
 
 ## 권장 실행 방식
 
 - 1순위는 Codex 자동화다.
 - Codex 자동화로 등록하면 앱 UI에서 즉시 중지할 수 있다.
-- PowerShell background runner는 Codex 자동화가 없을 때만 쓰는 fallback 으로 본다.
+- PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로로 본다.
 - 상태 스크립트는 저장된 pid 가 죽어 있으면 `stale` 로 보여준다.
 
 ## 출력 경로
@@ -45,14 +45,14 @@ Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 �
 
 ## 입력 기준
 
-- canonical 문서를 매 회차 다시 읽는다.
+- 기준 문서를 매 회차 다시 읽는다.
   - `AGENTS.md`
   - `README.md`
   - `docs/logbook.md`
   - 최신 `docs/logbook_archive/logbook_*.md`
   - `docs/Current-Implementation.md`
   - `docs/Versioning.md`
-- 최신 runtime 리포트와 로그를 함께 읽는다.
+- 최신 실행 리포트와 로그를 함께 읽는다.
 - 이전 자동화 상태 파일도 함께 읽는다.
 
 ## 웹서치 기준
@@ -72,16 +72,16 @@ Hourly Repo Audit 는 이 저장소 전체를 매시간 다시 읽고, 이전 �
 - `latest-progress.json`
   - 기계가 읽는 현재 상태
 - `latest-context.md`
-  - 사람이 바로 읽는 handoff 메모
+  - 사람이 바로 읽는 인수인계 메모
 - `latest-improvement-draft.md`
   - 지금까지 누적한 최적 구조안
 - `latest-priority-backlog.json`
   - 현재 우선순위 작업 목록
 
-같은 미해결 항목은 같은 id를 유지하고, 다음 회차에서는 `last_seen` 과 근거만 갱신한다.
+같은 미해결 항목은 같은 식별자를 유지하고, 다음 회차에서는 `last_seen` 과 근거만 갱신한다.
 
 ## 운영 메모
 
-- Codex 호출 일부가 실패해도 fallback 산출물은 남긴다.
-- fallback 단계에서는 기존 progress 와 backlog 를 최대한 보존한다.
+- Codex 호출 일부가 실패해도 예비 산출물은 남긴다.
+- 예비 단계에서는 기존 진행 상태와 우선순위 목록을 최대한 보존한다.
 - 이 자동화는 git commit, git push, 실전 주문, 민감정보 출력은 하지 않는다.

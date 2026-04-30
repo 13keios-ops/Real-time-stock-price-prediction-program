@@ -1,4 +1,4 @@
-﻿# Real-time Stock Price Prediction Program
+﻿# 실시간 주가 예측 프로그램
 
 국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
 현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
@@ -23,14 +23,14 @@
 - feature / label 생성
 - centroid baseline 학습
 - LightGBM 학습 artifact 저장
-- validation-tail backtest
+- 검증 꼬리구간 백테스트
 - gap/max-train 제어가 가능한 walk-forward backtest
 - walk-forward gate를 반영하는 challenger model 비교 보고서
-- active model 명시 registry와 builtin baseline fallback
+- 활성 모델 명시 등록부와 내장 기준 모델 예비 처리
 - LightGBM shadow challenger 비교
 - online replay 기반 paper trading 상태 기록
-- KIS WebSocket readiness / verification report
-- runtime / backtest / walk-forward report 생성
+- KIS WebSocket 연결 준비와 검증 리포트
+- 실행 / 백테스트 / 워크포워드 리포트 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving
 - 대시보드 기본 언어 한글화와 상단 상태 영역 + 10탭 전환 UI
 - 대시보드 기본 자동 새로고침 10분과 수동 `상태 업데이트` 버튼
@@ -152,7 +152,7 @@
   - 이 경로는 오래된 SQLite row 를 직접 지우지 않고 `runtime-data/reports/broker-paper/latest-alignment.json` marker 를 기준으로 현재 상태만 정렬한다.
   - 정렬 이후 대시보드의 `로컬 모의운용 계좌` 요약은 marker 이후 주문/체결/브로커 제출 수만 현재 상태로 집계한다.
   - marker 이후 새 체결이 일부 종목에만 생겨도 baseline 보유종목과 종목별로 병합해서 현재 보유수량을 비교한다.
-  - 정렬 뒤에는 reconciliation, runtime report, dashboard 가 모두 브로커 기준 현재 상태를 우선 보여준다.
+  - 정렬 뒤에는 정합성 점검, 실행 리포트, 대시보드가 모두 브로커 기준 현재 상태를 우선 보여준다.
   - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
 - `모의주문 spread 게이트`
   - `MAX_SPREAD_BPS` 기본 운용값은 현재 `25.0` 이다.
@@ -234,7 +234,7 @@ python -m app --train-lightgbm --horizon-min 15
 .\scripts\run_ml_shadow_cycle.ps1
 ```
 
-KIS WebSocket listener:
+KIS WebSocket 수신기:
 
 ```powershell
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
@@ -272,7 +272,7 @@ python -m app --build-dashboard
 브로커 계좌 잔고는 `runtime-data/reports/kis-account/latest-account-paper.json` 과 `latest-account-live.json` 캐시를 읽고, 캐시가 오래되면 KIS REST로 새로 갱신한다.
 로컬 모의운용 계좌는 프로그램 내부 가상 포트폴리오이고, 브로커 계좌는 한국투자에서 직접 조회한 실제 계좌 상태다.
 학습 탭은 `실운용 학습 상태`와 `검증 및 비교 결과`를 함께 보여주되, 둘 다 실제 운용 데이터 기준 산출물만 사용한다.
-실데이터 기반 결과가 없으면 연구용 fallback 값을 대신 보여주지 않고, `실데이터 기반 결과 없음` 상태로 남긴다.
+실데이터 기반 결과가 없으면 연구용 예비 값을 대신 보여주지 않고, `실데이터 기반 결과 없음` 상태로 남긴다.
 예측 탭은 `기준가`, `예측 결과`, `예상 변동`, `실제 결과`, `성공 여부`를 함께 보여준다.
 예측현황 탭은 `오전/오후`, `시간대별`, `상승/하락` 통계를 함께 보여준다. 최근 예측 요약은 최대 `100개`까지 유지하고, 예측상세는 선택 기간 전체 예측을 최신 순으로 보여준다.
 신호와 주문은 `신호 & 주문현황` 탭에서 묶어서 확인할 수 있다.
@@ -282,7 +282,7 @@ python -m app --build-dashboard
 `모의투자(가상)` 탭은 프로그램 내부 가상 장부 기준 운용 상태를, `모의계좌(실제)` 탭은 한국투자 모의투자 계좌 직접 조회 잔고를, `실 운용계좌` 탭은 실전 계좌 조회 상태를 분리해서 보여준다.
 `모의투자(가상)` 탭의 `매수·매도 및 체결현황` 화면은 `매수 주문 / 매도 주문 / 체결 / 최근 신호` 확장 탭으로 펼쳐 볼 수 있다.
 다른 상위 탭도 같은 방식으로 `상태 설명 / 보유 종목 또는 상세표 / 해석 또는 안내`를 왼쪽 세로 선택기로 전환한다.
-실제 장중 데이터가 충분히 쌓이지 않았으면 backtest, walk-forward, challenger는 fallback 값을 대신 보여주지 않고 `실데이터 기반 결과 없음` 상태로 남긴다.
+실제 장중 데이터가 충분히 쌓이지 않았으면 백테스트, 워크포워드, 도전자 모델 결과는 예비 값을 대신 보여주지 않고 `실데이터 기반 결과 없음` 상태로 남긴다.
 기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
 
 ```powershell
@@ -309,7 +309,7 @@ python -m app --kis-account-balance
 python -m app --reconcile-paper-accounts
 ```
 
-이 결과는 runtime report와 dashboard의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
+이 결과는 실행 리포트와 대시보드의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
 
 브로커 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추려면:
 
@@ -424,24 +424,24 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 - 대시보드 상단 `현재 프로그램 상태`와 `로컬 모의운용 계좌`가 `운용 중`으로 바뀐다.
 - 최근 예측 표에는 방향 문구 대신 기준가 대비 `예상 변동`과 수평선 도달 뒤 `실제 결과`가 표시된다.
 
-Hourly Repo Audit 1회 실행:
+매시간 저장소 점검 1회 실행:
 
 ```powershell
 .\scripts\run_hourly_repo_audit_iteration.ps1
 ```
 
-Hourly Repo Audit Codex 자동화 권장:
+매시간 저장소 점검 Codex 자동화 권장:
 
 - Codex 자동화로 등록하면 앱 UI에서 바로 중지할 수 있다.
-- 아래 PowerShell background runner는 Codex 자동화가 없을 때만 쓰는 fallback 이다.
+- 아래 PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로다.
 
-Hourly Repo Audit 백그라운드 시작(fallback):
+매시간 저장소 점검 백그라운드 시작(예비 경로):
 
 ```powershell
 .\scripts\start_hourly_repo_audit_background.ps1
 ```
 
-Hourly Repo Audit 상태 확인:
+매시간 저장소 점검 상태 확인:
 
 ```powershell
 .\scripts\get_hourly_repo_audit_status.ps1
@@ -492,44 +492,44 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
 - 이유 2: 최신 LightGBM 학습은 정상 동작하지만, 현재 validation accuracy와 challenger 결과가 아직 약하다.
 - 이유 3: 따라서 LightGBM은 월요일 전까지 `shadow challenger`로 계속 학습하고, 검증 통과 전에는 active model로 승격하지 않는다.
 
-## Canonical 문서와 Reference 문서
+## 기준 문서와 참고 문서
 
 이 저장소는 문서를 아래처럼 구분한다.
 
-- canonical 문서
+- 기준 문서
   - `AGENTS.md`
   - `README.md`
   - `docs/logbook.md`
   - `docs/Versioning.md`
   - `docs/Current-Implementation.md`
-- reference 문서
+- 참고 문서
   - `docs/Architecture.md`
   - `docs/Implementation-Blueprint.md`
   - `docs/KIS-Integration-Plan.md`
   - 그 외 주제별 상세 설계 문서
 
-current truth는 canonical 문서에 남기고, 상세 설계와 배경 설명은 reference 문서에 둔다.
+현재 사실 기준은 기준 문서에 남기고, 상세 설계와 배경 설명은 참고 문서에 둔다.
 
 <!-- NAS_BACKUP_START -->
-## NAS Backup
+## NAS 백업
 
-- NAS share root: \\192.168.0.2\backup
-- Repository backup path: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
-- Full backups only, with the latest 3 packages retained.
-- Regular backup cadence: weekly.
-- Forced backups are used for important periods and risky changes.
+- NAS 공유 루트: \\192.168.0.2\backup
+- 저장소 백업 경로: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
+- 백업은 전체 백업만 사용하고, 최신 3개 패키지를 보관한다.
+- 정기 백업 주기는 주 1회다.
+- 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
 
-Weekly backup:
+주간 백업:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
 ```
 
-Forced backup:
+강제 백업:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
 ```
 
-See [RECOVERY.md](./RECOVERY.md) for the full recovery scope.
+전체 복구 범위는 [RECOVERY.md](./RECOVERY.md)를 기준으로 한다.
 <!-- NAS_BACKUP_END -->
 
 

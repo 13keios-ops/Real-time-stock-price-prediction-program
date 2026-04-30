@@ -1,4 +1,4 @@
-﻿# Realtime Operations Plan
+# 실시간 운영 계획
 
 ## 역할
 
@@ -9,11 +9,11 @@
 - 인증 확인
 - watchlist 확정
 - 시세 수집 시작
-- raw 저장 확인
+- 원시 저장 확인
 - minute bar 생성
 - online prediction / signal 처리
 - paper trading 기록
-- runtime report 생성
+- 실행 리포트 생성
 
 ## 장중 점검 항목
 

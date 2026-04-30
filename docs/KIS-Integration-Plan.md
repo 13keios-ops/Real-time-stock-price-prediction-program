@@ -1,8 +1,8 @@
-﻿# KIS Integration Plan
+# KIS 연동 계획
 
 ## 역할
 
-이 문서는 한국투자 API 연동 기준을 정리하는 reference 문서다.
+이 문서는 한국투자 API 연동 기준을 정리하는 참고 문서다.
 
 ## 현재 구현 상태
 

@@ -1,17 +1,17 @@
-﻿# Versioning
+# 버전 관리
 
-## Current Rule
+## 현재 규칙
 
-이 저장소는 root `VERSION` 파일을 release-ready 신호로 사용한다.
+이 저장소는 root `VERSION` 파일을 release 준비 완료 신호로 사용한다.
 
-- current version: `0.2.0`
-- branch: `main`
-- watcher config: `autopush.json`
-- trigger: `version-change`
-- current opt-in: `enabled=true`
-- git-autopush helper default `ScanRoot`: `D:\GitHub`
+- 현재 버전: `0.2.0`
+- 브랜치: `main`
+- watcher 설정: `autopush.json`
+- 트리거: `version-change`
+- 현재 opt-in: `enabled=true`
+- git-autopush helper 기본 `ScanRoot`: `D:\GitHub`
 
-## How The Script Detects A Version Change
+## 버전 변경 감지 방식
 
 버전 변경 감지는 아래 흐름으로 이뤄진다.
 
@@ -21,12 +21,12 @@
 4. `runtime-data/autopush/git-autopush-state.json` 에 기록된 마지막 push 버전과 현재 `VERSION` 값을 비교한다.
 5. 값이 달라지면 watcher가 stage, commit, push 또는 기존 release commit push를 수행한다.
 
-확인 위치:
+확인 위치는 아래와 같다.
 
-- watcher log: `runtime-data/autopush/git-autopush.log`
-- watcher state: `runtime-data/autopush/git-autopush-state.json`
+- 감시기 로그: `runtime-data/autopush/git-autopush.log`
+- 감시기 상태: `runtime-data/autopush/git-autopush-state.json`
 
-## Recommended Workflow
+## 권장 흐름
 
 1. 코드와 문서를 정리한다.
 2. 테스트를 돌린다.
@@ -34,7 +34,7 @@
 4. 필요하면 명시적으로 commit 한다.
 5. watcher가 새 버전을 감지하고 push 상태를 갱신한다.
 
-## Commands
+## 명령
 
 버전 갱신:
 
@@ -49,7 +49,7 @@ git add -A
 git commit -m "chore(release): v0.2.1"
 ```
 
-## Notes
+## 메모
 
 - 이 저장소는 watcher opt-in 상태다.
 - watcher는 `VERSION` 변화를 기준으로만 동작한다.

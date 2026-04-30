@@ -1,4 +1,4 @@
-﻿# Market Data Policy
+# 시장 데이터 정책
 
 ## 역할
 
@@ -6,23 +6,23 @@
 
 ## 기본 원칙
 
-- raw 데이터는 가능한 한 가공 전 형태로 먼저 저장한다.
-- 전략 판단용 bar, feature, label은 raw 데이터에서 재생산 가능해야 한다.
+- 원시 데이터는 가능한 한 가공 전 형태로 먼저 저장한다.
+- 전략 판단용 bar, feature, label은 원시 데이터에서 재생산 가능해야 한다.
 - 동일한 입력이면 backtest, replay, runtime 결과가 최대한 같은 방향으로 재현되어야 한다.
 
 ## 저장 계층
 
-- raw market tick
-- raw orderbook tick
-- minute bar
-- feature dataset
-- label dataset
-- prediction / signal / order / fill / position
+- 원시 체결 tick
+- 원시 호가 tick
+- 분봉
+- 특징 데이터셋
+- 라벨 데이터셋
+- 예측 / 신호 / 주문 / 체결 / 포지션
 
 ## 정책
 
-- 실시간 수신값은 우선 timestamp와 함께 raw로 저장한다.
-- 1분 bar는 raw 데이터에서 만든다.
+- 실시간 수신값은 우선 timestamp와 함께 원시 형태로 저장한다.
+- 1분 bar는 원시 데이터에서 만든다.
 - 기업행위와 거래정지 같은 이벤트는 별도 정책 문서와 테이블로 다룬다.
 - 장중 replay와 장후 backfill을 비교할 수 있게 식별자를 남긴다.
 
