@@ -71,6 +71,19 @@
 
 ## 최신 검증 결과
 
+- `2026-05-01 10시대` 휴장일 전체 점검:
+- 오늘 `2026-05-01`은 휴장일로 운용해야 하므로 `config/market_calendar.toml`의 `holidays`에 추가했다.
+- 기존 PowerShell 장 상태 계산이 주말과 시간만 보고 오늘을 `regular-session`으로 오판해 watchdog 이 live runtime 을 재기동한 것을 확인했다.
+- `get_live_runtime_status.ps1`, `check_local_setup.ps1`, `run_runtime_watchdog_loop.ps1`, `run_post_close_ml_maintenance.ps1`, `run_hourly_repo_audit_iteration.ps1`가 `holidays`를 읽어 `holiday`로 해석하도록 보강했다.
+- Python 설정, KIS 검증, runtime scope, 대시보드도 같은 휴장일 설정을 사용하도록 맞췄다.
+- 즉시 `stop_runtime_watchdog.ps1`와 `stop_live_runtime.ps1`를 실행해 휴장일 불필요한 WebSocket 재연결을 중지했다.
+- 부분 검증 `python -m unittest tests.test_settings tests.test_runtime_scope tests.test_kis_ws_verification`: `10 tests OK`
+- 전체 검증 `python -m unittest discover -s tests -p "test_*.py"`: `80 tests OK`
+- 실행 리포트 생성 `python -m app --build-runtime-report`: `ok`
+- 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`, `session_status=holiday`, `live_runtime=stopped`
+- PowerShell 파싱 검사: 휴장일 관련 5개 스크립트 모두 `parse ok`
+- `scripts/get_live_runtime_status.ps1`: `current_session_status=holiday`, `status=stopped`
+
 - `2026-05-01 00시대` 전체 점검과 복구:
 - 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
 - 공백 오류 검사 `git diff --check`: `ok`

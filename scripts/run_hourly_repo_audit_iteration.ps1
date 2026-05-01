@@ -18,6 +18,8 @@ if (-not $RuntimeDataDir) {
     $RuntimeDataDir = Join-Path $WorkspaceRoot "runtime-data"
 }
 
+$marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
+
 function Join-Lines {
     param([string[]]$Lines)
     return ($Lines -join [Environment]::NewLine)
@@ -339,6 +341,37 @@ function Write-FallbackBacklogJson {
     Set-Content -LiteralPath $OutputPath -Value $payload -Encoding UTF8
 }
 
+function Get-MarketDateListSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return @()
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*\[(.*)\]"
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if (-not $match -or -not ($match -match $pattern)) {
+        return @()
+    }
+
+    return @($Matches[1] -split "," | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ })
+}
+
+function Test-MarketHoliday {
+    param(
+        [Parameter(Mandatory = $true)]
+        [datetime]$Date
+    )
+
+    $dateText = $Date.ToString("yyyy-MM-dd")
+    return @(Get-MarketDateListSetting -Key "holidays") -contains $dateText
+}
+
 function Get-MarketSessionInfo {
     param([datetime]$KstNow)
 
@@ -347,6 +380,13 @@ function Get-MarketSessionInfo {
             session_status = "weekend"
             should_run_kis_verify = $false
             note = "Weekend or holiday-like timing. KIS live market-data verification is deferred."
+        }
+    }
+    if (Test-MarketHoliday -Date $KstNow) {
+        return [ordered]@{
+            session_status = "holiday"
+            should_run_kis_verify = $false
+            note = "Configured market holiday. KIS live market-data verification is deferred."
         }
     }
 

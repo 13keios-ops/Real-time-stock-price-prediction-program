@@ -26,7 +26,7 @@ from app.services.paper_reconciliation import build_paper_account_reconciliation
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
 from app.universe.symbol_metadata import load_symbol_names, resolve_symbol_label, resolve_symbol_name
-from app.utils.time import get_timezone, now_local
+from app.utils.time import get_market_session_status, get_timezone, now_local
 
 
 RANGE_OPTIONS = [
@@ -649,7 +649,7 @@ def _build_status_alerts(
                 "message": f"{kis_failure_message}",
             }
         )
-    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "pre-open", "post-close"}:
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "pre-open", "post-close"}:
         alerts.append(
             {
                 "level": "info",
@@ -752,7 +752,7 @@ def _build_status_alerts(
                 "message": f"{kis_failure_message}",
             }
         )
-    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "pre-open", "post-close"}:
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "pre-open", "post-close"}:
         alerts.append(
             {
                 "level": "info",
@@ -1481,6 +1481,9 @@ def collect_dashboard_payload(
     live_runtime_state = _normalize_live_runtime_state(
         _safe_load_json(settings.runtime_data_dir / "reports" / "live-runtime" / "state" / "listener-state.json")
     )
+    current_session_status = str(live_runtime_state.get("current_session_status") or "").strip()
+    if not current_session_status:
+        current_session_status = get_market_session_status(settings.market_calendar, now_local(settings.timezone))
     latest_market_bar_time = _latest_time(minute_bar_rows, "bar_time")
     latest_prediction_time = _latest_time(prediction_views, "event_time")
     latest_signal_time = _latest_time(signal_views, "event_time")
@@ -1526,7 +1529,9 @@ def collect_dashboard_payload(
         if active_model_entry.get("model_version") != (latest_training or {}).get("model_version")
         else "최신 학습 모델과 현재 활성 모델이 같습니다."
     )
-    if live_runtime_state.get("status") == "running":
+    if current_session_status == "holiday":
+        operation_note = "오늘은 설정된 휴장일입니다. 실시간 수집기와 예측기는 꺼두는 것이 정상입니다."
+    elif live_runtime_state.get("status") == "running":
         operation_note = "실시간 수집기와 예측기가 현재 실행 중입니다. 새 분이 닫힐 때마다 15분·60분 예측이 기록되고, 15분 기준으로만 신호를 생성합니다."
     else:
         operation_note = "현재는 대시보드만 실행 중이거나, 마지막 장중 검증 결과만 남아 있습니다. 실시간 수집기를 켜야 예측과 신호가 계속 늘어납니다."
@@ -1618,6 +1623,16 @@ def collect_dashboard_payload(
     latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
     latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
+    if isinstance(latest_kis_verification, dict):
+        latest_kis_verification = dict(latest_kis_verification)
+        latest_kis_verification.setdefault(
+            "latest_kis_verification_session_status",
+            latest_kis_verification.get("session_status"),
+        )
+        latest_kis_verification["current_session_status"] = current_session_status
+        latest_kis_verification["session_status"] = current_session_status
+        if current_session_status == "holiday":
+            latest_kis_verification["status_note"] = "오늘은 설정된 휴장일이므로 장중 실시간 데이터 수신을 기대하지 않습니다."
     status_alerts = _build_status_alerts(
         live_runtime_state=live_runtime_state,
         latest_kis_verification=latest_kis_verification if isinstance(latest_kis_verification, dict) else None,

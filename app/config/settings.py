@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tomllib
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from app.utils.time import parse_hhmm
@@ -53,6 +54,7 @@ class MarketCalendarSettings:
     new_entry_end: str
     forced_flat_time: str
     session_close: str
+    holidays: tuple[str, ...]
 
 
 @dataclass(slots=True)
@@ -140,6 +142,21 @@ def _normalize_template_value(value: str) -> str:
     if lowered in placeholder_exact:
         return ""
     return normalized
+
+
+def _normalize_holidays(values: object) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise ValueError("market.holidays must be a TOML array of YYYY-MM-DD strings.")
+    normalized: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if not text:
+            continue
+        date.fromisoformat(text)
+        normalized.append(text)
+    return tuple(normalized)
 
 
 def _normalize_account_credentials(account_no: str, product_code: str, *, prefix: str) -> tuple[str, str]:
@@ -235,6 +252,7 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
         new_entry_end=env_map.get("NEW_ENTRY_END", market_block["new_entry_end"]),
         forced_flat_time=env_map.get("FORCED_FLAT_TIME", market_block["forced_flat_time"]),
         session_close=market_block["session_close"],
+        holidays=_normalize_holidays(market_block.get("holidays", [])),
     )
     parse_hhmm(market.session_open)
     parse_hhmm(market.new_entry_start)

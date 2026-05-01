@@ -38,6 +38,15 @@ class RuntimeScopeTests(unittest.TestCase):
             sqlite_store.insert_market_tick(
                 MarketTickEvent(
                     symbol="005930",
+                    event_time=datetime.fromisoformat("2026-05-01T10:43:58+09:00"),
+                    price=204000.0,
+                    volume=120,
+                    source="kis-ws",
+                )
+            )
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
                     event_time=datetime.fromisoformat("2026-04-13T10:43:58+09:00"),
                     price=203000.0,
                     volume=470,
@@ -59,6 +68,18 @@ class RuntimeScopeTests(unittest.TestCase):
             sqlite_store.upsert_minute_bar(
                 MinuteBar(
                     symbol="005930",
+                    bar_time=datetime.fromisoformat("2026-05-01T10:43:00+09:00"),
+                    open=204000.0,
+                    high=204000.0,
+                    low=203500.0,
+                    close=203800.0,
+                    volume=120,
+                    trade_count=4,
+                )
+            )
+            sqlite_store.upsert_minute_bar(
+                MinuteBar(
+                    symbol="005930",
                     bar_time=datetime.fromisoformat("2026-04-13T10:43:00+09:00"),
                     open=203000.0,
                     high=203000.0,
@@ -75,6 +96,7 @@ class RuntimeScopeTests(unittest.TestCase):
 
         self.assertIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
         self.assertNotIn(("005930", "2026-04-12T16:44"), scope.actual_symbol_minutes)
+        self.assertNotIn(("005930", "2026-05-01T10:43"), scope.actual_symbol_minutes)
         self.assertEqual([row["bar_time"] for row in filtered_rows], ["2026-04-13T10:43:00+09:00"])
 
 

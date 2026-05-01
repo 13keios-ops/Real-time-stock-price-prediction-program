@@ -12,7 +12,7 @@ from app.config.settings import load_settings
 from app.observability.logging import configure_logging
 from app.services.streaming import OnlinePipelineResult, run_kis_ws_listener_sync
 from app.universe.watchlist import load_watchlist
-from app.utils.time import now_local, parse_hhmm
+from app.utils.time import get_market_session_status, now_local
 
 
 @dataclass(slots=True)
@@ -76,16 +76,14 @@ class KisWsVerificationResult:
 
 
 def _market_session_context(settings, timestamp) -> tuple[str, bool, str]:
-    if timestamp.weekday() >= 5:
+    session_status = get_market_session_status(settings.market_calendar, timestamp)
+    if session_status == "weekend":
         return "weekend", False, "Weekend or holiday-like timing. Control frames without market data can be normal."
-
-    session_open = parse_hhmm(settings.market_calendar.session_open)
-    session_close = parse_hhmm(settings.market_calendar.session_close)
-    current_time = timestamp.timetz().replace(tzinfo=None)
-
-    if current_time < session_open:
+    if session_status == "holiday":
+        return "holiday", False, "Configured market holiday. Live market data is not expected."
+    if session_status == "pre-open":
         return "pre-open", False, "Before the regular session open. Market data flow may not be active yet."
-    if current_time > session_close:
+    if session_status == "post-close":
         return "post-close", False, "After the regular session close. Control frames only can be normal."
     return "regular-session", True, "Regular session window. Trade or orderbook events should normally appear."
 

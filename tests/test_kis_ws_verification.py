@@ -1,15 +1,31 @@
 import os
+from datetime import datetime
 from pathlib import Path
 import shutil
 import unittest
 import uuid
 from unittest.mock import patch
 
+from app.config.settings import load_settings
+from app.services.kis_verification import _market_session_context
 from app.services.kis_verification import verify_kis_websocket_runtime
 from app.services.streaming import OnlinePipelineResult
 
 
 class KisWebSocketVerificationTests(unittest.TestCase):
+    def test_market_session_context_marks_configured_holiday(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        settings = load_settings(project_root=root, env={})
+
+        session_status, market_data_expected, status_note = _market_session_context(
+            settings,
+            datetime.fromisoformat("2026-05-01T10:00:00+09:00"),
+        )
+
+        self.assertEqual(session_status, "holiday")
+        self.assertFalse(market_data_expected)
+        self.assertIn("holiday", status_note.lower())
+
     def test_verification_reports_missing_requirements_without_credentials(self) -> None:
         root = Path(__file__).resolve().parents[1]
         temp_root = root / ".tmp-tests" / "kis-ws-verification-root" / str(uuid.uuid4())

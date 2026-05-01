@@ -15,6 +15,7 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings.allow_live_orders)
         self.assertEqual(settings.strategy.max_open_positions, 5)
         self.assertEqual(settings.market_calendar.new_entry_start, "09:15")
+        self.assertIn("2026-05-01", settings.market_calendar.holidays)
 
     def test_live_orders_require_live_mode(self) -> None:
         root = Path(__file__).resolve().parents[1]

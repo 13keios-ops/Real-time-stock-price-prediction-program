@@ -144,10 +144,44 @@ function Get-MarketTimeSetting {
     return $Default
 }
 
+function Get-MarketDateListSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return @()
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*\[(.*)\]"
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if (-not $match -or -not ($match -match $pattern)) {
+        return @()
+    }
+
+    return @($Matches[1] -split "," | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ })
+}
+
+function Test-MarketHoliday {
+    param(
+        [Parameter(Mandatory = $true)]
+        [datetime]$Date
+    )
+
+    $dateText = $Date.ToString("yyyy-MM-dd")
+    return @(Get-MarketDateListSetting -Key "holidays") -contains $dateText
+}
+
 function Get-CurrentMarketSessionStatus {
     $now = Get-Date
     if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
         return "weekend"
+    }
+    if (Test-MarketHoliday -Date $now) {
+        return "holiday"
     }
 
     $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))

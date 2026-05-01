@@ -8,7 +8,7 @@ from typing import Any
 
 from app.config.settings import AppSettings
 from app.storage.sqlite_store import SQLiteRuntimeStore
-from app.utils.time import parse_hhmm
+from app.utils.time import get_market_session_status
 
 ACTUAL_RAW_SOURCES = frozenset({"kis-rest", "kis-ws"})
 TEST_ID_MARKERS = ("demo", "replay")
@@ -41,12 +41,7 @@ def _is_regular_session_timestamp(timestamp_text: str | None, settings: AppSetti
         timestamp = datetime.fromisoformat(str(timestamp_text))
     except ValueError:
         return False
-    if timestamp.weekday() >= 5:
-        return False
-    current_time = timestamp.timetz().replace(tzinfo=None)
-    session_open = parse_hhmm(settings.market_calendar.session_open)
-    session_close = parse_hhmm(settings.market_calendar.session_close)
-    return session_open <= current_time <= session_close
+    return get_market_session_status(settings.market_calendar, timestamp) == "regular-session"
 
 
 def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings) -> RuntimeScope:
