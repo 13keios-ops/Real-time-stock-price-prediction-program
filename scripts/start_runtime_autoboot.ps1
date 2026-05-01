@@ -51,6 +51,8 @@ if (-not $RuntimeDataDir) {
 
 $stateDir = Join-Path $RuntimeDataDir "reports\runtime-autoboot\state"
 $statePath = Join-Path $stateDir "latest-autoboot.json"
+$marketCalendarPath = Join-Path $WorkspaceRoot "config\market_calendar.toml"
+$preOpenWarmupMinutes = 60
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
 function Invoke-AppCommand {
@@ -78,6 +80,103 @@ function Read-JsonFile {
         return $null
     }
     return Get-Content -LiteralPath $LiteralPath -Raw | ConvertFrom-Json
+}
+
+function Get-MarketTimeSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Default
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return $Default
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]+)`""
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if ($match -and $match -match $pattern) {
+        return $Matches[1]
+    }
+
+    return $Default
+}
+
+function Get-MarketDateListSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    if (-not (Test-Path -LiteralPath $marketCalendarPath)) {
+        return @()
+    }
+
+    $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*\[(.*)\]"
+    $match = [System.IO.File]::ReadAllLines($marketCalendarPath) |
+        Where-Object { $_ -match $pattern } |
+        Select-Object -First 1
+    if (-not $match -or -not ($match -match $pattern)) {
+        return @()
+    }
+
+    return @($Matches[1] -split "," | ForEach-Object { $_.Trim().Trim('"').Trim("'") } | Where-Object { $_ })
+}
+
+function Test-MarketHoliday {
+    param(
+        [Parameter(Mandatory = $true)]
+        [datetime]$Date
+    )
+
+    $dateText = $Date.ToString("yyyy-MM-dd")
+    return @(Get-MarketDateListSetting -Key "holidays") -contains $dateText
+}
+
+function Get-CurrentMarketSessionStatus {
+    $now = Get-Date
+    if ($now.DayOfWeek -in @([System.DayOfWeek]::Saturday, [System.DayOfWeek]::Sunday)) {
+        return "weekend"
+    }
+    if (Test-MarketHoliday -Date $now) {
+        return "holiday"
+    }
+
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $sessionClose = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_close" -Default "15:30"))
+    $currentTime = $now.TimeOfDay
+
+    if ($currentTime -lt $sessionOpen) {
+        return "pre-open"
+    }
+    if ($currentTime -gt $sessionClose) {
+        return "post-close"
+    }
+    return "regular-session"
+}
+
+function Test-LiveRuntimeShouldRun {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SessionStatus
+    )
+
+    if ($SessionStatus -eq "regular-session") {
+        return $true
+    }
+    if ($SessionStatus -ne "pre-open" -or $preOpenWarmupMinutes -le 0) {
+        return $false
+    }
+
+    $now = Get-Date
+    $sessionOpen = [TimeSpan]::Parse((Get-MarketTimeSetting -Key "session_open" -Default "09:00"))
+    $warmupStart = $sessionOpen.Subtract([TimeSpan]::FromMinutes($preOpenWarmupMinutes))
+
+    return ($now.TimeOfDay -ge $warmupStart) -and ($now.TimeOfDay -lt $sessionOpen)
 }
 
 function Test-NeedsBrokerPaperAlignment {
@@ -108,6 +207,8 @@ $paperAlignment = $null
 $runtimeCleanup = $null
 $runtimeReport = $null
 $errors = @()
+$currentSessionStatus = Get-CurrentMarketSessionStatus
+$liveRuntimeShouldRun = Test-LiveRuntimeShouldRun -SessionStatus $currentSessionStatus
 
 try {
     if (-not $SkipRuntimeCleanup) {
@@ -162,16 +263,25 @@ try {
 
 try {
     if (-not $SkipLiveRuntime) {
-        $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
-            -WorkspaceRoot $WorkspaceRoot `
-            -RuntimeDataDir $RuntimeDataDir `
-            -Symbols $Symbols `
-            -ForceRestart:$ForceLiveRuntimeRestart
+        if ($liveRuntimeShouldRun) {
+            $null = & (Join-Path $WorkspaceRoot "scripts\start_live_runtime_background.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir `
+                -Symbols $Symbols `
+                -ForceRestart:$ForceLiveRuntimeRestart
 
-        Start-Sleep -Seconds 2
-        $liveRuntimeState = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
-            -WorkspaceRoot $WorkspaceRoot `
-            -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+            Start-Sleep -Seconds 2
+            $liveRuntimeState = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+        } else {
+            $null = & (Join-Path $WorkspaceRoot "scripts\stop_live_runtime.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir
+            $liveRuntimeState = & (Join-Path $WorkspaceRoot "scripts\get_live_runtime_status.ps1") `
+                -WorkspaceRoot $WorkspaceRoot `
+                -RuntimeDataDir $RuntimeDataDir | ConvertFrom-Json
+        }
     }
 } catch {
     $errors += "live_runtime: $($_.Exception.Message)"
@@ -248,6 +358,8 @@ $payload = [ordered]@{
     paper_reconciliation = $paperReconciliation
     runtime_cleanup = $runtimeCleanup
     runtime_summary = if ($null -ne $runtimeReport) { $runtimeReport.summary } else { $null }
+    market_session_status = $currentSessionStatus
+    live_runtime_should_run = $liveRuntimeShouldRun
     skipped_dashboard = [bool]$SkipDashboard
     skipped_live_runtime = [bool]$SkipLiveRuntime
     skipped_account_refresh = [bool]$SkipAccountRefresh

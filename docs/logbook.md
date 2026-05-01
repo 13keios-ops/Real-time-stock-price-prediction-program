@@ -28,7 +28,7 @@
 - KIS 모의계좌 상품코드는 화면에 없으면 `.env` 에 빈 값으로 두고, 앱 내부에서 모의투자 기본값을 적용한다.
 - 브로커 모의계좌 주문 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켜진다.
 - 브로커 주문/체결 조회가 KIS 호출 제한에 걸리면 재시도하고, 계속 막히면 안전하게 `rate_limited` 리포트를 남긴다.
-- 실행 감시기는 정규장에는 대시보드와 실시간 수집기를 복구하고, 장외에는 실시간 수집기를 다시 켜지 않아 CPU 재연결 루프를 줄인다.
+- 실행 감시기와 자동 시작 스크립트는 정규장에는 대시보드와 실시간 수집기를 복구하고, 장외와 설정된 휴장일에는 실시간 수집기를 다시 켜지 않아 CPU 재연결 루프를 줄인다.
 - 정규장 시작 60분 전부터는 장전 준비 단계로 실시간 수집기를 미리 켠다.
 - PC 로그인 후 자동 복구용 실행 자동시작과 시작프로그램 실행기가 준비되어 있다.
 - 매시간 저장소 점검 자동화는 git 추적 파일을 직접 수정하지 않고 `runtime-data/reports/codex/automation/` 아래에만 산출물을 남긴다.
@@ -56,6 +56,7 @@
 - [x] 실행 감시기 백그라운드 제어 스크립트
 - [x] 장중 유휴 WebSocket 수집 상태 감지와 복구
 - [x] 장외 실시간 수집기 재기동 제한으로 CPU 사용 절감
+- [x] 설정 휴장일 실시간 수집기와 자동 시작 차단
 - [x] git 추적 Markdown 문서의 사람이 읽는 본문 한글 정리
 - [x] 저장소 맞춤형 `AGENTS.md` 재구성
 
@@ -75,13 +76,15 @@
 - 오늘 `2026-05-01`은 휴장일로 운용해야 하므로 `config/market_calendar.toml`의 `holidays`에 추가했다.
 - 기존 PowerShell 장 상태 계산이 주말과 시간만 보고 오늘을 `regular-session`으로 오판해 watchdog 이 live runtime 을 재기동한 것을 확인했다.
 - `get_live_runtime_status.ps1`, `check_local_setup.ps1`, `run_runtime_watchdog_loop.ps1`, `run_post_close_ml_maintenance.ps1`, `run_hourly_repo_audit_iteration.ps1`가 `holidays`를 읽어 `holiday`로 해석하도록 보강했다.
+- 추가 점검에서 `start_runtime_autoboot.ps1`, `start_monday_runtime.ps1`도 실시간 수집기를 직접 시작할 수 있어 같은 휴장일 차단 조건을 적용했다.
+- 휴장일 자동 부팅 시뮬레이션 `start_runtime_autoboot.ps1 -SkipDashboard -SkipAccountRefresh -SkipRuntimeCleanup -SkipDashboardBuild -SkipWatchdog`: `market_session_status=holiday`, `live_runtime_should_run=false`, `live_runtime=stopped`
 - Python 설정, KIS 검증, runtime scope, 대시보드도 같은 휴장일 설정을 사용하도록 맞췄다.
 - 즉시 `stop_runtime_watchdog.ps1`와 `stop_live_runtime.ps1`를 실행해 휴장일 불필요한 WebSocket 재연결을 중지했다.
 - 부분 검증 `python -m unittest tests.test_settings tests.test_runtime_scope tests.test_kis_ws_verification`: `10 tests OK`
 - 전체 검증 `python -m unittest discover -s tests -p "test_*.py"`: `80 tests OK`
 - 실행 리포트 생성 `python -m app --build-runtime-report`: `ok`
 - 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`, `session_status=holiday`, `live_runtime=stopped`
-- PowerShell 파싱 검사: 휴장일 관련 5개 스크립트 모두 `parse ok`
+- PowerShell 파싱 검사: 휴장일 관련 5개 스크립트와 자동 시작 2개 스크립트 모두 `parse ok`
 - `scripts/get_live_runtime_status.ps1`: `current_session_status=holiday`, `status=stopped`
 
 - `2026-05-01 00시대` 전체 점검과 복구:

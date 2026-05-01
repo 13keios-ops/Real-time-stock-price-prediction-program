@@ -369,7 +369,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 .\scripts\remove_runtime_startup_launcher.ps1
 ```
 
-`start_runtime_autoboot.ps1` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다.
+`start_runtime_autoboot.ps1` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다. 장외나 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 실시간 수집기를 새로 켜지 않고 중지 상태로 맞춘다.
 여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
