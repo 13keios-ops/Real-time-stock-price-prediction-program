@@ -9,7 +9,7 @@
 
 ## 백업 정책
 
-1. 빠른 복구를 위해 전체 백업을 사용한다.
+1. 빠른 복구를 위해 전체 백업을 사용하되, root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일은 백업 패키지에서 제외한다.
 2. 최신 백업 패키지 3개만 보관한다.
 3. 정기 백업은 주 1회 실행한다.
 4. 릴리스, 큰 변경, 위험한 장비 작업 전에는 강제 백업을 실행한다.
@@ -23,7 +23,7 @@
 ## 백업 패키지 구성
 
 - `repository.bundle`: Git 이력과 참조
-- `repo-snapshot/`: 백업 시점의 전체 작업 트리 스냅샷
+- `repo-snapshot/`: 백업 시점의 작업 트리 스냅샷. 비밀값과 머신 로컬 토큰/로그는 제외된다.
 - `git-status.txt`: 백업 시점의 브랜치와 작업 트리 상태
 - `git-remote.txt`: 백업 시점의 원격 저장소 주소
 - `git-head.txt`: 백업 시점의 HEAD 커밋
@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check_local_setup.ps1
 
 1. GitHub 또는 `repository.bundle` 에서 저장소를 복구한다.
 2. 백업 시점의 작업 트리 상태가 필요하면 `repo-snapshot/` 을 덮어쓴다.
-3. 비밀정보, watcher 자산, 로컬 Codex 상태는 별도 복구 경로로 되살린다.
+3. 비밀정보, KIS 토큰 캐시, runtime 로그, watcher 자산, 로컬 Codex 상태는 별도 복구 경로로 되살린다.
 4. 무인 작업을 재개하기 전에 `scripts/check_local_setup.ps1` 를 실행한다.
 5. root `.env` 가 없으면 보이는 PowerShell 창에서 `scripts/restore_kis_env_interactive.ps1` 를 실행해 먼저 `paper` KIS app key/secret 을 입력하고 안전하게 저장한다.
 6. 계좌 항목도 나중에 필요하면 `scripts/restore_kis_env_interactive.ps1 -IncludeAccountFields` 를 다시 실행한다.

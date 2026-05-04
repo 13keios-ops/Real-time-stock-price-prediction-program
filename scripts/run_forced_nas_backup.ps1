@@ -11,6 +11,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# export_recovery_snapshot.ps1 always excludes root .env files, KIS token cache,
+# runtime logs, and private key file patterns from the NAS snapshot.
 $scriptRoot = if ($PSScriptRoot) {
     $PSScriptRoot
 }

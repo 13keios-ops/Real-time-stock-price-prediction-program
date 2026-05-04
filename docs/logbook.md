@@ -72,6 +72,18 @@
 
 ## 최신 검증 결과
 
+- `2026-05-04 15시대` 보안 점검:
+- git 추적 파일과 git 기록에서 실제 root `.env` 추적은 발견되지 않았고, `.env.example`만 추적 중인 것을 확인했다.
+- 로컬 `.env`는 존재하지만 `.gitignore`에 의해 ignore 처리되어 있다.
+- 대시보드 프로세스는 `127.0.0.1:8765`에만 바인딩되어 외부 인터페이스로 열려 있지 않다.
+- 치명 후보로 NAS 복구 스냅샷이 root `.env*`, `runtime-data/cache/kis/access_token.json`, runtime 로그를 포함할 수 있는 구조를 확인했다.
+- `scripts/export_recovery_snapshot.ps1`가 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 제외하도록 수정했다.
+- RECOVERY.md, README.md, AGENTS.md, 주간/강제 NAS 백업 wrapper에 비밀값 제외 백업 원칙을 반영했다.
+- 로컬 `.env`와 `runtime-data/cache/kis/paper/access_token.json`의 Windows ACL에서 일반 `Users`/`Authenticated Users` 상속 권한을 제거하고 현재 사용자, Administrators, SYSTEM만 접근하도록 좁혔다.
+- PowerShell 파싱 검사: NAS 백업 관련 4개 스크립트 모두 `parse ok`
+- 임시 로컬 백업 패키지 생성 검증: `.env`, `.env.local`, `runtime-data/cache/kis`, `runtime-data/logs`, `access_token.json`, private key 패턴 파일 모두 스냅샷에 없음
+- 공백 오류 검사 `git diff --check`: `ok`
+
 - `2026-05-01 10시대` 휴장일 전체 점검:
 - 오늘 `2026-05-01`은 휴장일로 운용해야 하므로 `config/market_calendar.toml`의 `holidays`에 추가했다.
 - 기존 PowerShell 장 상태 계산이 주말과 시간만 보고 오늘을 `regular-session`으로 오판해 watchdog 이 live runtime 을 재기동한 것을 확인했다.

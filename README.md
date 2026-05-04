@@ -516,6 +516,7 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
 - NAS 공유 루트: \\192.168.0.2\backup
 - 저장소 백업 경로: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
 - 백업은 전체 백업만 사용하고, 최신 3개 패키지를 보관한다.
+- 백업 스냅샷은 root `.env*`, KIS 토큰 캐시(`runtime-data/cache/kis`), runtime 로그(`runtime-data/logs`), private key 계열 파일을 제외한다.
 - 정기 백업 주기는 주 1회다.
 - 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
 

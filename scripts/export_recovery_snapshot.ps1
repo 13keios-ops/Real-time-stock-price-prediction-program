@@ -99,6 +99,21 @@ function Test-IsDestinationAncestor {
     return $destination.StartsWith($candidate + "\", [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Test-IsPathInside {
+    param(
+        [string]$ParentPath,
+        [string]$ChildPath
+    )
+
+    $parent = $ParentPath.TrimEnd('\')
+    $child = $ChildPath.TrimEnd('\')
+    if ($child.Equals($parent, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+
+    return $child.StartsWith($parent + "\", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 function Convert-ToSlug {
     param(
         [string]$Value
@@ -163,7 +178,33 @@ function Copy-RecoveryItem {
         $targetPath = Join-Path $SnapshotRoot $Item.Name
         New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
 
-        & robocopy $Item.FullName $targetPath /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        $robocopyArguments = @(
+            $Item.FullName,
+            $targetPath,
+            "/E",
+            "/R:1",
+            "/W:1",
+            "/NFL",
+            "/NDL",
+            "/NJH",
+            "/NJS",
+            "/NP"
+        )
+
+        $directoryExclusions = @($script:excludedDirectoryPaths | Where-Object {
+                Test-IsPathInside -ParentPath $Item.FullName -ChildPath $_
+            })
+        if ($directoryExclusions.Count -gt 0) {
+            $robocopyArguments += "/XD"
+            $robocopyArguments += $directoryExclusions
+        }
+
+        if ($script:excludedFileNames.Count -gt 0) {
+            $robocopyArguments += "/XF"
+            $robocopyArguments += $script:excludedFileNames
+        }
+
+        & robocopy @robocopyArguments | Out-Null
         if ($LASTEXITCODE -gt 7) {
             throw "robocopy failed for $($Item.FullName) with exit code $LASTEXITCODE."
         }
@@ -202,13 +243,27 @@ $headCommit = ([string](Invoke-Git -Arguments @("rev-parse", "HEAD") | Select-Ob
 $remoteOrigin = ([string](Invoke-Git -Arguments @("config", "--get", "remote.origin.url") -AllowFailure | Select-Object -First 1)).Trim()
 $statusLines = Invoke-Git -Arguments @("status", "--short", "--branch")
 
-$excludedNames = @(".git")
+$excludedNames = @(".git", ".env", ".env.local", ".tmp-tests")
 if (-not $IncludeArtifacts) {
     $excludedNames += ".codex-artifacts"
 }
+$excludedFileNames = @("access_token.json", "*.token", "*.secret", "*.pem", "*.p12", "*.pfx", "*.key")
+$excludedRelativeDirectories = @(
+    "runtime-data\cache\kis",
+    "runtime-data\logs"
+)
+$script:excludedFileNames = $excludedFileNames
+$script:excludedDirectoryPaths = @($excludedRelativeDirectories | ForEach-Object {
+        Join-Path $RepoRoot $_
+    } | Where-Object {
+        Test-Path -LiteralPath $_
+    })
 
 $itemsToCopy = Get-ChildItem -LiteralPath $RepoRoot -Force | Where-Object {
     if ($excludedNames -contains $_.Name) {
+        return $false
+    }
+    if ($_.Name -like ".env.*" -and $_.Name -ne ".env.example") {
         return $false
     }
 
@@ -226,6 +281,13 @@ if ($DryRun) {
     if ($BackupReason) {
         Write-Host "Backup reason: $BackupReason"
     }
+    Write-Host "Sensitive root items excluded:"
+    $excludedNames | ForEach-Object { Write-Host "- $_" }
+    Write-Host "- .env.* except .env.example"
+    Write-Host "Sensitive nested directories excluded:"
+    $excludedRelativeDirectories | ForEach-Object { Write-Host "- $_" }
+    Write-Host "Sensitive file patterns excluded:"
+    $excludedFileNames | ForEach-Object { Write-Host "- $_" }
     Write-Host "Items that would be copied:"
     $itemsToCopy | ForEach-Object { Write-Host "- $($_.Name)" }
     if ($KeepCount -gt 0) {
@@ -261,7 +323,7 @@ $restoreNotes = @(
     "Restore order:",
     "1. Clone from GitHub or restore from repository.bundle.",
     "2. Overlay repo-snapshot if you need the exported working-tree state.",
-    "3. Restore external secrets, watcher assets, and Codex local state through their separate recovery path.",
+    "3. Restore external secrets, KIS token cache, runtime logs, watcher assets, and Codex local state through their separate recovery path.",
     "4. Run scripts/check_local_setup.ps1 before resuming unattended work."
 ) -join [Environment]::NewLine
 
@@ -289,6 +351,10 @@ $metadata = [ordered]@{
     retention_keep_count = $KeepCount
     backup_mode = $BackupMode
     backup_reason = if ($BackupReason) { $BackupReason } else { $null }
+    excluded_root_names = $excludedNames
+    excluded_root_patterns = @(".env.* except .env.example")
+    excluded_file_names = $excludedFileNames
+    excluded_relative_directories = $excludedRelativeDirectories
     pruned_package_paths = $prunedPackagePaths
     git = [ordered]@{
         branch = $branch
@@ -298,7 +364,7 @@ $metadata = [ordered]@{
     notes = @(
         "repository.bundle preserves Git history and refs.",
         "repo-snapshot preserves the exported working tree outside .git.",
-        "External secrets and machine-local assets are not included automatically; see RECOVERY.md."
+        "Root .env files, KIS token cache, runtime logs, private keys, and other machine-local secrets are excluded; see RECOVERY.md."
     )
 }
 

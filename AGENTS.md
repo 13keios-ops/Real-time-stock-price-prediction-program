@@ -197,7 +197,8 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ## NAS 백업 운영
 
 - 이 저장소는 NAS 전체 백업 복구 패키지를 사용한다.
-- 기본 정책은 전체 백업, 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
+- 기본 정책은 비밀값 제외 전체 백업, 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
+- 백업 패키지는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다.
 - 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
 - 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
 
