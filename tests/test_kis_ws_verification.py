@@ -19,7 +19,7 @@ class KisWebSocketVerificationTests(unittest.TestCase):
 
         session_status, market_data_expected, status_note = _market_session_context(
             settings,
-            datetime.fromisoformat("2026-05-01T10:00:00+09:00"),
+            datetime.fromisoformat("2026-05-05T10:00:00+09:00"),
         )
 
         self.assertEqual(session_status, "holiday")

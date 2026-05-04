@@ -2,7 +2,7 @@
 
 ## 현재 스냅샷
 
-- 날짜: `2026-04-30`
+- 날짜: `2026-05-05`
 - 현재 버전: `0.2.0`
 - 최근 릴리스 커밋: `8f601ba`
 - 감시기 방식: `VERSION` 변경 감지
@@ -22,12 +22,14 @@
 - 로컬 대시보드는 `http://127.0.0.1:8765` 에서 실행되며, 기본 자동 새로고침 주기는 10분이다.
 - 대시보드는 기본 화면과 `/api/dashboard.json` 에서 최신 캐시 스냅샷을 우선 사용하고, 수동 갱신과 자동 새로고침 때 `/api/refresh` 로 다시 생성한다.
 - 대시보드는 실제 운용 데이터만 기본 표시하고 `sample`, `synthetic`, `demo`, 재생 전용 행, 정규장 밖 스냅샷 분봉을 제외한다.
+- 대시보드는 원시 체결/호가 행 전체를 메모리에 올리지 않고 분 단위 집계 카운트로 요약해 생성 시간을 줄인다.
 - 예측 상세 탭은 선택 기간의 전체 예측을 보여준다.
 - 장마감 뒤 같은 거래일의 후속 분봉이 더 생길 수 없는 예측은 `대기 중`이 아니라 `결과 없음`으로 닫는다.
 - 로컬 가상 계좌와 KIS 모의계좌는 시작 예수금 동기화와 브로커 기준 정렬을 통해 비교한다.
 - KIS 모의계좌 상품코드는 화면에 없으면 `.env` 에 빈 값으로 두고, 앱 내부에서 모의투자 기본값을 적용한다.
 - 브로커 모의계좌 주문 미러링은 `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 켜진다.
 - 브로커 주문/체결 조회가 KIS 호출 제한에 걸리면 재시도하고, 계속 막히면 안전하게 `rate_limited` 리포트를 남긴다.
+- 실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, KIS rate-limit 발생 뒤 5분 냉각 시간을 둔다.
 - 실행 감시기와 자동 시작 스크립트는 정규장에는 대시보드와 실시간 수집기를 복구하고, 장외와 설정된 휴장일에는 실시간 수집기를 다시 켜지 않아 CPU 재연결 루프를 줄인다.
 - 정규장 시작 60분 전부터는 장전 준비 단계로 실시간 수집기를 미리 켠다.
 - PC 로그인 후 자동 복구용 실행 자동시작과 시작프로그램 실행기가 준비되어 있다.
@@ -71,6 +73,24 @@
 - `runtime-data/autopush/git-autopush-state.json`
 
 ## 최신 검증 결과
+
+- `2026-05-05 01시대` 저장소 점검과 개선:
+- 현재 시각 `2026-05-05 01:47 +09:00` 기준 dashboard 는 `127.0.0.1:8765` 로 정상 응답했고, runtime watchdog 은 `running`, `heartbeat_stale=false` 였다.
+- 실시간 수집기는 `pre-open` 장전 준비 시작 전이라 `stopped` 가 정상 상태였고, `check_local_setup.ps1 -AsJson` 은 `ok=true`, KIS paper 자격정보와 LightGBM 사용 가능 상태를 확인했다.
+- 문제점: `config/market_calendar.toml`이 2026-05-05 어린이날 휴장을 몰라 현재 장 상태를 `pre-open`으로 계산했다. 이 상태면 08:00 이후 감시기가 불필요하게 실시간 수집기를 시작할 수 있다.
+- 조치: 2026년 KRX 전일 휴장일을 `holidays`에 확장해 2026-05-05와 연말 휴장 등을 반영했다.
+- 문제점: 전일 live runtime 로그에서 KIS 브로커 모의계좌 체결 조회가 주문 제출 직후 반복 실행되어 `EGW00201` rate-limit 재시도가 다수 발생했다.
+- 조치: 실시간 브로커 체결 동기화를 분당 1회로 제한하고, rate-limit 발생 시 5분 냉각 시간을 두도록 변경했다. 주문 제출 직후 강제 체결 조회는 제거하고 다음 분 단위 동기화에서 반영한다.
+- 문제점: 대시보드 수동 생성이 원시 체결/호가 대량 행을 여러 번 메모리에 올려 120초 제한 안에 끝나지 않았고, 기존 대시보드 서버 `/api/refresh`도 watchdog timeout 경고를 낼 수 있었다.
+- 조치: runtime scope 에 원시 체결/호가 분 단위 카운트를 보관하고 대시보드는 이 집계값을 사용하도록 바꿔 원시 행 전체 로딩을 제거했다.
+- 부분 검증 `python -m unittest tests.test_dashboard tests.test_runtime_scope`: `14 tests OK`
+- 브로커 동기화 관련 부분 검증 `python -m unittest tests.test_settings tests.test_kis_ws_verification tests.test_streaming_pipeline tests.test_broker_paper_sync`: `20 tests OK`
+- 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `81 tests OK`
+- 공백 오류 검사 `git diff --check`: `ok`
+- 대시보드 생성 시간 재측정 `python -m app --build-dashboard`: `ok`, `23.27초`
+- 새 대시보드 서버 `/api/refresh`: `ok`, `19.41초`
+- 대시보드 서버 재시작 뒤 상태: `running`, `http://127.0.0.1:8765`, 실시간 수집기 `stopped`, 장 상태 `holiday`
+- 실행 감시기 상태: `running`, `heartbeat_stale=false`, `market_session_status=holiday`, `live_runtime_should_run=false`, `live_runtime_action=off_session_hold_holiday`
 
 - `2026-05-04 17시대` 동작 구조 점검과 감시기 보강:
 - 저장소 목적 대비 구조는 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting` 흐름으로 맞게 분리되어 있고, 기본 운용도 `paper` 검증 중심으로 유지 중이다.

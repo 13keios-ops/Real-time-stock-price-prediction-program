@@ -805,6 +805,23 @@ class SQLiteRuntimeStore:
         rows = self._run_safe_read_query(query, missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
+    def fetch_raw_symbol_minute_source_counts(self, table_name: str) -> list[sqlite3.Row]:
+        if table_name not in {"raw_market_ticks", "raw_orderbook_ticks"}:
+            raise ValueError(f"Unsupported raw table for minute counts: {table_name}")
+        query = f"""
+            SELECT
+                symbol,
+                substr(event_time, 1, 16) AS minute_key,
+                lower(source) AS source,
+                MIN(event_time) AS sample_time,
+                COUNT(*) AS row_count
+            FROM {table_name}
+            GROUP BY symbol, minute_key, lower(source)
+            ORDER BY symbol, minute_key
+        """
+        rows = self._run_safe_read_query(query, missing_tables=(table_name,))
+        return list(rows) if isinstance(rows, list) else []
+
     def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT ?"
         rows = self._run_safe_read_query(query, (limit,), missing_tables=(table_name,))

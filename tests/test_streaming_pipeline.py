@@ -169,24 +169,27 @@ class StreamingPipelineTests(unittest.TestCase):
                 broker_branch_no="00111",
                 detail={"message": "ok"},
             )
+            def fake_sync_result(*args, **kwargs):
+                return BrokerPaperSyncResult(
+                    ok=True,
+                    synced_at="2026-04-13T10:16:00+09:00",
+                    status="no_submissions",
+                    total_submissions=0,
+                    matched_orders=0,
+                    updated_orders=0,
+                    applied_fill_events=0,
+                    applied_fill_qty=0,
+                    open_order_count=0,
+                    final_order_count=0,
+                    pending_symbols=[],
+                    report_markdown_path=runtime_root / "sync.md",
+                    report_json_path=runtime_root / "sync.json",
+                )
+
             with patch("app.services.streaming.BrokerPaperMirror.submit_local_order", return_value=fake_submission):
                 with patch(
                     "app.services.streaming.BrokerPaperExecutionSync.sync_recent_orders",
-                    return_value=BrokerPaperSyncResult(
-                        ok=True,
-                        synced_at="2026-04-13T10:16:00+09:00",
-                        status="ok",
-                        total_submissions=1,
-                        matched_orders=0,
-                        updated_orders=0,
-                        applied_fill_events=0,
-                        applied_fill_qty=0,
-                        open_order_count=1,
-                        final_order_count=0,
-                        pending_symbols=["005930"],
-                        report_markdown_path=runtime_root / "sync.md",
-                        report_json_path=runtime_root / "sync.json",
-                    ),
+                    side_effect=fake_sync_result,
                 ):
                     result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
                     sqlite_store = get_sqlite_store(settings)
@@ -194,6 +197,58 @@ class StreamingPipelineTests(unittest.TestCase):
         self.assertIsNotNone(sqlite_store)
         self.assertGreaterEqual(result.orders_written, 1)
         self.assertEqual(sqlite_store.count_rows("broker_paper_order_submissions"), 1)
+
+    def test_broker_sync_rate_limit_cooldown_skips_until_window_elapsed(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-broker-sync-cooldown" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+
+        class FakeBrokerSync:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def sync_recent_orders(self) -> BrokerPaperSyncResult:
+                self.calls += 1
+                status = "rate_limited" if self.calls == 1 else "ok"
+                return BrokerPaperSyncResult(
+                    ok=status == "ok",
+                    synced_at="2026-04-13T10:16:00+09:00",
+                    status=status,
+                    total_submissions=1,
+                    matched_orders=0,
+                    updated_orders=0,
+                    applied_fill_events=0,
+                    applied_fill_qty=0,
+                    open_order_count=1,
+                    final_order_count=0,
+                    pending_symbols=["005930"],
+                    report_markdown_path=runtime_root / "sync.md",
+                    report_json_path=runtime_root / "sync.json",
+                    error="rate limit" if status == "rate_limited" else None,
+                )
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            processor = OnlinePipelineProcessor(settings)
+            fake_sync = FakeBrokerSync()
+            processor.broker_paper_sync = fake_sync
+
+            first_time = datetime.fromisoformat("2026-04-13T10:15:30+09:00")
+            processor._run_broker_sync(bar_time=first_time)
+            processor._run_broker_sync(bar_time=first_time.replace(minute=16))
+            processor._run_broker_sync(bar_time=first_time.replace(minute=20))
+
+        self.assertEqual(fake_sync.calls, 2)
 
 
 if __name__ == "__main__":

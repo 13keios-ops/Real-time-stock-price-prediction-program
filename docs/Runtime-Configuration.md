@@ -24,3 +24,4 @@
 - tracked repo에는 실제 비밀값을 넣지 않는다.
 - 기본 실행 모드는 paper 중심으로 둔다.
 - live 주문 관련 스위치는 명시적으로 꺼둔다.
+- `config/market_calendar.toml`의 `holidays`는 감시기, 자동 시작, KIS 검증, 대시보드 장 상태 판단에 같이 쓰이므로 전일 휴장일 누락 여부를 장 시작 전 확인한다.

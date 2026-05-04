@@ -97,6 +97,7 @@ class RuntimeScopeTests(unittest.TestCase):
         self.assertIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
         self.assertNotIn(("005930", "2026-04-12T16:44"), scope.actual_symbol_minutes)
         self.assertNotIn(("005930", "2026-05-01T10:43"), scope.actual_symbol_minutes)
+        self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"][("005930", "2026-04-13T10:43")], 1)
         self.assertEqual([row["bar_time"] for row in filtered_rows], ["2026-04-13T10:43:00+09:00"])
 
 

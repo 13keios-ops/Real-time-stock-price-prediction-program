@@ -137,6 +137,22 @@ def _filtered_rows(sqlite_store, table_name: str, order_by: str, scope) -> list[
     return filter_actual_rows(table_name, rows, scope)
 
 
+def _raw_count_from_scope(scope, table_name: str, period_filter: DashboardPeriodFilter | None = None) -> int:
+    counts_by_minute = getattr(scope, "actual_raw_counts_by_table", {}).get(table_name, {})
+    if period_filter is None or period_filter.start_at is None or period_filter.end_at is None:
+        return int(sum(counts_by_minute.values()))
+    total = 0
+    for (_, minute_text), count in counts_by_minute.items():
+        minute_time = _parse_iso_datetime(f"{minute_text}:00")
+        if minute_time is None:
+            continue
+        if minute_time.tzinfo is None and period_filter.start_at.tzinfo is not None:
+            minute_time = minute_time.replace(tzinfo=period_filter.start_at.tzinfo)
+        if period_filter.start_at <= minute_time < period_filter.end_at:
+            total += int(count)
+    return total
+
+
 def _read_version(project_root: Path) -> str:
     version_path = project_root / "VERSION"
     try:
@@ -263,8 +279,8 @@ def _reverse_recent(rows: list[dict[str, Any]], limit: int) -> list[dict[str, An
 def _summarize_runtime(sqlite_store, scope) -> dict[str, int]:
     evaluation_rows = [dict(row) for row in sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")]
     return {
-        "raw_market_ticks": len(_filtered_rows(sqlite_store, "raw_market_ticks", "event_time", scope)),
-        "raw_orderbook_ticks": len(_filtered_rows(sqlite_store, "raw_orderbook_ticks", "event_time", scope)),
+        "raw_market_ticks": _raw_count_from_scope(scope, "raw_market_ticks"),
+        "raw_orderbook_ticks": _raw_count_from_scope(scope, "raw_orderbook_ticks"),
         "minute_bars": len(_filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)),
         "feature_rows": len(_filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope)),
         "labels": len(_filtered_rows(sqlite_store, "feature_labels", "event_time", scope)),
@@ -1340,8 +1356,6 @@ def collect_dashboard_payload(
     symbol_names = load_symbol_names(project_root)
     runtime_summary_all = _summarize_runtime(sqlite_store, scope)
 
-    raw_market_rows_all = _filtered_rows(sqlite_store, "raw_market_ticks", "event_time", scope)
-    raw_orderbook_rows_all = _filtered_rows(sqlite_store, "raw_orderbook_ticks", "event_time", scope)
     minute_bar_rows_all = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)
     feature_rows_all = _filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope)
     feature_label_rows_all = _filtered_rows(sqlite_store, "feature_labels", "event_time", scope)
@@ -1382,8 +1396,8 @@ def collect_dashboard_payload(
         selected_date_text=now_local(settings.timezone).date().isoformat(),
     )
 
-    raw_market_rows = _filter_rows_by_period(raw_market_rows_all, period_filter, "event_time")
-    raw_orderbook_rows = _filter_rows_by_period(raw_orderbook_rows_all, period_filter, "event_time")
+    raw_market_count = _raw_count_from_scope(scope, "raw_market_ticks", period_filter)
+    raw_orderbook_count = _raw_count_from_scope(scope, "raw_orderbook_ticks", period_filter)
     minute_bar_rows = _filter_rows_by_period(minute_bar_rows_all, period_filter, "bar_time")
     feature_rows = _filter_rows_by_period(feature_rows_all, period_filter, "event_time")
     feature_label_rows = _filter_rows_by_period(feature_label_rows_all, period_filter, "event_time")
@@ -1409,8 +1423,8 @@ def collect_dashboard_payload(
     )
 
     runtime_summary = _summarize_runtime_from_rows(
-        raw_market_ticks=raw_market_rows,
-        raw_orderbook_ticks=raw_orderbook_rows,
+        raw_market_ticks=[],
+        raw_orderbook_ticks=[],
         minute_bars=minute_bar_rows,
         feature_rows=feature_rows,
         labels=feature_label_rows,
@@ -1424,6 +1438,8 @@ def collect_dashboard_payload(
         training_rows=training_rows,
         evaluation_rows=evaluation_rows,
     )
+    runtime_summary["raw_market_ticks"] = raw_market_count
+    runtime_summary["raw_orderbook_ticks"] = raw_orderbook_count
 
     active_registry = ModelRegistry(settings.runtime_data_dir).load()
     latest_training = training_rows_all[-1] if training_rows_all else None

@@ -8,6 +8,7 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 
 from app.brokers.kis_auth import KisTokenManager, get_active_kis_profile
@@ -45,6 +46,7 @@ from app.utils.time import now_local, parse_hhmm
 
 
 LOGGER = logging.getLogger(__name__)
+BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES = 5
 
 
 @dataclass(slots=True)
@@ -148,6 +150,7 @@ class OnlinePipelineProcessor:
         self.pending_order_symbols: set[str] = set()
         self.pending_buy_symbols: set[str] = set()
         self._last_broker_sync_minute: datetime | None = None
+        self._broker_sync_pause_until: datetime | None = None
         self._restore_pending_order_state()
 
     def _build_live_id_namespace(self) -> str:
@@ -232,6 +235,8 @@ class OnlinePipelineProcessor:
         if self.broker_paper_sync is None:
             return
         sync_minute = self._minute_floor(bar_time)
+        if not force and self._broker_sync_pause_until is not None and sync_minute < self._broker_sync_pause_until:
+            return
         if not force and self._last_broker_sync_minute == sync_minute:
             return
         result = self.broker_paper_sync.sync_recent_orders()
@@ -242,6 +247,10 @@ class OnlinePipelineProcessor:
             if symbol not in self.portfolio_book.positions or self.portfolio_book.positions[symbol].qty <= 0
         }
         self._last_broker_sync_minute = sync_minute
+        if result.status == "rate_limited":
+            self._broker_sync_pause_until = sync_minute + timedelta(minutes=BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES)
+        else:
+            self._broker_sync_pause_until = None
 
     def _next_id(self, prefix: str) -> str:
         self._sequence += 1
@@ -319,6 +328,7 @@ class OnlinePipelineProcessor:
 
         bar = aggregate_ticks_to_minute_bar(state.symbol, state.ticks)
         self.portfolio_book.mark_price(state.symbol, bar.close)
+        self._run_broker_sync(bar_time=bar.bar_time)
         close_reason = self._maybe_close_position(state.symbol, bar.close, bar.bar_time)
         features = build_feature_snapshot(bar, state.latest_orderbook, self.settings.feature_set_version)
         predictions = []
@@ -382,7 +392,6 @@ class OnlinePipelineProcessor:
                             detail=f"broker_order_no={submission.broker_order_no};branch={submission.broker_branch_no}",
                         )
                     )
-                    self._run_broker_sync(bar_time=bar.bar_time, force=True)
                 else:
                     order.status = "rejected"
                     self.writer.write_paper_order(order)
@@ -464,7 +473,6 @@ class OnlinePipelineProcessor:
                 order.status = "submitted"
                 self.pending_order_symbols.add(symbol)
                 self.writer.write_paper_order(order)
-                self._run_broker_sync(bar_time=event_time, force=True)
             else:
                 order.status = "rejected"
                 self.writer.write_paper_order(order)

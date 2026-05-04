@@ -32,6 +32,7 @@ class RuntimeScope:
     actual_order_ids: set[str]
     actual_snapshot_ids: set[str]
     actual_position_symbols: set[str]
+    actual_raw_counts_by_table: dict[str, dict[tuple[str, str], int]]
 
 
 def _is_regular_session_timestamp(timestamp_text: str | None, settings: AppSettings) -> bool:
@@ -45,17 +46,23 @@ def _is_regular_session_timestamp(timestamp_text: str | None, settings: AppSetti
 
 
 def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings) -> RuntimeScope:
-    raw_market_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_market_ticks", "event_time")]
-    raw_orderbook_rows = [dict(row) for row in sqlite_store.fetch_all_rows("raw_orderbook_ticks", "event_time")]
     symbol_minute_sources: dict[tuple[str, str], set[str]] = {}
-    for row in [*raw_market_rows, *raw_orderbook_rows]:
-        if not _is_regular_session_timestamp(str(row.get("event_time", "")), settings):
-            continue
-        minute = minute_key(row.get("event_time"))
-        if minute is None:
-            continue
-        key = (str(row["symbol"]), minute)
-        symbol_minute_sources.setdefault(key, set()).add(str(row.get("source", "")).lower())
+    raw_counts_by_table: dict[str, dict[tuple[str, str], int]] = {
+        "raw_market_ticks": {},
+        "raw_orderbook_ticks": {},
+    }
+    for table_name in ("raw_market_ticks", "raw_orderbook_ticks"):
+        for raw_row in sqlite_store.fetch_raw_symbol_minute_source_counts(table_name):
+            row = dict(raw_row)
+            if not _is_regular_session_timestamp(str(row.get("sample_time", "")), settings):
+                continue
+            minute = str(row.get("minute_key") or "")
+            if not minute:
+                continue
+            key = (str(row["symbol"]), minute)
+            source = str(row.get("source", "")).lower()
+            symbol_minute_sources.setdefault(key, set()).add(source)
+            raw_counts_by_table[table_name][key] = raw_counts_by_table[table_name].get(key, 0) + int(row.get("row_count", 0) or 0)
 
     actual_symbol_minutes = {
         key
@@ -63,6 +70,14 @@ def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings)
         if sources and sources.issubset(ACTUAL_RAW_SOURCES)
     }
     actual_global_minutes = {minute for _, minute in actual_symbol_minutes}
+    actual_raw_counts_by_table = {
+        table_name: {
+            key: count
+            for key, count in table_counts.items()
+            if key in actual_symbol_minutes
+        }
+        for table_name, table_counts in raw_counts_by_table.items()
+    }
 
     actual_orders = [
         dict(row)
@@ -96,6 +111,7 @@ def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings)
         actual_order_ids=actual_order_ids,
         actual_snapshot_ids=actual_snapshot_ids,
         actual_position_symbols=actual_position_symbols,
+        actual_raw_counts_by_table=actual_raw_counts_by_table,
     )
 
 
