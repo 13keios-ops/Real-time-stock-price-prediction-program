@@ -3,7 +3,10 @@ param(
     [string]$WorkspaceRoot = (Split-Path -Parent $PSScriptRoot),
 
     [Parameter(Mandatory = $false)]
-    [string]$RuntimeDataDir = ""
+    [string]$RuntimeDataDir = "",
+
+    [Parameter(Mandatory = $false)]
+    [int]$HeartbeatStaleAfterSeconds = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,15 +35,49 @@ if ($state.pid) {
     $processRunning = $null -ne (Get-PowerShellScriptProcessRecord -ProcessId ([int]$state.pid) -ScriptPath $watchdogScriptPath)
 }
 
+$intervalSeconds = if ($state.interval_seconds) { [int]$state.interval_seconds } else { 60 }
+$effectiveHeartbeatStaleAfterSeconds = if ($HeartbeatStaleAfterSeconds -gt 0) {
+    $HeartbeatStaleAfterSeconds
+} else {
+    [Math]::Max($intervalSeconds * 10, 600)
+}
+
+$heartbeatAgeSeconds = $null
+$heartbeatStale = $false
+$heartbeatCheckedAt = $null
+if ($state.last_checked_at) {
+    try {
+        $heartbeatCheckedAt = [DateTimeOffset]::Parse([string]$state.last_checked_at)
+        $heartbeatAgeSeconds = [Math]::Round(([DateTimeOffset]::Now - $heartbeatCheckedAt).TotalSeconds, 1)
+        $heartbeatStale = $processRunning -and ($heartbeatAgeSeconds -gt $effectiveHeartbeatStaleAfterSeconds)
+    } catch {
+        $heartbeatStale = $processRunning
+    }
+} elseif ($state.started_at) {
+    try {
+        $heartbeatCheckedAt = [DateTimeOffset]::Parse([string]$state.started_at)
+        $heartbeatAgeSeconds = [Math]::Round(([DateTimeOffset]::Now - $heartbeatCheckedAt).TotalSeconds, 1)
+        $heartbeatStale = $processRunning -and ($heartbeatAgeSeconds -gt $effectiveHeartbeatStaleAfterSeconds)
+    } catch {
+        $heartbeatStale = $processRunning
+    }
+}
+
 $effectiveStatus = [string]$state.status
 if ((@("starting", "running", "warning") -contains $effectiveStatus) -and (-not $processRunning)) {
     $effectiveStatus = "stale"
 }
+if ((@("starting", "running", "warning") -contains $effectiveStatus) -and $heartbeatStale) {
+    $effectiveStatus = "stale"
+}
 
 [ordered]@{
-    status = if ($processRunning -and $effectiveStatus -eq "stale") { "running" } else { $effectiveStatus }
+    status = $effectiveStatus
     pid = $state.pid
     process_running = $processRunning
+    heartbeat_stale = $heartbeatStale
+    heartbeat_age_seconds = $heartbeatAgeSeconds
+    heartbeat_stale_after_seconds = $effectiveHeartbeatStaleAfterSeconds
     workspace_root = $state.workspace_root
     runtime_data_dir = $state.runtime_data_dir
     dashboard_host = $state.dashboard_host
@@ -55,6 +92,7 @@ if ((@("starting", "running", "warning") -contains $effectiveStatus) -and (-not 
     dashboard_action = $state.dashboard_action
     dashboard_snapshot_action = $state.dashboard_snapshot_action
     live_runtime_action = $state.live_runtime_action
+    ml_maintenance_action = $state.ml_maintenance_action
     dashboard_status = $state.dashboard_status
     live_runtime_status = $state.live_runtime_status
     stdout_log_path = $state.stdout_log_path

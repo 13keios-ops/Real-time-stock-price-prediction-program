@@ -441,6 +441,12 @@ while ($true) {
         "missing"
     }
     $liveRuntimeRecentlyStarted = Test-LiveRuntimeRecentlyStarted -LiveRuntimeStatus $liveRuntimeStatus
+    $liveRuntimeProvidesFreshMarketData = (
+        ($null -ne $liveRuntimeStatus) -and
+        ([string]$liveRuntimeStatus.status -eq "running") -and
+        ($currentSessionStatus -eq "regular-session") -and
+        ($marketBarState -eq "fresh")
+    )
 
     if (
         ($null -ne $liveRuntimeStatus) -and
@@ -455,6 +461,7 @@ while ($true) {
     if (
         ($currentSessionStatus -eq "regular-session") -and
         (-not $needsLiveRuntimeRecovery) -and
+        (-not $liveRuntimeProvidesFreshMarketData) -and
         (
             ($null -eq $latestVerification) -or
             (@("stale", "missing") -contains $verificationState)
@@ -510,6 +517,19 @@ while ($true) {
 
     if ((-not $maintenanceInProgress) -and $isWeekday -and $afterClose -and -not $mlMaintenanceAlreadyRan) {
         try {
+            $mlMaintenanceAction = "post_close_ml_rebuild_starting"
+            Write-WatchdogState `
+                -Status "running" `
+                -DashboardAction $dashboardAction `
+                -DashboardSnapshotAction $dashboardSnapshotAction `
+                -LiveRuntimeAction $liveRuntimeAction `
+                -MlMaintenanceAction $mlMaintenanceAction `
+                -Errors $errors `
+                -DashboardStatus $dashboardStatus `
+                -LiveRuntimeStatus $liveRuntimeStatus `
+                -MarketSessionStatus $currentSessionStatus `
+                -LiveRuntimeShouldRun $liveRuntimeShouldRun
+
             Invoke-PowerShellScriptIsolated `
                 -ScriptPath (Join-Path $WorkspaceRoot "scripts\run_post_close_ml_maintenance.ps1") `
                 -Arguments @(

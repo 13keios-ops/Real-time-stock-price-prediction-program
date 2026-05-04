@@ -82,6 +82,8 @@
 - post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
 - post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 pre-open warmup 으로 live runtime 을 미리 켠다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
+- runtime watchdog 상태 조회는 프로세스 존재뿐 아니라 `last_checked_at` 심박 나이도 확인한다. 기본 10분 이상 심박이 멈추면 `stale` 로 보고, 시작 스크립트는 같은 watchdog 프로세스를 재사용하지 않고 재시작한다.
+- 정규장에 live runtime 이 이미 최신 분봉을 쓰고 있으면 watchdog 은 별도 KIS 검증 WebSocket 을 중복으로 열지 않고, live runtime 의 실제 데이터 흐름을 우선 신뢰한다.
 - `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
 - dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
@@ -358,6 +360,8 @@ runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살�
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 watchdog 은 dashboard `/api/refresh` 로 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 정규장 `missing/stale` 분봉 상태를 복구한다.
+watchdog 상태 조회는 `last_checked_at` 기준 심박 나이를 함께 표시한다. 프로세스가 살아 있어도 기본 10분 이상 심박이 갱신되지 않으면 `stale` 로 보고, `start_runtime_watchdog_background.ps1` 는 해당 stale 프로세스를 재시작한다.
+정규장에 live runtime 이 실행 중이고 최신 분봉 상태가 `fresh` 이면 별도 KIS verification WebSocket 을 중복으로 열지 않는다.
 대시보드 snapshot 전체 재생성은 기본 10분 간격으로 제한하고, 실시간 지연 판단은 우선 live runtime 상태값을 사용해 CPU를 계속 쓰는 refresh 루프를 줄인다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:

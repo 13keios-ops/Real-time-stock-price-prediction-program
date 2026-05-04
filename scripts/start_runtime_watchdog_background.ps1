@@ -21,6 +21,9 @@ param(
     [int]$PreOpenWarmupMinutes = 60,
 
     [Parameter(Mandatory = $false)]
+    [int]$HeartbeatStaleAfterSeconds = 0,
+
+    [Parameter(Mandatory = $false)]
     [switch]$ForceRestart
 )
 
@@ -50,15 +53,55 @@ function Quote-PowerShellLiteral {
     return "'" + ($Value -replace "'", "''") + "'"
 }
 
+function Get-WatchdogHeartbeatInfo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$ProcessRunning
+    )
+
+    $intervalSeconds = if ($State.interval_seconds) { [int]$State.interval_seconds } else { 60 }
+    $staleAfterSeconds = if ($HeartbeatStaleAfterSeconds -gt 0) {
+        $HeartbeatStaleAfterSeconds
+    } else {
+        [Math]::Max($intervalSeconds * 10, 600)
+    }
+    $ageSeconds = $null
+    $stale = $false
+    $timestampText = if ($State.last_checked_at) { [string]$State.last_checked_at } else { [string]$State.started_at }
+
+    if (-not [string]::IsNullOrWhiteSpace($timestampText)) {
+        try {
+            $checkedAt = [DateTimeOffset]::Parse($timestampText)
+            $ageSeconds = [Math]::Round(([DateTimeOffset]::Now - $checkedAt).TotalSeconds, 1)
+            $stale = $ProcessRunning -and ($ageSeconds -gt $staleAfterSeconds)
+        } catch {
+            $stale = $ProcessRunning
+        }
+    }
+
+    [pscustomobject]@{
+        stale = $stale
+        age_seconds = $ageSeconds
+        stale_after_seconds = $staleAfterSeconds
+    }
+}
+
 if (Test-Path -LiteralPath $statePath) {
     $existingState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     if ($existingState.pid) {
         $existingProcess = Get-PowerShellScriptProcessRecord -ProcessId ([int]$existingState.pid) -ScriptPath $scriptPath
-        if ($null -ne $existingProcess -and -not $ForceRestart) {
+        $heartbeatInfo = Get-WatchdogHeartbeatInfo -State $existingState -ProcessRunning ($null -ne $existingProcess)
+        if ($null -ne $existingProcess -and -not $ForceRestart -and -not [bool]$heartbeatInfo.stale) {
             [ordered]@{
                 status = "running"
                 pid = $existingState.pid
                 process_running = $true
+                heartbeat_stale = [bool]$heartbeatInfo.stale
+                heartbeat_age_seconds = $heartbeatInfo.age_seconds
+                heartbeat_stale_after_seconds = $heartbeatInfo.stale_after_seconds
                 workspace_root = $existingState.workspace_root
                 runtime_data_dir = $existingState.runtime_data_dir
                 dashboard_host = $existingState.dashboard_host
@@ -71,7 +114,9 @@ if (Test-Path -LiteralPath $statePath) {
                 started_at = $existingState.started_at
                 last_checked_at = $existingState.last_checked_at
                 dashboard_action = $existingState.dashboard_action
+                dashboard_snapshot_action = $existingState.dashboard_snapshot_action
                 live_runtime_action = $existingState.live_runtime_action
+                ml_maintenance_action = $existingState.ml_maintenance_action
                 dashboard_status = $existingState.dashboard_status
                 live_runtime_status = $existingState.live_runtime_status
                 stdout_log_path = $existingState.stdout_log_path
@@ -81,7 +126,7 @@ if (Test-Path -LiteralPath $statePath) {
             } | ConvertTo-Json -Depth 10
             return
         }
-        if ($null -ne $existingProcess -and $ForceRestart) {
+        if ($null -ne $existingProcess -and ($ForceRestart -or [bool]$heartbeatInfo.stale)) {
             Stop-Process -Id $existingProcess.ProcessId -Force
             Start-Sleep -Seconds 1
         }
@@ -129,6 +174,9 @@ $payload = [ordered]@{
     status = $status
     pid = $process.Id
     process_running = (-not $process.HasExited)
+    heartbeat_stale = $false
+    heartbeat_age_seconds = $null
+    heartbeat_stale_after_seconds = if ($HeartbeatStaleAfterSeconds -gt 0) { $HeartbeatStaleAfterSeconds } else { [Math]::Max($IntervalSeconds * 10, 600) }
     workspace_root = $WorkspaceRoot
     runtime_data_dir = $RuntimeDataDir
     dashboard_host = $DashboardHost

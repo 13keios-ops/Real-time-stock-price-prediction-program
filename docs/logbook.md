@@ -72,6 +72,19 @@
 
 ## 최신 검증 결과
 
+- `2026-05-04 17시대` 동작 구조 점검과 감시기 보강:
+- 저장소 목적 대비 구조는 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting` 흐름으로 맞게 분리되어 있고, 기본 운용도 `paper` 검증 중심으로 유지 중이다.
+- 실제 상태 점검에서 dashboard 는 `127.0.0.1:8765` 로 정상 응답했고, 장마감 뒤 live runtime 은 중지 상태가 정상임을 확인했다.
+- 문제점: runtime watchdog 프로세스는 살아 있었지만 `watchdog-state.json`의 `last_checked_at`이 오래 멈춘 상태를 `running`으로 표시했다. 이 경우 내일 장전 자동 복구가 살아 있는 것처럼 보일 수 있다.
+- `get_runtime_watchdog_status.ps1`가 심박 나이와 stale 기준을 표시하고, 프로세스가 살아 있어도 기본 10분 이상 심박이 멈추면 `stale` 로 판정하도록 수정했다.
+- `start_runtime_watchdog_background.ps1`가 stale 심박을 가진 기존 감시기 프로세스를 재사용하지 않고 중지 후 새로 시작하도록 수정했다.
+- `run_runtime_watchdog_loop.ps1`는 장마감 ML 정비 시작 직전 상태 파일에 `post_close_ml_rebuild_starting`을 먼저 기록하고, live runtime 이 최신 분봉을 쓰는 정규장에는 별도 KIS 검증 WebSocket 을 중복 실행하지 않도록 수정했다.
+- 확인 결과: stale 감시기 프로세스를 새 기준으로 감지했고, 감시기 재시작 후 `status=running`, `heartbeat_stale=false`, `last_checked_at=2026-05-04 17:53:33 +09:00`, 장 상태 `post-close`, live runtime `stopped` 로 정리했다.
+- PowerShell 파싱 검사: 감시기 관련 3개 스크립트 모두 `parse ok`
+- 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `80 tests OK`
+- 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`, `generated_at=2026-05-04T17:53:17.750250+09:00`
+- 공백 오류 검사 `git diff --check`: `ok`
+
 - `2026-05-04 15시대` 보안 점검:
 - git 추적 파일과 git 기록에서 실제 root `.env` 추적은 발견되지 않았고, `.env.example`만 추적 중인 것을 확인했다.
 - 로컬 `.env`는 존재하지만 `.gitignore`에 의해 ignore 처리되어 있다.
