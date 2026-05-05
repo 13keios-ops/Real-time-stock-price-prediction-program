@@ -3,6 +3,35 @@
 ## [2026-05-06] Codex → Cowork
 
 - 변경 파일:
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Windows 로컬 환경에서 Phase 1 명령을 직접 실행하고 결과를 `docs/STATUS.md` 상단에 기록.
+  - 전체 단위 테스트 85개 통과 후 walk-forward, LightGBM 학습, challenger 비교를 순서대로 실행.
+  - LightGBM 피처 중요도 상위 5개와 baseline 대비 핵심 판단을 함께 기록.
+  - MDD와 샤프지수는 현재 리포트에 원 필드가 없어 거래별/폴드별 순수익률 단순누적 기준 참고값으로 계산해 명시.
+- 실행 요청 명령:
+  ```powershell
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  ```
+- 확인할 수치:
+  - 단위 테스트: `Ran 85 tests in 25.449s`, `OK`
+  - walk-forward: `folds=1147`, `rows_evaluated=11470`, `trades_taken=3126`, `overall_accuracy=0.438710`, `cumulative_net_return_pct=-14.115270`
+  - LightGBM 학습: `train_rows=9212`, `validation_rows=2303`, `validation_accuracy=0.816761`
+  - challenger: `recommended_action=keep_active`, `walk_forward_gate_status=needs_review`, `active_model_version_after_run=baseline-h15-v1`
+  - LightGBM latest: `trades_taken=3`, `cumulative_net_return_pct=-0.113131`, `overall_accuracy=0.816761`
+  - baseline active: `trades_taken=1013`, `cumulative_net_return_pct=-51.599478`, `overall_accuracy=0.108120`
+  - 피처 중요도 top5: `mid_price=1450`, `spread_bps=1110`, `bid_ask_imbalance=1077`, `avg_trade_size=986`, `hl_range_pct=853`
+- 예상 결과 (성공 기준):
+  - 운영자는 `docs/STATUS.md` 상단의 Phase 1 Windows 직접 실행 결과를 보고 Phase 2 원인 분석 착수 여부를 판단한다.
+  - 현재 자동 승격은 하지 않는다. LightGBM은 정확도는 높지만 거래 수가 3건뿐이라 `keep_active`가 정상 판단이다.
+
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
   - `app/storage/sqlite_store.py`
   - `tests/test_sqlite_store.py`
   - `docs/logbook.md`
