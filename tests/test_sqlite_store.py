@@ -4,7 +4,11 @@ import uuid
 import unittest
 from unittest.mock import patch
 
-from app.storage.sqlite_store import SQLiteRuntimeStore, select_sqlite_journal_mode
+from app.storage.sqlite_store import (
+    SQLITE_JOURNAL_MODE_FALLBACKS,
+    SQLiteRuntimeStore,
+    select_sqlite_journal_mode,
+)
 
 
 class SQLiteRuntimeStoreTests(unittest.TestCase):
@@ -42,41 +46,58 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertEqual(store.read_retry_delays, (0.0, 0.05))
         self.assertEqual(store.write_retry_delays, (0.0, 0.1, 0.2))
 
-    def test_select_journal_mode_uses_delete_for_network_or_mount_path(self) -> None:
-        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=True):
-            self.assertEqual(select_sqlite_journal_mode(Path("dev.db")), "DELETE")
+    def test_journal_mode_fallback_order_matches_startup_priority(self) -> None:
+        self.assertEqual(SQLITE_JOURNAL_MODE_FALLBACKS, ("WAL", "DELETE", "MEMORY"))
 
-    def test_select_journal_mode_uses_wal_for_local_path(self) -> None:
-        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=False):
-            self.assertEqual(select_sqlite_journal_mode(Path("dev.db")), "WAL")
+    def test_select_journal_mode_defaults_to_wal(self) -> None:
+        self.assertEqual(select_sqlite_journal_mode(Path("dev.db")), "WAL")
 
-    def test_initialize_schema_uses_delete_journal_mode_for_network_or_mount_path(self) -> None:
+    def test_initialize_schema_falls_back_to_memory_when_wal_and_delete_fail(self) -> None:
         root = Path(__file__).resolve().parents[1]
         database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
 
-        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=True):
-            SQLiteRuntimeStore(database_path)
+        with (
+            patch.object(
+                SQLiteRuntimeStore,
+                "_initialize_schema_with_journal_mode",
+                side_effect=[
+                    sqlite3.OperationalError("wal failed"),
+                    sqlite3.OperationalError("delete failed"),
+                    "MEMORY",
+                ],
+            ) as mocked_initialize,
+            self.assertLogs("app.storage.sqlite_store", level="INFO") as logs,
+        ):
+            store = SQLiteRuntimeStore(database_path)
 
-        with sqlite3.connect(database_path) as connection:
-            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(
+            [call.args[1] for call in mocked_initialize.call_args_list],
+            ["WAL", "DELETE", "MEMORY"],
+        )
+        self.assertEqual(store.sqlite_journal_mode, "MEMORY")
+        self.assertTrue(any("journal_mode=MEMORY" in message for message in logs.output))
 
-        self.assertEqual(journal_mode, "delete")
-
-    def test_apply_journal_mode_falls_back_to_delete_when_wal_fails(self) -> None:
-        class FailingWalConnection:
+    def test_apply_journal_mode_returns_active_mode(self) -> None:
+        class AppliedJournalConnection:
             def __init__(self) -> None:
                 self.queries: list[str] = []
 
-            def execute(self, query: str) -> None:
+            def execute(self, query: str) -> object:
                 self.queries.append(query)
-                if query == "PRAGMA journal_mode=WAL":
-                    raise sqlite3.OperationalError("unable to open database file")
 
-        connection = FailingWalConnection()
+                class Cursor:
+                    @staticmethod
+                    def fetchone() -> tuple[str]:
+                        return ("memory",)
 
-        SQLiteRuntimeStore._apply_journal_mode(connection, "WAL")  # type: ignore[arg-type]
+                return Cursor()
 
-        self.assertEqual(connection.queries, ["PRAGMA journal_mode=WAL", "PRAGMA journal_mode=DELETE"])
+        connection = AppliedJournalConnection()
+
+        active_mode = SQLiteRuntimeStore._apply_journal_mode(connection, "MEMORY")  # type: ignore[arg-type]
+
+        self.assertEqual(active_mode, "MEMORY")
+        self.assertEqual(connection.queries, ["PRAGMA journal_mode=MEMORY"])
 
     def test_backup_database_creates_a_copy(self) -> None:
         root = Path(__file__).resolve().parents[1]

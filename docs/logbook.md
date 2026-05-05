@@ -7,6 +7,62 @@
   - `tests/test_sqlite_store.py`
   - `docs/logbook.md`
 - 변경 내용:
+  - SQLite 시작 초기화를 `WAL → DELETE → MEMORY` 3단계 fallback으로 변경.
+  - `PRAGMA journal_mode` 호출만이 아니라 `journal mode 설정 + synchronous 설정 + schema 생성 + commit` 전체를 한 단계로 보고, 어느 지점에서든 `sqlite3.OperationalError`가 나면 다음 journal mode로 재시도하도록 수정.
+  - `DELETE`에서 `CREATE TABLE` 중 `disk I/O error`가 나는 Cowork FUSE/virtiofs 환경은 다음 단계인 `MEMORY`로 넘어가도록 처리.
+  - 성공 시 시작 로그에 `SQLite startup using journal_mode=<MODE> for database=<path>` 형식으로 실제 동작 모드를 남김.
+  - fallback 실패 로그는 `SQLite startup journal_mode=<MODE> failed ... falling back to <NEXT>` 형식으로 남김.
+  - fallback 순서와 `MEMORY`까지의 재시도, 시작 로그 출력 단위 테스트를 기존 SQLite 테스트 안에서 갱신.
+- 실행 요청 명령:
+  ```powershell
+  git pull origin main
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15
+  ```
+- 확인할 수치:
+  - 로컬 전체 단위 테스트: `Ran 85 tests in 25.305s`, `OK`
+  - 로컬 Synthetic 30분: `exit 0`
+  - Synthetic 학습: `train_rows=9212`, `validation_rows=2303`, `validation_accuracy=0.818498`
+  - Synthetic walk-forward: `folds=1147`, `rows_evaluated=11470`, `overall_accuracy=0.282127`
+  - 로컬 시작 로그: `SQLite startup using journal_mode=WAL ...`
+- 예상 결과 (성공 기준):
+  - Cowork FUSE/virtiofs 환경에서 `WAL` 실패 후 `DELETE`를 시도하고, `DELETE`가 schema 생성 중 `disk I/O error`를 내면 `MEMORY`로 자동 전환되어 단위 테스트와 Synthetic Step 1이 통과해야 한다.
+  - Cowork 로그에는 최종적으로 `SQLite startup using journal_mode=MEMORY ...`가 보여야 한다.
+
+## [2026-05-06] Cowork 후속 검증 — Codex 패치 적용 후에도 SQLite "disk I/O error" 잔존
+
+- 트리거: Codex `eb3949f fix(storage): fallback sqlite journal on mounted paths` pull 후 가이드 명령 재실행
+- 환경: Cowork Linux 샌드박스(Ubuntu 22.04, Python 3.10.12). 저장소는 `fuse`/virtiofs로 마운트(`fstype=fuse, source=/mnt/.virtiofs-root/shared/d/...`).
+- 사전 조치:
+  - 작업트리 `app/storage/sqlite_store.py`가 1074줄 → 964줄(BOM+CRLF, `query = """`에서 잘림)으로 도착해 SyntaxError. FUSE 동기화 중 절단으로 추정. `git show HEAD:app/storage/sqlite_store.py` 로 정본 추출 후 `cp` 로 작업트리 덮어써서 1074줄 정본 복원.
+  - `select_sqlite_journal_mode(Path('runtime-data/dev.db').resolve())` → `DELETE` (Codex 의도대로 동작)
+- 단위 테스트: `python -m unittest discover -s tests -p "test_*.py"`
+  - `Ran 85 tests in 2.031s` — 테스트 개수는 Codex 인수인계 기대치(85)와 일치
+  - `FAILED (errors=40)` — 40건 모두 `sqlite3.OperationalError: disk I/O error` (`connection.execute(statement)` for CREATE TABLE)
+- 핵심 진단(샌드박스에서 직접 SQLite pragma 조합 실험 결과):
+  | 조합 | 결과 |
+  |---|---|
+  | `journal_mode=DELETE` | FAIL: disk I/O error |
+  | `journal_mode=DELETE` + `synchronous=NORMAL` | FAIL: disk I/O error |
+  | `journal_mode=DELETE` + `synchronous=OFF` | FAIL: disk I/O error |
+  | `journal_mode=DELETE` + `locking_mode=EXCLUSIVE` | OK |
+  | `journal_mode=MEMORY` | OK |
+  | `journal_mode=OFF` | OK |
+  fcntl flock·F_SETLK은 정상 동작. SQLite 자체의 journal 파일 생성/동기화 syscall이 이 virtiofs FUSE에서 실패함.
+- 결론: Codex 패치는 의도대로 `DELETE`를 선택했으나, virtiofs 환경에서는 `DELETE` 단독으로는 부족함. `DELETE` 선택 시 `PRAGMA locking_mode=EXCLUSIVE` 를 함께 설정하거나, mount 감지가 `DELETE` 트리거되는 경로에 대해 `journal_mode=MEMORY` 로 한 단계 더 fallback 필요.
+- Cowork 조치: 가이드의 "Synthetic 통과 전 Step 2 보류" 규칙대로 Step 2~5 미실행. 운영자 호출 양식 갱신.
+- 추가 환경 메모(다음 세션 가속용):
+  - 프로젝트 `requires-python = ">=3.12"` 이지만 Cowork 샌드박스 Python은 3.10.12. `tomllib` 백포트 shim(`~/.local/lib/python3.10/site-packages/tomllib.py`) 적용 후 `app.config.settings` 로딩 가능.
+  - `pip install --break-system-packages lightgbm scikit-learn websockets joblib tomli scipy threadpoolctl` 완료.
+  - `PYTHONPYCACHEPREFIX=/tmp/pyc` 사용해 마운트된 `__pycache__` 의 stale `.pyc` 우회 필요.
+
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
+  - `app/storage/sqlite_store.py`
+  - `tests/test_sqlite_store.py`
+  - `docs/logbook.md`
+- 변경 내용:
   - SQLite 스키마 초기화 전에 DB 경로 환경을 감지해 journal mode를 선택하도록 수정.
   - 정상 로컬 디스크는 기존처럼 `WAL`을 사용하고, UNC 경로·Windows 원격 드라이브·Windows reparse/mount 폴더·Linux/WSL 계열 마운트/네트워크 파일시스템(`drvfs`, `9p`, `cifs`, `nfs`, `virtiofs`, `fuse.*` 등)은 `DELETE` 모드로 자동 전환.
   - 감지 누락으로 `WAL` 설정이 실패해도 `DELETE`로 한 번 fallback 하도록 보강.

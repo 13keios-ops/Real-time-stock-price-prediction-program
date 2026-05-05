@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
+import logging
 import shutil
 import sqlite3
 import time
 from collections.abc import Iterable
-from contextlib import closing
+from contextlib import closing, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +37,11 @@ from app.storage.contracts import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+SQLITE_JOURNAL_MODE_FALLBACKS = ("WAL", "DELETE", "MEMORY")
+
+
 def resolve_sqlite_path(database_url: str, project_root: Path) -> Path | None:
     prefix = "sqlite:///"
     if not database_url.startswith(prefix):
@@ -48,164 +53,8 @@ def resolve_sqlite_path(database_url: str, project_root: Path) -> Path | None:
     return (project_root / path).resolve()
 
 
-_SQLITE_DELETE_JOURNAL_FS_TYPES = {
-    "9p",
-    "cifs",
-    "drvfs",
-    "fuse",
-    "fuse.sshfs",
-    "fuseblk",
-    "hgfs",
-    "lxfs",
-    "nfs",
-    "nfs4",
-    "prl_fs",
-    "smb3",
-    "smbfs",
-    "sshfs",
-    "vboxsf",
-    "virtiofs",
-    "wslfs",
-}
-_SQLITE_WAL_SAFE_POSIX_FS_TYPES = {
-    "apfs",
-    "btrfs",
-    "ext2",
-    "ext3",
-    "ext4",
-    "f2fs",
-    "hfs",
-    "hfsplus",
-    "overlay",
-    "tmpfs",
-    "ufs",
-    "xfs",
-    "zfs",
-}
-_WINDOWS_DRIVE_REMOTE = 4
-_WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
-_WINDOWS_INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
-
-
 def select_sqlite_journal_mode(database_path: Path) -> str:
-    return "DELETE" if _requires_delete_journal_mode(database_path) else "WAL"
-
-
-def _requires_delete_journal_mode(database_path: Path) -> bool:
-    return _is_windows_remote_or_mount_path(database_path) or _is_posix_remote_or_mount_path(database_path)
-
-
-def _is_windows_remote_or_mount_path(database_path: Path) -> bool:
-    if os.name != "nt":
-        return False
-    raw_path = str(database_path)
-    if raw_path.startswith("\\\\"):
-        return True
-
-    try:
-        import ctypes
-    except ImportError:
-        return False
-
-    root = _windows_drive_root(database_path)
-    if root:
-        try:
-            if ctypes.windll.kernel32.GetDriveTypeW(root) == _WINDOWS_DRIVE_REMOTE:
-                return True
-        except (AttributeError, OSError):
-            return False
-
-    try:
-        candidates = [database_path.parent, *database_path.parent.parents]
-    except RuntimeError:
-        return False
-
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(candidate))
-        except (AttributeError, OSError):
-            return False
-        if attrs == _WINDOWS_INVALID_FILE_ATTRIBUTES:
-            continue
-        if attrs & _WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT:
-            return True
-    return False
-
-
-def _windows_drive_root(database_path: Path) -> str | None:
-    anchor = database_path.anchor
-    if not anchor:
-        return None
-    if anchor.startswith("\\\\"):
-        return anchor
-    if len(anchor) >= 2 and anchor[1] == ":":
-        return anchor if anchor.endswith("\\") else f"{anchor}\\"
-    return None
-
-
-def _is_posix_remote_or_mount_path(database_path: Path) -> bool:
-    if os.name == "nt":
-        return False
-    try:
-        parent = database_path.parent.resolve(strict=False)
-    except OSError:
-        parent = database_path.parent.absolute()
-
-    for mount_point, fs_type in _iter_posix_mounts():
-        if not _path_is_relative_to(parent, mount_point):
-            continue
-        normalized_fs_type = fs_type.lower()
-        if normalized_fs_type in _SQLITE_DELETE_JOURNAL_FS_TYPES or normalized_fs_type.startswith("fuse."):
-            return True
-        if mount_point != Path("/") and normalized_fs_type not in _SQLITE_WAL_SAFE_POSIX_FS_TYPES:
-            return True
-    return False
-
-
-def _iter_posix_mounts() -> list[tuple[Path, str]]:
-    mountinfo_path = Path("/proc/self/mountinfo")
-    if not mountinfo_path.exists():
-        return []
-
-    entries: list[tuple[Path, str]] = []
-    try:
-        lines = mountinfo_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return entries
-
-    for line in lines:
-        prefix, separator, suffix = line.partition(" - ")
-        if not separator:
-            continue
-        prefix_parts = prefix.split()
-        suffix_parts = suffix.split()
-        if len(prefix_parts) < 5 or not suffix_parts:
-            continue
-        mount_point = Path(_decode_proc_mount_path(prefix_parts[4]))
-        fs_type = suffix_parts[0]
-        entries.append((mount_point, fs_type))
-
-    entries.sort(key=lambda entry: len(str(entry[0])), reverse=True)
-    return entries
-
-
-def _decode_proc_mount_path(value: str) -> str:
-    return (
-        value.replace("\\040", " ")
-        .replace("\\011", "\t")
-        .replace("\\012", "\n")
-        .replace("\\134", "\\")
-    )
-
-
-def _path_is_relative_to(path: Path, candidate_parent: Path) -> bool:
-    try:
-        path.relative_to(candidate_parent)
-    except ValueError:
-        return False
-    return True
+    return SQLITE_JOURNAL_MODE_FALLBACKS[0]
 
 
 class SQLiteRuntimeStore:
@@ -222,6 +71,7 @@ class SQLiteRuntimeStore:
         self.busy_timeout_ms = max(int(busy_timeout_ms), 1_000)
         self.read_retry_delays = tuple(read_retry_delays)
         self.write_retry_delays = tuple(write_retry_delays)
+        self.sqlite_journal_mode: str | None = None
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         if initialize_schema:
             self._initialize_schema()
@@ -469,25 +319,75 @@ class SQLiteRuntimeStore:
             )
             """,
         ]
-        with closing(self._connect()) as connection:
-            self._apply_journal_mode(connection, select_sqlite_journal_mode(self.database_path))
+        preferred_mode = select_sqlite_journal_mode(self.database_path)
+        fallback_modes = (
+            preferred_mode,
+            *[mode for mode in SQLITE_JOURNAL_MODE_FALLBACKS if mode != preferred_mode],
+        )
+        last_error: sqlite3.OperationalError | None = None
+        for index, journal_mode in enumerate(fallback_modes):
+            try:
+                active_mode = self._initialize_schema_with_journal_mode(statements, journal_mode)
+            except sqlite3.OperationalError as exc:
+                last_error = exc
+                next_mode = fallback_modes[index + 1] if index + 1 < len(fallback_modes) else None
+                if next_mode is None:
+                    logger.error(
+                        "SQLite startup failed with all journal modes for database=%s last_mode=%s error=%s",
+                        self.database_path,
+                        journal_mode,
+                        exc,
+                    )
+                    raise
+                logger.warning(
+                    "SQLite startup journal_mode=%s failed for database=%s error=%s; falling back to %s",
+                    journal_mode,
+                    self.database_path,
+                    exc,
+                    next_mode,
+                )
+                continue
+
+            self.sqlite_journal_mode = active_mode
+            logger.info(
+                "SQLite startup using journal_mode=%s for database=%s",
+                active_mode,
+                self.database_path,
+            )
+            return
+
+        if last_error is not None:
+            raise last_error
+
+    def _initialize_schema_with_journal_mode(self, statements: list[str], journal_mode: str) -> str:
+        connection = self._connect()
+        try:
+            active_mode = self._apply_journal_mode(connection, journal_mode)
             connection.execute("PRAGMA synchronous=NORMAL")
             for statement in statements:
                 connection.execute(statement)
             self._ensure_column(connection, "paper_positions", "opened_at", "TEXT")
             connection.commit()
+            return active_mode
+        except sqlite3.OperationalError:
+            with suppress(sqlite3.Error):
+                connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @staticmethod
-    def _apply_journal_mode(connection: sqlite3.Connection, journal_mode: str) -> None:
+    def _apply_journal_mode(connection: sqlite3.Connection, journal_mode: str) -> str:
         normalized_mode = journal_mode.strip().upper()
-        if normalized_mode not in {"DELETE", "WAL"}:
+        if normalized_mode not in set(SQLITE_JOURNAL_MODE_FALLBACKS):
             raise ValueError(f"Unsupported sqlite journal mode: {journal_mode}")
-        try:
-            connection.execute(f"PRAGMA journal_mode={normalized_mode}")
-        except sqlite3.OperationalError:
-            if normalized_mode != "WAL":
-                raise
-            connection.execute("PRAGMA journal_mode=DELETE")
+        row = connection.execute(f"PRAGMA journal_mode={normalized_mode}").fetchone()
+        active_mode = str(row[0]).upper() if row else normalized_mode
+        if active_mode != normalized_mode:
+            raise sqlite3.OperationalError(
+                f"requested journal_mode={normalized_mode} but sqlite activated {active_mode}"
+            )
+        return active_mode
 
     def checkpoint_wal(self, mode: str = "PASSIVE") -> None:
         normalized_mode = mode.strip().upper()
