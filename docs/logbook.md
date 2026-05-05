@@ -1,5 +1,53 @@
 # 작업 기록
 
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
+  - `app/storage/sqlite_store.py`
+  - `tests/test_sqlite_store.py`
+  - `docs/logbook.md`
+- 변경 내용:
+  - SQLite 스키마 초기화 전에 DB 경로 환경을 감지해 journal mode를 선택하도록 수정.
+  - 정상 로컬 디스크는 기존처럼 `WAL`을 사용하고, UNC 경로·Windows 원격 드라이브·Windows reparse/mount 폴더·Linux/WSL 계열 마운트/네트워크 파일시스템(`drvfs`, `9p`, `cifs`, `nfs`, `virtiofs`, `fuse.*` 등)은 `DELETE` 모드로 자동 전환.
+  - 감지 누락으로 `WAL` 설정이 실패해도 `DELETE`로 한 번 fallback 하도록 보강.
+  - `DELETE` 모드 DB에서는 `wal_checkpoint`를 no-op 처리해 백업 경로가 WAL 전용 pragma에 묶이지 않도록 수정.
+  - 네트워크/마운트 환경 선택과 WAL 실패 fallback 단위 테스트 추가.
+- 실행 요청 명령:
+  ```powershell
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15
+  ```
+- 확인할 수치:
+  - 전체 단위 테스트: `85 tests OK`
+  - Synthetic 30분 재실행: `exit 0`
+  - Synthetic 학습: `train_rows=9212`, `validation_rows=2303`, `validation_accuracy=0.818498`
+  - Synthetic walk-forward: `folds=1147`, `rows_evaluated=11470`, `overall_accuracy=0.282127`
+  - Challenger 판단: `recommended_action=keep_active`, `active_model_version_after_run=baseline-h15-v1`, `walk_forward_gate_status=needs_review`
+  - 참고: 처음 Synthetic 실행은 120초 도구 제한으로 timeout 되었고, 600초 제한 재실행에서 정상 통과.
+- 예상 결과 (성공 기준):
+  - Cowork Linux 샌드박스에서 Windows 폴더를 마운트한 경로는 WAL을 시도하기 전에 `DELETE` journal mode로 열려 Synthetic Step 1이 통과해야 한다.
+  - Windows 로컬 디스크 실행은 기존 WAL 모드를 유지해야 한다.
+
+## [2026-05-06] Cowork 스프린트 01 Phase 1 시도 — Synthetic 실행 환경 오류
+
+- 트리거: COWORK_GUIDE.md 세션 시작 순서에 따른 스프린트 01 Phase 1 진단 시도
+- 환경: Cowork Linux 샌드박스(Ubuntu 22.04, Python 3.10.12), 저장소는 Windows `D:\GitHub\Real-time-stock-price-prediction-program` 폴더 마운트
+- 사전 준비:
+  - Python 3.12 사용 불가 → `tomllib` 누락 → `tomli` 백포트를 `tomllib`로 별칭 처리(`~/.local/lib/python3.10/site-packages/tomllib.py`)
+  - 패키지 설치: `lightgbm 4.6.0`, `scikit-learn 1.7.2`, `websockets 16.0`, `joblib 1.5.3`, `tomli 2.4.1`, `scipy 1.15.3`, `threadpoolctl 3.6.0`
+  - `app.config.settings.load_settings()` 호출 성공
+- 실행: `python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15`
+- 결과: `exit 1`. 핵심 traceback:
+  ```
+  File "app/storage/sqlite_store.py", line 312, in _initialize_schema
+      connection.execute("PRAGMA journal_mode=WAL")
+  sqlite3.OperationalError: unable to open database file
+  ```
+- 추가 검증: 표준 sqlite3로도 동일 오류 — `python -c "sqlite3.connect('runtime-data/dev.db').execute('PRAGMA journal_mode=WAL')"` → `unable to open database file`
+- 해석: WAL 모드는 공유 메모리 매핑(`-shm`, `-wal`)을 요구하는데, Cowork에서 Windows 폴더를 Linux 샌드박스에 마운트한 가상 파일시스템이 이 매핑을 지원하지 않는 것으로 보임. 코드베이스가 깨진 것은 아님.
+- 조치: 가이드의 "Synthetic 실패 시 Step 2 보류" 규칙에 따라 Step 2~5 실행 중단. `docs/STATUS.md` 상단에 운영자 판단 필요 양식 기록.
+- 운영자 질문: ① Phase 1 진단을 운영자가 Windows에서 직접 실행할지, ② Codex에 환경 fallback 코드 수정을 지시할지, ③ Phase 1 자체를 보류할지
+
 ## 현재 스냅샷
 
 - 날짜: `2026-05-05`

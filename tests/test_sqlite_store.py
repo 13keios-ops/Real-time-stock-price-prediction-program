@@ -1,9 +1,10 @@
 ﻿from pathlib import Path
+import sqlite3
 import uuid
 import unittest
 from unittest.mock import patch
 
-from app.storage.sqlite_store import SQLiteRuntimeStore
+from app.storage.sqlite_store import SQLiteRuntimeStore, select_sqlite_journal_mode
 
 
 class SQLiteRuntimeStoreTests(unittest.TestCase):
@@ -40,6 +41,42 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertEqual(store.busy_timeout_ms, 2000)
         self.assertEqual(store.read_retry_delays, (0.0, 0.05))
         self.assertEqual(store.write_retry_delays, (0.0, 0.1, 0.2))
+
+    def test_select_journal_mode_uses_delete_for_network_or_mount_path(self) -> None:
+        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=True):
+            self.assertEqual(select_sqlite_journal_mode(Path("dev.db")), "DELETE")
+
+    def test_select_journal_mode_uses_wal_for_local_path(self) -> None:
+        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=False):
+            self.assertEqual(select_sqlite_journal_mode(Path("dev.db")), "WAL")
+
+    def test_initialize_schema_uses_delete_journal_mode_for_network_or_mount_path(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
+
+        with patch("app.storage.sqlite_store._requires_delete_journal_mode", return_value=True):
+            SQLiteRuntimeStore(database_path)
+
+        with sqlite3.connect(database_path) as connection:
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+
+        self.assertEqual(journal_mode, "delete")
+
+    def test_apply_journal_mode_falls_back_to_delete_when_wal_fails(self) -> None:
+        class FailingWalConnection:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+
+            def execute(self, query: str) -> None:
+                self.queries.append(query)
+                if query == "PRAGMA journal_mode=WAL":
+                    raise sqlite3.OperationalError("unable to open database file")
+
+        connection = FailingWalConnection()
+
+        SQLiteRuntimeStore._apply_journal_mode(connection, "WAL")  # type: ignore[arg-type]
+
+        self.assertEqual(connection.queries, ["PRAGMA journal_mode=WAL", "PRAGMA journal_mode=DELETE"])
 
     def test_backup_database_creates_a_copy(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import time
@@ -45,6 +46,166 @@ def resolve_sqlite_path(database_url: str, project_root: Path) -> Path | None:
     if path.is_absolute():
         return path
     return (project_root / path).resolve()
+
+
+_SQLITE_DELETE_JOURNAL_FS_TYPES = {
+    "9p",
+    "cifs",
+    "drvfs",
+    "fuse",
+    "fuse.sshfs",
+    "fuseblk",
+    "hgfs",
+    "lxfs",
+    "nfs",
+    "nfs4",
+    "prl_fs",
+    "smb3",
+    "smbfs",
+    "sshfs",
+    "vboxsf",
+    "virtiofs",
+    "wslfs",
+}
+_SQLITE_WAL_SAFE_POSIX_FS_TYPES = {
+    "apfs",
+    "btrfs",
+    "ext2",
+    "ext3",
+    "ext4",
+    "f2fs",
+    "hfs",
+    "hfsplus",
+    "overlay",
+    "tmpfs",
+    "ufs",
+    "xfs",
+    "zfs",
+}
+_WINDOWS_DRIVE_REMOTE = 4
+_WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_WINDOWS_INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
+
+
+def select_sqlite_journal_mode(database_path: Path) -> str:
+    return "DELETE" if _requires_delete_journal_mode(database_path) else "WAL"
+
+
+def _requires_delete_journal_mode(database_path: Path) -> bool:
+    return _is_windows_remote_or_mount_path(database_path) or _is_posix_remote_or_mount_path(database_path)
+
+
+def _is_windows_remote_or_mount_path(database_path: Path) -> bool:
+    if os.name != "nt":
+        return False
+    raw_path = str(database_path)
+    if raw_path.startswith("\\\\"):
+        return True
+
+    try:
+        import ctypes
+    except ImportError:
+        return False
+
+    root = _windows_drive_root(database_path)
+    if root:
+        try:
+            if ctypes.windll.kernel32.GetDriveTypeW(root) == _WINDOWS_DRIVE_REMOTE:
+                return True
+        except (AttributeError, OSError):
+            return False
+
+    try:
+        candidates = [database_path.parent, *database_path.parent.parents]
+    except RuntimeError:
+        return False
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(candidate))
+        except (AttributeError, OSError):
+            return False
+        if attrs == _WINDOWS_INVALID_FILE_ATTRIBUTES:
+            continue
+        if attrs & _WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT:
+            return True
+    return False
+
+
+def _windows_drive_root(database_path: Path) -> str | None:
+    anchor = database_path.anchor
+    if not anchor:
+        return None
+    if anchor.startswith("\\\\"):
+        return anchor
+    if len(anchor) >= 2 and anchor[1] == ":":
+        return anchor if anchor.endswith("\\") else f"{anchor}\\"
+    return None
+
+
+def _is_posix_remote_or_mount_path(database_path: Path) -> bool:
+    if os.name == "nt":
+        return False
+    try:
+        parent = database_path.parent.resolve(strict=False)
+    except OSError:
+        parent = database_path.parent.absolute()
+
+    for mount_point, fs_type in _iter_posix_mounts():
+        if not _path_is_relative_to(parent, mount_point):
+            continue
+        normalized_fs_type = fs_type.lower()
+        if normalized_fs_type in _SQLITE_DELETE_JOURNAL_FS_TYPES or normalized_fs_type.startswith("fuse."):
+            return True
+        if mount_point != Path("/") and normalized_fs_type not in _SQLITE_WAL_SAFE_POSIX_FS_TYPES:
+            return True
+    return False
+
+
+def _iter_posix_mounts() -> list[tuple[Path, str]]:
+    mountinfo_path = Path("/proc/self/mountinfo")
+    if not mountinfo_path.exists():
+        return []
+
+    entries: list[tuple[Path, str]] = []
+    try:
+        lines = mountinfo_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return entries
+
+    for line in lines:
+        prefix, separator, suffix = line.partition(" - ")
+        if not separator:
+            continue
+        prefix_parts = prefix.split()
+        suffix_parts = suffix.split()
+        if len(prefix_parts) < 5 or not suffix_parts:
+            continue
+        mount_point = Path(_decode_proc_mount_path(prefix_parts[4]))
+        fs_type = suffix_parts[0]
+        entries.append((mount_point, fs_type))
+
+    entries.sort(key=lambda entry: len(str(entry[0])), reverse=True)
+    return entries
+
+
+def _decode_proc_mount_path(value: str) -> str:
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
+
+
+def _path_is_relative_to(path: Path, candidate_parent: Path) -> bool:
+    try:
+        path.relative_to(candidate_parent)
+    except ValueError:
+        return False
+    return True
 
 
 class SQLiteRuntimeStore:
@@ -309,18 +470,35 @@ class SQLiteRuntimeStore:
             """,
         ]
         with closing(self._connect()) as connection:
-            connection.execute("PRAGMA journal_mode=WAL")
+            self._apply_journal_mode(connection, select_sqlite_journal_mode(self.database_path))
             connection.execute("PRAGMA synchronous=NORMAL")
             for statement in statements:
                 connection.execute(statement)
             self._ensure_column(connection, "paper_positions", "opened_at", "TEXT")
             connection.commit()
 
+    @staticmethod
+    def _apply_journal_mode(connection: sqlite3.Connection, journal_mode: str) -> None:
+        normalized_mode = journal_mode.strip().upper()
+        if normalized_mode not in {"DELETE", "WAL"}:
+            raise ValueError(f"Unsupported sqlite journal mode: {journal_mode}")
+        try:
+            connection.execute(f"PRAGMA journal_mode={normalized_mode}")
+        except sqlite3.OperationalError:
+            if normalized_mode != "WAL":
+                raise
+            connection.execute("PRAGMA journal_mode=DELETE")
+
     def checkpoint_wal(self, mode: str = "PASSIVE") -> None:
         normalized_mode = mode.strip().upper()
         if normalized_mode not in {"PASSIVE", "FULL", "RESTART", "TRUNCATE"}:
             raise ValueError(f"Unsupported wal_checkpoint mode: {mode}")
-        self._run_write_query(f"PRAGMA wal_checkpoint({normalized_mode})")
+        with closing(self._connect()) as connection:
+            row = connection.execute("PRAGMA journal_mode").fetchone()
+            current_mode = str(row[0]).lower() if row else ""
+            if current_mode != "wal":
+                return
+            connection.execute(f"PRAGMA wal_checkpoint({normalized_mode})")
 
     def backup_database(self, backup_path: Path) -> Path:
         backup_path.parent.mkdir(parents=True, exist_ok=True)
