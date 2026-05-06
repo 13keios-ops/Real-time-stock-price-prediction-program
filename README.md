@@ -199,6 +199,18 @@ python -m app --build-runtime-report
 
 KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식 샘플 기준 최대 1년 보관으로 안내되어, 5년치 학습용 기본 backfill 은 pykrx 일봉을 15분 간격 26개 proxy bar 로 변환해 기존 `curated_minute_bars`, `raw_orderbook_ticks`, `feature_model_inputs`, `feature_labels` 구조에 적재한다.
 
+Cybos Plus 15분봉 backfill 은 Windows 32bit Python 과 Cybos Plus COM 로그인이 필요하므로 Windows PowerShell 에서 직접 실행한다. 코스피200 전체 수집 시 종목 목록은 `CpUtil.CpCodeMgr`에서 동적으로 조회하고, `source=cybos-historical` 값은 `raw_market_ticks`에 남긴다.
+
+```powershell
+E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `
+  scripts\collect_cybos_historical.py `
+  --start 2021-01-04
+
+E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `
+  scripts\collect_cybos_historical.py `
+  --symbols 005930 --start 2021-01-04
+```
+
 단순 백테스트:
 
 ```bash

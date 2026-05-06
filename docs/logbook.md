@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-05-06] Codex → Cybos Plus 15분봉 수집 스크립트 추가
+
+- 변경 파일:
+  - `scripts/collect_cybos_historical.py`
+  - `README.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Windows 32bit Python 전용 Cybos Plus `CpSysDib.StockChart` 15분봉 수집 스크립트를 추가했다.
+  - 코스피200 전체 수집 시 `CpUtil.CpCodeMgr.GetGroupCodeList(180)`로 구성 종목을 동적으로 조회하도록 했다.
+  - `raw_market_ticks`에는 `source=cybos-historical`로 저장하고, `curated_minute_bars`에는 기존 `(symbol, bar_time)` 기본키 구조 그대로 `INSERT OR REPLACE`로 적재한다.
+  - Cybos 조회 제한을 초당 15회 이하로 맞추고, 종목별 실패는 다음 종목으로 넘어가도록 했다.
+  - 재실행 시 `raw_market_ticks`의 기존 `cybos-historical` 범위가 요청 구간을 이미 덮으면 해당 종목을 skip한다.
+- 실행 명령:
+  ```bash
+  python -m py_compile scripts/collect_cybos_historical.py
+  git diff --check
+  python -m unittest discover -s tests -p "test_*.py"
+  ```
+  ```powershell
+  E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `
+    scripts\collect_cybos_historical.py `
+    --symbols 005930 --start 2021-01-04
+  ```
+- 확인 결과:
+  - 문법 검사: `ok`
+  - 공백 오류 검사: `ok`
+  - 전체 단위 테스트: `Ran 85 tests in 18.452s`, `OK`
+  - Windows 32bit Python 실행: 스크립트 진입은 확인했으나 `CpCybos.IsConnect == 0`으로 실패
+  - 오류 메시지: `fatal: Cybos Plus is not connected. Log in to Cybos Plus, then rerun this script.`
+  - Cybos Plus가 로그인/연결되지 않아 삼성전자 `bars_written`과 기간 범위는 아직 확인하지 못했다.
+
 ## [2026-05-06] Codex → WSL2 git-autopush watcher 전환
 
 - 변경 파일:
