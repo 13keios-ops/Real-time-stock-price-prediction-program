@@ -1,7 +1,60 @@
 # docs/STATUS.md
 
 생성일: 2026-05-06
-스프린트: 01
+스프린트: 03 데이터 품질 점검
+
+## 🟠 [2026-05-06 16:18] 스프린트 04 전 점검 — pykrx 프록시 분봉 품질 확인
+
+- 상황: 스프린트 03에서 적재한 `pykrx-daily-proxy` 15분 프록시 분봉이 실제 KIS WebSocket 기반 분봉과 같은 DB 구조로 들어가지만, 호가 기반 피처의 의미가 실제 호가와 크게 다르다.
+- 가져갈 파일: `docs/STATUS.md`
+- 판단: 스프린트 04 학습/검증에 프록시 데이터를 그대로 쓸 수는 있으나, `spread_bps`, `bid_ask_imbalance` 같은 호가 기반 피처는 source 별 분포 차이가 커서 별도 처리 필요.
+
+### 확인 1. pykrx 프록시 분봉 구조
+
+구현 위치: `app/collectors/historical.py`
+
+- 거래일당 26개 봉을 만든다. `_market_times()`는 09:00부터 15분 간격으로 시각을 만들기 때문에 마지막 프록시 봉은 15:15다.
+- 가격 경로는 일봉 OHLC를 선형 보간한다.
+  - 상승일 또는 보합/상승일: index `0=open`, `6=low`, `18=high`, `25=close`
+  - 하락일: index `0=open`, `6=high`, `18=low`, `25=close`
+  - 각 봉의 open은 직전 프록시 close, close는 보간값이다.
+  - high/low는 기본적으로 open/close 사이 값이며, 보간 close가 일봉 high/low anchor와 같을 때만 해당 일봉 high/low를 반영한다.
+- 거래량은 전체 일봉 거래량을 U자형 가중치로 26개 봉에 나눈다. 장 초반과 장 후반에 더 큰 weight가 붙고, 마지막 봉에서 반올림 잔여량을 보정한다.
+- 프록시 호가는 각 프록시 close 기준으로 `bid=close-tick`, `ask=close+tick`을 만들고, `bid_size=ask_size=max(1, volume//2)`로 채운다.
+- 따라서 raw proxy orderbook 기준:
+  - `mid_price`는 사실상 프록시 close와 같다.
+  - `spread_bps`는 실제 호가 스프레드가 아니라 가격대별 tick size로 만든 기계적 값이다.
+  - `bid_ask_imbalance`는 bid/ask size를 같게 넣기 때문에 항상 `0.0`이다.
+- 구조 호환성: `MinuteBar`, `OrderbookSnapshot`, `curated_minute_bars`, `raw_orderbook_ticks`, `feature_model_inputs`, `feature_labels`를 그대로 쓰므로 KIS WebSocket 분봉과 스키마는 호환된다. 다만 실제 호가 압력, 체결 강도, 장중 변동 경로를 재현한 데이터는 아니다.
+
+### 확인 2. KIS 실제 호가 vs pykrx 프록시 피처 분포
+
+비교 기준 DB: `runtime-data/dev.db`
+
+| 항목 | `kis-ws` | `pykrx-daily-proxy` |
+|---|---:|---:|
+| raw orderbook rows | 2,245,513 | 332,228 |
+| raw 기간 | 2026-04-28 09:00 ~ 2026-05-06 13:41 | 2021-01-04 09:00 ~ 2026-05-06 15:15 |
+| exact feature samples | 12,521 | 332,228 |
+| proxy/KIS exact overlap minutes | - | 798 |
+
+주요 feature 분포:
+
+| feature | `kis-ws` median / mean | `pykrx-daily-proxy` median / mean | 판단 |
+|---|---:|---:|---|
+| `mid_price` | 221,250 / 478,689 | 172,500 / 295,257 | 기간과 종목 가격대 차이 영향이 커 직접 비교 지표로는 제한적 |
+| `spread_bps` | 12.83 / 14.74 | 37.92 / 42.31 | 프록시가 실제보다 약 3배 높게 형성되어 분포 차이 큼 |
+| `bid_ask_imbalance` | 0.0418 / 0.0337, p05=-0.8056, p95=0.8500 | 0.0 / 0.0, zero_ratio=100% | 프록시는 호가 불균형 정보가 완전히 사라짐 |
+
+### 결론과 스프린트 04 권장 조치
+
+- `pykrx-daily-proxy`는 5년치 가격/라벨 볼륨을 확보하는 목적에는 유효하다.
+- 단, 실제 KIS WebSocket 기반 학습/추론과 같은 의미로 호가 피처를 쓰면 분포 이동이 크다.
+- 스프린트 04에서는 아래 중 하나를 먼저 정해야 한다.
+  1. proxy source 학습에서는 `spread_bps`, `bid_ask_imbalance`를 제외하거나 neutral 처리한다.
+  2. feature에 `data_source` 또는 `is_proxy` 계열 구분값을 추가해 모델이 source 차이를 학습하게 한다.
+  3. 실제 KIS 데이터만으로 짧은 기간 검증을 할 때와 proxy 장기 데이터 검증을 분리해 평가 리포트를 따로 낸다.
+- 현재 상태에서 LightGBM 중요도 상위에 `mid_price`, `spread_bps`, `bid_ask_imbalance`가 들어간 것은 proxy/actual 분포 차이 또는 가격수준 의존 가능성을 함께 의심해야 한다.
 
 ## 🔴 [2026-05-06 05:22] 운영자 판단 필요 — Phase 1 Windows 직접 실행 완료
 

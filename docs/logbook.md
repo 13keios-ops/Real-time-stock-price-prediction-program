@@ -1,5 +1,22 @@
 # 작업 기록
 
+## [2026-05-06] Codex → 스프린트 04 전 데이터 품질 점검
+
+- 변경 파일:
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `pykrx-daily-proxy` 일봉 기반 15분 프록시 분봉 생성 방식을 점검했다.
+  - 프록시 호가는 `bid=close-tick`, `ask=close+tick`, `bid_size=ask_size` 구조라 `mid_price`는 프록시 close와 같고, `spread_bps`는 tick size 기반 기계값이며, raw 기준 `bid_ask_imbalance`는 항상 `0.0`임을 확인했다.
+  - `runtime-data/dev.db`에서 `kis-ws`와 `pykrx-daily-proxy`의 호가 기반 피처 분포를 비교해 `spread_bps`와 `bid_ask_imbalance`의 source 간 차이가 큰 위험을 `docs/STATUS.md` 상단에 기록했다.
+- 확인 결과:
+  - raw orderbook rows: `kis-ws=2245513`, `pykrx-daily-proxy=332228`
+  - exact feature samples: `kis-ws=12521`, `pykrx-daily-proxy=332228`
+  - `spread_bps` median/mean: `kis-ws=12.83/14.74`, `pykrx-daily-proxy=37.92/42.31`
+  - `bid_ask_imbalance`: `kis-ws`는 p05 `-0.8056`, p95 `0.8500` 분산이 있으나, 순수 proxy 구간은 `0.0` 고정
+- 검증:
+  - `git diff --check`: `ok`
+
 ## [2026-05-06] Codex → 스프린트 03 과거 데이터 수집 파이프라인
 
 - 변경 파일:
