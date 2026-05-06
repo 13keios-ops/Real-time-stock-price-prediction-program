@@ -160,6 +160,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ## 8. 산출물 규칙
 
 - 누적 실행 산출물은 `runtime-data/` 아래에 둔다.
+- 새로 내려받거나 수집하는 대용량 외부 데이터는 WSL 저장소나 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관한다. WSL에서는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 접근한다.
 - root `results/`는 만들지 않는다.
 - 임시 테스트 산출물은 `.tmp-tests/` 아래에 둘 수 있고, 검증 뒤 삭제 가능하다.
 - 모델 산출물은 `runtime-data/ml/` 아래에 둔다.

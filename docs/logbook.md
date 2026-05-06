@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 외부 수집 데이터 D드라이브 보관 기준 정리
+
+- 변경 파일:
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - 앞으로 이 저장소 작업 중 새로 내려받거나 수집하는 대용량 외부 데이터는 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관하도록 기준을 추가했다.
+  - WSL2 접근 경로는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 기록했다.
+  - `C:\Temp\cybos_collect.db`는 병합 스크립트가 `--src` DB를 삭제하므로, 병합용 원본은 유지하고 보관본을 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect_20260507.db`로 복사했다.
+  - `C:\Temp\cybos_collect.db`와 D드라이브 보관본 크기가 모두 `1373368320` bytes 임을 확인했다.
+  - Cybos 병합 명령은 현재 작업 위치와 무관하게 실행되도록 절대 스크립트 경로 형태를 기준으로 정리했다.
+- 기준 병합 명령:
+  ```bash
+  bash ~/projects/Real-time-stock-price-prediction-program/scripts/merge_cybos_to_main.sh \
+    --src /mnt/c/Temp/cybos_collect.db \
+    --dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db
+  ```
+- 검증:
+  - `git diff --check`: `ok`
+
 ## [2026-05-07] Codex → Cybos 코스피200 코드 필터 보강
 
 - 변경 파일:
