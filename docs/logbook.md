@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-05-06] Codex → 스프린트 04 C-1 재실험과 KIS REST 수집 경로
+
+- 변경 파일:
+  - `app/services/research.py`
+  - `app/storage/sqlite_store.py`
+  - `app/brokers/kis_quote_rest.py`
+  - `app/collectors/historical.py`
+  - `app/__main__.py`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `pykrx-daily-proxy` row가 포함된 학습셋에서는 `spread_bps`, `bid_ask_imbalance`를 학습 feature list에서 제외하도록 변경했다.
+  - LightGBM C-1 설정으로 `class_weight="balanced"`를 적용했다.
+  - source lookup 성능을 위해 raw tick/orderbook의 `(symbol,event_time)` index를 추가했다.
+  - KIS REST `FHKST03010200` 분봉 수집 CLI `--collect-kis-historical`을 추가하고 `source=kis-rest-historical`로 기존 DB에 적재하도록 했다.
+- 실행 명령:
+  ```bash
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+  python -m app --run-challengers --horizon-min 15
+  python -m app --collect-kis-historical --start 2025-05-06 --end 2026-05-06
+  ```
+- 확인 결과:
+  - 전체 단위 테스트: `Ran 85 tests in 13.796s`, `OK`
+  - C-1 LightGBM: `train_rows=266313`, `validation_rows=66579`, `validation_accuracy=0.911699`, `trades_taken=5328`, `trade_hit_rate=0.863176`, `cumulative_net_return_pct=1807.293048`
+  - C-1 전체 라벨: `down=22656`, `flat=286577`, `up=23659`
+  - walk-forward: `folds=33284`, `rows_evaluated=332840`, `overall_accuracy=0.412748`, `trades_taken=104327`, `trade_hit_rate=0.101259`, `cumulative_net_return_pct=-10384.138893`
+  - challenger 최종 판단: `review_required`, `walk_forward_gate_status=needs_review`, 활성 모델은 `baseline-h15-v1` 유지
+  - KIS REST 수집: 요청 기간 `2025-05-06~2026-05-06`, 실제 적재 `4200` bars, 범위 `2026-05-04T15:02:00+09:00~2026-05-06T15:30:00+09:00`
+- 제한 사항:
+  - 공식 KIS 샘플 기준 `FHKST03010200`은 당일 분봉 성격이라, 이번 실행도 1년 전체가 아니라 최근 일부 구간만 반환됐다.
+  - 1년 실제 분봉 백필은 다른 장기 분봉 TR 또는 별도 실제 분봉 소스 검토가 필요하다.
+
 ## [2026-05-06] Codex → 스프린트 04 전 데이터 품질 점검
 
 - 변경 파일:

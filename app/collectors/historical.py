@@ -6,18 +6,22 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import json
 from pathlib import Path
+from time import sleep
 from typing import Any
 
+from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_profile
+from app.brokers.kis_quote_rest import KisIntradayMinuteRecord, KisRestQuoteClient
 from app.config.settings import load_settings
 from app.observability.logging import configure_logging
 from app.services.research import build_feature_dataset_from_sqlite
-from app.storage.contracts import MinuteBar, OrderbookSnapshot
+from app.storage.contracts import MarketTickEvent, MinuteBar, OrderbookSnapshot
 from app.storage.runtime_writer import get_sqlite_store
 from app.universe.watchlist import load_watchlist
 from app.utils.time import get_timezone, now_local
 
 
 PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
+KIS_REST_HISTORICAL_SOURCE = "kis-rest-historical"
 DEFAULT_START_DATE = date(2021, 1, 1)
 DEFAULT_BARS_PER_DAY = 26
 
@@ -84,6 +88,62 @@ class HistoricalCollectionResult:
         }
 
 
+@dataclass(slots=True)
+class KisHistoricalSymbolSummary:
+    symbol: str
+    records_received: int
+    records_written: int
+    first_time: str | None
+    last_time: str | None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "records_received": self.records_received,
+            "records_written": self.records_written,
+            "first_time": self.first_time,
+            "last_time": self.last_time,
+            "error": self.error,
+        }
+
+
+@dataclass(slots=True)
+class KisHistoricalCollectionResult:
+    source: str
+    tr_id: str
+    start_date: str
+    end_date: str
+    symbols: list[str]
+    requested_days: int
+    bars_written: int
+    raw_ticks_written: int
+    earliest_bar_time: str | None
+    latest_bar_time: str | None
+    api_limit_note: str
+    symbol_summaries: list[KisHistoricalSymbolSummary]
+    report_json_path: Path
+    report_markdown_path: Path
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "tr_id": self.tr_id,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "symbols": self.symbols,
+            "requested_days": self.requested_days,
+            "bars_written": self.bars_written,
+            "raw_ticks_written": self.raw_ticks_written,
+            "earliest_bar_time": self.earliest_bar_time,
+            "latest_bar_time": self.latest_bar_time,
+            "api_limit_note": self.api_limit_note,
+            "symbol_summaries": [summary.to_dict() for summary in self.symbol_summaries],
+            "report_json_path": str(self.report_json_path),
+            "report_markdown_path": str(self.report_markdown_path),
+        }
+
+
 def parse_date_text(value: str | None, *, default: date) -> date:
     if not value:
         return default
@@ -144,6 +204,74 @@ def _tick_size(price: float) -> float:
     if price < 500_000:
         return 500.0
     return 1_000.0
+
+
+def _safe_time_cursor(value: str) -> str:
+    text = "".join(ch for ch in value if ch.isdigit())
+    if len(text) < 6:
+        return "153000"
+    return text[:6]
+
+
+def _previous_minute_cursor(value: str) -> str | None:
+    cursor_time = datetime.strptime(_safe_time_cursor(value), "%H%M%S")
+    previous = cursor_time - timedelta(minutes=1)
+    if previous.time() < time(9, 0):
+        return None
+    return previous.strftime("%H%M%S")
+
+
+def _kis_record_timestamp(record: KisIntradayMinuteRecord, timezone_name: str) -> datetime | None:
+    try:
+        trade_date = datetime.strptime(record.trade_date, "%Y%m%d").date()
+        trade_time = datetime.strptime(_safe_time_cursor(record.trade_time), "%H%M%S").time()
+    except ValueError:
+        return None
+    return datetime.combine(trade_date, trade_time, tzinfo=get_timezone(timezone_name))
+
+
+def _kis_records_to_bars_and_ticks(
+    records: list[KisIntradayMinuteRecord],
+    *,
+    start_date: date,
+    end_date: date,
+    timezone_name: str,
+) -> tuple[list[MinuteBar], list[MarketTickEvent]]:
+    bars: list[MinuteBar] = []
+    ticks: list[MarketTickEvent] = []
+    seen: set[tuple[str, datetime]] = set()
+    for record in sorted(records, key=lambda item: (item.trade_date, item.trade_time)):
+        event_time = _kis_record_timestamp(record, timezone_name)
+        if event_time is None or event_time.date() < start_date or event_time.date() > end_date:
+            continue
+        if min(record.open_price, record.high_price, record.low_price, record.close_price) <= 0:
+            continue
+        key = (record.symbol, event_time)
+        if key in seen:
+            continue
+        seen.add(key)
+        bars.append(
+            MinuteBar(
+                symbol=record.symbol,
+                bar_time=event_time,
+                open=float(record.open_price),
+                high=float(record.high_price),
+                low=float(record.low_price),
+                close=float(record.close_price),
+                volume=int(record.volume),
+                trade_count=max(1, int(record.volume) // 1_000),
+            )
+        )
+        ticks.append(
+            MarketTickEvent(
+                symbol=record.symbol,
+                event_time=event_time,
+                price=float(record.close_price),
+                volume=int(record.volume),
+                source=KIS_REST_HISTORICAL_SOURCE,
+            )
+        )
+    return bars, ticks
 
 
 def _daily_row_to_proxy_bars(
@@ -451,4 +579,190 @@ def collect_pykrx_daily_proxy_history(
         report_markdown_path=report_dir / "latest-historical-collection.md",
     )
     _write_reports(result)
+    return result
+
+
+def _fetch_kis_intraday_pages(
+    client: KisRestQuoteClient,
+    symbol: str,
+    *,
+    max_pages: int = 20,
+    request_delay_seconds: float = 0.35,
+) -> list[KisIntradayMinuteRecord]:
+    records: list[KisIntradayMinuteRecord] = []
+    seen_keys: set[tuple[str, str]] = set()
+    cursor = "153000"
+    previous_cursor = ""
+    for _ in range(max_pages):
+        if cursor == previous_cursor:
+            break
+        previous_cursor = cursor
+        page: list[KisIntradayMinuteRecord] = []
+        for retry_index in range(4):
+            try:
+                page = client.get_intraday_minute_chart(
+                    symbol,
+                    input_hour=cursor,
+                    include_past_data=True,
+                )
+                break
+            except KisApiError as exc:
+                if "EGW00201" not in str(exc) or retry_index >= 3:
+                    raise
+                sleep(1.2 * (retry_index + 1))
+        page_new = 0
+        oldest_time: str | None = None
+        for record in page:
+            key = (record.trade_date, _safe_time_cursor(record.trade_time))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            records.append(record)
+            page_new += 1
+            if oldest_time is None or _safe_time_cursor(record.trade_time) < oldest_time:
+                oldest_time = _safe_time_cursor(record.trade_time)
+        if not page or page_new == 0 or oldest_time is None:
+            break
+        next_cursor = _previous_minute_cursor(oldest_time)
+        if next_cursor is None:
+            break
+        cursor = next_cursor
+        sleep(request_delay_seconds)
+    return records
+
+
+def _write_kis_historical_reports(result: KisHistoricalCollectionResult) -> None:
+    payload = result.to_dict()
+    result.report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    lines = [
+        "# KIS REST Historical Minute Collection Report",
+        "",
+        f"- source: `{result.source}`",
+        f"- tr_id: `{result.tr_id}`",
+        f"- requested_period: `{result.start_date}` ~ `{result.end_date}`",
+        f"- requested_days: `{result.requested_days}`",
+        f"- bars_written: `{result.bars_written}`",
+        f"- raw_ticks_written: `{result.raw_ticks_written}`",
+        f"- bar_time_range: `{result.earliest_bar_time}` ~ `{result.latest_bar_time}`",
+        f"- api_limit_note: {result.api_limit_note}",
+        "",
+        "| symbol | records received | records written | first | last | error |",
+        "|---|---:|---:|---|---|---|",
+    ]
+    for summary in result.symbol_summaries:
+        lines.append(
+            f"| {summary.symbol} | {summary.records_received} | {summary.records_written} | "
+            f"{summary.first_time or ''} | {summary.last_time or ''} | {summary.error or ''} |"
+        )
+    result.report_markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def collect_kis_rest_historical_minutes(
+    *,
+    project_root: Path,
+    symbols: list[str] | None = None,
+    start_date: date,
+    end_date: date,
+    max_pages_per_symbol: int = 20,
+    request_delay_seconds: float = 0.35,
+) -> KisHistoricalCollectionResult:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    if end_date < start_date:
+        raise ValueError("end_date must be greater than or equal to start_date.")
+    resolved_symbols = symbols or load_watchlist(project_root=settings.project_root)
+    if not resolved_symbols:
+        raise ValueError("No symbols were provided and watchlist is empty.")
+
+    profile = get_active_kis_profile(settings)
+    if not profile.is_ready_for_quotes:
+        raise KisApiError("KIS app key/secret are required before collecting KIS historical minute bars.")
+
+    sqlite_store = get_sqlite_store(settings, busy_timeout_ms=60_000)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for KIS historical collection.")
+
+    client = KisRestQuoteClient(profile=profile, token_manager=KisTokenManager(profile), timeout_seconds=20)
+    range_start_time = datetime.combine(start_date, time(0, 0), tzinfo=get_timezone(settings.timezone))
+    range_end_time = datetime.combine(end_date, time(23, 59, 59), tzinfo=get_timezone(settings.timezone))
+
+    total_bars = 0
+    total_ticks = 0
+    all_times: list[str] = []
+    summaries: list[KisHistoricalSymbolSummary] = []
+    for symbol in resolved_symbols:
+        try:
+            records = _fetch_kis_intraday_pages(
+                client,
+                symbol,
+                max_pages=max_pages_per_symbol,
+                request_delay_seconds=request_delay_seconds,
+            )
+        except KisApiError as exc:
+            summaries.append(
+                KisHistoricalSymbolSummary(
+                    symbol=symbol,
+                    records_received=0,
+                    records_written=0,
+                    first_time=None,
+                    last_time=None,
+                    error=str(exc),
+                )
+            )
+            sleep(max(request_delay_seconds, 1.0))
+            continue
+        bars, ticks = _kis_records_to_bars_and_ticks(
+            records,
+            start_date=start_date,
+            end_date=end_date,
+            timezone_name=settings.timezone,
+        )
+        sqlite_store.delete_raw_source_rows(
+            "raw_market_ticks",
+            source=KIS_REST_HISTORICAL_SOURCE,
+            symbol=symbol,
+            start_time=range_start_time,
+            end_time=range_end_time,
+        )
+        sqlite_store.upsert_minute_bars_many(bars)
+        sqlite_store.insert_market_ticks_many(ticks)
+        total_bars += len(bars)
+        total_ticks += len(ticks)
+        times = [bar.bar_time.isoformat() for bar in bars]
+        all_times.extend(times)
+        summaries.append(
+            KisHistoricalSymbolSummary(
+                symbol=symbol,
+                records_received=len(records),
+                records_written=len(bars),
+                first_time=min(times) if times else None,
+                last_time=max(times) if times else None,
+                error=None,
+            )
+        )
+        sleep(request_delay_seconds)
+
+    requested_days = (end_date - start_date).days + 1
+    report_dir = settings.runtime_data_dir / "reports" / "historical"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    result = KisHistoricalCollectionResult(
+        source=KIS_REST_HISTORICAL_SOURCE,
+        tr_id="FHKST03010200",
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        symbols=resolved_symbols,
+        requested_days=requested_days,
+        bars_written=total_bars,
+        raw_ticks_written=total_ticks,
+        earliest_bar_time=min(all_times) if all_times else None,
+        latest_bar_time=max(all_times) if all_times else None,
+        api_limit_note=(
+            "KIS official sample identifies FHKST03010200 as an intraday minute endpoint "
+            "with up to 30 rows per call and no previous-day minute support."
+        ),
+        symbol_summaries=summaries,
+        report_json_path=report_dir / "latest-kis-rest-historical-collection.json",
+        report_markdown_path=report_dir / "latest-kis-rest-historical-collection.md",
+    )
+    _write_kis_historical_reports(result)
     return result

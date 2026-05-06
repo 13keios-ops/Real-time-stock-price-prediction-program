@@ -15,6 +15,8 @@ CURRENT_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-price"
 CURRENT_PRICE_TR_ID = "FHKST01010100"
 ORDERBOOK_PATH = "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn"
 ORDERBOOK_TR_ID = "FHKST01010200"
+INTRADAY_MINUTE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
+INTRADAY_MINUTE_TR_ID = "FHKST03010200"
 ACCOUNT_BALANCE_PATH = "/uapi/domestic-stock/v1/trading/inquire-balance"
 ACCOUNT_BALANCE_TR_ID_LIVE = "TTTC8434R"
 ACCOUNT_BALANCE_TR_ID_PAPER = "VTTC8434R"
@@ -79,6 +81,20 @@ class KisOrderbookQuote:
     total_bid_size: int
     expected_match_price: int
     expected_match_qty: int
+
+
+@dataclass(slots=True)
+class KisIntradayMinuteRecord:
+    symbol: str
+    market_code: str
+    trade_date: str
+    trade_time: str
+    open_price: float
+    high_price: float
+    low_price: float
+    close_price: float
+    volume: int
+    raw_output: dict
 
 
 @dataclass(slots=True)
@@ -345,6 +361,48 @@ class KisRestQuoteClient:
             expected_match_price=_as_int(output, "antc_cnpr"),
             expected_match_qty=_as_int(output, "antc_cnqn"),
         )
+
+    def get_intraday_minute_chart(
+        self,
+        symbol: str,
+        *,
+        input_hour: str = "153000",
+        market_code: str = "J",
+        include_past_data: bool = True,
+    ) -> list[KisIntradayMinuteRecord]:
+        payload = self._request(
+            path=INTRADAY_MINUTE_PATH,
+            tr_id=INTRADAY_MINUTE_TR_ID,
+            query_params={
+                "FID_ETC_CLS_CODE": "",
+                "FID_COND_MRKT_DIV_CODE": market_code,
+                "FID_INPUT_ISCD": symbol,
+                "FID_INPUT_HOUR_1": input_hour,
+                "FID_PW_DATA_INCU_YN": "Y" if include_past_data else "N",
+            },
+        )
+        output_rows = list(payload.get("output2", []) or [])
+        records: list[KisIntradayMinuteRecord] = []
+        for row in output_rows:
+            trade_date = _first_present(row, ("stck_bsop_date", "bsop_date"))
+            trade_time = _first_present(row, ("stck_cntg_hour", "cntg_hour"))
+            if not trade_date or not trade_time:
+                continue
+            records.append(
+                KisIntradayMinuteRecord(
+                    symbol=symbol,
+                    market_code=market_code,
+                    trade_date=trade_date,
+                    trade_time=trade_time,
+                    open_price=_first_float(row, ("stck_oprc", "oprc")),
+                    high_price=_first_float(row, ("stck_hgpr", "hgpr")),
+                    low_price=_first_float(row, ("stck_lwpr", "lwpr")),
+                    close_price=_first_float(row, ("stck_prpr", "prpr")),
+                    volume=_first_int(row, ("cntg_vol", "acml_vol", "vol")),
+                    raw_output=dict(row),
+                )
+            )
+        return records
 
     def get_account_balance(self, *, inqr_dvsn: str = "02", max_pages: int = 10) -> KisAccountBalanceSnapshot:
         if not self.profile.is_configured:

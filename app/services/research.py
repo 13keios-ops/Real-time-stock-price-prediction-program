@@ -30,6 +30,10 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 from app.utils.time import now_local
 
 
+PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
+PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance"})
+
+
 @dataclass(slots=True)
 class MinuteBarBuildResult:
     bars_written: int
@@ -336,27 +340,77 @@ def _row_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
+def _split_source_list(value: object) -> set[str]:
+    return {
+        item.strip().lower()
+        for item in str(value or "").split(",")
+        if item.strip()
+    }
+
+
+def _resolve_feature_row_source(row) -> str:
+    sources = _split_source_list(row["orderbook_sources"] if "orderbook_sources" in row.keys() else "")
+    market_sources = _split_source_list(row["market_sources"] if "market_sources" in row.keys() else "")
+    if "kis-ws" in sources:
+        return "kis-ws"
+    if "kis-rest-historical" in sources:
+        return "kis-rest-historical"
+    if PYKRX_DAILY_PROXY_SOURCE in sources:
+        return PYKRX_DAILY_PROXY_SOURCE
+    if sources:
+        return sorted(sources)[0]
+    if "kis-rest-historical" in market_sources:
+        return "kis-rest-historical"
+    if market_sources:
+        return sorted(market_sources)[0]
+    return "unknown"
+
+
 def _load_labeled_feature_dataset(sqlite_store, horizon_min: int) -> tuple[list[str], list[dict[str, object]]]:
     rows = sqlite_store.fetch_feature_rows(horizon_min=horizon_min)
     if len(rows) < 5:
         raise ValueError("Not enough labeled feature rows are available for training.")
 
-    dataset: list[dict[str, object]] = []
-    feature_names: list[str] = []
+    pending_rows: list[dict[str, object]] = []
+    raw_feature_names: set[str] = set()
+    has_proxy_rows = False
     for row in rows:
-        values = json.loads(row["values_json"])
-        if not feature_names:
-            feature_names = sorted(values.keys())
-        dataset.append(
+        raw_values = {str(key): float(value) for key, value in json.loads(row["values_json"]).items()}
+        feature_source = _resolve_feature_row_source(row)
+        excluded_features: list[str] = []
+        effective_values = dict(raw_values)
+        if feature_source == PYKRX_DAILY_PROXY_SOURCE:
+            has_proxy_rows = True
+            excluded_features = sorted(name for name in PROXY_EXCLUDED_TRAINING_FEATURES if name in effective_values)
+            for name in PROXY_EXCLUDED_TRAINING_FEATURES:
+                effective_values.pop(name, None)
+        raw_feature_names.update(effective_values.keys())
+        pending_rows.append(
             {
                 "symbol": row["symbol"],
                 "event_time": _row_timestamp(str(row["event_time"])),
                 "label": str(row["label"]),
                 "future_return_pct": float(row["future_return_pct"]),
-                "values": {name: float(values[name]) for name in feature_names},
-                "features": [float(values[name]) for name in feature_names],
+                "feature_source": feature_source,
+                "excluded_feature_names": excluded_features,
+                "raw_values": raw_values,
+                "effective_values": effective_values,
             }
         )
+
+    if has_proxy_rows:
+        raw_feature_names.difference_update(PROXY_EXCLUDED_TRAINING_FEATURES)
+    feature_names = sorted(raw_feature_names)
+    dataset: list[dict[str, object]] = []
+    for row in pending_rows:
+        effective_values = dict(row.pop("effective_values"))
+        values = {name: float(effective_values[name]) for name in feature_names if name in effective_values}
+        if len(values) != len(feature_names):
+            missing = sorted(set(feature_names).difference(values.keys()))
+            raise ValueError(f"Feature row is missing required training features: {missing}")
+        row["values"] = values
+        row["features"] = [float(values[name]) for name in feature_names]
+        dataset.append(row)
     dataset.sort(key=lambda item: (str(item["event_time"]), str(item["symbol"])))
     return feature_names, dataset
 
@@ -453,6 +507,7 @@ def _fit_lightgbm_model(
     model = LGBMClassifier(
         boosting_type="gbdt",
         objective="multiclass",
+        class_weight="balanced",
         n_estimators=140 if horizon_min >= 60 else 100,
         learning_rate=0.05,
         num_leaves=31,
@@ -1157,9 +1212,17 @@ def train_lightgbm_from_sqlite(
             validation_rows=len(validation_rows),
             training_summary={
                 "framework": "lightgbm",
+                "class_weight": "balanced",
                 "labels_seen": sorted({str(row["label"]) for row in dataset}),
+                "label_counts": dict(Counter(str(row["label"]) for row in dataset)),
                 "class_labels": model.artifact.class_labels,
                 "feature_names": feature_names,
+                "feature_selection": {
+                    "proxy_source": PYKRX_DAILY_PROXY_SOURCE,
+                    "proxy_excluded_features": sorted(PROXY_EXCLUDED_TRAINING_FEATURES),
+                    "proxy_rows": sum(1 for row in dataset if row.get("feature_source") == PYKRX_DAILY_PROXY_SOURCE),
+                    "source_counts": dict(Counter(str(row.get("feature_source", "unknown")) for row in dataset)),
+                },
                 "training_window": "recent_60_trading_days_plus_today",
                 "activation_applied": set_active,
             },

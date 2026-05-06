@@ -105,6 +105,14 @@ class SQLiteRuntimeStore:
             )
             """,
             """
+            CREATE INDEX IF NOT EXISTS idx_raw_market_ticks_symbol_time
+            ON raw_market_ticks(symbol, event_time)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_raw_orderbook_ticks_symbol_time
+            ON raw_orderbook_ticks(symbol, event_time)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS curated_minute_bars (
                 symbol TEXT NOT NULL,
                 bar_time TEXT NOT NULL,
@@ -494,6 +502,17 @@ class SQLiteRuntimeStore:
         self._run_write_query(
             "INSERT INTO raw_market_ticks(symbol, event_time, price, volume, source) VALUES (?, ?, ?, ?, ?)",
             (event.symbol, self._dt(event.event_time), event.price, event.volume, event.source),
+        )
+
+    def insert_market_ticks_many(self, events: list[MarketTickEvent]) -> None:
+        if not events:
+            return
+        self._run_write_many(
+            "INSERT INTO raw_market_ticks(symbol, event_time, price, volume, source) VALUES (?, ?, ?, ?, ?)",
+            [
+                (event.symbol, self._dt(event.event_time), event.price, event.volume, event.source)
+                for event in events
+            ],
         )
 
     def insert_orderbook_snapshot(self, event: OrderbookSnapshot) -> None:
@@ -913,11 +932,29 @@ class SQLiteRuntimeStore:
 
     def fetch_feature_rows(self, horizon_min: int) -> list[sqlite3.Row]:
         query = """
+            WITH orderbook_source_lookup AS (
+                SELECT
+                    symbol,
+                    event_time,
+                    GROUP_CONCAT(DISTINCT lower(source)) AS orderbook_sources
+                FROM raw_orderbook_ticks
+                GROUP BY symbol, event_time
+            ),
+            market_source_lookup AS (
+                SELECT
+                    symbol,
+                    event_time,
+                    GROUP_CONCAT(DISTINCT lower(source)) AS market_sources
+                FROM raw_market_ticks
+                GROUP BY symbol, event_time
+            )
             SELECT
                 inputs.symbol,
                 inputs.event_time,
                 inputs.feature_set_version,
                 inputs.values_json,
+                orderbook_source_lookup.orderbook_sources,
+                market_source_lookup.market_sources,
                 labels.horizon_min,
                 labels.label,
                 labels.threshold_pct,
@@ -926,6 +963,12 @@ class SQLiteRuntimeStore:
             INNER JOIN feature_labels AS labels
                 ON inputs.symbol = labels.symbol
                AND inputs.event_time = labels.event_time
+            LEFT JOIN orderbook_source_lookup
+                ON orderbook_source_lookup.symbol = inputs.symbol
+               AND orderbook_source_lookup.event_time = inputs.event_time
+            LEFT JOIN market_source_lookup
+                ON market_source_lookup.symbol = inputs.symbol
+               AND market_source_lookup.event_time = inputs.event_time
             WHERE labels.horizon_min = ?
             ORDER BY inputs.symbol, inputs.event_time
         """

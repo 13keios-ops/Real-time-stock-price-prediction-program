@@ -1,7 +1,122 @@
 # docs/STATUS.md
 
 생성일: 2026-05-06
-스프린트: 03 데이터 품질 점검
+스프린트: 04 C-1 재실험 및 KIS REST 분봉 수집 준비
+
+## 🟠 [2026-05-06 17:24] 스프린트 04 — proxy 호가 피처 제외 + C-1 5년치 재실행
+
+- 상황: 스프린트 03 품질 점검에서 `pykrx-daily-proxy`의 `spread_bps`, `bid_ask_imbalance`가 실제 KIS 호가와 의미가 다르다고 확인되어, proxy 포함 학습에서는 두 피처를 학습 피처 목록에서 제외했다.
+- 가져갈 파일: `docs/STATUS.md`
+- 판단: LightGBM C-1은 validation 기준으로 크게 개선됐지만, walk-forward gate는 아직 `needs_review`이므로 승격 금지 유지.
+
+### 사전 작업. 호가 피처 제외 처리
+
+- 구현 위치:
+  - `app/services/research.py`
+  - `app/storage/sqlite_store.py`
+- 처리 방식:
+  - `feature_model_inputs`의 저장된 `values_json`은 수정하지 않는다.
+  - 학습 데이터 로더가 `raw_orderbook_ticks`/`raw_market_ticks`의 source를 함께 읽어 row source를 판정한다.
+  - `pykrx-daily-proxy` row가 포함된 학습셋에서는 `spread_bps`, `bid_ask_imbalance`를 학습 feature_names에서 제외한다.
+  - `mid_price`는 유지한다.
+  - C-1 학습 feature_names: `avg_trade_size`, `hl_range_pct`, `mid_price`, `return_1m_pct`
+- 성능 보강:
+  - source lookup이 느려지지 않도록 `raw_market_ticks(symbol,event_time)`, `raw_orderbook_ticks(symbol,event_time)` index를 추가했다.
+  - 33만 labeled row 로딩 확인: 약 `13.11s`
+- 단위 테스트:
+  - `python -m unittest discover -s tests -p "test_*.py"`
+  - 결과: `Ran 85 tests in 13.796s`, `OK`
+
+### 실험 C-1. class_weight=balanced 5년치 재실행
+
+실행 명령:
+
+```bash
+python -m app --train-lightgbm --horizon-min 15
+python -m app --run-challengers --horizon-min 15
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+python -m app --run-challengers --horizon-min 15
+```
+
+학습 설정:
+
+| 항목 | 값 |
+|---|---:|
+| training_run_id | `train-lightgbm-h15-20260506171325113244` |
+| class_weight | `balanced` |
+| train_rows | 266,313 |
+| validation_rows | 66,579 |
+| validation_accuracy | 0.911699 |
+| proxy_rows | 318,683 |
+| source_counts | `pykrx-daily-proxy=318683`, `kis-ws=12401`, `synthetic=75`, `unknown=1733` |
+
+라벨 분포:
+
+| 기준 | down | flat | up |
+|---|---:|---:|---:|
+| 전체 actual label | 22,656 | 286,577 | 23,659 |
+| validation actual label | 6,533 | 53,110 | 6,936 |
+| LightGBM validation predicted label | 5,563 | 55,420 | 5,596 |
+| walk-forward predicted label | 100,902 | 127,608 | 104,330 |
+
+주요 결과:
+
+| 지표 | LightGBM validation/challenger | Walk-forward |
+|---|---:|---:|
+| trades_taken | 5,328 | 104,327 |
+| validation_accuracy / overall_accuracy | 0.911699 | 0.412748 |
+| cumulative_net_return_pct | 1,807.293048 | -10,384.138893 |
+| trade_hit_rate | 0.863176 | 0.101259 |
+| win_rate | 0.877252 | 0.336260 |
+
+Challenger 최종 판단:
+
+- best_candidate: `latest_lightgbm`
+- recommended_action: `review_required`
+- recommended_model_version: `lightgbm-h15-v1`
+- walk_forward_gate_status: `needs_review`
+- reason: `Walk-forward overall accuracy is too low (0.4127).`
+- active_model_version_after_run: `baseline-h15-v1`
+
+### 병행 작업. KIS REST 1년치 실제 분봉 수집 코드
+
+- 구현 위치:
+  - `app/brokers/kis_quote_rest.py`
+  - `app/collectors/historical.py`
+  - `app/__main__.py`
+- CLI:
+
+```bash
+python -m app --collect-kis-historical --start 2025-05-06 --end 2026-05-06
+```
+
+- TR: `FHKST03010200`
+- source: `kis-rest-historical`
+- 저장:
+  - 기존 `curated_minute_bars`에 OHLCV upsert
+  - 기존 `raw_market_ticks`에 close/volume tick을 `source=kis-rest-historical`로 적재
+  - 기존 DB 테이블 구조는 변경하지 않음
+- rate-limit 처리:
+  - `EGW00201` 발생 시 backoff 재시도
+  - 종목별 실패는 summary error로 기록하고 다음 종목 진행
+
+실행 결과:
+
+| 항목 | 값 |
+|---|---:|
+| requested_days | 366 |
+| bars_written | 4,200 |
+| raw_ticks_written | 4,200 |
+| per-symbol records_written | 420 |
+| earliest_bar_time | `2026-05-04T15:02:00+09:00` |
+| latest_bar_time | `2026-05-06T15:30:00+09:00` |
+| report | `runtime-data/reports/historical/latest-kis-rest-historical-collection.{json,md}` |
+
+제한 사항:
+
+- 공식 KIS 샘플 기준 `FHKST03010200`은 주식당일분봉조회 성격이며, 1회 최대 30건과 전일자 분봉 제한이 있다.
+- 실제 실행에서는 요청 기간 366일 중 최근 일부 구간만 반환됐다. 따라서 1년 전체 실제 분봉 백필은 이 TR만으로는 완료되지 않았다.
+- 다음 단계에서는 `FHKST03010200` 반복 조회 한계와 별개로, KIS가 제공하는 다른 장기 분봉 TR 또는 외부 실제 분봉 소스를 검토해야 한다.
 
 ## 🟠 [2026-05-06 16:18] 스프린트 04 전 점검 — pykrx 프록시 분봉 품질 확인
 
