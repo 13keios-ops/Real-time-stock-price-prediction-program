@@ -1,7 +1,109 @@
 # docs/STATUS.md
 
 생성일: 2026-05-06
-스프린트: 04 누수 점검 및 실험 B/D
+스프린트: 04 누수 점검 및 실험 E
+
+## 🔴 [2026-05-06 20:10] 실험 E — 일봉 단위 train/validation split
+
+- 상황: 실험 B/D에서 `mid_price`를 제거하고 horizon purge를 적용해도 validation_accuracy가 `0.911793`으로 유지됐다. 이번 실험은 같은 거래일의 proxy 15분 봉이 train과 validation에 동시에 들어가는 문제를 차단하기 위해 날짜 단위 80/20 split을 적용했다.
+- 가져갈 파일: `docs/STATUS.md`
+- 판단: validation_accuracy가 `0.921672`로 유지되어, 기존 `0.912`가 단순히 같은 날짜 train/validation 혼입 때문이었다는 가설은 확인되지 않았다. 다만 walk-forward는 여전히 실패권이므로 proxy 15분 라벨/보간 규칙 자체의 암기 가능성은 계속 높다.
+- 최종 조치: 자동 승격 금지 유지. active model은 `baseline-h15-v1` 그대로 유지.
+
+### 변경 내용
+
+- `app/services/research.py`의 train/validation split을 행 단위 tail 80/20에서 거래일 단위 tail 80/20로 변경했다.
+- 같은 날짜의 모든 row는 train 또는 validation 중 한쪽에만 들어간다.
+- horizon purge는 유지한다. validation 시작 시각 기준으로 `train.event_time + horizon < validation_start_time`을 만족하지 않는 train row를 제거한다.
+- 작은 synthetic fixture에서 날짜 split 또는 purge 후 `down/flat/up` 라벨 구성이 깨질 때만 기존 row-level split을 fallback으로 사용한다.
+- 피처는 실험 B/D 상태 그대로 유지했다. `mid_price`, `spread_bps`, `bid_ask_imbalance`는 proxy 포함 학습셋 feature list에서 제외된다.
+
+### split 확인
+
+| 항목 | 값 |
+|---|---:|
+| split method | `trade_date_tail_20pct` |
+| feature_names | `avg_trade_size`, `hl_range_pct`, `return_1m_pct` |
+| total labeled rows | 332,892 |
+| train_rows | 254,350 |
+| validation_rows | 78,542 |
+| train_date_count | 1,047 |
+| validation_date_count | 262 |
+| last_train_date | `2025-04-08` |
+| first_validation_date | `2025-04-09` |
+| last_train_event_time | `2025-04-08T15:00:00+09:00` |
+| first_validation_event_time | `2025-04-09T09:00:00+09:00` |
+| train/validation date overlap | 0 |
+
+### 실험 E 실행 결과
+
+실행 명령:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+python -m app --train-lightgbm --horizon-min 15
+python -m app --run-challengers --horizon-min 15
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+python -m app --run-challengers --horizon-min 15
+```
+
+학습 설정:
+
+| 항목 | 값 |
+|---|---:|
+| training_run_id | `train-lightgbm-h15-20260506200645749446` |
+| train_rows | 254,350 |
+| validation_rows | 78,542 |
+| validation_accuracy | 0.921672 |
+| proxy_rows | 318,683 |
+| source_counts | `pykrx-daily-proxy=318683`, `kis-ws=12388`, `unknown=1192`, `kis-rest-historical=554`, `synthetic=75` |
+
+라벨 분포:
+
+| 기준 | down | flat | up |
+|---|---:|---:|---:|
+| validation actual label | 7,311 | 63,643 | 7,588 |
+| LightGBM validation predicted label | 6,231 | 65,923 | 6,388 |
+| walk-forward actual label | 22,640 | 286,541 | 23,659 |
+| walk-forward predicted label | 107,264 | 110,316 | 115,260 |
+
+주요 결과:
+
+| 지표 | LightGBM validation/challenger | Walk-forward |
+|---|---:|---:|
+| trades_taken | 5,911 | 111,223 |
+| validation_accuracy / overall_accuracy | 0.921672 | 0.380246 |
+| cumulative_net_return_pct | 2,026.652123 | -10,411.176412 |
+| trade_hit_rate | 0.870919 | 0.104502 |
+| win_rate | 0.889359 | 0.341638 |
+
+실험 누적표:
+
+| 실험 | split | feature_names | validation_accuracy | walk-forward overall_accuracy | walk-forward trade_hit_rate | walk-forward cumulative_net_return_pct | walk-forward trades_taken | 판단 |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| C-1 | row tail 80/20 | `avg_trade_size`, `hl_range_pct`, `mid_price`, `return_1m_pct` | 0.911699 | 0.412748 | 0.101259 | -10,384.138893 | 104,327 | validation 과대, gate 실패 |
+| B/D | row tail 80/20 + purge | `avg_trade_size`, `hl_range_pct`, `return_1m_pct` | 0.911793 | 0.380246 | 0.104502 | -10,411.176412 | 111,223 | `mid_price` 단독 누수 아님 |
+| E | date tail 80/20 + purge | `avg_trade_size`, `hl_range_pct`, `return_1m_pct` | 0.921672 | 0.380246 | 0.104502 | -10,411.176412 | 111,223 | 같은 날짜 혼입 누수만으로 설명 안 됨 |
+
+판단 기준 대비:
+
+- `validation_accuracy`가 `0.7 이하`로 떨어지지 않았다. 따라서 기존 `0.912`가 같은 날짜 proxy 봉 혼입 때문이었다는 판단은 확인되지 않았다.
+- `walk-forward trade_hit_rate`는 `0.104502`로 `0.3` 기준에 못 미친다. 실전 방향성 개선은 확인되지 않았다.
+- 다음 단계는 proxy 15분 라벨을 학습/validation에서 제외하거나, proxy는 일봉 라벨용으로만 쓰고 실제 KIS 분봉만 15분 라벨 검증에 쓰는 방향이 더 타당하다.
+
+Challenger 최종 판단:
+
+- best_candidate: `latest_lightgbm`
+- recommended_action: `review_required`
+- recommended_model_version: `lightgbm-h15-v1`
+- walk_forward_gate_status: `needs_review`
+- reason: `Walk-forward overall accuracy is too low (0.3802).`
+- active_model_version_after_run: `baseline-h15-v1`
+
+검증:
+
+- `python -m py_compile app/services/research.py`: 통과
+- `python -m unittest discover -s tests -p "test_*.py"`: `Ran 85 tests in 11.904s`, `OK`
 
 ## 🔴 [2026-05-06 18:23] 긴급 누수 점검 — 실험 B/D(mid_price 제거)
 

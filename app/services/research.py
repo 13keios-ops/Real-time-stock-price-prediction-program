@@ -420,28 +420,75 @@ def _has_complete_direction_labels(rows: list[dict[str, object]]) -> bool:
     return {"down", "flat", "up"}.issubset(labels)
 
 
-def _split_dataset(
-    dataset: list[dict[str, object]],
-    *,
-    horizon_min: int = 0,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+def _row_level_tail_split(dataset: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     split_index = max(1, math.floor(len(dataset) * 0.8))
     split_index = min(split_index, len(dataset) - 1)
     validation_start_time = dataset[split_index]["event_time"]
     while split_index > 0 and dataset[split_index - 1]["event_time"] == validation_start_time:
         split_index -= 1
-    train_rows = dataset[:split_index]
-    validation_rows = dataset[split_index:]
-    if horizon_min > 0 and validation_rows:
-        validation_start_time = validation_rows[0]["event_time"]
-        purge_delta = timedelta(minutes=horizon_min)
-        purged_train_rows = [
-            row for row in train_rows
-            if row["event_time"] + purge_delta < validation_start_time
-        ]
-        if _has_complete_direction_labels(purged_train_rows):
-            train_rows = purged_train_rows
+    return dataset[:split_index], dataset[split_index:]
+
+
+def _date_level_tail_split(dataset: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    trade_dates = sorted({row["event_time"].date() for row in dataset})
+    if len(trade_dates) < 2:
+        return [], []
+    split_date_index = max(1, math.floor(len(trade_dates) * 0.8))
+    split_date_index = min(split_date_index, len(trade_dates) - 1)
+    validation_start_date = trade_dates[split_date_index]
+    train_rows = [row for row in dataset if row["event_time"].date() < validation_start_date]
+    validation_rows = [row for row in dataset if row["event_time"].date() >= validation_start_date]
     return train_rows, validation_rows
+
+
+def _apply_horizon_purge(
+    train_rows: list[dict[str, object]],
+    validation_rows: list[dict[str, object]],
+    horizon_min: int,
+) -> list[dict[str, object]]:
+    if horizon_min <= 0 or not validation_rows:
+        return train_rows
+    validation_start_time = validation_rows[0]["event_time"]
+    purge_delta = timedelta(minutes=horizon_min)
+    purged_train_rows = [
+        row for row in train_rows
+        if row["event_time"] + purge_delta < validation_start_time
+    ]
+    if _has_complete_direction_labels(purged_train_rows):
+        return purged_train_rows
+    return train_rows
+
+
+def _split_window_summary(
+    train_rows: list[dict[str, object]],
+    validation_rows: list[dict[str, object]],
+) -> dict[str, object]:
+    train_dates = sorted({row["event_time"].date().isoformat() for row in train_rows})
+    validation_dates = sorted({row["event_time"].date().isoformat() for row in validation_rows})
+    last_train_event_time = max((row["event_time"] for row in train_rows), default=None)
+    first_validation_event_time = min((row["event_time"] for row in validation_rows), default=None)
+    return {
+        "method": "trade_date_tail_20pct",
+        "train_date_count": len(train_dates),
+        "validation_date_count": len(validation_dates),
+        "last_train_date": train_dates[-1] if train_dates else None,
+        "first_validation_date": validation_dates[0] if validation_dates else None,
+        "last_train_event_time": last_train_event_time.isoformat() if last_train_event_time else None,
+        "first_validation_event_time": first_validation_event_time.isoformat()
+        if first_validation_event_time
+        else None,
+    }
+
+
+def _split_dataset(
+    dataset: list[dict[str, object]],
+    *,
+    horizon_min: int = 0,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    train_rows, validation_rows = _date_level_tail_split(dataset)
+    if not train_rows or not validation_rows or not _has_complete_direction_labels(train_rows):
+        train_rows, validation_rows = _row_level_tail_split(dataset)
+    return _apply_horizon_purge(train_rows, validation_rows, horizon_min), validation_rows
 
 
 def _prediction_label(probability_up: float, probability_flat: float, probability_down: float) -> str:
@@ -1246,9 +1293,10 @@ def train_lightgbm_from_sqlite(
                     "proxy_rows": sum(1 for row in dataset if row.get("feature_source") == PYKRX_DAILY_PROXY_SOURCE),
                     "source_counts": dict(Counter(str(row.get("feature_source", "unknown")) for row in dataset)),
                 },
+                "validation_split": _split_window_summary(train_rows, validation_rows),
                 "validation_purge": {
                     "horizon_min": horizon_min,
-                    "split": "tail_20pct",
+                    "split": "trade_date_tail_20pct",
                     "purge_rule": "drop train rows where event_time + horizon reaches validation_start_time",
                 },
                 "training_window": "recent_60_trading_days_plus_today",

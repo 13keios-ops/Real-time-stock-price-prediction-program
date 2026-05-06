@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-05-06] Codex → 스프린트 04 실험 E 일봉 단위 split
+
+- 변경 파일:
+  - `app/services/research.py`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - train/validation split을 행 단위 tail 80/20에서 거래일 단위 tail 80/20로 변경했다.
+  - 같은 날짜 row가 train과 validation에 동시에 들어가지 않도록 했고, horizon purge는 validation 시작 시각 기준으로 유지했다.
+  - 작은 synthetic fixture에서 날짜 split 또는 purge 후 `down/flat/up` 라벨 구성이 깨질 때만 row-level fallback을 사용하도록 했다.
+  - proxy 포함 학습셋 feature list는 실험 B/D 상태 그대로 `avg_trade_size`, `hl_range_pct`, `return_1m_pct`를 유지했다.
+- 실행 명령:
+  ```bash
+  python -m py_compile app/services/research.py
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+  python -m app --run-challengers --horizon-min 15
+  ```
+- 확인 결과:
+  - 단위 테스트: `Ran 85 tests in 11.904s`, `OK`
+  - split: `trade_date_tail_20pct`, train `2025-04-08`까지, validation `2025-04-09`부터, 날짜 overlap `0`
+  - LightGBM: `train_rows=254350`, `validation_rows=78542`, `validation_accuracy=0.921672`, `trades_taken=5911`, `trade_hit_rate=0.870919`, `cumulative_net_return_pct=2026.652123`
+  - walk-forward: `folds=33284`, `rows_evaluated=332840`, `overall_accuracy=0.380246`, `trades_taken=111223`, `trade_hit_rate=0.104502`, `cumulative_net_return_pct=-10411.176412`
+  - challenger 최종 판단: `review_required`, `walk_forward_gate_status=needs_review`, 활성 모델은 `baseline-h15-v1` 유지
+- 판단:
+  - validation_accuracy가 `0.7` 이하로 떨어지지 않았으므로, 기존 `0.912`가 같은 날짜 train/validation 혼입 때문이었다는 가설은 확인되지 않았다.
+  - walk-forward trade_hit_rate가 `0.3` 이상으로 오르지 않아 실전 방향성 개선도 확인되지 않았다.
+  - 다음 단계는 proxy 15분 라벨 자체를 제외하거나 실제 KIS 분봉 기반 검증을 분리하는 쪽이 우선이다.
+
 ## [2026-05-06] Codex → 스프린트 04 긴급 누수 점검과 실험 B/D
 
 - 변경 파일:
