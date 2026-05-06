@@ -11,6 +11,7 @@ from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_pr
 from app.brokers.kis_quote_rest import KisRestQuoteClient
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
+from app.collectors.historical import DEFAULT_START_DATE, collect_pykrx_daily_proxy_history, parse_date_text
 from app.services.broker_paper_sync import sync_broker_paper_orders
 from app.services.collector import collect_kis_watchlist_snapshots, poll_kis_watchlist_snapshots
 from app.services.dashboard import build_dashboard_snapshot, prepare_dashboard_server
@@ -51,6 +52,7 @@ def main() -> int:
     parser.add_argument("--kis-snapshot", action="store_true", help="Fetch and store a single KIS REST market snapshot.")
     parser.add_argument("--kis-watchlist-snapshot", action="store_true", help="Fetch and store KIS REST snapshots for a watchlist.")
     parser.add_argument("--kis-watchlist-poll", action="store_true", help="Run repeated KIS REST snapshot polling for a watchlist.")
+    parser.add_argument("--collect-historical-data", action="store_true", help="Collect historical watchlist data into the existing SQLite schema.")
     parser.add_argument("--build-minute-bars", action="store_true", help="Build minute bars from raw ticks stored in SQLite.")
     parser.add_argument("--build-feature-dataset", action="store_true", help="Build feature snapshots and labels from SQLite minute bars.")
     parser.add_argument("--rebuild-actual-ml", action="store_true", help="Delete offline ML artifacts and rebuild actual-runtime-only features, labels, training, and reports.")
@@ -100,9 +102,25 @@ def main() -> int:
     parser.add_argument("--dashboard-refresh-seconds", type=int, default=600, help="Browser auto-refresh interval for the dashboard. Default is 600 seconds (10 minutes).")
     parser.add_argument("--dashboard-recent-limit", type=int, default=100, help="Recent item count shown in the dashboard.")
     parser.add_argument("--project-root", default=".", help="Project root for config and runtime paths.")
+    parser.add_argument("--start-date", default="2021-01-01", help="Historical collection start date in YYYY-MM-DD format.")
+    parser.add_argument("--end-date", default="", help="Historical collection end date in YYYY-MM-DD format. Defaults to today.")
+    parser.add_argument("--bars-per-day", type=int, default=26, help="Proxy intraday bars per daily pykrx row.")
+    parser.add_argument("--no-build-historical-features", action="store_true", help="Collect historical bars without rebuilding features and labels.")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
+
+    if args.collect_historical_data:
+        result = collect_pykrx_daily_proxy_history(
+            project_root=project_root,
+            symbols=parse_symbol_list(args.symbols) or None,
+            start_date=parse_date_text(args.start_date, default=DEFAULT_START_DATE),
+            end_date=parse_date_text(args.end_date, default=DEFAULT_START_DATE) if args.end_date else None,
+            bars_per_day=args.bars_per_day,
+            build_features=not args.no_build_historical_features,
+        )
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
 
     if args.demo:
         result = run_demo_pipeline(project_root=project_root, symbol=args.symbol)
@@ -369,7 +387,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
     )
     return 2
 

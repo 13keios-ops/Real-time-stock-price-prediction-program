@@ -1,4 +1,4 @@
-﻿# 저장소 점검 자동화
+# 저장소 점검 자동화
 
 ## 목적
 
@@ -14,22 +14,22 @@
 
 ## 스크립트
 
-- `scripts/run_hourly_repo_audit_iteration.ps1`
+- `scripts/run_hourly_repo_audit_iteration.sh`
   - 현재 시점 기준 1회 점검 실행
-- `scripts/start_hourly_repo_audit.ps1`
+- `scripts/start_hourly_repo_audit.sh`
   - 즉시 1회 실행 후 매시간 반복
-- `scripts/start_hourly_repo_audit_background.ps1`
+- `scripts/start_hourly_repo_audit_background.sh`
   - 백그라운드에서 실행기를 시작하고 바로 상태를 반환
-- `scripts/get_hourly_repo_audit_status.ps1`
+- `scripts/get_hourly_repo_audit_status.sh`
   - 현재 실행기 상태 확인
-- `scripts/stop_hourly_repo_audit.ps1`
+- `scripts/stop_hourly_repo_audit.sh`
   - 현재 실행기 중지
 
 ## 권장 실행 방식
 
 - 1순위는 Codex 자동화다.
 - Codex 자동화로 등록하면 앱 UI에서 즉시 중지할 수 있다.
-- PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로로 본다.
+- bash 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로로 본다.
 - 상태 스크립트는 저장된 pid 가 죽어 있으면 `stale` 로 보여준다.
 
 ## 출력 경로

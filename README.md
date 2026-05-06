@@ -1,4 +1,4 @@
-﻿# 실시간 주가 예측 프로그램
+# 실시간 주가 예측 프로그램
 
 국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
 현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
@@ -62,6 +62,7 @@
 - 런타임과 broker paper sync 는 alignment baseline 이후 체결이 있으나 최신 스냅샷이 오래된 경우, 기준 현금에 이후 체결 현금흐름을 반영해 복원한다.
 - actual-only cleanup 은 실제 브로커 체결 시각에 생성된 포트폴리오 스냅샷을 실제 운용 데이터로 보존한다.
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
+- pykrx 일봉 기반 10종목 장기 과거 데이터 backfill 과 15분 proxy 분봉 적재 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
 - KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않으면 timeout 후 reconnect 해서 connected-but-idle 상태를 줄인다.
 - 장중에는 15분·60분 예측을 함께 기록하고, 신호와 주문은 15분 기준으로만 생성
@@ -78,23 +79,23 @@
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
 - 대시보드 상단 경고는 이제 `오늘 학습 부재`를 무조건 띄우지 않고, 최신 학습이나 평가 기록이 실제로 `없음` 또는 `지연` 상태일 때만 올린다.
 - 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
-- 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.ps1` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
+- 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.sh` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
 - post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
 - post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 pre-open warmup 으로 live runtime 을 미리 켠다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - runtime watchdog 상태 조회는 프로세스 존재뿐 아니라 `last_checked_at` 심박 나이도 확인한다. 기본 10분 이상 심박이 멈추면 `stale` 로 보고, 시작 스크립트는 같은 watchdog 프로세스를 재사용하지 않고 재시작한다.
 - 정규장에 live runtime 이 이미 최신 분봉을 쓰고 있으면 watchdog 은 별도 KIS 검증 WebSocket 을 중복으로 열지 않고, live runtime 의 실제 데이터 흐름을 우선 신뢰한다.
-- `scripts/get_dashboard_status.ps1` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
-- dashboard foreground/background 시작 스크립트는 이제 Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 찾아 사용한다.
+- `scripts/get_dashboard_status.sh` 는 이제 실제 포트와 HTTP 응답을 다시 확인한 뒤 상태 파일도 함께 정규화해서 `starting` 이 오래 남는 문제를 줄인다.
+- dashboard foreground/background 시작 스크립트는 WSL2의 실제 Python 실행 파일을 우선 찾아 사용한다.
 - PC 재부팅 후 자동 시작을 위한 runtime autoboot 스크립트와 시작프로그램 launcher 설치/삭제 스크립트
 - runtime watchdog background 시작 / 상태 / 중지 스크립트가 추가되었다.
-- `scripts/get_live_runtime_status.ps1` 와 runtime watchdog 은 이제 PowerShell `ConvertFrom-Json` 대신 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
+- `scripts/get_live_runtime_status.sh` 와 runtime watchdog 은 serializer 기반 파일 읽기를 써서, cached dashboard snapshot 의 한글/긴 JSON 도 안정적으로 읽는다.
 - live runtime 상태 스크립트는 이제 실제 `python -m app --kis-ws-listen` 프로세스인지까지 확인해 stale pid 재사용 오판을 줄이고, root `.env` 또는 KIS 자격정보가 없을 때는 blocked 이유를 함께 남긴다.
 - root `.env` 가 나중에 복구되면, live runtime 상태 스크립트는 예전 `missing_kis_credentials` 실패를 그대로 붙잡지 않고 현재 KIS app key/secret 준비 상태를 다시 읽어 stale blocked 상태를 자동 해제한다.
 - live runtime 이 정상 중지된 상태에서는 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
-- `scripts/check_local_setup.ps1` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
-- `scripts/restore_kis_env_interactive.ps1` 는 visible PowerShell 입력 창에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장하고, 바로 live runtime / watchdog / KIS verification 까지 이어서 점검한다. 계좌 값은 나중에 `-IncludeAccountFields` 로 별도 복구할 수 있다.
+- `scripts/check_local_setup.sh` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
+- `scripts/restore_kis_env_interactive.sh` 는 WSL 터미널에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장하고, 바로 live runtime / watchdog / KIS verification 까지 이어서 점검한다. 계좌 값은 나중에 `-IncludeAccountFields` 로 별도 복구할 수 있다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
@@ -104,8 +105,8 @@
 - paper-account reconciliation 기록은 live runtime 이 DB를 쓰는 중에도 더 오래 재시도하도록 보강했다.
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
 - audit progress JSON 배열 정합성 보강
-- `scripts/start_repo_review_until_deadline_background.ps1` 로 특정 시각까지 저장소 전체점검을 반복 실행할 수 있다.
-- bounded repo review runner 는 공백이 있는 workspace 경로에서도 하위 PowerShell 호출이 끊기지 않도록 인자 인용과 iteration timeout 을 보강했다.
+- `scripts/start_repo_review_until_deadline_background.sh` 로 특정 시각까지 저장소 전체점검을 반복 실행할 수 있다.
+- bounded repo review runner 는 공백이 있는 workspace 경로에서도 하위 bash 호출이 끊기지 않도록 인자 인용과 iteration timeout 을 보강했다.
 
 현재 기준 버전은 `0.2.0` 이다.
 
@@ -134,14 +135,14 @@
 - `KIS_PRODUCT_CODE_PAPER`
   - 모의투자 계좌 화면에 별도 상품코드가 없으면 root `.env` 에 빈 값으로 둔다.
   - 앱은 KIS 호출에 상품코드가 필요할 때 paper 기본값을 내부에서 적용한다.
-  - 모의계좌 연결은 `scripts/connect_kis_paper_account_interactive.ps1` 로 8자리 계좌번호만 입력하는 흐름을 기본으로 한다.
+  - 모의계좌 연결은 `scripts/connect_kis_paper_account_interactive.sh` 로 8자리 계좌번호만 입력하는 흐름을 기본으로 한다.
 - `로컬 모의운용`과 `브로커 모의계좌`는 선택적으로 주문 제출을 함께 보낼 수 있다.
   - `ENABLE_BROKER_PAPER_MIRRORING=true` 이면 로컬 가상 주문을 브로커 모의계좌에도 함께 제출한다.
   - 다만 브로커 쪽 거절, 부분 체결, 체결 시차가 있으면 주문 직후에는 보유 수량과 예수금이 잠시 다를 수 있다.
   - 대시보드의 비교 카드와 `최근 브로커 제출 주문` 표에서 현재 동기화 상태를 확인한다.
 - `로컬 시작 예수금 동기화`
-  - 장 시작 전에는 `scripts/verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker` 로 KIS 모의계좌 예수금을 root `.env` 의 `PAPER_INITIAL_CASH` 에 맞추고, 브로커 기준 marker 정렬까지 갱신한다.
-  - 이후 수시 점검은 `scripts/verify_paper_dual_account_match.ps1 -AsJson` 으로 한다.
+  - 장 시작 전에는 `scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker` 로 KIS 모의계좌 예수금을 root `.env` 의 `PAPER_INITIAL_CASH` 에 맞추고, 브로커 기준 marker 정렬까지 갱신한다.
+  - 이후 수시 점검은 `scripts/verify_paper_dual_account_match.sh -AsJson` 으로 한다.
   - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.{md,json}` 에 남는다.
 - `paper-account reconciliation`
   - 로컬 가상 계좌와 브로커 모의계좌의 보유 수량, 예수금, 총자산을 비교하는 점검 리포트다.
@@ -169,7 +170,7 @@ config/             TOML 설정, watchlist, autopush 설정
 docs/               canonical 문서와 상세 설계 문서
 migrations/         DB 스키마 초안
 runtime-data/       로그, 리포트, 모델, 캐시, 실행 산출물
-scripts/            반복 실행용 PowerShell 스크립트
+scripts/            반복 실행용 bash 스크립트
 tests/              unittest 기반 검증
 .agents/skills/     저장소 전용 skill 자리
 templates/          새 저장소 시작용 운영 팩 자리
@@ -179,38 +180,46 @@ templates/          새 저장소 시작용 운영 팩 자리
 
 전체 테스트:
 
-```powershell
+```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
 synthetic 전체 흐름:
 
-```powershell
+```bash
 python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
 python -m app --build-runtime-report
 ```
 
+10종목 과거 데이터 backfill:
+
+```bash
+./scripts/collect_historical_data.sh --start-date 2021-01-01
+```
+
+KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식 샘플 기준 최대 1년 보관으로 안내되어, 5년치 학습용 기본 backfill 은 pykrx 일봉을 15분 간격 26개 proxy bar 로 변환해 기존 `curated_minute_bars`, `raw_orderbook_ticks`, `feature_model_inputs`, `feature_labels` 구조에 적재한다.
+
 단순 백테스트:
 
-```powershell
+```bash
 python -m app --run-backtest --horizon-min 15
 ```
 
 walk-forward 백테스트:
 
-```powershell
+```bash
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 ```
 
 최근 실험 기준 추천 조합:
 
-```powershell
+```bash
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 ```
 
 challenger 비교:
 
-```powershell
+```bash
 python -m app --run-challengers --horizon-min 15
 ```
 
@@ -218,13 +227,13 @@ python -m app --run-challengers --horizon-min 15
 
 active model을 안전하게 baseline으로 고정:
 
-```powershell
+```bash
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ```
 
 LightGBM shadow 학습:
 
-```powershell
+```bash
 python -m app --train-lightgbm --horizon-min 15
 ```
 
@@ -232,19 +241,19 @@ python -m app --train-lightgbm --horizon-min 15
 
 월요일 전 shadow ML 갱신 일괄 실행:
 
-```powershell
-.\scripts\run_ml_shadow_cycle.ps1
+```bash
+./scripts/run_ml_shadow_cycle.sh
 ```
 
 KIS WebSocket 수신기:
 
-```powershell
+```bash
 python -m app --kis-ws-listen --max-frames 50 --max-reconnects 2
 ```
 
 KIS WebSocket 검증:
 
-```powershell
+```bash
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```
 
@@ -252,14 +261,14 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 
 로컬 대시보드 snapshot 생성:
 
-```powershell
+```bash
 python -m app --build-dashboard
 ```
 
 로컬 대시보드 실행:
 
-```powershell
-.\scripts\run_dashboard.ps1
+```bash
+./scripts/run_dashboard.sh
 ```
 
 실행 후 브라우저에서 `http://127.0.0.1:8765` 를 열면 된다.
@@ -287,27 +296,27 @@ python -m app --build-dashboard
 실제 장중 데이터가 충분히 쌓이지 않았으면 백테스트, 워크포워드, 도전자 모델 결과는 예비 값을 대신 보여주지 않고 `실데이터 기반 결과 없음` 상태로 남긴다.
 기존 테스트용 운용 흔적을 SQLite에서 정리하려면 아래를 사용한다.
 
-```powershell
-.\scripts\cleanup_runtime_test_data.ps1
+```bash
+./scripts/cleanup_runtime_test_data.sh
 ```
 
 실데이터만 남기고 ML/검증 산출물을 다시 만들려면 아래를 사용한다.
 
-```powershell
-.\scripts\rebuild_actual_ml_state.ps1
+```bash
+./scripts/rebuild_actual_ml_state.sh
 ```
 
 브로커 모의계좌 잔고만 새로 갱신:
 
-```powershell
-.\scripts\refresh_kis_account.ps1
+```bash
+./scripts/refresh_kis_account.sh
 python -m app --kis-account-balance
 ```
 
 로컬 가상 계좌와 브로커 모의계좌를 바로 비교:
 
-```powershell
-.\scripts\reconcile_paper_accounts.ps1
+```bash
+./scripts/reconcile_paper_accounts.sh
 python -m app --reconcile-paper-accounts
 ```
 
@@ -315,8 +324,8 @@ python -m app --reconcile-paper-accounts
 
 브로커 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추려면:
 
-```powershell
-.\scripts\align_local_paper_to_broker.ps1
+```bash
+./scripts/align_local_paper_to_broker.sh
 python -m app --align-local-paper-to-broker
 ```
 
@@ -324,35 +333,35 @@ python -m app --align-local-paper-to-broker
 
 브로커 모의계좌 주문 미러링을 켜고 실행:
 
-```powershell
+```bash
 $env:ENABLE_BROKER_PAPER_MIRRORING="true"
-.\scripts\start_runtime_autoboot.ps1
+./scripts/start_runtime_autoboot.sh
 ```
 
 현재 기본 전략 설정은 `true` 이고, 대시보드에는 현재 켜짐 여부와 브로커 제출 주문 수가 함께 표시된다.
 
 로컬 대시보드 background 시작 / 상태 / 중지:
 
-```powershell
-.\scripts\start_dashboard_background.ps1
-.\scripts\get_dashboard_status.ps1
-.\scripts\stop_dashboard.ps1
+```bash
+./scripts/start_dashboard_background.sh
+./scripts/get_dashboard_status.sh
+./scripts/stop_dashboard.sh
 ```
 
-이 background 시작 스크립트는 이제 wrapper PowerShell 대신 실제 Python 실행 파일을 직접 찾아 서버를 띄운다.
+이 background 시작 스크립트는 이제 wrapper bash 대신 실제 Python 실행 파일을 직접 찾아 서버를 띄운다.
 가능하면 `pythonw.exe`를 우선 사용해 콘솔 종료 영향 없이 더 안정적으로 유지한다.
 또한 `/health` 응답이 올라올 때까지 잠깐 기다린 뒤 상태 파일을 `running` 으로 기록한다.
-`get_dashboard_status.ps1` 는 이제 `/health` 뿐 아니라 `/api/dashboard.json` 응답까지 확인해, 포트만 열려 있고 실제 payload 가 죽은 상태도 잡는다.
+`get_dashboard_status.sh` 는 이제 `/health` 뿐 아니라 `/api/dashboard.json` 응답까지 확인해, 포트만 열려 있고 실제 payload 가 죽은 상태도 잡는다.
 dashboard / watchdog helper 는 저장된 pid 가 다른 프로세스로 재사용돼도 실제 `python -m app --serve-dashboard` / watchdog script 가 아니면 `running` 으로 보거나 끄지 않는다.
 이 dashboard / live-runtime / watchdog 계열 스크립트의 기본 `WorkspaceRoot` 는 이제 현재 shell 위치가 아니라 스크립트가 들어있는 저장소 root 를 기준으로 자동 계산한다.
 기본 `today` 화면과 `/api/dashboard.json` 은 최신 snapshot cache 를 우선 내려 더 빠르게 응답하고, `상태 업데이트` 또는 10분 자동 새로고침 때는 `/api/refresh` 로 새 snapshot 을 다시 만든 뒤 reload 한다.
 
 runtime watchdog background 시작 / 상태 / 중지:
 
-```powershell
-.\scripts\start_runtime_watchdog_background.ps1
-.\scripts\get_runtime_watchdog_status.ps1
-.\scripts\stop_runtime_watchdog.ps1
+```bash
+./scripts/start_runtime_watchdog_background.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/stop_runtime_watchdog.sh
 ```
 
 runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 WebSocket 재연결 루프를 막는다. 다만 일반 거래일의 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다.
@@ -360,30 +369,30 @@ runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살�
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
 watchdog 은 dashboard `/api/refresh` 로 cached snapshot 을 갱신하고, 현재 장 시간과 최신 KIS verification 파일을 함께 기준으로 삼아 정규장 `missing/stale` 분봉 상태를 복구한다.
-watchdog 상태 조회는 `last_checked_at` 기준 심박 나이를 함께 표시한다. 프로세스가 살아 있어도 기본 10분 이상 심박이 갱신되지 않으면 `stale` 로 보고, `start_runtime_watchdog_background.ps1` 는 해당 stale 프로세스를 재시작한다.
+watchdog 상태 조회는 `last_checked_at` 기준 심박 나이를 함께 표시한다. 프로세스가 살아 있어도 기본 10분 이상 심박이 갱신되지 않으면 `stale` 로 보고, `start_runtime_watchdog_background.sh` 는 해당 stale 프로세스를 재시작한다.
 정규장에 live runtime 이 실행 중이고 최신 분봉 상태가 `fresh` 이면 별도 KIS verification WebSocket 을 중복으로 열지 않는다.
 대시보드 snapshot 전체 재생성은 기본 10분 간격으로 제한하고, 실시간 지연 판단은 우선 live runtime 상태값을 사용해 CPU를 계속 쓰는 refresh 루프를 줄인다.
 
 PC 재부팅 후 자동 시작용 runtime autoboot:
 
-```powershell
-.\scripts\start_runtime_autoboot.ps1
-.\scripts\install_runtime_startup_launcher.ps1
-.\scripts\get_runtime_startup_launcher_status.ps1
-.\scripts\remove_runtime_startup_launcher.ps1
+```bash
+./scripts/start_runtime_autoboot.sh
+./scripts/install_runtime_startup_launcher.sh
+./scripts/get_runtime_startup_launcher_status.sh
+./scripts/remove_runtime_startup_launcher.sh
 ```
 
-`start_runtime_autoboot.ps1` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다. 장외나 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 실시간 수집기를 새로 켜지 않고 중지 상태로 맞춘다.
+`start_runtime_autoboot.sh` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다. 장외나 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 실시간 수집기를 새로 켜지 않고 중지 상태로 맞춘다.
 여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
-`install_runtime_startup_launcher.ps1` 는 현재 사용자 Windows 시작프로그램 폴더에 launcher를 설치해서 로그인 후 자동으로 이 autoboot 스크립트를 실행한다.
-`get_runtime_startup_launcher_status.ps1` 는 launcher 존재 여부만 보는 것이 아니라, 현재 저장소 `WorkspaceRoot` / `RuntimeDataDir` / autoboot script 경로와 일치하는지도 함께 확인한다.
+`install_runtime_startup_launcher.sh` 는 현재 사용자 systemd user service 를 설치해서 사용자 세션 시작 후 이 autoboot 스크립트를 실행한다.
+`get_runtime_startup_launcher_status.sh` 는 launcher 존재 여부만 보는 것이 아니라, 현재 저장소 `WorkspaceRoot` / `RuntimeDataDir` / autoboot script 경로와 일치하는지도 함께 확인한다.
 
 복구 직후 로컬 setup 점검:
 
-```powershell
-.\scripts\check_local_setup.ps1
+```bash
+./scripts/check_local_setup.sh
 ```
 
 이 스크립트는 root `.env`, `websockets`, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 접근 여부를 함께 확인하고 아래 보고서를 갱신한다.
@@ -393,20 +402,20 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 
 보안 입력으로 root `.env` 복구:
 
-```powershell
-.\scripts\restore_kis_env_interactive.ps1
+```bash
+./scripts/restore_kis_env_interactive.sh
 ```
 
 계좌번호와 상품코드까지 함께 복구해야 하면:
 
-```powershell
-.\scripts\restore_kis_env_interactive.ps1 -IncludeAccountFields
+```bash
+./scripts/restore_kis_env_interactive.sh -IncludeAccountFields
 ```
 
 월요일 시작 루틴 1회 실행:
 
-```powershell
-.\scripts\start_monday_runtime.ps1
+```bash
+./scripts/start_monday_runtime.sh
 ```
 
 이 스크립트는 대시보드를 띄우고, shadow ML 갱신과 KIS 사전 점검을 순서대로 수행한 뒤 현재 active 모델과 주요 리포트 상태를 요약한다.
@@ -414,10 +423,10 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 
 실시간 수집기 background 시작 / 상태 / 중지:
 
-```powershell
-.\scripts\start_live_runtime_background.ps1
-.\scripts\get_live_runtime_status.ps1
-.\scripts\stop_live_runtime.ps1
+```bash
+./scripts/start_live_runtime_background.sh
+./scripts/get_live_runtime_status.sh
+./scripts/stop_live_runtime.sh
 ```
 
 실시간 수집기가 켜져 있으면:
@@ -430,30 +439,30 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 
 매시간 저장소 점검 1회 실행:
 
-```powershell
-.\scripts\run_hourly_repo_audit_iteration.ps1
+```bash
+./scripts/run_hourly_repo_audit_iteration.sh
 ```
 
 매시간 저장소 점검 Codex 자동화 권장:
 
 - Codex 자동화로 등록하면 앱 UI에서 바로 중지할 수 있다.
-- 아래 PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로다.
+- 아래 bash 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로다.
 
 매시간 저장소 점검 백그라운드 시작(예비 경로):
 
-```powershell
-.\scripts\start_hourly_repo_audit_background.ps1
+```bash
+./scripts/start_hourly_repo_audit_background.sh
 ```
 
 매시간 저장소 점검 상태 확인:
 
-```powershell
-.\scripts\get_hourly_repo_audit_status.ps1
+```bash
+./scripts/get_hourly_repo_audit_status.sh
 ```
 
 프로세스가 죽었는데 상태가 `waiting` 으로 남아 있으면 이 스크립트는 `stale` 로 해석해서 보여준다.
-hourly audit 와 deadline review runner 상태/중지 스크립트도 이제 실제 PowerShell script command line 을 확인해 stale pid 재사용 오판을 줄인다.
-repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop 안의 내장 `git.exe` 를 찾아 현재 저장소 상태를 점검한다.
+hourly audit 와 deadline review runner 상태/중지 스크립트도 이제 실제 bash script command line 을 확인해 stale pid 재사용 오판을 줄인다.
+repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상태를 점검한다.
 
 ## 새 기능을 어디에 둘까
 
@@ -476,13 +485,13 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
 
 이 저장소는 root `VERSION` 파일을 release-ready 신호로 사용한다.
 
-- 버전 변경 스크립트: `scripts/bump_version.ps1`
-- 자동 점검 스크립트: `scripts\run_hourly_repo_audit_iteration.ps1`, `scripts\start_hourly_repo_audit.ps1`, `scripts\start_hourly_repo_audit_background.ps1`
+- 버전 변경 스크립트: `scripts/bump_version.sh`
+- 자동 점검 스크립트: `scripts/run_hourly_repo_audit_iteration.sh`, `scripts/start_hourly_repo_audit.sh`, `scripts/start_hourly_repo_audit_background.sh`
 - watcher 설정: `autopush.json`
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
 - 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
-- git-autopush 관련 `-ScanRoot` 기본값은 `D:\GitHub` 이다.
+- git-autopush 관련 `-ScanRoot` 기본값은 `~/projects` 이다.
 
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 
@@ -525,13 +534,13 @@ repo audit 스크립트는 이제 `git` 이 PATH 에 없어도 GitHub Desktop �
 - 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
 
 주간 백업:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
+```bash
+./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
 ```
 
 강제 백업:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
+```bash
+./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
 ```
 
 전체 복구 범위는 [RECOVERY.md](./RECOVERY.md)를 기준으로 한다.

@@ -1,5 +1,71 @@
 # 작업 기록
 
+## [2026-05-06] Codex → 스프린트 03 과거 데이터 수집 파이프라인
+
+- 변경 파일:
+  - `app/collectors/historical.py`
+  - `app/storage/sqlite_store.py`
+  - `app/__main__.py`
+  - `scripts/collect_historical_data.sh`
+  - `requirements.txt`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - KIS 공식 샘플의 `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 최대 1년 보관으로 안내되어 5년치에는 부적합하다고 판단하고 B안으로 진행.
+  - pykrx 일봉 OHLCV를 거래일당 26개 15분 proxy bar 로 변환해 기존 `curated_minute_bars`에 적재.
+  - feature 생성을 위해 같은 시각의 proxy orderbook 을 `raw_orderbook_ticks`에 `pykrx-daily-proxy` source 로 적재.
+  - 기존 DB 스키마는 변경하지 않고 SQLite batch upsert/insert helper 만 추가.
+  - `./scripts/collect_historical_data.sh --start-date 2021-01-01` 실행 경로와 품질 리포트를 추가.
+- 실행 명령:
+  ```bash
+  pip install --break-system-packages -r requirements.txt
+  ./scripts/collect_historical_data.sh --start-date 2021-01-01
+  ```
+- 확인 결과:
+  - 수집 방식: `B: pykrx daily OHLCV to 15-minute proxy bars`
+  - 수집 기간: `2021-01-01` ~ `2026-05-06`
+  - 실제 적재 시작일: `2021-01-04`
+  - 대상 종목: watchlist 10개
+  - proxy bars written: `332228`
+  - proxy orderbooks written: `332228`
+  - feature rows written: `345877`
+  - label rows written: `625990`
+  - 학습 가능 15분 row: `332892`
+  - 품질: `expected_complete_symbol_dates=12778`, `complete_symbol_dates=12778`, `missing_or_partial_symbol_dates=0`
+  - 리포트: `runtime-data/reports/historical/latest-historical-collection.{json,md}`
+- 검증:
+  - Python 컴파일: `ok`
+  - bash 파싱 검사: `ok`
+  - `git diff --check`: `ok`
+  - 전체 단위 테스트: `Ran 85 tests in 13.164s`, `OK`
+
+## [2026-05-06] Codex → WSL2 스프린트 02 완료
+
+- 변경 파일:
+  - `requirements.txt`
+  - `docs/logbook.md`
+- 변경 내용:
+  - WSL2 환경에 `pip` 이 없어 `python3-pip` 을 설치한 뒤, Ubuntu externally-managed 환경 제한에 따라 `pip install --break-system-packages -r requirements.txt` 로 Python 의존성을 설치했다.
+  - 저장소에 없던 `requirements.txt` 를 추가해 WSL2 테스트와 Synthetic 실행에 필요한 `joblib`, `lightgbm`, `numpy`, `scikit-learn`, `scipy`, `websockets` 를 명시했다.
+  - runtime-data 복사 후 Synthetic 30분 사이클을 재실행해 통과를 확인했다.
+- 실행 명령:
+  ```bash
+  pip install -r requirements.txt
+  pip install --break-system-packages -r requirements.txt
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15
+  ```
+- 확인 결과:
+  - 단위 테스트: `Ran 85 tests in 32.458s`, `OK`
+  - Synthetic 30분: `exit 0`
+  - Synthetic 학습: `train_rows=11336`, `validation_rows=2834`, `validation_accuracy=0.655963`
+  - Synthetic walk-forward: `folds=1412`, `rows_evaluated=14120`, `overall_accuracy=0.272309`
+  - Challenger 판단: `recommended_action=review_required`, `best_model_version=lightgbm-h15-v1`, `active_model_version_after_run=baseline-h15-v1`
+- 예상 결과:
+  - WSL2 이전 후 작업 4, 5 기준 검증은 통과 상태다.
+  - LightGBM은 후보 1위지만 walk-forward gate 가 `needs_review` 이므로 자동 승격하지 않는다.
+
 ## [2026-05-06] Codex → Cowork
 
 - 변경 파일:
@@ -11,7 +77,7 @@
   - LightGBM 피처 중요도 상위 5개와 baseline 대비 핵심 판단을 함께 기록.
   - MDD와 샤프지수는 현재 리포트에 원 필드가 없어 거래별/폴드별 순수익률 단순누적 기준 참고값으로 계산해 명시.
 - 실행 요청 명령:
-  ```powershell
+  ```bash
   python -m unittest discover -s tests -p "test_*.py"
   python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
   python -m app --train-lightgbm --horizon-min 15
@@ -43,7 +109,7 @@
   - fallback 실패 로그는 `SQLite startup journal_mode=<MODE> failed ... falling back to <NEXT>` 형식으로 남김.
   - fallback 순서와 `MEMORY`까지의 재시도, 시작 로그 출력 단위 테스트를 기존 SQLite 테스트 안에서 갱신.
 - 실행 요청 명령:
-  ```powershell
+  ```bash
   git pull origin main
   python -m unittest discover -s tests -p "test_*.py"
   python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15
@@ -98,7 +164,7 @@
   - `DELETE` 모드 DB에서는 `wal_checkpoint`를 no-op 처리해 백업 경로가 WAL 전용 pragma에 묶이지 않도록 수정.
   - 네트워크/마운트 환경 선택과 WAL 실패 fallback 단위 테스트 추가.
 - 실행 요청 명령:
-  ```powershell
+  ```bash
   python -m unittest discover -s tests -p "test_*.py"
   python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 30 --horizon-min 15
   ```
@@ -116,7 +182,7 @@
 ## [2026-05-06] Cowork 스프린트 01 Phase 1 시도 — Synthetic 실행 환경 오류
 
 - 트리거: COWORK_GUIDE.md 세션 시작 순서에 따른 스프린트 01 Phase 1 진단 시도
-- 환경: Cowork Linux 샌드박스(Ubuntu 22.04, Python 3.10.12), 저장소는 Windows `D:\GitHub\Real-time-stock-price-prediction-program` 폴더 마운트
+- 환경: Cowork Linux 샌드박스(Ubuntu 22.04, Python 3.10.12), 저장소는 Windows `~/projects/Real-time-stock-price-prediction-program` 폴더 마운트
 - 사전 준비:
   - Python 3.12 사용 불가 → `tomllib` 누락 → `tomli` 백포트를 `tomllib`로 별칭 처리(`~/.local/lib/python3.10/site-packages/tomllib.py`)
   - 패키지 설치: `lightgbm 4.6.0`, `scikit-learn 1.7.2`, `websockets 16.0`, `joblib 1.5.3`, `tomli 2.4.1`, `scipy 1.15.3`, `threadpoolctl 3.6.0`
@@ -200,7 +266,7 @@
 - 감시기가 보는 기준 파일은 root `VERSION` 이다.
 - 저장소 참여 설정 파일은 root `autopush.json` 이다.
 - 현재 설정은 `enabled=true`, `trigger=version-change`, `branch=main` 이다.
-- 버전을 바꾸는 명령은 `scripts/bump_version.ps1` 를 사용한다.
+- 버전을 바꾸는 명령은 `scripts/bump_version.sh` 를 사용한다.
 - 감시기 확인 위치:
 - `runtime-data/autopush/git-autopush.log`
 - `runtime-data/autopush/git-autopush-state.json`
@@ -209,7 +275,7 @@
 
 - `2026-05-05 01시대` 저장소 점검과 개선:
 - 현재 시각 `2026-05-05 01:47 +09:00` 기준 dashboard 는 `127.0.0.1:8765` 로 정상 응답했고, runtime watchdog 은 `running`, `heartbeat_stale=false` 였다.
-- 실시간 수집기는 `pre-open` 장전 준비 시작 전이라 `stopped` 가 정상 상태였고, `check_local_setup.ps1 -AsJson` 은 `ok=true`, KIS paper 자격정보와 LightGBM 사용 가능 상태를 확인했다.
+- 실시간 수집기는 `pre-open` 장전 준비 시작 전이라 `stopped` 가 정상 상태였고, `check_local_setup.sh -AsJson` 은 `ok=true`, KIS paper 자격정보와 LightGBM 사용 가능 상태를 확인했다.
 - 문제점: `config/market_calendar.toml`이 2026-05-05 어린이날 휴장을 몰라 현재 장 상태를 `pre-open`으로 계산했다. 이 상태면 08:00 이후 감시기가 불필요하게 실시간 수집기를 시작할 수 있다.
 - 조치: 2026년 KRX 전일 휴장일을 `holidays`에 확장해 2026-05-05와 연말 휴장 등을 반영했다.
 - 문제점: 전일 live runtime 로그에서 KIS 브로커 모의계좌 체결 조회가 주문 제출 직후 반복 실행되어 `EGW00201` rate-limit 재시도가 다수 발생했다.
@@ -229,11 +295,11 @@
 - 저장소 목적 대비 구조는 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting` 흐름으로 맞게 분리되어 있고, 기본 운용도 `paper` 검증 중심으로 유지 중이다.
 - 실제 상태 점검에서 dashboard 는 `127.0.0.1:8765` 로 정상 응답했고, 장마감 뒤 live runtime 은 중지 상태가 정상임을 확인했다.
 - 문제점: runtime watchdog 프로세스는 살아 있었지만 `watchdog-state.json`의 `last_checked_at`이 오래 멈춘 상태를 `running`으로 표시했다. 이 경우 내일 장전 자동 복구가 살아 있는 것처럼 보일 수 있다.
-- `get_runtime_watchdog_status.ps1`가 심박 나이와 stale 기준을 표시하고, 프로세스가 살아 있어도 기본 10분 이상 심박이 멈추면 `stale` 로 판정하도록 수정했다.
-- `start_runtime_watchdog_background.ps1`가 stale 심박을 가진 기존 감시기 프로세스를 재사용하지 않고 중지 후 새로 시작하도록 수정했다.
-- `run_runtime_watchdog_loop.ps1`는 장마감 ML 정비 시작 직전 상태 파일에 `post_close_ml_rebuild_starting`을 먼저 기록하고, live runtime 이 최신 분봉을 쓰는 정규장에는 별도 KIS 검증 WebSocket 을 중복 실행하지 않도록 수정했다.
+- `get_runtime_watchdog_status.sh`가 심박 나이와 stale 기준을 표시하고, 프로세스가 살아 있어도 기본 10분 이상 심박이 멈추면 `stale` 로 판정하도록 수정했다.
+- `start_runtime_watchdog_background.sh`가 stale 심박을 가진 기존 감시기 프로세스를 재사용하지 않고 중지 후 새로 시작하도록 수정했다.
+- `run_runtime_watchdog_loop.sh`는 장마감 ML 정비 시작 직전 상태 파일에 `post_close_ml_rebuild_starting`을 먼저 기록하고, live runtime 이 최신 분봉을 쓰는 정규장에는 별도 KIS 검증 WebSocket 을 중복 실행하지 않도록 수정했다.
 - 확인 결과: stale 감시기 프로세스를 새 기준으로 감지했고, 감시기 재시작 후 `status=running`, `heartbeat_stale=false`, `last_checked_at=2026-05-04 17:53:33 +09:00`, 장 상태 `post-close`, live runtime `stopped` 로 정리했다.
-- PowerShell 파싱 검사: 감시기 관련 3개 스크립트 모두 `parse ok`
+- bash 파싱 검사: 감시기 관련 3개 스크립트 모두 `parse ok`
 - 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `80 tests OK`
 - 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`, `generated_at=2026-05-04T17:53:17.750250+09:00`
 - 공백 오류 검사 `git diff --check`: `ok`
@@ -243,27 +309,27 @@
 - 로컬 `.env`는 존재하지만 `.gitignore`에 의해 ignore 처리되어 있다.
 - 대시보드 프로세스는 `127.0.0.1:8765`에만 바인딩되어 외부 인터페이스로 열려 있지 않다.
 - 치명 후보로 NAS 복구 스냅샷이 root `.env*`, `runtime-data/cache/kis/access_token.json`, runtime 로그를 포함할 수 있는 구조를 확인했다.
-- `scripts/export_recovery_snapshot.ps1`가 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 제외하도록 수정했다.
+- `scripts/export_recovery_snapshot.sh`가 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 제외하도록 수정했다.
 - RECOVERY.md, README.md, AGENTS.md, 주간/강제 NAS 백업 wrapper에 비밀값 제외 백업 원칙을 반영했다.
 - 로컬 `.env`와 `runtime-data/cache/kis/paper/access_token.json`의 Windows ACL에서 일반 `Users`/`Authenticated Users` 상속 권한을 제거하고 현재 사용자, Administrators, SYSTEM만 접근하도록 좁혔다.
-- PowerShell 파싱 검사: NAS 백업 관련 4개 스크립트 모두 `parse ok`
+- bash 파싱 검사: NAS 백업 관련 4개 스크립트 모두 `parse ok`
 - 임시 로컬 백업 패키지 생성 검증: `.env`, `.env.local`, `runtime-data/cache/kis`, `runtime-data/logs`, `access_token.json`, private key 패턴 파일 모두 스냅샷에 없음
 - 공백 오류 검사 `git diff --check`: `ok`
 
 - `2026-05-01 10시대` 휴장일 전체 점검:
 - 오늘 `2026-05-01`은 휴장일로 운용해야 하므로 `config/market_calendar.toml`의 `holidays`에 추가했다.
-- 기존 PowerShell 장 상태 계산이 주말과 시간만 보고 오늘을 `regular-session`으로 오판해 watchdog 이 live runtime 을 재기동한 것을 확인했다.
-- `get_live_runtime_status.ps1`, `check_local_setup.ps1`, `run_runtime_watchdog_loop.ps1`, `run_post_close_ml_maintenance.ps1`, `run_hourly_repo_audit_iteration.ps1`가 `holidays`를 읽어 `holiday`로 해석하도록 보강했다.
-- 추가 점검에서 `start_runtime_autoboot.ps1`, `start_monday_runtime.ps1`도 실시간 수집기를 직접 시작할 수 있어 같은 휴장일 차단 조건을 적용했다.
-- 휴장일 자동 부팅 시뮬레이션 `start_runtime_autoboot.ps1 -SkipDashboard -SkipAccountRefresh -SkipRuntimeCleanup -SkipDashboardBuild -SkipWatchdog`: `market_session_status=holiday`, `live_runtime_should_run=false`, `live_runtime=stopped`
+- 기존 bash 장 상태 계산이 주말과 시간만 보고 오늘을 `regular-session`으로 오판해 watchdog 이 live runtime 을 재기동한 것을 확인했다.
+- `get_live_runtime_status.sh`, `check_local_setup.sh`, `run_runtime_watchdog_loop.sh`, `run_post_close_ml_maintenance.sh`, `run_hourly_repo_audit_iteration.sh`가 `holidays`를 읽어 `holiday`로 해석하도록 보강했다.
+- 추가 점검에서 `start_runtime_autoboot.sh`, `start_monday_runtime.sh`도 실시간 수집기를 직접 시작할 수 있어 같은 휴장일 차단 조건을 적용했다.
+- 휴장일 자동 부팅 시뮬레이션 `start_runtime_autoboot.sh -SkipDashboard -SkipAccountRefresh -SkipRuntimeCleanup -SkipDashboardBuild -SkipWatchdog`: `market_session_status=holiday`, `live_runtime_should_run=false`, `live_runtime=stopped`
 - Python 설정, KIS 검증, runtime scope, 대시보드도 같은 휴장일 설정을 사용하도록 맞췄다.
-- 즉시 `stop_runtime_watchdog.ps1`와 `stop_live_runtime.ps1`를 실행해 휴장일 불필요한 WebSocket 재연결을 중지했다.
+- 즉시 `stop_runtime_watchdog.sh`와 `stop_live_runtime.sh`를 실행해 휴장일 불필요한 WebSocket 재연결을 중지했다.
 - 부분 검증 `python -m unittest tests.test_settings tests.test_runtime_scope tests.test_kis_ws_verification`: `10 tests OK`
 - 전체 검증 `python -m unittest discover -s tests -p "test_*.py"`: `80 tests OK`
 - 실행 리포트 생성 `python -m app --build-runtime-report`: `ok`
 - 대시보드 스냅샷 생성 `python -m app --build-dashboard`: `ok`, `session_status=holiday`, `live_runtime=stopped`
-- PowerShell 파싱 검사: 휴장일 관련 5개 스크립트와 자동 시작 2개 스크립트 모두 `parse ok`
-- `scripts/get_live_runtime_status.ps1`: `current_session_status=holiday`, `status=stopped`
+- bash 파싱 검사: 휴장일 관련 5개 스크립트와 자동 시작 2개 스크립트 모두 `parse ok`
+- `scripts/get_live_runtime_status.sh`: `current_session_status=holiday`, `status=stopped`
 
 - `2026-05-01 00시대` 전체 점검과 복구:
 - 전체 단위 테스트 `python -m unittest discover -s tests -p "test_*.py"`: `79 tests OK`
@@ -277,18 +343,18 @@
 - 실시간 수집기 상태가 오래된 KIS 검증 파일의 `regular-session` 값을 현재 장 상태처럼 보여주던 문제를 수정했다. 이제 현재 장 상태와 마지막 KIS 검증 당시 장 상태를 분리해서 보여준다.
 - 로컬 setup 점검은 현재 장 상태와 장전 준비 시간을 계산해, 장외나 장전 준비 전 실시간 수집기 중지를 정상으로 해석한다.
 - SQLite 연결을 명시적으로 닫도록 수정해 테스트 중 반복되던 `unclosed database` 경고를 제거했다.
-- PowerShell 파싱 검사: `scripts/get_live_runtime_status.ps1`, `scripts/check_local_setup.ps1` 모두 `parse ok`
+- bash 파싱 검사: `scripts/get_live_runtime_status.sh`, `scripts/check_local_setup.sh` 모두 `parse ok`
 - 대시보드 단위 테스트 `python -m unittest tests.test_dashboard`: `13 tests OK`
-- 로컬 setup 점검 `scripts/check_local_setup.ps1 -AsJson`: `ok=true`
+- 로컬 setup 점검 `scripts/check_local_setup.sh -AsJson`: `ok=true`
 - 대시보드 상태: `running`, `http://127.0.0.1:8765`, `/health`와 `/api/dashboard.json` 응답 `ok`
 - 실행 감시기 상태: `running`, 장 상태 `pre-open`, `live_runtime_should_run=false`
 - 실시간 수집기 상태: `stopped`, 현재 장 상태 `pre-open`, 장전 준비 시작 전이므로 정상 대기
-- 로컬 가상투자와 KIS 모의투자 정합성 `scripts/verify_paper_dual_account_match.ps1 -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`
+- 로컬 가상투자와 KIS 모의투자 정합성 `scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`
 - `2026-04-30` 로컬 `AGENTS.md` 재구성:
 - `D:/GitHub/ref_AGENTS.md`는 공통 설계 기준서로만 참고하고, 현재 저장소의 실제 구조와 기준 문서를 먼저 확인한 뒤 `AGENTS.md`를 다시 작성했다.
 - 현재 존재하는 `app/`, `scripts/`, `tests/`, `runtime-data/`, `docs/` 기준으로 작업 순서, 운영 안전 규칙, 주요 명령, 검증 기준을 구체화했다.
 - KIS 모의계좌, 로컬 가상투자 비교, 장외 CPU 절감, 대시보드 10분 새로고침, 감시기, NAS 백업 기준을 로컬 예외로 반영했다.
-- `AGENTS.md`에 적은 주요 디렉터리, 파일, PowerShell 스크립트 경로 존재 확인: 모두 `True`
+- `AGENTS.md`에 적은 주요 디렉터리, 파일, bash 스크립트 경로 존재 확인: 모두 `True`
 - 공백 오류 검사 `git diff --check`: `ok`
 - `2026-04-30` 문서 한글화 정리:
 - git 추적 중인 Markdown 문서의 사람이 읽는 제목과 설명을 한글 기준으로 정리했다.
@@ -313,31 +379,31 @@
 
 ## 다음 명령
 
-```powershell
+```bash
 python -m unittest discover -s tests -p "test_*.py"
 python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 python -m app --train-lightgbm --horizon-min 15
-.\scripts\run_ml_shadow_cycle.ps1
+./scripts/run_ml_shadow_cycle.sh
 python -m app --run-challengers --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 python -m app --build-runtime-report
 python -m app --build-dashboard
-.\scripts\run_dashboard.ps1
-.\scripts\start_dashboard_background.ps1
-.\scripts\get_dashboard_status.ps1
-.\scripts\stop_dashboard.ps1
-.\scripts\start_live_runtime_background.ps1
-.\scripts\get_live_runtime_status.ps1
-.\scripts\stop_live_runtime.ps1
-.\scripts\start_runtime_watchdog_background.ps1
-.\scripts\get_runtime_watchdog_status.ps1
-.\scripts\stop_runtime_watchdog.ps1
-.\scripts\check_local_setup.ps1
-.\scripts\connect_kis_paper_account_interactive.ps1
-.\scripts\reconcile_paper_accounts.ps1
-.\scripts\start_hourly_repo_audit_background.ps1
-.\scripts\get_hourly_repo_audit_status.ps1
-.\scripts\bump_version.ps1 -Version 0.2.1
+./scripts/run_dashboard.sh
+./scripts/start_dashboard_background.sh
+./scripts/get_dashboard_status.sh
+./scripts/stop_dashboard.sh
+./scripts/start_live_runtime_background.sh
+./scripts/get_live_runtime_status.sh
+./scripts/stop_live_runtime.sh
+./scripts/start_runtime_watchdog_background.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/stop_runtime_watchdog.sh
+./scripts/check_local_setup.sh
+./scripts/connect_kis_paper_account_interactive.sh
+./scripts/reconcile_paper_accounts.sh
+./scripts/start_hourly_repo_audit_background.sh
+./scripts/get_hourly_repo_audit_status.sh
+./scripts/bump_version.sh -Version 0.2.1
 ```

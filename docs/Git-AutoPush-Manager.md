@@ -7,17 +7,17 @@
 권장 대상 구조는 아래와 같다.
 
 ```text
-D:\GitHub\
-  Project-A\
-    .git\
+~/projects/
+  Project-A/
+    .git/
     VERSION
     autopush.json
-  Project-B\
-    .git\
+  Project-B/
+    .git/
     VERSION
     autopush.json
-  Project-C\
-    .git\
+  Project-C/
+    .git/
 ```
 
 watcher 스크립트 하나가 루트 폴더를 확인하고, `autopush.json` 이 있는 저장소만 명시적 opt-in 대상으로 처리한다.
@@ -28,7 +28,7 @@ GitHub 자체는 로컬 폴더를 직접 감시할 수 없다.
 
 실제 흐름은 아래와 같다.
 
-1. 사용자 PC에서 PowerShell 스크립트가 실행된다.
+1. 사용자 PC에서 bash 스크립트가 실행된다.
 2. 스크립트가 로컬 저장소를 스캔한다.
 3. opt-in 된 저장소에서 유효한 버전 변경을 감지하면 `git commit` 과 `git push` 를 실행한다.
 4. GitHub는 push 된 commit을 일반 원격 변경으로 받는다.
@@ -49,21 +49,21 @@ GitHub 자체는 로컬 폴더를 직접 감시할 수 없다.
 
 ## 4. 이 저장소에 추가된 파일
 
-- `scripts/watch_git_versions_and_push.ps1`
+- `scripts/watch_git_versions_and_push.sh`
 - `config/autopush.project.schema.json`
 - `config/autopush.project.example.json`
-- `scripts/bootstrap_git_autopush_targets.ps1`
-- `scripts/install_git_autopush_startup_launcher.ps1`
-- `scripts/remove_git_autopush_startup_launcher.ps1`
-- `scripts/audit_git_autopush_targets.ps1`
-- `scripts/set_git_autopush_enabled.ps1`
+- `scripts/bootstrap_git_autopush_targets.sh`
+- `scripts/install_git_autopush_startup_launcher.sh`
+- `scripts/remove_git_autopush_startup_launcher.sh`
+- `scripts/audit_git_autopush_targets.sh`
+- `scripts/set_git_autopush_enabled.sh`
 
 watcher 상태와 로그는 `runtime-data/autopush/` 아래에 남긴다.
 
 하나의 루트 아래 여러 저장소에 시작용 `VERSION` 과 `autopush.json` 을 배치하려면 아래를 사용한다.
 
-```powershell
-.\scripts\bootstrap_git_autopush_targets.ps1 -ScanRoot 'D:\GitHub'
+```bash
+./scripts/bootstrap_git_autopush_targets.sh -ScanRoot '~/projects'
 ```
 
 bootstrap 기본값은 아래와 같다.
@@ -74,14 +74,14 @@ bootstrap 기본값은 아래와 같다.
 
 현재 어떤 저장소를 켤 수 있는지 점검하려면 아래를 사용한다.
 
-```powershell
-.\scripts\audit_git_autopush_targets.ps1 -ScanRoot 'D:\GitHub'
+```bash
+./scripts/audit_git_autopush_targets.sh -ScanRoot '~/projects'
 ```
 
 한 저장소가 안전한 상태가 된 뒤 opt-in 을 켜려면 아래를 사용한다.
 
-```powershell
-.\scripts\set_git_autopush_enabled.ps1 -RepoPath 'D:\GitHub\Instargram Card News' -Enable
+```bash
+./scripts/set_git_autopush_enabled.sh -RepoPath '~/projects/Instargram Card News' -Enable
 ```
 
 이 enable 스크립트는 명시적 override 없이 dirty 저장소나 `main` 이 아닌 저장소를 켜지 않는다.
@@ -175,68 +175,68 @@ opt-in 된 저장소마다 watcher는 아래를 수행한다.
 - 설정 branch 가 원격 branch 보다 뒤처져 있으면 stale history 위에 자동 commit 을 만들지 않도록 건너뛴다.
 - `HEAD` 가 이미 대상 `VERSION` 을 포함하면 unrelated dirty 파일을 새 commit 에 쓸어 담지 않고 기존 commit 을 push 한다.
 - Git 이 merge, rebase, cherry-pick 류 작업 중이면 저장소를 건너뛴다.
-- `git.exe` 는 PATH 에서 먼저 찾고, 없으면 GitHub Desktop 번들 Git을 사용한다.
+- WSL2의 `git` 을 사용하고, 원격 push 전에 원격 branch 와 diverged 상태를 확인한다.
 - 자동 commit 설명은 staged 변경 상태와 `git diff --cached --stat` 으로 만든다.
 
 ## 8. 1회 실행과 상시 실행
 
 1회 스캔:
 
-```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -Once
+```bash
+./scripts/watch_git_versions_and_push.sh -ScanRoot '~/projects' -Once
 ```
 
 상시 실행:
 
-```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
+```bash
+./scripts/watch_git_versions_and_push.sh -ScanRoot '~/projects' -PollSeconds 60
 ```
 
 재귀 스캔:
 
-```powershell
-.\scripts\watch_git_versions_and_push.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60 -Recurse
+```bash
+./scripts/watch_git_versions_and_push.sh -ScanRoot '~/projects' -PollSeconds 60 -Recurse
 ```
 
-## 9. Windows 로그인 시 시작
+## 9. WSL 사용자 세션 시작 시 실행
 
-로그인 시 watcher를 자동으로 시작하려면 아래를 사용한다.
+사용자 세션에서 watcher를 자동으로 시작하려면 아래를 사용한다.
 
-```powershell
-.\scripts\register_git_autopush_task.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
+```bash
+./scripts/register_git_autopush_task.sh -ScanRoot '~/projects' -PollSeconds 60
 ```
 
 재귀 스캔 예시는 아래와 같다.
 
-```powershell
-.\scripts\register_git_autopush_task.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60 -Recurse
+```bash
+./scripts/register_git_autopush_task.sh -ScanRoot '~/projects' -PollSeconds 60 -Recurse
 ```
 
-이 명령은 `GitAutoPushWatcher` 라는 Windows 예약 작업을 만든다.
+이 명령은 `git-autopush-watcher.service` systemd user service 를 만든다.
 
 수동 제어 스크립트:
 
-```powershell
-.\scripts\get_git_autopush_watcher_status.ps1
-.\scripts\start_git_autopush_watcher.ps1 -EnsureRegistered
-.\scripts\stop_git_autopush_watcher.ps1
+```bash
+./scripts/get_git_autopush_watcher_status.sh
+./scripts/start_git_autopush_watcher.sh -EnsureRegistered
+./scripts/stop_git_autopush_watcher.sh
 ```
 
 이 스크립트들은 직접 운영할 때와 Codex 자동화가 상태 확인 또는 재시작을 해야 할 때 유용하다.
 
-`Register-ScheduledTask` 가 `Access is denied` 를 반환하면 시작프로그램 폴더 launcher를 대신 사용한다.
+systemd user service 를 직접 설치하려면 아래 launcher helper 를 사용한다.
 
-```powershell
-.\scripts\install_git_autopush_startup_launcher.ps1 -ScanRoot 'D:\GitHub' -PollSeconds 60
+```bash
+./scripts/install_git_autopush_startup_launcher.sh -ScanRoot '~/projects' -PollSeconds 60
 ```
 
 제거:
 
-```powershell
-.\scripts\remove_git_autopush_startup_launcher.ps1
+```bash
+./scripts/remove_git_autopush_startup_launcher.sh
 ```
 
-이 방법은 작업 스케줄러 권한 문제를 피하면서 현재 사용자 로그인 시 watcher를 시작한다.
+이 방법은 현재 사용자 세션에서 watcher를 시작하고 상태 파일을 `runtime-data/autopush/` 아래에 남긴다.
 
 ## 10. 상태와 로그
 
@@ -251,8 +251,8 @@ opt-in 된 저장소마다 watcher는 아래를 수행한다.
 
 저장소에는 통합형 테스트 스크립트도 있다.
 
-```powershell
-.\scripts\test_git_autopush_watcher.ps1
+```bash
+./scripts/test_git_autopush_watcher.sh
 ```
 
 테스트는 `.tmp-tests/` 아래 임시 저장소를 만들고 아래를 검증한다.
@@ -273,7 +273,7 @@ opt-in 된 저장소마다 watcher는 아래를 수행한다.
 
 권장하지 않음:
 
-- `D:\GitHub` 아래 모든 저장소를 무조건 활성화
+- `~/projects` 아래 모든 저장소를 무조건 활성화
 - `VERSION` 을 작업 초반에 자주 바꾸는 습관에서 `stage_mode=all` 사용
 - 비밀정보, 생성 파일, 불안정한 작업 트리가 있는 저장소 자동 push
 

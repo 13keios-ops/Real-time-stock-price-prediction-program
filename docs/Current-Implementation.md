@@ -42,6 +42,7 @@
 - 로컬 가상 주문을 KIS 모의계좌로 함께 제출하는 브로커 모의계좌 미러링
 - 브로커 기준 표시자 기반 모의계좌 기준선 정렬
 - KIS 호출 제한 재시도와 안전 실패 처리
+- pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
 
 ## 데이터 흐름
 
@@ -65,22 +66,22 @@ KIS 체결/호가
 
 대시보드 스냅샷 생성:
 
-```powershell
+```bash
 python -m app --build-dashboard
 ```
 
 대시보드 서버 실행:
 
-```powershell
-.\scripts\run_dashboard.ps1
+```bash
+./scripts/run_dashboard.sh
 ```
 
 백그라운드 시작/상태/중지:
 
-```powershell
-.\scripts\start_dashboard_background.ps1
-.\scripts\get_dashboard_status.ps1
-.\scripts\stop_dashboard.ps1
+```bash
+./scripts/start_dashboard_background.sh
+./scripts/get_dashboard_status.sh
+./scripts/stop_dashboard.sh
 ```
 
 대시보드는 아래 기준으로 동작한다.
@@ -91,10 +92,10 @@ python -m app --build-dashboard
 - 수동 갱신과 10분 자동 새로고침은 `/api/refresh` 로 스냅샷을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드 서버 시작 시 기존 캐시 스냅샷이 있으면 무거운 스냅샷 재생성을 먼저 하지 않고 서버부터 열어 기동 지연을 줄인다.
 - 원시 체결/호가 행은 화면에 직접 표시하지 않고 분 단위 집계 카운트만 사용해 대시보드 재생성 부하를 낮춘다.
-- 스냅샷 파일 저장은 임시 파일 교체와 짧은 재시도를 사용해, 상태 점검이 같은 JSON 파일을 읽는 순간의 Windows 파일 잠금 충돌을 줄인다.
+- 스냅샷 파일 저장은 임시 파일 교체와 짧은 재시도를 사용해, 상태 점검이 같은 JSON 파일을 읽는 순간의 동시 읽기 충돌을 줄인다.
 - SQLite 잠금이 잠깐 발생하면 연결을 끊지 않고 `일시 점검` 응답을 내려준다.
 - 저장된 pid 만 믿지 않고 실제 명령줄과 포트 응답을 함께 확인한다.
-- Windows `WindowsApps\python.exe` 별칭을 피하고 실제 Python 실행 파일을 우선 사용한다.
+- WSL2의 실제 Python 실행 파일을 우선 사용한다.
 - 탭 선택 상태는 브라우저 localStorage에 저장해 새로고침 뒤에도 유지한다.
 
 현재 대시보드 탭은 아래 10개다.
@@ -135,7 +136,7 @@ python -m app --build-dashboard
 
 주요 명령:
 
-```powershell
+```bash
 python -m app --train-lightgbm --horizon-min 15
 python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
@@ -152,16 +153,33 @@ python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 
+## 과거 데이터 Backfill
+
+5년치 분봉 학습 데이터는 현재 B안으로 운영한다.
+KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식 샘플 기준 보관 기간이 최대 1년이라 2021년부터 현재까지의 5년치 기본 수집에는 쓰지 않는다.
+대신 pykrx 일봉 OHLCV를 거래일당 26개 15분 proxy bar 로 변환해 기존 `curated_minute_bars`에 적재하고, feature 생성을 위해 같은 시각의 proxy orderbook 을 `raw_orderbook_ticks`에 `pykrx-daily-proxy` source 로 적재한다.
+
+실행:
+
+```bash
+./scripts/collect_historical_data.sh --start-date 2021-01-01
+```
+
+최신 품질 리포트:
+
+- `runtime-data/reports/historical/latest-historical-collection.json`
+- `runtime-data/reports/historical/latest-historical-collection.md`
+
 실데이터만 다시 구축:
 
-```powershell
-.\scripts\rebuild_actual_ml_state.ps1
+```bash
+./scripts/rebuild_actual_ml_state.sh
 ```
 
 장후 머신러닝 관리:
 
-```powershell
-.\scripts\run_post_close_ml_maintenance.ps1
+```bash
+./scripts/run_post_close_ml_maintenance.sh
 ```
 
 장후 관리는 장외에 실시간 수집기를 다시 켜지 않는다.
@@ -175,42 +193,42 @@ KIS 모의계좌는 한국투자 모의투자 서버에서 직접 조회한 계�
 
 브로커 모의계좌 잔고 갱신:
 
-```powershell
-.\scripts\refresh_kis_account.ps1
+```bash
+./scripts/refresh_kis_account.sh
 python -m app --kis-account-balance
 ```
 
 로컬 가상 계좌와 브로커 모의계좌 비교:
 
-```powershell
-.\scripts\reconcile_paper_accounts.ps1
+```bash
+./scripts/reconcile_paper_accounts.sh
 python -m app --reconcile-paper-accounts
 ```
 
 브로커 기준으로 로컬 가상 계좌 현재 상태 정렬:
 
-```powershell
-.\scripts\align_local_paper_to_broker.ps1
+```bash
+./scripts/align_local_paper_to_broker.sh
 python -m app --align-local-paper-to-broker
 ```
 
 장 시작 전 시작 예수금 동기화와 정렬:
 
-```powershell
-.\scripts\verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker -AsJson
+```bash
+./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -AsJson
 ```
 
 장중 또는 장후 상태 확인:
 
-```powershell
-.\scripts\verify_paper_dual_account_match.ps1 -AsJson
+```bash
+./scripts/verify_paper_dual_account_match.sh -AsJson
 ```
 
 브로커 모의계좌 주문 미러링 실행:
 
-```powershell
+```bash
 $env:ENABLE_BROKER_PAPER_MIRRORING="true"
-.\scripts\start_runtime_autoboot.ps1
+./scripts/start_runtime_autoboot.sh
 ```
 
 현재 기본 전략 설정은 `ENABLE_BROKER_PAPER_MIRRORING=true` 이다.
@@ -237,30 +255,30 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 
 KIS app key/secret 복구:
 
-```powershell
-.\scripts\restore_kis_env_interactive.ps1
+```bash
+./scripts/restore_kis_env_interactive.sh
 ```
 
 계좌 항목까지 함께 복구:
 
-```powershell
-.\scripts\restore_kis_env_interactive.ps1 -IncludeAccountFields
+```bash
+./scripts/restore_kis_env_interactive.sh -IncludeAccountFields
 ```
 
 모의계좌번호만 연결 또는 복구:
 
-```powershell
-.\scripts\connect_kis_paper_account_interactive.ps1
+```bash
+./scripts/connect_kis_paper_account_interactive.sh
 ```
 
 ## 실시간 수집기
 
 실시간 수집기 백그라운드 시작/상태/중지:
 
-```powershell
-.\scripts\start_live_runtime_background.ps1
-.\scripts\get_live_runtime_status.ps1
-.\scripts\stop_live_runtime.ps1
+```bash
+./scripts/start_live_runtime_background.sh
+./scripts/get_live_runtime_status.sh
+./scripts/stop_live_runtime.sh
 ```
 
 실시간 수집기가 실행 중이면 아래를 수행한다.
@@ -277,10 +295,10 @@ KIS app key/secret 복구:
 
 실행 감시기 시작/상태/중지:
 
-```powershell
-.\scripts\start_runtime_watchdog_background.ps1
-.\scripts\get_runtime_watchdog_status.ps1
-.\scripts\stop_runtime_watchdog.ps1
+```bash
+./scripts/start_runtime_watchdog_background.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/stop_runtime_watchdog.sh
 ```
 
 감시기 동작 기준은 아래와 같다.
@@ -307,14 +325,14 @@ KIS app key/secret 복구:
 
 PC 재부팅 후 자동 시작 루틴:
 
-```powershell
-.\scripts\start_runtime_autoboot.ps1
-.\scripts\install_runtime_startup_launcher.ps1
-.\scripts\get_runtime_startup_launcher_status.ps1
-.\scripts\remove_runtime_startup_launcher.ps1
+```bash
+./scripts/start_runtime_autoboot.sh
+./scripts/install_runtime_startup_launcher.sh
+./scripts/get_runtime_startup_launcher_status.sh
+./scripts/remove_runtime_startup_launcher.sh
 ```
 
-`start_runtime_autoboot.ps1` 는 아래를 수행한다.
+`start_runtime_autoboot.sh` 는 아래를 수행한다.
 
 - demo/sample SQLite row 정리
 - 대시보드 백그라운드 시작
@@ -331,8 +349,8 @@ PC 재부팅 후 자동 시작 루틴:
 
 ## 월요일 시작 루틴
 
-```powershell
-.\scripts\start_monday_runtime.ps1
+```bash
+./scripts/start_monday_runtime.sh
 ```
 
 이 스크립트는 아래를 수행한다.
@@ -351,8 +369,8 @@ PC 재부팅 후 자동 시작 루틴:
 
 ## KIS WebSocket 검증
 
-```powershell
-.\scripts\verify_kis_ws.ps1
+```bash
+./scripts/verify_kis_ws.sh
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```
 
@@ -372,20 +390,20 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 
 1회 실행:
 
-```powershell
-.\scripts\run_hourly_repo_audit_iteration.ps1
+```bash
+./scripts/run_hourly_repo_audit_iteration.sh
 ```
 
 백그라운드 시작/상태/중지:
 
-```powershell
-.\scripts\start_hourly_repo_audit_background.ps1
-.\scripts\get_hourly_repo_audit_status.ps1
-.\scripts\stop_hourly_repo_audit.ps1
+```bash
+./scripts/start_hourly_repo_audit_background.sh
+./scripts/get_hourly_repo_audit_status.sh
+./scripts/stop_hourly_repo_audit.sh
 ```
 
 권장 스케줄러는 Codex 자동화다.
-PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로로 본다.
+bash 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비 경로로 본다.
 
 자동화는 아래를 수행한다.
 
@@ -395,20 +413,20 @@ PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 
 - Codex CLI 기반 검토, 웹 메모, 초안, 문맥, 진행 상태, 우선순위 목록 산출
 - `runtime-data/reports/codex/automation/` 아래 상태 보존
 - 같은 미해결 항목 식별자 유지
-- 저장된 pid 와 실제 PowerShell 명령줄 대조
+- 저장된 pid 와 실제 bash 명령줄 대조
 
 ## 실데이터 정리와 재구축
 
 테스트 운용 흔적 정리:
 
-```powershell
-.\scripts\cleanup_runtime_test_data.ps1
+```bash
+./scripts/cleanup_runtime_test_data.sh
 ```
 
 실제 운용 데이터만 남기고 ML/검증 산출물 재생성:
 
-```powershell
-.\scripts\rebuild_actual_ml_state.ps1
+```bash
+./scripts/rebuild_actual_ml_state.sh
 ```
 
 실데이터 전용 정리는 아래를 정리한다.
@@ -425,55 +443,55 @@ PowerShell 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 
 
 합성 데이터 전체 흐름:
 
-```powershell
-.\scripts\run_full_synthetic_cycle.ps1
+```bash
+./scripts/run_full_synthetic_cycle.sh
 ```
 
 명시적 백테스트:
 
-```powershell
-.\scripts\run_backtest.ps1
+```bash
+./scripts/run_backtest.sh
 ```
 
 명시적 워크포워드:
 
-```powershell
-.\scripts\run_walk_forward_backtest.ps1
+```bash
+./scripts/run_walk_forward_backtest.sh
 ```
 
 현재 데이터셋 권장 워크포워드 변형:
 
-```powershell
+```bash
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
 ```
 
 KIS REST 개발 흐름:
 
-```powershell
-.\scripts\run_full_kis_cycle.ps1
+```bash
+./scripts/run_full_kis_cycle.sh
 ```
 
 안전한 활성 모델 초기화:
 
-```powershell
+```bash
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ```
 
 그림자 머신러닝 갱신:
 
-```powershell
-.\scripts\run_ml_shadow_cycle.ps1
+```bash
+./scripts/run_ml_shadow_cycle.sh
 ```
 
 도전자 모델 비교:
 
-```powershell
-.\scripts\run_challenger_review.ps1
+```bash
+./scripts/run_challenger_review.sh
 ```
 
 ## 유용한 CLI 명령
 
-```powershell
+```bash
 python -m app --kis-current-price --symbol 005930
 python -m app --kis-orderbook --symbol 005930
 python -m app --kis-watchlist-poll --iterations 5 --interval-seconds 5

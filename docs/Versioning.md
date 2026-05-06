@@ -9,7 +9,7 @@
 - watcher 설정: `autopush.json`
 - 트리거: `version-change`
 - 현재 opt-in: `enabled=true`
-- git-autopush helper 기본 `ScanRoot`: `D:\GitHub`
+- git-autopush helper 기본 `ScanRoot`: `~/projects`
 
 ## 버전 변경 감지 방식
 
@@ -38,13 +38,13 @@
 
 버전 갱신:
 
-```powershell
-.\scripts\bump_version.ps1 -Version 0.2.1
+```bash
+./scripts/bump_version.sh -Version 0.2.1
 ```
 
 수동 commit 예시:
 
-```powershell
+```bash
 git add -A
 git commit -m "chore(release): v0.2.1"
 ```
@@ -54,4 +54,4 @@ git commit -m "chore(release): v0.2.1"
 - 이 저장소는 watcher opt-in 상태다.
 - watcher는 `VERSION` 변화를 기준으로만 동작한다.
 - `HEAD`가 이미 해당 버전을 포함하면 watcher는 새 auto-commit을 만들지 않고 기존 commit을 push할 수 있다.
-- 관련 watcher / audit 스크립트는 `git` 이 PATH 에 없거나 PATH 의 git 경로가 실제 파일로 존재하지 않으면 GitHub Desktop 내장 `git.exe` 를 찾아 사용한다.
+- 관련 watcher / audit 스크립트는 WSL2의 `git` 을 사용한다.

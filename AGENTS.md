@@ -61,7 +61,7 @@
 - `app/risk/`: 리스크 게이트
 - `app/services/reporting.py`: 실행 리포트 생성
 - `config/`: 설정, watchlist, autopush 설정
-- `scripts/`: 반복 실행 PowerShell 스크립트
+- `scripts/`: 반복 실행 bash 스크립트
 - `tests/`: `unittest` 기반 검증
 
 기본 의존 방향은 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting` 으로 유지한다.
@@ -70,78 +70,78 @@
 
 전체 테스트:
 
-```powershell
+```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
 합성 데이터 전체 흐름:
 
-```powershell
+```bash
 python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
-.\scripts\run_full_synthetic_cycle.ps1
+./scripts/run_full_synthetic_cycle.sh
 ```
 
 리포트와 대시보드:
 
-```powershell
+```bash
 python -m app --build-runtime-report
 python -m app --build-dashboard
-.\scripts\run_dashboard.ps1
-.\scripts\start_dashboard_background.ps1
-.\scripts\get_dashboard_status.ps1
-.\scripts\stop_dashboard.ps1
+./scripts/run_dashboard.sh
+./scripts/start_dashboard_background.sh
+./scripts/get_dashboard_status.sh
+./scripts/stop_dashboard.sh
 ```
 
 모델 검증:
 
-```powershell
+```bash
 python -m app --train-lightgbm --horizon-min 15
 python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-challengers --horizon-min 15
-.\scripts\run_ml_shadow_cycle.ps1
-.\scripts\run_post_close_ml_maintenance.ps1
-.\scripts\rebuild_actual_ml_state.ps1
+./scripts/run_ml_shadow_cycle.sh
+./scripts/run_post_close_ml_maintenance.sh
+./scripts/rebuild_actual_ml_state.sh
 ```
 
 KIS와 모의계좌:
 
-```powershell
+```bash
 python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
-.\scripts\verify_kis_ws.ps1
-.\scripts\refresh_kis_account.ps1
-.\scripts\reconcile_paper_accounts.ps1
-.\scripts\verify_paper_dual_account_match.ps1 -AsJson
-.\scripts\verify_paper_dual_account_match.ps1 -SyncInitialCash -AlignToBroker -AsJson
+./scripts/verify_kis_ws.sh
+./scripts/refresh_kis_account.sh
+./scripts/reconcile_paper_accounts.sh
+./scripts/verify_paper_dual_account_match.sh -AsJson
+./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -AsJson
 ```
 
 실시간 수집기와 감시기:
 
-```powershell
-.\scripts\start_live_runtime_background.ps1
-.\scripts\get_live_runtime_status.ps1
-.\scripts\stop_live_runtime.ps1
-.\scripts\start_runtime_watchdog_background.ps1
-.\scripts\get_runtime_watchdog_status.ps1
-.\scripts\stop_runtime_watchdog.ps1
+```bash
+./scripts/start_live_runtime_background.sh
+./scripts/get_live_runtime_status.sh
+./scripts/stop_live_runtime.sh
+./scripts/start_runtime_watchdog_background.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/stop_runtime_watchdog.sh
 ```
 
 복구와 자동 시작:
 
-```powershell
-.\scripts\check_local_setup.ps1
-.\scripts\restore_kis_env_interactive.ps1
-.\scripts\connect_kis_paper_account_interactive.ps1
-.\scripts\start_runtime_autoboot.ps1
-.\scripts\install_runtime_startup_launcher.ps1
-.\scripts\get_runtime_startup_launcher_status.ps1
-.\scripts\remove_runtime_startup_launcher.ps1
+```bash
+./scripts/check_local_setup.sh
+./scripts/restore_kis_env_interactive.sh
+./scripts/connect_kis_paper_account_interactive.sh
+./scripts/start_runtime_autoboot.sh
+./scripts/install_runtime_startup_launcher.sh
+./scripts/get_runtime_startup_launcher_status.sh
+./scripts/remove_runtime_startup_launcher.sh
 ```
 
 버전 갱신:
 
-```powershell
-.\scripts\bump_version.ps1 -Version 0.2.1
+```bash
+./scripts/bump_version.sh -Version 0.2.1
 ```
 
 ## 7. 운영 안전 규칙
@@ -173,7 +173,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - 대시보드 관련 변경은 `python -m unittest tests.test_dashboard`와 `python -m app --build-dashboard`를 함께 고려한다.
 - 브로커 모의계좌 동기화 변경은 `python -m unittest tests.test_broker_paper_sync tests.test_paper_reconciliation`을 함께 고려한다.
 - KIS WebSocket 변경은 `python -m unittest tests.test_kis_ws_parser tests.test_kis_ws_verification`을 함께 고려한다.
-- PowerShell 스크립트 변경은 최소 파싱 검사를 수행한다.
+- bash 스크립트 변경은 최소 파싱 검사를 수행한다.
 - 네트워크나 장 시간에 따라 실패할 수 있는 KIS 실시간 검증은 장 상태를 함께 기록한다.
 
 ## 10. 감시기와 자동화
@@ -200,17 +200,17 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - 기본 정책은 비밀값 제외 전체 백업, 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
 - 백업 패키지는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다.
 - 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
-- 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
+- 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh을 함께 맞춘다.
 
 주간 백업:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
+```bash
+./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
 ```
 
 강제 백업:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
+```bash
+./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
 ```
 <!-- NAS_BACKUP_END -->

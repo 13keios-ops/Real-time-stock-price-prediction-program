@@ -33,20 +33,20 @@
 
 주간 백업:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
+```bash
+./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
 ```
 
 강제 백업:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
+```bash
+./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
 ```
 
 로컬 복구 점검:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\check_local_setup.ps1
+```bash
+./scripts/check_local_setup.sh
 ```
 
 ## 복구 순서
@@ -54,9 +54,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\check_local_setup.ps1
 1. GitHub 또는 `repository.bundle` 에서 저장소를 복구한다.
 2. 백업 시점의 작업 트리 상태가 필요하면 `repo-snapshot/` 을 덮어쓴다.
 3. 비밀정보, KIS 토큰 캐시, runtime 로그, watcher 자산, 로컬 Codex 상태는 별도 복구 경로로 되살린다.
-4. 무인 작업을 재개하기 전에 `scripts/check_local_setup.ps1` 를 실행한다.
-5. root `.env` 가 없으면 보이는 PowerShell 창에서 `scripts/restore_kis_env_interactive.ps1` 를 실행해 먼저 `paper` KIS app key/secret 을 입력하고 안전하게 저장한다.
-6. 계좌 항목도 나중에 필요하면 `scripts/restore_kis_env_interactive.ps1 -IncludeAccountFields` 를 다시 실행한다.
+4. 무인 작업을 재개하기 전에 `scripts/check_local_setup.sh` 를 실행한다.
+5. root `.env` 가 없으면 보이는 bash 창에서 `scripts/restore_kis_env_interactive.sh` 를 실행해 먼저 `paper` KIS app key/secret 을 입력하고 안전하게 저장한다.
+6. 계좌 항목도 나중에 필요하면 `scripts/restore_kis_env_interactive.sh -IncludeAccountFields` 를 다시 실행한다.
 
 ## 로컬 복구 점검
 

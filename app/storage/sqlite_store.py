@@ -513,6 +513,26 @@ class SQLiteRuntimeStore:
             ),
         )
 
+    def insert_orderbook_snapshots_many(self, events: list[OrderbookSnapshot]) -> None:
+        self._run_write_many(
+            """
+            INSERT INTO raw_orderbook_ticks(symbol, event_time, bid_price, ask_price, bid_size, ask_size, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event.symbol,
+                    self._dt(event.event_time),
+                    event.bid_price,
+                    event.ask_price,
+                    event.bid_size,
+                    event.ask_size,
+                    event.source,
+                )
+                for event in events
+            ],
+        )
+
     def upsert_minute_bar(self, bar: MinuteBar) -> None:
         self._run_write_query(
             """
@@ -520,6 +540,49 @@ class SQLiteRuntimeStore:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (bar.symbol, self._dt(bar.bar_time), bar.open, bar.high, bar.low, bar.close, bar.volume, bar.trade_count),
+        )
+
+    def upsert_minute_bars_many(self, bars: list[MinuteBar]) -> None:
+        self._run_write_many(
+            """
+            INSERT OR REPLACE INTO curated_minute_bars(symbol, bar_time, open, high, low, close, volume, trade_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    bar.symbol,
+                    self._dt(bar.bar_time),
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    bar.volume,
+                    bar.trade_count,
+                )
+                for bar in bars
+            ],
+        )
+
+    def delete_raw_source_rows(
+        self,
+        table_name: str,
+        *,
+        source: str,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> None:
+        if table_name not in {"raw_market_ticks", "raw_orderbook_ticks"}:
+            raise ValueError(f"Unsupported raw table for source cleanup: {table_name}")
+        self._run_write_query(
+            f"""
+            DELETE FROM {table_name}
+            WHERE source = ?
+              AND symbol = ?
+              AND event_time >= ?
+              AND event_time <= ?
+            """,
+            (source, symbol, self._dt(start_time), self._dt(end_time)),
         )
 
     def upsert_feature_snapshot(self, snapshot: FeatureSnapshot) -> None:
