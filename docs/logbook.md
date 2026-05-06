@@ -1,5 +1,35 @@
 # 작업 기록
 
+## [2026-05-06] Codex → 스프린트 04 긴급 누수 점검과 실험 B/D
+
+- 변경 파일:
+  - `app/services/research.py`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `pykrx-daily-proxy` 라벨이 같은 일봉 OHLC에서 보간된 현재 proxy close와 미래 proxy close의 차이로 만들어지는지 확인했다.
+  - 기존 train/validation split이 tail 80/20만 수행하고 horizon purge를 적용하지 않던 점을 확인하고, validation 시작 시각 기준 `train.event_time + horizon < validation_start_time` purge를 추가했다.
+  - proxy 포함 학습셋에서 `spread_bps`, `bid_ask_imbalance`에 더해 `mid_price`도 학습 feature list에서 제외했다.
+  - 작은 synthetic fixture에서는 purge 후 `down/flat/up` 라벨 구성이 깨질 때 기존 split을 유지해 테스트 안정성을 보존했다.
+- 실행 명령:
+  ```bash
+  python -m py_compile app/services/research.py
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+  python -m app --run-challengers --horizon-min 15
+  ```
+- 확인 결과:
+  - 단위 테스트: `Ran 85 tests in 12.835s`, `OK`
+  - 실험 B/D feature_names: `avg_trade_size`, `hl_range_pct`, `return_1m_pct`
+  - LightGBM: `train_rows=266300`, `validation_rows=66582`, `validation_accuracy=0.911793`, `trades_taken=5113`, `trade_hit_rate=0.889693`, `cumulative_net_return_pct=1816.829656`
+  - walk-forward: `folds=33284`, `rows_evaluated=332840`, `overall_accuracy=0.380246`, `trades_taken=111223`, `trade_hit_rate=0.104502`, `cumulative_net_return_pct=-10411.176412`
+  - challenger 최종 판단: `review_required`, `walk_forward_gate_status=needs_review`, 활성 모델은 `baseline-h15-v1` 유지
+- 판단:
+  - `mid_price` 제거 후에도 validation이 `0.6` 이하로 떨어지지 않았으므로 `mid_price` 단독 누수 가설은 지지되지 않는다.
+  - walk-forward trade_hit_rate도 `0.3` 이상으로 개선되지 않아, 다음 단계는 proxy 15분 라벨 자체를 제외하거나 일봉 단위 split/검증으로 바꾸는 방향이 우선이다.
+
 ## [2026-05-06] Codex → 스프린트 04 C-1 재실험과 KIS REST 수집 경로
 
 - 변경 파일:

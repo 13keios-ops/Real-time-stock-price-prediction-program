@@ -31,7 +31,7 @@ from app.utils.time import now_local
 
 
 PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
-PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance"})
+PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance", "mid_price"})
 
 
 @dataclass(slots=True)
@@ -415,10 +415,33 @@ def _load_labeled_feature_dataset(sqlite_store, horizon_min: int) -> tuple[list[
     return feature_names, dataset
 
 
-def _split_dataset(dataset: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+def _has_complete_direction_labels(rows: list[dict[str, object]]) -> bool:
+    labels = {str(row["label"]) for row in rows}
+    return {"down", "flat", "up"}.issubset(labels)
+
+
+def _split_dataset(
+    dataset: list[dict[str, object]],
+    *,
+    horizon_min: int = 0,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     split_index = max(1, math.floor(len(dataset) * 0.8))
     split_index = min(split_index, len(dataset) - 1)
-    return dataset[:split_index], dataset[split_index:]
+    validation_start_time = dataset[split_index]["event_time"]
+    while split_index > 0 and dataset[split_index - 1]["event_time"] == validation_start_time:
+        split_index -= 1
+    train_rows = dataset[:split_index]
+    validation_rows = dataset[split_index:]
+    if horizon_min > 0 and validation_rows:
+        validation_start_time = validation_rows[0]["event_time"]
+        purge_delta = timedelta(minutes=horizon_min)
+        purged_train_rows = [
+            row for row in train_rows
+            if row["event_time"] + purge_delta < validation_start_time
+        ]
+        if _has_complete_direction_labels(purged_train_rows):
+            train_rows = purged_train_rows
+    return train_rows, validation_rows
 
 
 def _prediction_label(probability_up: float, probability_flat: float, probability_down: float) -> str:
@@ -1061,7 +1084,7 @@ def train_centroid_baseline_from_sqlite(
         raise ValueError("A sqlite database_url is required for training.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset)
+    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
 
     model_version = f"centroid-h{horizon_min}-v1"
     model = _fit_centroid_model(
@@ -1159,7 +1182,7 @@ def train_lightgbm_from_sqlite(
         raise ValueError("A sqlite database_url is required for training.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset)
+    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
 
     model_version = f"lightgbm-h{horizon_min}-v1"
     model = _fit_lightgbm_model(
@@ -1222,6 +1245,11 @@ def train_lightgbm_from_sqlite(
                     "proxy_excluded_features": sorted(PROXY_EXCLUDED_TRAINING_FEATURES),
                     "proxy_rows": sum(1 for row in dataset if row.get("feature_source") == PYKRX_DAILY_PROXY_SOURCE),
                     "source_counts": dict(Counter(str(row.get("feature_source", "unknown")) for row in dataset)),
+                },
+                "validation_purge": {
+                    "horizon_min": horizon_min,
+                    "split": "tail_20pct",
+                    "purge_rule": "drop train rows where event_time + horizon reaches validation_start_time",
                 },
                 "training_window": "recent_60_trading_days_plus_today",
                 "activation_applied": set_active,
@@ -1299,7 +1327,7 @@ def run_signal_backtest_from_sqlite(project_root: Path, horizon_min: int = 15) -
         raise ValueError("A sqlite database_url is required for backtesting.")
 
     _, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    _, validation_rows = _split_dataset(dataset)
+    _, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
     if not validation_rows:
         raise ValueError("Not enough validation rows are available for backtesting.")
 
@@ -1624,7 +1652,7 @@ def run_model_challenger_review_from_sqlite(
         raise ValueError("A sqlite database_url is required for challenger evaluation.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset)
+    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
     if not validation_rows:
         raise ValueError("Not enough validation rows are available for challenger evaluation.")
 

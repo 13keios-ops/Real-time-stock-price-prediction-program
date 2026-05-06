@@ -1,7 +1,127 @@
 # docs/STATUS.md
 
 생성일: 2026-05-06
-스프린트: 04 C-1 재실험 및 KIS REST 분봉 수집 준비
+스프린트: 04 누수 점검 및 실험 B/D
+
+## 🔴 [2026-05-06 18:23] 긴급 누수 점검 — 실험 B/D(mid_price 제거)
+
+- 상황: C-1에서 LightGBM validation `0.911699`와 walk-forward `0.412748`의 격차가 너무 커서, pykrx proxy 라벨 구조와 train/validation split 누수를 먼저 점검했다.
+- 가져갈 파일: `docs/STATUS.md`
+- 판단: `mid_price` 단독 누수가 주원인이라는 가설은 지지되지 않는다. `mid_price`를 제거하고 horizon purge를 적용해도 validation_accuracy는 `0.911793`으로 유지됐고, walk-forward는 `0.380246`으로 더 낮아졌다. 현재 1차 의심은 `pykrx-daily-proxy`의 같은 일봉 OHLC 보간 경로 자체와 그 경로에서 만든 15분 라벨이다.
+- 최종 조치: 자동 승격 금지 유지. active model은 `baseline-h15-v1` 그대로 유지.
+
+### 확인 1. pykrx proxy 라벨 생성 구조
+
+구현 위치:
+
+- `app/collectors/historical.py`
+- `app/services/research.py`
+
+확인 결과:
+
+- `pykrx-daily-proxy`는 일봉 OHLCV 1개를 거래일당 26개 15분 봉으로 변환한다.
+- 가격 anchor는 아래처럼 하루 전체 OHLC를 이미 알고 있는 상태에서 정한다.
+  - 상승/보합일: index `0=open`, `6=low`, `18=high`, `25=close`
+  - 하락일: index `0=open`, `6=high`, `18=low`, `25=close`
+- 각 proxy bar의 close는 위 anchor 사이 선형 보간값이다.
+- 라벨 생성은 현재 봉 `bar.close`와 `bar_time + horizon` 이후 같은 날짜 첫 future bar의 `future_bar.close` 차이로 `future_return_pct`를 만든다.
+- 따라서 proxy 데이터의 15분 라벨은 대부분 같은 일봉 OHLC에서 보간된 현재 proxy close와 미래 proxy close의 차이다.
+
+판단:
+
+- 코드가 시간순 배열 밖의 임의 미래 row를 잘못 join하는 형태의 직접 누수는 아니다.
+- 하지만 proxy의 하루 경로가 당일 OHLC를 모두 사용해 사후적으로 만들어지므로, 같은 일봉 안에서 만든 15분 라벨은 일봉 OHLC 패턴을 모델이 외우기 쉬운 구조다.
+- 특히 `hl_range_pct`, `return_1m_pct`, `avg_trade_size`만 남긴 뒤에도 validation이 유지됐기 때문에, 누수성 신호가 특정 `mid_price` 하나에만 묶여 있지 않다.
+
+### 확인 2. train/validation split horizon purge
+
+확인 결과:
+
+- 기존 `_split_dataset`은 시간순 80/20 tail split만 수행했고, train 마지막 row의 label horizon이 validation 시작 구간에 닿는지 제거하지 않았다.
+- 이번 작업에서 `app/services/research.py`의 split을 아래 방식으로 보강했다.
+  - validation 시작 시각과 같은 timestamp row는 모두 validation 쪽으로 보낸다.
+  - `horizon_min > 0`이면 `train.event_time + horizon < validation_start_time`을 만족하지 않는 train row를 제거한다.
+  - 아주 작은 synthetic test fixture에서 purge 후 `down/flat/up` 라벨 구성이 깨질 때만 기존 train split을 유지한다.
+- 실제 5년치 학습 데이터에서는 purge가 적용됐고, split은 아래처럼 확인됐다.
+
+| 항목 | 값 |
+|---|---:|
+| feature_names | `avg_trade_size`, `hl_range_pct`, `return_1m_pct` |
+| total labeled rows | 332,892 |
+| train_rows | 266,300 |
+| validation_rows | 66,582 |
+| train_end | `2025-06-20T13:45:00+09:00` |
+| validation_start | `2025-06-20T14:15:00+09:00` |
+| purge gap | 30분 |
+
+### 확인 3. 실험 B/D — mid_price 제거 후 재학습
+
+처리 방식:
+
+- proxy 포함 학습셋에서는 기존 제외 피처 `spread_bps`, `bid_ask_imbalance`에 더해 `mid_price`도 학습 피처 목록에서 제외했다.
+- 실험 B/D feature_names: `avg_trade_size`, `hl_range_pct`, `return_1m_pct`
+- `source=kis-ws` row의 저장 피처는 수정하지 않았다. 학습 로더에서 proxy 포함 학습셋 feature list만 조정했다.
+
+실행 명령:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+python -m app --train-lightgbm --horizon-min 15
+python -m app --run-challengers --horizon-min 15
+python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200
+python -m app --run-challengers --horizon-min 15
+```
+
+학습 설정:
+
+| 항목 | 값 |
+|---|---:|
+| training_run_id | `train-lightgbm-h15-20260506181808816399` |
+| class_weight | `balanced` |
+| train_rows | 266,300 |
+| validation_rows | 66,582 |
+| validation_accuracy | 0.911793 |
+| proxy_rows | 318,683 |
+| source_counts | `pykrx-daily-proxy=318683`, `kis-ws=12388`, `unknown=1192`, `kis-rest-historical=554`, `synthetic=75` |
+
+라벨 분포:
+
+| 기준 | down | flat | up |
+|---|---:|---:|---:|
+| validation actual label | 6,533 | 53,113 | 6,936 |
+| LightGBM validation predicted label | 5,421 | 55,419 | 5,742 |
+| walk-forward actual label | 22,640 | 286,541 | 23,659 |
+| walk-forward predicted label | 107,264 | 110,316 | 115,260 |
+
+주요 결과:
+
+| 지표 | LightGBM validation/challenger | Walk-forward |
+|---|---:|---:|
+| trades_taken | 5,113 | 111,223 |
+| validation_accuracy / overall_accuracy | 0.911793 | 0.380246 |
+| cumulative_net_return_pct | 1,816.829656 | -10,411.176412 |
+| trade_hit_rate | 0.889693 | 0.104502 |
+| win_rate | 0.895951 | 0.341638 |
+
+판단 기준 대비:
+
+- `validation_accuracy`가 `0.912 → 0.6 이하`로 떨어지지 않았다. 따라서 `mid_price`가 누수의 주원인이라는 판단은 보류한다.
+- `walk-forward trade_hit_rate`가 `0.3 이상`으로 오르지 않았다. 실제 결과는 `0.104502`로 C-1의 `0.101259`와 거의 같은 실패권이다.
+- validation과 walk-forward 격차가 계속 크므로, 다음 실험은 proxy 15분 label 자체를 제거하거나 일봉 단위 split/검증으로 바꾸는 방향이 우선이다.
+
+Challenger 최종 판단:
+
+- best_candidate: `latest_lightgbm`
+- recommended_action: `review_required`
+- recommended_model_version: `lightgbm-h15-v1`
+- walk_forward_gate_status: `needs_review`
+- reason: `Walk-forward overall accuracy is too low (0.3802).`
+- active_model_version_after_run: `baseline-h15-v1`
+
+검증:
+
+- `python -m py_compile app/services/research.py`: 통과
+- `python -m unittest discover -s tests -p "test_*.py"`: `Ran 85 tests in 12.835s`, `OK`
 
 ## 🟠 [2026-05-06 17:24] 스프린트 04 — proxy 호가 피처 제외 + C-1 5년치 재실행
 
