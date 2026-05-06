@@ -43,6 +43,7 @@
 - 브로커 기준 표시자 기반 모의계좌 기준선 정렬
 - KIS 호출 제한 재시도와 안전 실패 처리
 - pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
+- Cybos 실제 15분봉 기반 bar-only LightGBM 연구 실험 경로
 
 ## 데이터 흐름
 
@@ -142,6 +143,7 @@ python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-challengers --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
+python -m app --run-cybos-bar-only-experiment --horizon-min 15
 ```
 
 현재 ML 기준은 아래와 같다.
@@ -152,6 +154,7 @@ python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
+- Cybos bar-only 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 
 ## 과거 데이터 Backfill
 

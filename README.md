@@ -63,6 +63,7 @@
 - actual-only cleanup 은 실제 브로커 체결 시각에 생성된 포트폴리오 스냅샷을 실제 운용 데이터로 보존한다.
 - 실제 운용 데이터만 남기기 위한 runtime test-data 정리와 actual-only ML 재구축 경로
 - pykrx 일봉 기반 10종목 장기 과거 데이터 backfill 과 15분 proxy 분봉 적재 경로
+- Cybos 실제 15분봉 기반 bar-only LightGBM 연구 실험 경로
 - 실시간 수집기 background 실행과 상태 확인 스크립트
 - KIS WebSocket listener 는 구독 뒤 프레임이 들어오지 않으면 timeout 후 reconnect 해서 connected-but-idle 상태를 줄인다.
 - 장중에는 15분·60분 예측을 함께 기록하고, 신호와 주문은 15분 기준으로만 생성
@@ -262,6 +263,14 @@ python -m app --train-lightgbm --horizon-min 15
 ```
 
 이 명령은 이제 artifact와 평가 기록만 만들고, active model을 자동으로 교체하지 않는다.
+
+Cybos 실제 15분봉만 사용하는 bar-only 기준선 실험:
+
+```bash
+python -m app --run-cybos-bar-only-experiment --horizon-min 15
+```
+
+이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다.
 
 월요일 전 shadow ML 갱신 일괄 실행:
 

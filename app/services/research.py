@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left
+import heapq
 import json
 import math
 from collections import Counter, defaultdict
@@ -31,7 +32,9 @@ from app.utils.time import now_local
 
 
 PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
+CYBOS_HISTORICAL_SOURCE = "cybos-historical"
 PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance", "mid_price"})
+BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
 
 
 @dataclass(slots=True)
@@ -840,6 +843,422 @@ def _evaluate_rows_with_model(
         "actual_label_counts": dict(actual_counter),
         "predicted_label_counts": dict(predicted_counter),
     }
+
+
+def _build_bar_only_training_row(
+    *,
+    bar: MinuteBar,
+    future_bar: MinuteBar,
+    horizon_min: int,
+    threshold_pct: float,
+    feature_source: str,
+) -> dict[str, object] | None:
+    if bar.open <= 0 or bar.close <= 0:
+        return None
+    future_return_pct = ((future_bar.close - bar.close) / bar.close) * 100
+    values = {
+        "avg_trade_size": bar.volume / max(bar.trade_count, 1),
+        "hl_range_pct": ((bar.high - bar.low) / bar.open) * 100,
+        "return_1m_pct": ((bar.close - bar.open) / bar.open) * 100,
+    }
+    return {
+        "symbol": bar.symbol,
+        "event_time": bar.bar_time,
+        "label": classify_return(future_return_pct, threshold_pct),
+        "future_return_pct": future_return_pct,
+        "feature_source": feature_source,
+        "values": values,
+        "features": [float(values[name]) for name in BAR_ONLY_FEATURE_NAMES],
+        "horizon_min": horizon_min,
+    }
+
+
+def _source_bar_only_train_validation_rows(
+    *,
+    sqlite_store,
+    source: str,
+    horizon_min: int,
+    threshold_pct: float,
+    train_max_rows: int,
+) -> dict[str, object]:
+    trade_dates = sqlite_store.fetch_market_source_trade_dates(source)
+    if len(trade_dates) < 5:
+        raise ValueError(f"Not enough trade dates are available for source={source}.")
+    split_date_index = max(1, math.floor(len(trade_dates) * 0.8))
+    split_date_index = min(split_date_index, len(trade_dates) - 1)
+    validation_start_date = datetime.fromisoformat(trade_dates[split_date_index]).date()
+
+    symbols = sqlite_store.fetch_market_source_symbols(source)
+    if not symbols:
+        raise ValueError(f"No symbols are available for source={source}.")
+
+    train_heap: list[tuple[tuple[float, str], dict[str, object]]] = []
+    validation_rows: list[dict[str, object]] = []
+    label_counts: Counter[str] = Counter()
+    source_rows = 0
+    labeled_rows = 0
+    first_event_time: datetime | None = None
+    last_event_time: datetime | None = None
+
+    for symbol in symbols:
+        bars: list[MinuteBar] = []
+        for row in sqlite_store.fetch_minute_bars_for_market_source(source, symbol=symbol):
+            bar = MinuteBar(
+                symbol=str(row["symbol"]),
+                bar_time=_row_timestamp(str(row["bar_time"])),
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=int(row["volume"]),
+                trade_count=int(row["trade_count"]),
+            )
+            bars.append(bar)
+        if not bars:
+            continue
+        bars.sort(key=lambda item: item.bar_time)
+        source_rows += len(bars)
+        bar_times = [bar.bar_time for bar in bars]
+        for bar in bars:
+            target_time = bar.bar_time + timedelta(minutes=horizon_min)
+            future_bar = _find_first_same_day_future_bar(bars, bar_times, target_time)
+            if future_bar is None:
+                continue
+            item = _build_bar_only_training_row(
+                bar=bar,
+                future_bar=future_bar,
+                horizon_min=horizon_min,
+                threshold_pct=threshold_pct,
+                feature_source=source,
+            )
+            if item is None:
+                continue
+            labeled_rows += 1
+            label_counts[str(item["label"])] += 1
+            event_time = item["event_time"]
+            if isinstance(event_time, datetime):
+                first_event_time = event_time if first_event_time is None else min(first_event_time, event_time)
+                last_event_time = event_time if last_event_time is None else max(last_event_time, event_time)
+                if event_time.date() >= validation_start_date:
+                    validation_rows.append(item)
+                else:
+                    heap_key = (event_time.timestamp(), str(item["symbol"]))
+                    if len(train_heap) < train_max_rows:
+                        heapq.heappush(train_heap, (heap_key, item))
+                    elif heap_key > train_heap[0][0]:
+                        heapq.heapreplace(train_heap, (heap_key, item))
+
+    train_rows = [item for _, item in sorted(train_heap, key=lambda pair: pair[0])]
+    validation_rows.sort(key=lambda item: (item["event_time"], str(item["symbol"])))
+    if len(train_rows) < 5 or len(validation_rows) < 5:
+        raise ValueError(
+            f"Not enough source={source} bar-only rows for experiment "
+            f"(train={len(train_rows)}, validation={len(validation_rows)})."
+        )
+    if not _has_complete_direction_labels(train_rows):
+        raise ValueError(f"Training window for source={source} does not contain down/flat/up labels.")
+
+    return {
+        "source": source,
+        "feature_names": list(BAR_ONLY_FEATURE_NAMES),
+        "symbols": symbols,
+        "trade_dates": trade_dates,
+        "validation_start_date": validation_start_date.isoformat(),
+        "source_rows": source_rows,
+        "labeled_rows": labeled_rows,
+        "label_counts": dict(label_counts),
+        "first_event_time": first_event_time.isoformat() if first_event_time else None,
+        "last_event_time": last_event_time.isoformat() if last_event_time else None,
+        "train_rows": train_rows,
+        "validation_rows": validation_rows,
+    }
+
+
+def _lightgbm_feature_importance(model: LightGbmDirectionModel) -> list[dict[str, object]]:
+    importances = getattr(model.model, "feature_importances_", None)
+    if importances is None:
+        return []
+    pairs = [
+        {"feature": feature, "importance": int(importance)}
+        for feature, importance in zip(model.artifact.feature_names, importances)
+    ]
+    return sorted(pairs, key=lambda item: int(item["importance"]), reverse=True)
+
+
+def _run_lightgbm_walk_forward(
+    *,
+    rows: list[dict[str, object]],
+    feature_names: list[str],
+    settings,
+    horizon_min: int,
+    train_rows: int,
+    test_rows: int,
+    gap_rows: int,
+    step_rows: int,
+    max_folds: int,
+) -> dict[str, object]:
+    if len(rows) < train_rows + gap_rows + test_rows:
+        raise ValueError("Not enough rows for LightGBM walk-forward evaluation.")
+    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
+    if max_folds > 0 and len(train_end_values) > max_folds:
+        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
+        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+
+    aggregate_rows = 0
+    aggregate_trades = 0
+    aggregate_correct = 0
+    aggregate_trade_hits = 0.0
+    aggregate_wins = 0.0
+    aggregate_gross = 0.0
+    aggregate_net = 0.0
+    aggregate_actual: Counter[str] = Counter()
+    aggregate_predicted: Counter[str] = Counter()
+    fold_summaries: list[dict[str, object]] = []
+
+    for fold_number, train_end in enumerate(train_end_values, start=1):
+        train_start = max(0, train_end - train_rows)
+        fold_train = rows[train_start:train_end]
+        test_start = train_end + gap_rows
+        fold_test = rows[test_start : test_start + test_rows]
+        if not _has_complete_direction_labels(fold_train) or not fold_test:
+            continue
+        model = _fit_lightgbm_model(
+            train_rows=fold_train,
+            feature_names=feature_names,
+            feature_set_version=settings.feature_set_version,
+            horizon_min=horizon_min,
+            model_version=f"lightgbm-cybos-bar-only-wf-h{horizon_min}-v1",
+        )
+        metrics = _evaluate_rows_with_model(
+            rows=fold_test,
+            model=model,
+            settings=settings,
+            horizon_min=horizon_min,
+            prediction_prefix=f"cybos-bar-only-wf-{fold_number}",
+        )
+        rows_evaluated = int(metrics["rows_evaluated"])
+        trades_taken = int(metrics["trades_taken"])
+        aggregate_rows += rows_evaluated
+        aggregate_trades += trades_taken
+        aggregate_correct += int(metrics["overall_correct"])
+        aggregate_trade_hits += float(metrics["trade_hit_rate"]) * trades_taken
+        aggregate_wins += float(metrics["win_rate"]) * trades_taken
+        aggregate_gross += float(metrics["cumulative_gross_return_pct"])
+        aggregate_net += float(metrics["cumulative_net_return_pct"])
+        aggregate_actual.update(metrics["actual_label_counts"])
+        aggregate_predicted.update(metrics["predicted_label_counts"])
+        fold_summaries.append(
+            {
+                "fold": fold_number,
+                "train_start_row": train_start,
+                "train_end_row": train_end - 1,
+                "test_start_row": test_start,
+                "test_end_row": test_start + rows_evaluated - 1,
+                "train_start_event_time": fold_train[0]["event_time"].isoformat(),
+                "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
+                "test_start_event_time": fold_test[0]["event_time"].isoformat(),
+                "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trades_taken": trades_taken,
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+            }
+        )
+
+    if aggregate_rows <= 0:
+        raise ValueError("LightGBM walk-forward did not produce any folds.")
+    return {
+        "folds": len(fold_summaries),
+        "rows_evaluated": aggregate_rows,
+        "trades_taken": aggregate_trades,
+        "overall_accuracy": aggregate_correct / aggregate_rows,
+        "trade_hit_rate": aggregate_trade_hits / aggregate_trades if aggregate_trades else 0.0,
+        "win_rate": aggregate_wins / aggregate_trades if aggregate_trades else 0.0,
+        "cumulative_gross_return_pct": aggregate_gross,
+        "cumulative_net_return_pct": aggregate_net,
+        "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
+        "actual_label_counts": dict(aggregate_actual),
+        "predicted_label_counts": dict(aggregate_predicted),
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "gap_rows": gap_rows,
+        "step_rows": step_rows,
+        "max_folds": max_folds,
+        "fold_summaries": fold_summaries,
+    }
+
+
+def run_cybos_bar_only_experiment_from_sqlite(
+    *,
+    project_root: Path,
+    horizon_min: int = 15,
+    train_max_rows: int = 2_000,
+    walk_forward_test_rows: int = 2_000,
+    walk_forward_step_rows: int = 10_000,
+    walk_forward_gap_rows: int = 15,
+    walk_forward_max_folds: int = 120,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos bar-only experiment.")
+    threshold = settings.strategy.label_threshold_15 if horizon_min == 15 else settings.strategy.label_threshold_60
+    dataset_payload = _source_bar_only_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=horizon_min,
+        threshold_pct=threshold,
+        train_max_rows=train_max_rows,
+    )
+    feature_names = list(dataset_payload["feature_names"])
+    train_rows = list(dataset_payload["train_rows"])
+    validation_rows = list(dataset_payload["validation_rows"])
+    model_version = f"lightgbm-cybos-bar-only-h{horizon_min}-v1"
+    model = _fit_lightgbm_model(
+        train_rows=train_rows,
+        feature_names=feature_names,
+        feature_set_version=settings.feature_set_version,
+        horizon_min=horizon_min,
+        model_version=model_version,
+    )
+    artifact_path = _write_lightgbm_artifact(runtime_root=settings.runtime_data_dir, model=model)
+    validation_metrics = _evaluate_rows_with_model(
+        rows=validation_rows,
+        model=model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="cybos-bar-only-validation",
+    )
+    walk_rows = sorted(train_rows + validation_rows, key=lambda item: (item["event_time"], str(item["symbol"])))
+    walk_forward_metrics = _run_lightgbm_walk_forward(
+        rows=walk_rows,
+        feature_names=feature_names,
+        settings=settings,
+        horizon_min=horizon_min,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+    )
+
+    completed_at = now_local(settings.timezone)
+    timestamp_token = completed_at.strftime("%Y%m%d%H%M%S%f")
+    training_run_id = f"train-cybos-bar-only-h{horizon_min}-{timestamp_token}"
+    eval_id = f"eval-cybos-bar-only-h{horizon_min}-{timestamp_token}"
+    wf_eval_id = f"walk-cybos-bar-only-h{horizon_min}-{timestamp_token}"
+    writer = _get_research_writer(settings)
+    writer.write_training_run(
+        TrainingRun(
+            training_run_id=training_run_id,
+            started_at=completed_at,
+            completed_at=completed_at,
+            model_version=model_version,
+            feature_set_version=settings.feature_set_version,
+            horizon_min=horizon_min,
+            train_rows=len(train_rows),
+            validation_rows=len(validation_rows),
+            training_summary={
+                "experiment": "F-1 cybos bar-only",
+                "framework": "lightgbm",
+                "class_weight": "balanced",
+                "source": CYBOS_HISTORICAL_SOURCE,
+                "feature_names": feature_names,
+                "label_counts": dataset_payload["label_counts"],
+                "train_max_rows": train_max_rows,
+                "validation_start_date": dataset_payload["validation_start_date"],
+                "artifact_path": str(artifact_path),
+                "activation_applied": False,
+            },
+        )
+    )
+    writer.write_model_evaluation(
+        ModelEvaluation(
+            evaluation_id=eval_id,
+            training_run_id=training_run_id,
+            evaluated_at=completed_at,
+            split_name=f"cybos_bar_only_validation_h{horizon_min}",
+            accuracy=float(validation_metrics["overall_accuracy"]),
+            total_rows=int(validation_metrics["rows_evaluated"]),
+            metrics=validation_metrics,
+        )
+    )
+    writer.write_model_evaluation(
+        ModelEvaluation(
+            evaluation_id=wf_eval_id,
+            training_run_id=training_run_id,
+            evaluated_at=completed_at,
+            split_name=f"cybos_bar_only_walk_forward_h{horizon_min}",
+            accuracy=float(walk_forward_metrics["overall_accuracy"]),
+            total_rows=int(walk_forward_metrics["rows_evaluated"]),
+            metrics=walk_forward_metrics,
+        )
+    )
+
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / f"latest-cybos-bar-only-f1-h{horizon_min}.json"
+    report_md_path = report_dir / f"latest-cybos-bar-only-f1-h{horizon_min}.md"
+    payload = {
+        "experiment": "F-1 cybos bar-only",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "horizon_min": horizon_min,
+        "model_version": model_version,
+        "training_run_id": training_run_id,
+        "evaluation_id": eval_id,
+        "walk_forward_evaluation_id": wf_eval_id,
+        "artifact_path": str(artifact_path),
+        "feature_names": feature_names,
+        "feature_importance_top5": _lightgbm_feature_importance(model)[:5],
+        "dataset": {
+            "symbols": len(dataset_payload["symbols"]),
+            "trade_dates": len(dataset_payload["trade_dates"]),
+            "source_rows": dataset_payload["source_rows"],
+            "labeled_rows": dataset_payload["labeled_rows"],
+            "label_counts": dataset_payload["label_counts"],
+            "first_event_time": dataset_payload["first_event_time"],
+            "last_event_time": dataset_payload["last_event_time"],
+            "validation_start_date": dataset_payload["validation_start_date"],
+        },
+        "training": {
+            "train_rows": len(train_rows),
+            "validation_rows": len(validation_rows),
+            "train_first_event_time": train_rows[0]["event_time"].isoformat(),
+            "train_last_event_time": train_rows[-1]["event_time"].isoformat(),
+            "validation_first_event_time": validation_rows[0]["event_time"].isoformat(),
+            "validation_last_event_time": validation_rows[-1]["event_time"].isoformat(),
+        },
+        "validation": validation_metrics,
+        "walk_forward": walk_forward_metrics,
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_md_path.write_text(
+        "\n".join(
+            [
+                f"# Cybos Bar-Only F-1 H{horizon_min}",
+                "",
+                f"- source: `{CYBOS_HISTORICAL_SOURCE}`",
+                f"- feature_names: {', '.join(feature_names)}",
+                f"- train_rows: {len(train_rows)}",
+                f"- validation_rows: {len(validation_rows)}",
+                f"- validation_accuracy: {float(validation_metrics['overall_accuracy']):.6f}",
+                f"- validation_trades_taken: {int(validation_metrics['trades_taken'])}",
+                f"- validation_trade_hit_rate: {float(validation_metrics['trade_hit_rate']):.6f}",
+                f"- validation_cumulative_net_return_pct: {float(validation_metrics['cumulative_net_return_pct']):.6f}",
+                f"- walk_forward_overall_accuracy: {float(walk_forward_metrics['overall_accuracy']):.6f}",
+                f"- walk_forward_trades_taken: {int(walk_forward_metrics['trades_taken'])}",
+                f"- walk_forward_trade_hit_rate: {float(walk_forward_metrics['trade_hit_rate']):.6f}",
+                f"- walk_forward_cumulative_net_return_pct: {float(walk_forward_metrics['cumulative_net_return_pct']):.6f}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
 
 
 def build_minute_bars_from_sqlite(project_root: Path) -> MinuteBarBuildResult:

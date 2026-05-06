@@ -930,6 +930,64 @@ class SQLiteRuntimeStore:
         rows = self._run_safe_read_query(query, params, missing_tables=("curated_minute_bars",))
         return list(rows) if isinstance(rows, list) else []
 
+    def fetch_market_source_symbols(self, source: str) -> list[str]:
+        query = """
+            SELECT DISTINCT symbol
+            FROM raw_market_ticks
+            WHERE lower(source) = lower(?)
+            ORDER BY symbol
+        """
+        rows = self._run_safe_read_query(query, (source,), missing_tables=("raw_market_ticks",))
+        if not isinstance(rows, list):
+            return []
+        return [str(row["symbol"]) for row in rows]
+
+    def fetch_market_source_trade_dates(self, source: str) -> list[str]:
+        query = """
+            SELECT DISTINCT substr(event_time, 1, 10) AS trade_date
+            FROM raw_market_ticks
+            WHERE lower(source) = lower(?)
+            ORDER BY trade_date
+        """
+        rows = self._run_safe_read_query(query, (source,), missing_tables=("raw_market_ticks",))
+        if not isinstance(rows, list):
+            return []
+        return [str(row["trade_date"]) for row in rows if row["trade_date"]]
+
+    def fetch_minute_bars_for_market_source(self, source: str, symbol: str | None = None) -> list[sqlite3.Row]:
+        query = """
+            SELECT
+                bars.symbol,
+                bars.bar_time,
+                bars.open,
+                bars.high,
+                bars.low,
+                bars.close,
+                bars.volume,
+                bars.trade_count
+            FROM curated_minute_bars AS bars
+            WHERE EXISTS (
+                SELECT 1
+                FROM raw_market_ticks AS ticks
+                WHERE ticks.symbol = bars.symbol
+                  AND ticks.event_time = bars.bar_time
+                  AND lower(ticks.source) = lower(?)
+            )
+        """
+        params: tuple[Any, ...]
+        if symbol:
+            query += " AND bars.symbol = ?"
+            params = (source, symbol)
+        else:
+            params = (source,)
+        query += " ORDER BY bars.symbol, bars.bar_time"
+        rows = self._run_safe_read_query(
+            query,
+            params,
+            missing_tables=("curated_minute_bars", "raw_market_ticks"),
+        )
+        return list(rows) if isinstance(rows, list) else []
+
     def fetch_feature_rows(self, horizon_min: int) -> list[sqlite3.Row]:
         query = """
             WITH orderbook_source_lookup AS (

@@ -1,5 +1,45 @@
 # 작업 기록
 
+## [2026-05-07] Codex → ML 실험 자율 범위 추가와 Cybos bar-only F-1 기준선
+
+- 변경 파일:
+  - `AGENTS.md`
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `app/storage/sqlite_store.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `AGENTS.md`의 `7. 운영 안전 규칙` 아래에 `7-1. ML 실험 자율 범위`를 추가했다.
+  - ML 실험에 한해 피처 조합, split, 학습 파라미터, 하이퍼파라미터, 재실험 방향을 Codex가 자율 판단할 수 있도록 기준을 명시했다.
+  - 운영자 판단이 필요한 조건은 `3회 연속 개선 없음`, 완료 조건 충족, 데이터 소스 추가/변경, 스프린트 목표 변경, `app/risk/` 변경, `scripts/` 구조 변경으로 구분했다.
+  - `source=cybos-historical`만 조회하는 SQLite helper와 Cybos bar-only LightGBM 실험 CLI `--run-cybos-bar-only-experiment`를 추가했다.
+  - Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외하고 `avg_trade_size`, `hl_range_pct`, `return_1m_pct`만 사용했다.
+  - `pykrx-daily-proxy`, `kis-ws`, `kis-rest-historical`, `synthetic` 데이터는 F-1 학습/평가에서 제외했다.
+- 데이터셋:
+  - source: `cybos-historical`
+  - symbols: `199`
+  - source_rows: `6283279`
+  - labeled_rows: `6040981`
+  - 기간: `2021-03-30T09:15:00+09:00..2026-05-04T15:15:00+09:00`
+  - label distribution: `flat=4437376`, `down=805811`, `up=797794`
+- 실험 결과:
+  - F-1 `train_rows=2000`: validation `0.473329`, walk-forward accuracy `0.546787`, trade_hit_rate `0.217913`, net `-1041.554842`
+  - F-1b `train_rows=10000`: validation `0.487424`, walk-forward accuracy `0.563363`, trade_hit_rate `0.282515`, net `-27.799564`
+  - F-1c `train_rows=20000`: validation `0.506736`, walk-forward accuracy `0.576262`, trade_hit_rate `0.284987`, net `-25.134498`
+  - F-1c feature importance: `avg_trade_size=2795`, `hl_range_pct=2401`, `return_1m_pct=2015`
+- 판단:
+  - validation accuracy가 `0.6` 이하로 내려와 proxy 누수성 과대평가는 해소된 상태로 본다.
+  - walk-forward `trade_hit_rate`가 최고 `0.284987`로 완료 기준 `0.3`에는 아직 못 미친다.
+  - F-1 -> F-1b -> F-1c 순서로 개선이 있어 `3회 연속 개선 없음` 보고 조건은 아니다.
+  - 다음 자율 실험 방향은 데이터 소스나 risk/gate 변경 없이 `close_position_pct`, `minute_slot`, `log_volume` 같은 bar-context 피처를 추가하는 것이다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-bar-only-f1-h15.json`
+  - `runtime-data/reports/backtests/latest-cybos-bar-only-f1-h15.md`
+  - `runtime-data/ml/models/lightgbm-cybos-bar-only-h15-v1.joblib`
+
 ## [2026-05-07] Codex → 스프린트 04 재시작 전 Cybos 학습 가능성 점검
 
 - 변경 파일:

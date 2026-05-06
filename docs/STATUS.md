@@ -1,7 +1,98 @@
 # docs/STATUS.md
 
 생성일: 2026-05-06
-스프린트: 04 누수 점검 및 실험 E
+스프린트: 04 Cybos 실제 분봉 기준선
+
+## [2026-05-07 04:20] 실험 F-1 — Cybos 실제 분봉 bar-only 기준선
+
+- 상황: `AGENTS.md`에 ML 실험 자율 범위를 추가한 뒤, Cybos 실제 15분봉 5년치 기준으로 LightGBM 기준선을 다시 측정했다.
+- 가져갈 파일: `docs/STATUS.md`, `AGENTS.md`, `README.md`, `docs/Current-Implementation.md`, `docs/logbook.md`
+- 판단: `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외했다. Cybos 병합 데이터에는 과거 호가가 없으므로 `spread_bps`, `bid_ask_imbalance`, `mid_price`는 제외하고 bar-only 피처만 사용했다.
+- 최종 조치: 자동 승격 금지 유지. 최고 결과인 F-1c도 walk-forward `trade_hit_rate=0.284987`, `cumulative_net_return_pct=-25.134498`로 완료 조건에는 못 미친다. 다만 F-1 -> F-1b -> F-1c 순서로 개선이 있어 `3회 연속 개선 없음` 보고 조건은 아니다.
+
+### 데이터셋
+
+| 항목 | 값 |
+|---|---:|
+| source | `cybos-historical` |
+| symbols | 199 |
+| trade_dates | 1,249 |
+| source_rows | 6,283,279 |
+| labeled_rows | 6,040,981 |
+| 기간 | `2021-03-30T09:15:00+09:00..2026-05-04T15:15:00+09:00` |
+| validation_start_date | `2025-04-23` |
+
+라벨 분포:
+
+| label | count | ratio |
+|---|---:|---:|
+| flat | 4,437,376 | 73.46% |
+| down | 805,811 | 13.34% |
+| up | 797,794 | 13.21% |
+
+### 공통 설정
+
+- 모델: LightGBM, `class_weight=balanced`
+- split: 거래일 기준 tail 20% validation
+- source filter: `cybos-historical` only
+- 제외 source: `pykrx-daily-proxy`, `kis-ws`, `kis-rest-historical`, `synthetic`
+- feature_names: `avg_trade_size`, `hl_range_pct`, `return_1m_pct`
+- 제외 feature: `mid_price`, `spread_bps`, `bid_ask_imbalance`
+- gate/risk 기준: 변경 없음
+
+### 실행 결과
+
+| 실험 | train_rows | validation_accuracy | validation trades | validation trade_hit_rate | validation net pct | walk-forward overall_accuracy | walk-forward trades | walk-forward trade_hit_rate | walk-forward net pct |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| F-1 | 2,000 | 0.473329 | 51,992 | 0.180105 | -4,737.492793 | 0.546787 | 10,417 | 0.217913 | -1,041.554842 |
+| F-1b | 10,000 | 0.487424 | 15,344 | 0.229797 | -1,333.702180 | 0.563363 | 1,161 | 0.282515 | -27.799564 |
+| F-1c | 20,000 | 0.506736 | 18,541 | 0.233698 | -1,122.516600 | 0.576262 | 393 | 0.284987 | -25.134498 |
+
+F-1c feature importance:
+
+| rank | feature | importance |
+|---:|---|---:|
+| 1 | `avg_trade_size` | 2,795 |
+| 2 | `hl_range_pct` | 2,401 |
+| 3 | `return_1m_pct` | 2,015 |
+
+판단 기준 대비:
+
+- validation accuracy는 `0.6 이하`로 내려와 proxy 누수성 과대평가가 해소된 상태로 본다.
+- walk-forward `trade_hit_rate`는 최고 `0.284987`로 `0.3` 기준에 아직 못 미친다.
+- walk-forward 누적 순수익률은 최고 `-25.134498%`로 아직 음수다.
+- 다음 자율 실험 방향은 데이터 소스나 risk/gate 변경 없이 bar-context 피처를 추가하는 것이다. 후보는 `close_position_pct`, `minute_slot`, `log_volume` 중심이다.
+
+실행 명령:
+
+```bash
+python -m app --run-cybos-bar-only-experiment --horizon-min 15 \
+  --cybos-experiment-train-max-rows 2000 \
+  --cybos-experiment-walk-test-rows 2000 \
+  --cybos-experiment-walk-step-rows 10000 \
+  --cybos-experiment-walk-gap-rows 15 \
+  --cybos-experiment-walk-max-folds 120
+
+python -m app --run-cybos-bar-only-experiment --horizon-min 15 \
+  --cybos-experiment-train-max-rows 10000 \
+  --cybos-experiment-walk-test-rows 2000 \
+  --cybos-experiment-walk-step-rows 20000 \
+  --cybos-experiment-walk-gap-rows 15 \
+  --cybos-experiment-walk-max-folds 80
+
+python -m app --run-cybos-bar-only-experiment --horizon-min 15 \
+  --cybos-experiment-train-max-rows 20000 \
+  --cybos-experiment-walk-test-rows 2000 \
+  --cybos-experiment-walk-step-rows 30000 \
+  --cybos-experiment-walk-gap-rows 15 \
+  --cybos-experiment-walk-max-folds 50
+```
+
+산출물:
+
+- `runtime-data/reports/backtests/latest-cybos-bar-only-f1-h15.json`
+- `runtime-data/reports/backtests/latest-cybos-bar-only-f1-h15.md`
+- `runtime-data/ml/models/lightgbm-cybos-bar-only-h15-v1.joblib`
 
 ## 🔴 [2026-05-07 02:55] 스프린트 04 재시작 — Cybos 병합 데이터 사전 확인
 

@@ -31,6 +31,7 @@ from app.services.research import (
     build_minute_bars_from_sqlite,
     rebuild_actual_runtime_ml_state,
     run_model_challenger_review_from_sqlite,
+    run_cybos_bar_only_experiment_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
     set_builtin_model_active,
@@ -69,6 +70,7 @@ def main() -> int:
     parser.add_argument("--run-backtest", action="store_true", help="Run the validation-tail backtest using the active prediction model.")
     parser.add_argument("--run-walk-forward", action="store_true", help="Run an expanding-window walk-forward backtest.")
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
+    parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--promote-best-challenger", action="store_true", help="Promote the best challenger to the active registry entry.")
     parser.add_argument("--seed-synthetic-data", action="store_true", help="Seed synthetic intraday market data into JSONL and SQLite.")
     parser.add_argument("--replay-sample-ws", action="store_true", help="Replay sample WebSocket frames through the online pipeline.")
@@ -99,6 +101,11 @@ def main() -> int:
     parser.add_argument("--walk-forward-step-rows", type=int, default=10, help="Fold step size for walk-forward backtests.")
     parser.add_argument("--walk-forward-gap-rows", type=int, default=None, help="Gap rows between train and test windows for walk-forward backtests.")
     parser.add_argument("--walk-forward-max-train-rows", type=int, default=None, help="Maximum rolling training rows for walk-forward backtests.")
+    parser.add_argument("--cybos-experiment-train-max-rows", type=int, default=2000, help="Training rows for Cybos bar-only experiment.")
+    parser.add_argument("--cybos-experiment-walk-test-rows", type=int, default=2000, help="Per-fold test rows for Cybos bar-only experiment.")
+    parser.add_argument("--cybos-experiment-walk-step-rows", type=int, default=10000, help="Fold step rows for Cybos bar-only experiment.")
+    parser.add_argument("--cybos-experiment-walk-gap-rows", type=int, default=15, help="Gap rows for Cybos bar-only experiment.")
+    parser.add_argument("--cybos-experiment-walk-max-folds", type=int, default=120, help="Maximum sampled folds for Cybos bar-only experiment.")
     parser.add_argument("--minutes", type=int, default=80, help="Minute count for synthetic data seeding.")
     parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume. Use 0 for unlimited listening.")
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
@@ -213,6 +220,19 @@ def main() -> int:
             promote_best=args.promote_best_challenger,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_cybos_bar_only_experiment:
+        result = run_cybos_bar_only_experiment_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            train_max_rows=args.cybos_experiment_train_max_rows,
+            walk_forward_test_rows=args.cybos_experiment_walk_test_rows,
+            walk_forward_step_rows=args.cybos_experiment_walk_step_rows,
+            walk_forward_gap_rows=args.cybos_experiment_walk_gap_rows,
+            walk_forward_max_folds=args.cybos_experiment_walk_max_folds,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.seed_synthetic_data:
