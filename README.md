@@ -199,7 +199,7 @@ python -m app --build-runtime-report
 
 KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식 샘플 기준 최대 1년 보관으로 안내되어, 5년치 학습용 기본 backfill 은 pykrx 일봉을 15분 간격 26개 proxy bar 로 변환해 기존 `curated_minute_bars`, `raw_orderbook_ticks`, `feature_model_inputs`, `feature_labels` 구조에 적재한다.
 
-Cybos Plus 15분봉 backfill 은 Windows 32bit Python 과 Cybos Plus COM 로그인이 필요하므로 Windows PowerShell 에서 직접 실행한다. 코스피200 전체 수집 시 종목 목록은 `CpUtil.CpCodeMgr`에서 동적으로 조회한다. Windows 에서 WSL2 UNC 경로의 SQLite DB를 직접 잠그지 않도록, 수집기는 기본적으로 `C:\Temp\cybos_collect.db`에 저장하고 WSL2 안에서 main runtime DB로 병합한다. Cybos `StockChart`는 긴 기간 요청에서 행 수가 잘릴 수 있어 기본 요청 단위는 60일이다.
+Cybos Plus 15분봉 backfill 은 Windows 32bit Python 과 Cybos Plus COM 로그인이 필요하므로 Windows PowerShell 에서 직접 실행한다. 코스피200 전체 수집 시 종목 목록은 `CpUtil.CpCodeMgr`에서 동적으로 조회하되, ETF/인덱스 등 비주식 코드가 섞일 수 있어 숫자 6자리 종목 코드만 사용한다. Windows 에서 WSL2 UNC 경로의 SQLite DB를 직접 잠그지 않도록, 수집기는 기본적으로 `C:\Temp\cybos_collect.db`에 저장하고 WSL2 안에서 main runtime DB로 병합한다. Cybos `StockChart`는 긴 기간 요청에서 행 수가 잘릴 수 있어 기본 요청 단위는 60일이다.
 
 ```powershell
 E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `

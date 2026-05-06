@@ -1,5 +1,34 @@
 # 작업 기록
 
+## [2026-05-07] Codex → Cybos 코스피200 코드 필터 보강
+
+- 변경 파일:
+  - `scripts/collect_cybos_historical.py`
+  - `README.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `CpUtil.CpCodeMgr.GetGroupCodeList(180)` 결과에 `A0126Z0` 같은 비주식 코드가 섞일 때 수집기가 fatal 로 중단되는 문제를 수정했다.
+  - Cybos 그룹 조회 결과는 `A` 접두어를 제거한 뒤 정규식 `^[0-9]{6}$`에 맞는 종목 코드만 사용한다.
+  - 필터링 후 `코스피200 유효 종목: N개`를 출력하고, 제외한 잘못된 코드는 개수와 일부 샘플만 출력한 뒤 계속 진행한다.
+- 실행 명령:
+  ```bash
+  python -m py_compile scripts/collect_cybos_historical.py
+  python - <<'PY'
+  from scripts.collect_cybos_historical import load_kospi200_symbols
+  class CodeMgr:
+      def GetGroupCodeList(self, group_code):
+          return ["A005930", "A0126Z0", "000660", "101S12", "005930"]
+  print(load_kospi200_symbols(CodeMgr(), group_code=180))
+  PY
+  git diff --check
+  python -m unittest discover -s tests -p "test_*.py"
+  ```
+- 확인 결과:
+  - 문법 검사: `ok`
+  - 필터 smoke test: `A005930`, `000660`, 중복 `005930`은 유효 종목 2개로 정규화하고 `A0126Z0`, `101S12`는 제외
+  - 공백 오류 검사: `ok`
+  - 전체 단위 테스트: `Ran 85 tests in 18.052s`, `OK`
+
 ## [2026-05-07] Codex → Cybos 삼성전자 15분봉 실제 수집과 병합
 
 - 변경 파일:

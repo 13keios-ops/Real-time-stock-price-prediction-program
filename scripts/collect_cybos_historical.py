@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import re
 import sqlite3
 import sys
 import time
@@ -21,6 +22,7 @@ from typing import Iterable
 DEFAULT_DB_PATH = r"C:\Temp\cybos_collect.db"
 DEFAULT_SOURCE = "cybos-historical"
 KST = timezone(timedelta(hours=9))
+KOREAN_STOCK_SYMBOL_RE = re.compile(r"^[0-9]{6}$")
 
 
 @dataclass(slots=True)
@@ -133,9 +135,16 @@ def normalize_symbol(value: str) -> str:
     symbol = value.strip().upper()
     if symbol.startswith("A"):
         symbol = symbol[1:]
-    if not symbol.isdigit() or len(symbol) != 6:
+    if not KOREAN_STOCK_SYMBOL_RE.fullmatch(symbol):
         raise ValueError(f"Invalid Korean stock symbol: {value}")
     return symbol
+
+
+def normalize_group_symbol(value: object) -> str | None:
+    symbol = str(value).strip().upper()
+    if symbol.startswith("A"):
+        symbol = symbol[1:]
+    return symbol if KOREAN_STOCK_SYMBOL_RE.fullmatch(symbol) else None
 
 
 def parse_symbols(values: list[str] | None) -> list[str]:
@@ -290,12 +299,25 @@ def already_covers_requested_range(
 
 def load_kospi200_symbols(code_mgr: object, *, group_code: int) -> list[str]:
     raw_codes = list(code_mgr.GetGroupCodeList(group_code))
-    symbols = [normalize_symbol(str(code)) for code in raw_codes]
+    symbols: list[str] = []
+    skipped_codes: list[str] = []
+    for raw_code in raw_codes:
+        symbol = normalize_group_symbol(raw_code)
+        if symbol is None:
+            skipped_codes.append(str(raw_code).strip())
+            continue
+        symbols.append(symbol)
     symbols = list(dict.fromkeys(symbols))
+    skipped_codes = list(dict.fromkeys(code for code in skipped_codes if code))
+    print(f"코스피200 유효 종목: {len(symbols)}개")
+    if skipped_codes:
+        preview = ", ".join(skipped_codes[:10])
+        suffix = "..." if len(skipped_codes) > 10 else ""
+        print(f"코스피200 제외 코드: {len(skipped_codes)}개 ({preview}{suffix})")
     if not symbols:
         raise RuntimeError(
             f"CpCodeMgr.GetGroupCodeList({group_code}) returned no symbols. "
-            "Check the Cybos KOSPI200 group code and login state."
+            "Check the Cybos KOSPI200 group code, numeric-code filter, and login state."
         )
     return symbols
 
