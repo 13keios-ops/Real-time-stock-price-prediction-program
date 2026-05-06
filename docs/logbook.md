@@ -24,7 +24,7 @@
   - 단위 테스트: `Ran 85 tests in 12.860s`, `OK`
   - autopush watcher 자체 테스트: `git autopush watcher test passed`
   - watcher 상태: `healthy=true`, `watcher_pids=[92294]`, `managed_repo_count=1`
-  - 상태 파일 기준 `scan_root=/home/keios/projects/Real-time-stock-price-prediction-program`, `last_commit=f0deefac7f77cc56f432ea0b9d35f379401d6572`
+  - 상태 파일 기준 `scan_root=/home/keios/projects/Real-time-stock-price-prediction-program`
   - 자동 커밋/푸쉬 watcher는 더 이상 `D:\GitHub`가 아니라 현재 WSL2 저장소 기준 상태 파일을 갱신한다.
   - 자동화 정책은 기존처럼 `VERSION` 변경을 트리거로 사용한다.
 
