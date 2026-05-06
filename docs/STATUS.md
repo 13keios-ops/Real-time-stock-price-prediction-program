@@ -3,6 +3,93 @@
 생성일: 2026-05-06
 스프린트: 04 누수 점검 및 실험 E
 
+## 🔴 [2026-05-07 02:55] 스프린트 04 재시작 — Cybos 병합 데이터 사전 확인
+
+- 상황: Cybos 5년치 실제 15분봉 병합 완료 후 실험 F를 새 데이터 기준으로 재시작하려 했다.
+- 가져갈 파일: `docs/STATUS.md`
+- 판단: Cybos 분봉 자체는 main DB에 199종목 6,283,279행으로 병합됐지만, `raw_orderbook_ticks`에는 `source=cybos-historical` 행이 0개다. 따라서 `spread_bps`, `bid_ask_imbalance`를 Cybos 실제 호가 피처로 포함하는 실험 F 조건은 현재 DB로 충족되지 않는다.
+- 최종 조치: `python -m app --build-feature-dataset`까지 실행하고, 학습/챌린저/walk-forward는 실행하지 않았다. 이 상태에서 학습하면 새 Cybos 실제 호가 기준선이 아니라 pykrx proxy 호가가 섞인 기준선이 된다.
+
+### 사전 확인 1. source별 raw row 수
+
+| source | symbol 수 | raw_market_ticks row | 기간 |
+|---|---:|---:|---|
+| `cybos-historical` | 199 | 6,283,279 | `2021-03-30T09:15:00+09:00..2026-05-04T15:30:00+09:00` |
+| `kis-ws` | 10 | 3,054,451 | `2026-04-28T09:00:13+09:00..2026-05-06T13:41:25+09:00` |
+| `kis-rest-historical` | 10 | 4,200 | `2026-05-04T15:02:00+09:00..2026-05-06T15:30:00+09:00` |
+
+호가 원천 확인:
+
+| source | raw_orderbook_ticks row | 판단 |
+|---|---:|---|
+| `cybos-historical` | 0 | Cybos 실제 호가 피처 없음 |
+| `kis-ws` | 2,245,513 | 실제 WebSocket 호가 |
+| `pykrx-daily-proxy` | 332,228 | proxy 호가 |
+
+### 사전 확인 2. 피처/라벨 재생성
+
+실행 명령:
+
+```bash
+python -m app --build-feature-dataset
+```
+
+결과:
+
+| 항목 | 값 |
+|---|---:|
+| features_written | 356,970 |
+| labels_written | 647,510 |
+| horizons | 15, 60 |
+| feature symbols | 10 |
+| feature range | `2021-01-04T09:00:00+09:00..2026-05-06T15:30:00+09:00` |
+
+15분 라벨 기준 학습 가능 row:
+
+| 기준 | row |
+|---|---:|
+| 전체 H15 labeled feature row | 343,807 |
+| `cybos-historical` market source가 붙은 row | 243,993 |
+| `kis-ws` market source가 붙은 row | 9,519 |
+| `kis-ws` orderbook source가 붙은 row | 12,399 |
+| `pykrx-daily-proxy` orderbook source가 붙은 row | 329,227 |
+
+주의: `cybos-historical` market source row는 실제 Cybos 분봉 가격을 쓰지만, 같은 시각의 호가 source는 대부분 `pykrx-daily-proxy`다. 따라서 이 row에서 `spread_bps`, `bid_ask_imbalance`를 포함하면 Cybos 실제 호가가 아니라 proxy 호가를 학습하게 된다.
+
+### 라벨 분포
+
+전체 H15 labeled feature row 기준:
+
+| label | count | ratio |
+|---|---:|---:|
+| flat | 258,339 | 75.14% |
+| up | 42,591 | 12.39% |
+| down | 42,877 | 12.47% |
+
+`cybos-historical` market source row 기준:
+
+| label | count | ratio |
+|---|---:|---:|
+| flat | 193,636 | 79.36% |
+| up | 25,221 | 10.34% |
+| down | 25,136 | 10.30% |
+
+### 실험 F 상태
+
+실험 F는 실행하지 않았다.
+
+이유:
+
+- 요구 조건은 `spread_bps`, `bid_ask_imbalance`를 Cybos 실제 호가 피처로 포함하는 것이다.
+- 현재 Cybos 병합 데이터에는 실제 호가 테이블인 `raw_orderbook_ticks`의 `cybos-historical` 행이 없다.
+- 현재 학습 로더를 그대로 쓰면 proxy row가 포함된 학습셋으로 판단되어 `mid_price`, `spread_bps`, `bid_ask_imbalance`가 제외된다.
+- 반대로 제외 로직을 억지로 풀면 Cybos 실제 호가가 아니라 pykrx proxy 호가를 실제 호가처럼 학습하게 된다.
+
+다음 선택지는 둘 중 하나다.
+
+1. Cybos에서 과거 호가를 별도로 수집할 수 있는 TR을 찾아 `raw_orderbook_ticks source=cybos-historical`를 실제로 채운 뒤 실험 F를 재실행한다.
+2. 실험 F를 “Cybos 실제 분봉 bar-only 기준선”으로 재정의하고, 피처를 `avg_trade_size`, `hl_range_pct`, `return_1m_pct` 중심으로 학습한다. 이 경우 `spread_bps`, `bid_ask_imbalance`는 포함하지 않는다.
+
 ## 🔴 [2026-05-06 20:10] 실험 E — 일봉 단위 train/validation split
 
 - 상황: 실험 B/D에서 `mid_price`를 제거하고 horizon purge를 적용해도 validation_accuracy가 `0.911793`으로 유지됐다. 이번 실험은 같은 거래일의 proxy 15분 봉이 train과 validation에 동시에 들어가는 문제를 차단하기 위해 날짜 단위 80/20 split을 적용했다.

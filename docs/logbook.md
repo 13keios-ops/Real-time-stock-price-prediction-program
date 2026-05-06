@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 스프린트 04 재시작 전 Cybos 학습 가능성 점검
+
+- 변경 파일:
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Cybos 5년치 실제 15분봉 병합 후 `python -m app --build-feature-dataset`를 재실행했다.
+  - feature 재생성 결과는 `features_written=356970`, `labels_written=647510`, horizons `15, 60` 이었다.
+  - main DB의 `raw_market_ticks` 기준 `cybos-historical`은 199종목 `6283279`행, `kis-ws`는 10종목 `3054451`행이다.
+  - `raw_orderbook_ticks` 기준 `cybos-historical`은 0행이고, `kis-ws`는 `2245513`행, `pykrx-daily-proxy`는 `332228`행이다.
+  - H15 labeled feature row는 전체 `343807`행이고, market source 기준 `cybos-historical` row는 `243993`행이지만 호가 source는 대부분 proxy다.
+  - 실험 F의 조건인 `spread_bps`, `bid_ask_imbalance`를 Cybos 실제 호가 피처로 포함하는 조건이 현재 DB로 충족되지 않아 학습/챌린저/walk-forward 실행은 보류했다.
+- 실행 명령:
+  ```bash
+  python -m app --build-feature-dataset
+  git diff --check -- docs/STATUS.md docs/logbook.md
+  ```
+- 확인 결과:
+  - H15 label distribution: `flat=258339`, `up=42591`, `down=42877`
+  - `git diff --check`: `ok`
+
 ## [2026-05-07] Codex → 외부 수집 데이터 D드라이브 보관 기준 정리
 
 - 변경 파일:
