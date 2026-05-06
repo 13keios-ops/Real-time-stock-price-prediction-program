@@ -1,7 +1,8 @@
-"""Collect Cybos Plus 15-minute historical bars into the runtime SQLite DB.
+"""Collect Cybos Plus 15-minute historical bars into a Windows-local SQLite DB.
 
 This script is intentionally Windows-only. Cybos Plus exposes a 32-bit COM API,
-so run it from Windows PowerShell with the 32-bit Python interpreter.
+so run it from Windows PowerShell with the 32-bit Python interpreter. Merge the
+local DB into the WSL2 runtime DB with scripts/merge_cybos_to_main.sh afterward.
 """
 
 from __future__ import annotations
@@ -17,10 +18,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_DB_PATH = (
-    r"\\wsl$\Ubuntu\home\keios\projects"
-    r"\Real-time-stock-price-prediction-program\runtime-data\dev.db"
-)
+DEFAULT_DB_PATH = r"C:\Temp\cybos_collect.db"
 DEFAULT_SOURCE = "cybos-historical"
 KST = timezone(timedelta(hours=9))
 
@@ -97,7 +95,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--db-path",
         default=DEFAULT_DB_PATH,
-        help="SQLite DB path. Defaults to the WSL2 runtime-data/dev.db UNC path.",
+        help="SQLite DB path. Defaults to C:\\Temp\\cybos_collect.db.",
     )
     parser.add_argument(
         "--source",
@@ -228,12 +226,30 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
 
 def connect_database(db_path: str) -> sqlite3.Connection:
     path = Path(db_path)
-    if not path.parent.exists():
-        raise FileNotFoundError(f"DB parent does not exist: {path.parent}")
+    path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(str(path), timeout=60)
     connection.execute("PRAGMA busy_timeout = 60000")
     ensure_schema(connection)
     return connection
+
+
+def windows_path_to_wsl_path(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    if len(normalized) >= 3 and normalized[1] == ":" and normalized[2] == "/":
+        drive = normalized[0].lower()
+        return f"/mnt/{drive}/{normalized[3:]}"
+    return normalized
+
+
+def print_merge_hint(db_path: str) -> None:
+    src_path = windows_path_to_wsl_path(db_path)
+    print("")
+    print("Next merge command from WSL2:")
+    print(
+        "bash scripts/merge_cybos_to_main.sh "
+        f"--src {src_path} "
+        "--dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db"
+    )
 
 
 def existing_source_range(
@@ -565,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
         connection.close()
 
     print_summary(results)
+    print_merge_hint(args.db_path)
     return 1 if any(result.error for result in results) else 0
 
 

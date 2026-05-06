@@ -1,5 +1,33 @@
 # 작업 기록
 
+## [2026-05-07] Codex → Cybos 수집 DB 로컬화와 WSL 병합 스크립트
+
+- 변경 파일:
+  - `scripts/collect_cybos_historical.py`
+  - `scripts/merge_cybos_to_main.sh`
+  - `README.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Windows 에서 WSL2 UNC 경로 SQLite DB를 직접 열 때 `database is locked`가 날 수 있어, Cybos 수집 기본 DB를 `C:\Temp\cybos_collect.db`로 바꿨다.
+  - 수집 DB의 parent 폴더가 없으면 자동 생성하도록 했다.
+  - 수집 완료 후 WSL2에서 main runtime DB로 병합하는 `scripts/merge_cybos_to_main.sh`를 추가했다.
+  - 병합 스크립트는 `raw_market_ticks`의 동일 `(symbol,event_time,source)` 행을 교체하고, `curated_minute_bars`는 기존 기본키로 upsert 한다.
+  - 병합 성공 뒤 `/mnt/c/Temp/cybos_collect.db` 같은 source DB 파일을 삭제한다.
+- 실행 명령:
+  ```bash
+  python -m py_compile scripts/collect_cybos_historical.py
+  bash -n scripts/merge_cybos_to_main.sh
+  bash scripts/merge_cybos_to_main.sh --src .tmp-tests/cybos-merge/src.db --dst .tmp-tests/cybos-merge/dst.db
+  git diff --check
+  python -m unittest discover -s tests -p "test_*.py"
+  ```
+- 확인 결과:
+  - 문법 검사: `ok`
+  - bash 파싱 검사: `ok`
+  - 병합 smoke test: `merge_smoke_ok`, `raw_rows=1`, `bar_rows=1`, source DB와 sidecar 삭제 확인
+  - 공백 오류 검사: `ok`
+  - 전체 단위 테스트: `Ran 85 tests in 12.671s`, `OK`
+
 ## [2026-05-06] Codex → Cybos Plus 15분봉 수집 스크립트 추가
 
 - 변경 파일:
