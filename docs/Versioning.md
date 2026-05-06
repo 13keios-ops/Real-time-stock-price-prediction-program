@@ -9,7 +9,7 @@
 - watcher 설정: `autopush.json`
 - 트리거: `version-change`
 - 현재 opt-in: `enabled=true`
-- git-autopush helper 기본 `ScanRoot`: `~/projects`
+- git-autopush helper 기본 `ScanRoot`: 현재 저장소 root
 
 ## 버전 변경 감지 방식
 
@@ -25,6 +25,14 @@
 
 - 감시기 로그: `runtime-data/autopush/git-autopush.log`
 - 감시기 상태: `runtime-data/autopush/git-autopush-state.json`
+
+WSL2 이전 후 현재 감시 기준은 아래처럼 저장소 root 자체로 둔다.
+
+```bash
+./scripts/start_git_autopush_watcher.sh --scan-root "$PWD"
+```
+
+WSL `git push`가 GitHub HTTPS 자격 증명 프롬프트에서 멈추는 경우, watcher는 Windows GitHub Desktop에 저장된 Git 자격 증명을 사용해 같은 WSL 작업 폴더를 push하는 fallback을 시도한다. 비밀값은 저장소 파일에 쓰지 않는다.
 
 ## 권장 흐름
 
@@ -54,4 +62,4 @@ git commit -m "chore(release): v0.2.1"
 - 이 저장소는 watcher opt-in 상태다.
 - watcher는 `VERSION` 변화를 기준으로만 동작한다.
 - `HEAD`가 이미 해당 버전을 포함하면 watcher는 새 auto-commit을 만들지 않고 기존 commit을 push할 수 있다.
-- 관련 watcher / audit 스크립트는 WSL2의 `git` 을 사용한다.
+- 관련 watcher / audit 스크립트는 WSL2의 `git` 을 우선 사용하고, GitHub HTTPS 인증 실패 시 Windows GitHub Desktop `git.exe` push fallback을 사용한다.

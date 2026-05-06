@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-05-06] Codex → WSL2 git-autopush watcher 전환
+
+- 변경 파일:
+  - `scripts/wsl_ops.py`
+  - `README.md`
+  - `docs/Versioning.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - WSL2 watcher의 push 단계에서 WSL `git push`가 GitHub HTTPS 인증 실패로 멈추지 않도록 `GIT_TERMINAL_PROMPT=0`을 적용했다.
+  - WSL push가 실패하면 Windows GitHub Desktop의 `git.exe`와 저장된 자격 증명으로 같은 WSL 작업 폴더를 push하는 fallback을 추가했다.
+  - watcher 기준 `ScanRoot`를 현재 WSL2 저장소 root로 실행하는 기준을 문서화했다.
+  - 이전 WSL 인증 실패로 남아 있던 `git push origin main` 잔여 프로세스를 종료했다.
+- 실행 명령:
+  ```bash
+  # git_push fallback smoke test는 scripts/wsl_ops.py의 git_push()를 직접 호출
+  python -m py_compile scripts/wsl_ops.py
+  python -m unittest discover -s tests -p "test_*.py"
+  ./scripts/test_git_autopush_watcher.sh
+  ```
+- 확인 결과:
+  - Windows GitHub Desktop Git fallback smoke test: `git_push_ok`
+  - 단위 테스트: `Ran 85 tests in 12.860s`, `OK`
+  - autopush watcher 자체 테스트: `git autopush watcher test passed`
+  - 자동 커밋/푸쉬 watcher는 더 이상 `D:\GitHub`가 아니라 `/home/keios/projects/Real-time-stock-price-prediction-program` 기준 상태 파일을 갱신한다.
+  - 자동화 정책은 기존처럼 `VERSION` 변경을 트리거로 사용한다.
+
 ## [2026-05-06] Codex → 스프린트 04 실험 E 일봉 단위 split
 
 - 변경 파일:

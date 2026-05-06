@@ -491,7 +491,8 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 - watcher 상태: `runtime-data/autopush/git-autopush-state.json`
 - watcher 로그: `runtime-data/autopush/git-autopush.log`
 - 실행 설정은 root `.env`가 있으면 자동으로 함께 읽는다.
-- git-autopush 관련 `-ScanRoot` 기본값은 `~/projects` 이다.
+- git-autopush 관련 `-ScanRoot` 기본값은 현재 저장소 root 이다.
+- WSL `git push`가 GitHub HTTPS 인증에서 멈추면 watcher는 Windows GitHub Desktop의 Git 자격 증명을 사용한 push fallback을 시도한다.
 
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 

@@ -638,6 +638,91 @@ def git(repo: Path, *args: str, check: bool = True) -> tuple[int, str]:
     return proc.returncode, proc.stdout.strip()
 
 
+def _running_under_wsl() -> bool:
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8", errors="ignore").lower()
+    except Exception:
+        return False
+
+
+def _windows_path_from_wsl(path: Path) -> str:
+    proc = subprocess.run(["wslpath", "-w", str(path)], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if proc.returncode:
+        raise RuntimeError(f"wslpath failed for {path}\n{proc.stdout.strip()}")
+    return proc.stdout.strip()
+
+
+def _windows_git(repo: Path, *args: str) -> tuple[int, str]:
+    def ps_quote(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    repo_path = _windows_path_from_wsl(repo)
+    git_args = ", ".join(ps_quote(arg) for arg in args)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$repoPath = __REPO_PATH__
+$gitArgs = @(__GIT_ARGS__)
+$gitPath = $null
+$desktopRoot = Join-Path $env:LOCALAPPDATA 'GitHubDesktop'
+if (Test-Path -LiteralPath $desktopRoot) {
+    $candidate = Get-ChildItem -LiteralPath $desktopRoot -Recurse -Filter git.exe -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like '*resources*app*git*cmd*git.exe' } |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1
+    if ($candidate) {
+        $gitPath = $candidate.FullName
+    }
+}
+if (-not $gitPath) {
+    $command = Get-Command git.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        $gitPath = $command.Source
+    }
+}
+if (-not $gitPath) {
+    Write-Error 'Windows git.exe not found.'
+    exit 127
+}
+& $gitPath -c "safe.directory=$repoPath" -C $repoPath @gitArgs
+exit $LASTEXITCODE
+""".replace("__REPO_PATH__", ps_quote(repo_path)).replace("__GIT_ARGS__", git_args)
+    proc = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    return proc.returncode, proc.stdout.strip()
+
+
+def git_push(repo: Path, remote: str, refspec: str, *, set_upstream: bool = False) -> None:
+    args = ["push"]
+    if set_upstream:
+        args.append("-u")
+    args.extend([remote, refspec])
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+    )
+    if proc.returncode == 0:
+        return
+    if _running_under_wsl():
+        win_code, win_output = _windows_git(repo, *args)
+        if win_code == 0:
+            return
+        raise RuntimeError(
+            f"git -C {repo} {' '.join(args)} failed\n{proc.stdout.strip()}\n"
+            f"Windows git fallback failed\n{win_output.strip()}"
+        )
+    raise RuntimeError(f"git -C {repo} {' '.join(args)} failed\n{proc.stdout.strip()}")
+
+
 def update_autopush_state(state: dict[str, Any], repo: Path, observed: str, pushed: str, commit: str, result: str) -> None:
     state.setdefault("repos", {})[str(repo)] = {
         "last_observed_version": observed,
@@ -725,15 +810,15 @@ def process_autopush_repo(repo: Path, config_name: str, state: dict[str, Any], l
 
     def push_current() -> None:
         if has_remote:
-            git(repo, "push", remote, branch)
+            git_push(repo, remote, branch)
         else:
-            git(repo, "push", "-u", remote, branch)
+            git_push(repo, remote, branch, set_upstream=True)
         if cfg.get("push_tag", False):
             tag = expand_template(cfg.get("tag_name") or "v{version}", version, repo, branch)
             _, tags = git(repo, "tag", "--list", tag)
             if not tags:
                 git(repo, "tag", tag)
-            git(repo, "push", remote, tag)
+            git_push(repo, remote, tag)
 
     if head_version.strip() == version:
         if ahead > 0 or not has_remote:
