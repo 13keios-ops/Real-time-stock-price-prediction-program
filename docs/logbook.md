@@ -11,6 +11,9 @@
   - WSL2 접근 경로는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 기록했다.
   - `C:\Temp\cybos_collect.db`는 병합 스크립트가 `--src` DB를 삭제하므로, 병합용 원본은 유지하고 보관본을 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect_20260507.db`로 복사했다.
   - `C:\Temp\cybos_collect.db`와 D드라이브 보관본 크기가 모두 `1373368320` bytes 임을 확인했다.
+  - `C:\Temp\cybos_collect.db` 내용 확인 결과 `source=cybos-historical`, 유효 종목 `199`개, `raw_market_ticks=6283279`, `curated_minute_bars=6283279`, 범위 `2021-03-30T09:15:00+09:00..2026-05-04T15:30:00+09:00` 로 수집되어 있었다.
+  - 종목별 row 수는 최소 `7826`, 최대 `32451`, 평균 `31574.27`개였다. 일부 신규상장/편입 종목은 시작일이 늦어 row 수가 짧다.
+  - main DB는 아직 기존 삼성전자 병합분만 반영된 상태로, `raw_market_ticks WHERE source='cybos-historical'` 기준 `1`종목 `32451`행이다.
   - Cybos 병합 명령은 현재 작업 위치와 무관하게 실행되도록 절대 스크립트 경로 형태를 기준으로 정리했다.
 - 기준 병합 명령:
   ```bash
