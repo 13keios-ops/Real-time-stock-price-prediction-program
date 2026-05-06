@@ -105,8 +105,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--chunk-days",
         type=int,
-        default=365,
-        help="Date span per StockChart request.",
+        default=60,
+        help="Date span per StockChart request. Defaults to 60 to avoid StockChart row caps.",
     )
     parser.add_argument(
         "--kospi200-group-code",

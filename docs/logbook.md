@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-05-07] Codex → Cybos 삼성전자 15분봉 실제 수집과 병합
+
+- 변경 파일:
+  - `scripts/collect_cybos_historical.py`
+  - `README.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - 실제 실행에서 기본 365일 chunk 요청이 Cybos `StockChart` 행 수 제한에 걸려 앞구간이 잘리는 것을 확인했다.
+  - 수집기 기본 `--chunk-days`를 60일로 낮춰 긴 기간 요청 시 row cap에 걸릴 가능성을 줄였다.
+  - 삼성전자 실제 수집/병합 결과와 Cybos가 반환하지 않은 초기 구간을 문서화했다.
+- 실행 명령:
+  ```powershell
+  E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `
+    scripts\collect_cybos_historical.py `
+    --symbols 005930 --start 2021-01-04 --chunk-days 60 --force
+  ```
+  ```bash
+  bash scripts/merge_cybos_to_main.sh \
+    --src /mnt/c/Temp/cybos_collect.db \
+    --dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db
+  ```
+- 확인 결과:
+  - 관리자 권한 PowerShell 실행: `status=ok`, `bars_written=32451`, `requests=33`
+  - 수집 범위: `2021-03-30T09:15:00+09:00..2026-05-04T15:30:00+09:00`
+  - 병합 결과: `raw_market_ticks_merged=32451`, `curated_minute_bars_merged=32451`
+  - main DB 확인: `source=cybos-historical`, `symbol=005930`, `rows=32451`
+  - `C:\Temp\cybos_collect.db`와 sidecar 파일 삭제 확인
+  - `2021-01-04..2021-03-29` 구간은 15일 단위로 재시도했지만 Cybos가 모두 `raw_rows=0`을 반환했다.
+  - 문법 검사, bash 파싱 검사, 공백 오류 검사: `ok`
+  - 전체 단위 테스트: `Ran 85 tests in 12.883s`, `OK`
+
 ## [2026-05-07] Codex → Cybos 수집 DB 로컬화와 WSL 병합 스크립트
 
 - 변경 파일:
