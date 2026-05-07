@@ -1,5 +1,29 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 투트랙 장중 수집 + 연구 스냅샷 운영
+
+- 변경 파일:
+  - `scripts/create_research_db_snapshot.sh`
+  - `scripts/run_research_on_snapshot.sh`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - 장중 `수집 트랙`과 오프라인 `연구 트랙`을 명시적으로 분리했다.
+  - live runtime/watchdog 은 계속 `runtime-data/dev.db`에 장중 KIS 체결/호가를 적재한다.
+  - 연구/학습은 SQLite backup API로 만든 snapshot DB를 `DATABASE_URL`로 지정해 실행한다.
+  - 기본 snapshot / research run 보관 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래로 두고, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
+  - `scripts/run_research_on_snapshot.sh -- python -m app ...` 형태로 기존 연구 명령을 live DB lock 없이 실행할 수 있게 했다.
+- 검증:
+  - `bash -n scripts/create_research_db_snapshot.sh`
+  - `bash -n scripts/run_research_on_snapshot.sh`
+  - `.tmp-tests/two-track/live.db` 기준 snapshot smoke test
+  - snapshot runner의 `DATABASE_URL` / `RUNTIME_DATA_DIR` 환경 주입 smoke test
+- 판단:
+  - 앞으로 장중에는 수집 안정성을 우선하고, 무거운 ML/룰 실험은 snapshot DB와 격리된 runtime output에서 실행한다.
+  - 수집 트랙을 끄고 실험하는 방식은 기본 운영 방식에서 제외한다.
+
 ## [2026-05-07] Codex → 궁극 운영 목표 문서화와 G-1 룰 기반 challenger
 
 - 변경 파일:

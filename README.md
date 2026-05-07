@@ -11,6 +11,12 @@
 
 장중 데이터 수집은 연구 실험과 분리된 백그라운드 운영 축으로 유지한다. 일반 거래일에는 `runtime watchdog`이 정규장 시작 전부터 live runtime 을 켜고, 장중 KIS WebSocket 체결/호가 데이터를 계속 쌓는다. 오프라인 ML/룰 실험은 이 수집기를 끄지 않고 기존 DB와 리포트를 읽는 방식으로 실행한다. 코스피200 Cybos 갱신은 Windows COM API 제약 때문에 장후 배치 수집과 WSL 병합 흐름으로 분리한다.
 
+## 투트랙 운영 원칙
+
+장중 운영은 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 live runtime 과 runtime watchdog 이 `runtime-data/dev.db`에 장중 KIS 데이터를 계속 저장하는 흐름이다. 연구 트랙은 같은 DB를 직접 무겁게 읽고 쓰지 않고, `scripts/create_research_db_snapshot.sh`로 SQLite backup 스냅샷을 만든 뒤 `DATABASE_URL`을 스냅샷 DB로 바꿔 실험한다.
+
+연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. D드라이브가 없으면 `runtime-data/research-snapshots/`로 내려간다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
+
 ## 핵심 문서
 
 - `AGENTS.md`: 저장소 운영 규칙의 단일 기준
@@ -275,6 +281,9 @@ python -m app --train-lightgbm --horizon-min 15
 Cybos 실제 15분봉만 사용하는 bar-only 기준선 실험:
 
 ```bash
+./scripts/run_research_on_snapshot.sh -- \
+  python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
+
 python -m app --run-cybos-bar-only-experiment --horizon-min 15
 python -m app --run-cybos-bar-only-experiment --horizon-min 15 --cybos-experiment-feature-set bar_context
 python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.13

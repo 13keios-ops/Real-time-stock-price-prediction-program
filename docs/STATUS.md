@@ -1,5 +1,29 @@
 # docs/STATUS.md
 
+## [2026-05-07 16:20] 투트랙 장중 수집 + 연구 운영 구조
+
+- 목적: 장중 KIS live runtime 이 쓰는 `runtime-data/dev.db`와 오프라인 ML/룰 실험의 DB 접근을 분리해, 수집 누락과 SQLite lock 위험을 줄인다.
+- 추가 스크립트:
+  - `scripts/create_research_db_snapshot.sh`
+  - `scripts/run_research_on_snapshot.sh`
+- 운영 방식:
+  - 수집 트랙: live runtime/watchdog 이 기존 `runtime-data/dev.db`를 계속 쓴다.
+  - 연구 트랙: SQLite backup API로 만든 snapshot DB를 `DATABASE_URL`로 지정하고 실험을 실행한다.
+  - 기본 D드라이브 경로: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/`
+  - 연구 산출물 기본 경로: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/`
+- 사용 예:
+  ```bash
+  ./scripts/run_research_on_snapshot.sh -- \
+    python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
+  ```
+- 검증:
+  - `bash -n scripts/create_research_db_snapshot.sh`: 통과
+  - `bash -n scripts/run_research_on_snapshot.sh`: 통과
+  - `.tmp-tests/two-track/live.db` smoke snapshot: 통과
+  - `run_research_on_snapshot.sh` 환경 주입 smoke test: 통과
+
+판단: 장중 수집을 계속 켠 상태에서 연구/학습은 스냅샷 기준으로 실행하는 투트랙 구조를 기본 운영 방향으로 둔다. 실전 주문 승격은 여전히 별도 승인 대상이다.
+
 ## [2026-05-07 15:30] G-1 Cybos 룰 기반 challenger 진단
 
 - 목적: Cybos 15분 bar-only ML의 threshold 튜닝 우선순위를 낮추고, 해석 가능한 고정 long-only 룰 후보가 비용을 넘는지 확인했다.

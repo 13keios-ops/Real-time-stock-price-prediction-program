@@ -9,6 +9,8 @@
 
 장중 데이터 수집은 실험과 분리된 백그라운드 축으로 유지한다. 일반 거래일에는 `runtime watchdog`이 live runtime 을 켜서 KIS WebSocket 체결/호가 데이터를 계속 쌓고, 오프라인 ML/룰 실험은 이 수집기를 끄지 않고 DB와 리포트를 읽는다. 코스피200 Cybos 갱신은 Windows COM API 제약 때문에 장후 배치 수집과 WSL 병합 흐름으로 분리한다.
 
+장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래이며, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
+
 현재 기본 운영 자세는 아래와 같다.
 
 - 기본 거래 모드: `paper`
@@ -147,6 +149,8 @@ python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-challengers --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
+./scripts/create_research_db_snapshot.sh
+./scripts/run_research_on_snapshot.sh -- python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-bar-only-experiment --horizon-min 15
 python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pct 0.13
