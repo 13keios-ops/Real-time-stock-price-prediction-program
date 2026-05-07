@@ -38,6 +38,7 @@ BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
 CYBOS_PROFITABILITY_COST_PCT = 0.13
 CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
 CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
+CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
 CYBOS_EXPERIMENT_FEATURE_SETS: dict[str, list[str]] = {
     "bar_only": BAR_ONLY_FEATURE_NAMES,
     "bar_context": [
@@ -1462,6 +1463,125 @@ def _source_bar_train_validation_rows(
     }
 
 
+def _source_bar_period_rows(
+    *,
+    sqlite_store,
+    source: str,
+    horizon_min: int,
+    threshold_pct: float,
+    feature_set_name: str,
+    periods: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    period_state: dict[str, dict[str, object]] = {}
+    for period in periods:
+        name = str(period["name"])
+        period_state[name] = {
+            "name": name,
+            "start_date": str(period["start_date"]),
+            "end_date": str(period["end_date"]),
+            "max_rows": int(period["max_rows"]),
+            "rows_heap": [],
+            "label_counts": Counter(),
+            "source_rows": 0,
+            "labeled_rows": 0,
+            "first_event_time": None,
+            "last_event_time": None,
+        }
+
+    symbols = sqlite_store.fetch_market_source_symbols(source)
+    if not symbols:
+        raise ValueError(f"No symbols are available for source={source}.")
+
+    for symbol in symbols:
+        bars: list[MinuteBar] = []
+        for row in sqlite_store.fetch_minute_bars_for_market_source(source, symbol=symbol):
+            bar = MinuteBar(
+                symbol=str(row["symbol"]),
+                bar_time=_row_timestamp(str(row["bar_time"])),
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=int(row["volume"]),
+                trade_count=int(row["trade_count"]),
+            )
+            bars.append(bar)
+        if not bars:
+            continue
+        bars.sort(key=lambda item: item.bar_time)
+        bar_times = [bar.bar_time for bar in bars]
+        for index, bar in enumerate(bars):
+            bar_date = bar.bar_time.date().isoformat()
+            matched_periods = [
+                state
+                for state in period_state.values()
+                if str(state["start_date"]) <= bar_date <= str(state["end_date"])
+            ]
+            if not matched_periods:
+                continue
+            for state in matched_periods:
+                state["source_rows"] = int(state["source_rows"]) + 1
+            target_time = bar.bar_time + timedelta(minutes=horizon_min)
+            future_bar = _find_first_same_day_future_bar(bars, bar_times, target_time)
+            if future_bar is None:
+                continue
+            previous_bar = bars[index - 1] if index > 0 and bars[index - 1].bar_time.date() == bar.bar_time.date() else None
+            item = _build_bar_training_row(
+                bar=bar,
+                previous_bar=previous_bar,
+                future_bar=future_bar,
+                horizon_min=horizon_min,
+                threshold_pct=threshold_pct,
+                feature_source=source,
+                feature_names=feature_names,
+            )
+            if item is None:
+                continue
+            for state in matched_periods:
+                state["labeled_rows"] = int(state["labeled_rows"]) + 1
+                label_counts = state["label_counts"]
+                if isinstance(label_counts, Counter):
+                    label_counts[str(item["label"])] += 1
+                first_event_time = state["first_event_time"]
+                last_event_time = state["last_event_time"]
+                if first_event_time is None or bar.bar_time < first_event_time:
+                    state["first_event_time"] = bar.bar_time
+                if last_event_time is None or bar.bar_time > last_event_time:
+                    state["last_event_time"] = bar.bar_time
+                rows_heap = state["rows_heap"]
+                if not isinstance(rows_heap, list):
+                    continue
+                heap_key = (bar.bar_time.timestamp(), str(item["symbol"]))
+                max_rows = int(state["max_rows"])
+                if len(rows_heap) < max_rows:
+                    heapq.heappush(rows_heap, (heap_key, item))
+                elif heap_key > rows_heap[0][0]:
+                    heapq.heapreplace(rows_heap, (heap_key, item))
+
+    results: dict[str, dict[str, object]] = {}
+    for name, state in period_state.items():
+        rows_heap = state["rows_heap"]
+        rows = [item for _, item in sorted(rows_heap, key=lambda pair: pair[0])] if isinstance(rows_heap, list) else []
+        label_counts = state["label_counts"]
+        first_event_time = state["first_event_time"]
+        last_event_time = state["last_event_time"]
+        results[name] = {
+            "name": name,
+            "start_date": state["start_date"],
+            "end_date": state["end_date"],
+            "max_rows": state["max_rows"],
+            "source_rows": state["source_rows"],
+            "labeled_rows": state["labeled_rows"],
+            "selected_rows": len(rows),
+            "label_counts": dict(label_counts) if isinstance(label_counts, Counter) else {},
+            "first_event_time": first_event_time.isoformat() if isinstance(first_event_time, datetime) else None,
+            "last_event_time": last_event_time.isoformat() if isinstance(last_event_time, datetime) else None,
+            "rows": rows,
+        }
+    return results
+
+
 def _lightgbm_feature_importance(model: LightGbmDirectionModel) -> list[dict[str, object]]:
     importances = getattr(model.model, "feature_importances_", None)
     if importances is None:
@@ -1857,6 +1977,44 @@ def _label_sensitivity_decision(results: list[dict[str, object]]) -> dict[str, s
         "status": "inconclusive",
         "label": "판단 보류",
         "conclusion": "일부 threshold 평가가 실패해 라벨 민감도 결론을 확정하지 않는다.",
+    }
+
+
+def _label_reproducibility_decision(
+    fold_design_results: list[dict[str, object]],
+    period_results: list[dict[str, object]],
+) -> dict[str, str]:
+    checked_results = [
+        item
+        for item in [*fold_design_results, *period_results]
+        if item.get("status") == "ok"
+    ]
+    reliable_results = [
+        item
+        for item in checked_results
+        if int(item.get("trades_taken", 0)) >= 30
+    ]
+    reliable_positive = [
+        item
+        for item in reliable_results
+        if float(item.get("cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    if reliable_results and len(reliable_positive) == len(reliable_results):
+        return {
+            "status": "follow_up_candidate",
+            "label": "후속 검증 후보",
+            "conclusion": "검증한 fold 설계와 기간 구간에서 모두 비용 반영 수익이 양수이므로 후속 검증 후보로 기록한다. 그래도 threshold 자동 채택은 하지 않는다.",
+        }
+    if reliable_positive:
+        return {
+            "status": "not_reproducible",
+            "label": "재현성 부족",
+            "conclusion": "일부 fold 설계 또는 기간에서만 양수이고 전체 재현성이 부족하다. threshold 0.20은 채택하지 않는다.",
+        }
+    return {
+        "status": "alpha_insufficient",
+        "label": "bar-only ML 알파 부족",
+        "conclusion": "재현성 검증에서 비용 반영 양수가 안정적으로 나오지 않았다. 현재 Cybos 15분 bar-only ML 경로는 우선순위를 낮춘다.",
     }
 
 
@@ -2448,6 +2606,274 @@ def run_cybos_label_sensitivity_review_from_sqlite(
             f"{int(row['up_label_count'])} | {int(row['down_label_count'])} | "
             f"{int(row['trades_taken'])} | {float(row['trade_hit_rate']):.6f} | "
             f"{float(row['cumulative_net_return_pct']):.6f} | {row['reliability']} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            f"- decision: `{decision['label']}`",
+            f"- conclusion: {decision['conclusion']}",
+            "",
+            "Note: This review is diagnostic only. No label threshold is promoted automatically.",
+        ]
+    )
+    report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
+
+
+def run_cybos_label_reproducibility_review_from_sqlite(
+    *,
+    project_root: Path,
+    target_threshold_pct: float = CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD,
+    train_max_rows: int = 100_000,
+    trade_cost_pct: float = CYBOS_PROFITABILITY_COST_PCT,
+    min_reliable_trades: int = 30,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos label reproducibility review.")
+
+    feature_set_name = "bar_only"
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    fold_designs = [
+        {
+            "name": "f6_baseline",
+            "train_rows": train_max_rows,
+            "test_rows": 2_000,
+            "step_rows": 30_000,
+            "gap_rows": 15,
+            "max_folds": 50,
+        },
+        {
+            "name": "denser_step",
+            "train_rows": train_max_rows,
+            "test_rows": 2_000,
+            "step_rows": 15_000,
+            "gap_rows": 15,
+            "max_folds": 50,
+        },
+        {
+            "name": "shorter_train",
+            "train_rows": 50_000,
+            "test_rows": 2_000,
+            "step_rows": 30_000,
+            "gap_rows": 15,
+            "max_folds": 50,
+        },
+    ]
+    dataset_payload = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=15,
+        threshold_pct=target_threshold_pct,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+    )
+    base_rows = sorted(
+        list(dataset_payload["train_rows"]) + list(dataset_payload["validation_rows"]),
+        key=lambda item: (item["event_time"], str(item["symbol"])),
+    )
+    fold_design_results: list[dict[str, object]] = []
+    baseline_trade_diagnosis: dict[str, object] | None = None
+    for design in fold_designs:
+        result: dict[str, object] = {
+            "name": design["name"],
+            "train_rows": design["train_rows"],
+            "test_rows": design["test_rows"],
+            "step_rows": design["step_rows"],
+            "gap_rows": design["gap_rows"],
+            "max_folds": design["max_folds"],
+        }
+        collect_trade_ledger = design["name"] == "f6_baseline"
+        try:
+            metrics = _run_lightgbm_walk_forward(
+                rows=base_rows,
+                feature_names=feature_names,
+                settings=settings,
+                horizon_min=15,
+                train_rows=int(design["train_rows"]),
+                test_rows=int(design["test_rows"]),
+                gap_rows=int(design["gap_rows"]),
+                step_rows=int(design["step_rows"]),
+                max_folds=int(design["max_folds"]),
+                feature_set_name=feature_set_name,
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=settings.strategy.min_signal_confidence,
+                collect_trade_ledger=collect_trade_ledger,
+                collect_prediction_stats=False,
+            )
+        except ValueError as exc:
+            result.update({"status": "failed", "error": str(exc), "reliability": "평가 실패"})
+            fold_design_results.append(result)
+            continue
+        if collect_trade_ledger:
+            baseline_trade_diagnosis = _summarize_trade_ledger(list(metrics.get("trade_ledger", [])))
+        trades_taken = int(metrics["trades_taken"])
+        result.update(
+            {
+                "status": "ok",
+                "folds": int(metrics["folds"]),
+                "rows_evaluated": int(metrics["rows_evaluated"]),
+                "trades_taken": trades_taken,
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "win_rate": float(metrics["win_rate"]),
+                "cumulative_gross_return_pct": float(metrics["cumulative_gross_return_pct"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                "average_net_return_pct": float(metrics["average_net_return_pct"]),
+                "reliability": "신뢰 낮음" if trades_taken < min_reliable_trades else "기록 가능",
+            }
+        )
+        fold_design_results.append(result)
+
+    period_specs = [
+        {
+            "name": "early_2021_2023_sample",
+            "start_date": "2021-03-30",
+            "end_date": "2023-12-31",
+            "max_rows": 250_000,
+        },
+        {
+            "name": "recent_2024_2026_sample",
+            "start_date": "2024-01-01",
+            "end_date": "2026-05-04",
+            "max_rows": 250_000,
+        },
+    ]
+    period_rows = _source_bar_period_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=15,
+        threshold_pct=target_threshold_pct,
+        feature_set_name=feature_set_name,
+        periods=period_specs,
+    )
+    period_results: list[dict[str, object]] = []
+    for period_name, period_payload in period_rows.items():
+        rows = list(period_payload["rows"])
+        result = {
+            "name": period_name,
+            "start_date": period_payload["start_date"],
+            "end_date": period_payload["end_date"],
+            "source_rows": period_payload["source_rows"],
+            "labeled_rows": period_payload["labeled_rows"],
+            "selected_rows": period_payload["selected_rows"],
+            "label_counts": period_payload["label_counts"],
+            "first_event_time": period_payload["first_event_time"],
+            "last_event_time": period_payload["last_event_time"],
+            "train_rows": 50_000,
+            "test_rows": 2_000,
+            "step_rows": 20_000,
+            "gap_rows": 15,
+            "max_folds": 25,
+        }
+        try:
+            metrics = _run_lightgbm_walk_forward(
+                rows=rows,
+                feature_names=feature_names,
+                settings=settings,
+                horizon_min=15,
+                train_rows=50_000,
+                test_rows=2_000,
+                gap_rows=15,
+                step_rows=20_000,
+                max_folds=25,
+                feature_set_name=feature_set_name,
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=settings.strategy.min_signal_confidence,
+                collect_trade_ledger=False,
+                collect_prediction_stats=False,
+            )
+        except ValueError as exc:
+            result.update({"status": "failed", "error": str(exc), "reliability": "평가 실패"})
+            period_results.append(result)
+            continue
+        trades_taken = int(metrics["trades_taken"])
+        result.update(
+            {
+                "status": "ok",
+                "folds": int(metrics["folds"]),
+                "rows_evaluated": int(metrics["rows_evaluated"]),
+                "trades_taken": trades_taken,
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "win_rate": float(metrics["win_rate"]),
+                "cumulative_gross_return_pct": float(metrics["cumulative_gross_return_pct"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                "average_net_return_pct": float(metrics["average_net_return_pct"]),
+                "reliability": "신뢰 낮음" if trades_taken < min_reliable_trades else "기록 가능",
+            }
+        )
+        period_results.append(result)
+
+    decision = _label_reproducibility_decision(fold_design_results, period_results)
+    completed_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / "latest-cybos-label-reproducibility-review.json"
+    report_md_path = report_dir / "latest-cybos-label-reproducibility-review.md"
+    payload = {
+        "review": "cybos_label_reproducibility_review",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "feature_set_name": feature_set_name,
+        "feature_names": feature_names,
+        "target_threshold_pct": target_threshold_pct,
+        "trade_cost_pct": trade_cost_pct,
+        "min_signal_confidence": settings.strategy.min_signal_confidence,
+        "min_reliable_trades": min_reliable_trades,
+        "selection_policy": "diagnostic_only_no_threshold_adoption",
+        "dataset": {
+            "symbols": len(dataset_payload["symbols"]),
+            "trade_dates": len(dataset_payload["trade_dates"]),
+            "source_rows": dataset_payload["source_rows"],
+            "labeled_rows": dataset_payload["labeled_rows"],
+            "label_counts": dataset_payload["label_counts"],
+            "first_event_time": dataset_payload["first_event_time"],
+            "last_event_time": dataset_payload["last_event_time"],
+            "validation_start_date": dataset_payload["validation_start_date"],
+        },
+        "fold_design_results": fold_design_results,
+        "period_results": period_results,
+        "baseline_trade_diagnosis": baseline_trade_diagnosis or {},
+        "decision": decision,
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_lines = [
+        "# Cybos Label Reproducibility Review",
+        "",
+        f"- target_threshold_pct: `{target_threshold_pct:.6f}`",
+        f"- round_trip_cost_pct: `{trade_cost_pct:.6f}`",
+        f"- policy: `{payload['selection_policy']}`",
+        "",
+        "## Fold Design Checks",
+        "",
+        "| design | folds | trades | hit_rate | net_pct | reliability |",
+        "|---|---:|---:|---:|---:|---|",
+    ]
+    for row in fold_design_results:
+        markdown_lines.append(
+            f"| `{row['name']}` | {int(row.get('folds', 0))} | {int(row.get('trades_taken', 0))} | "
+            f"{float(row.get('trade_hit_rate', 0.0)):.6f} | "
+            f"{float(row.get('cumulative_net_return_pct', 0.0)):.6f} | {row.get('reliability', '')} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Period Checks",
+            "",
+            "| period | rows | folds | trades | hit_rate | net_pct | reliability |",
+            "|---|---:|---:|---:|---:|---:|---|",
+        ]
+    )
+    for row in period_results:
+        markdown_lines.append(
+            f"| `{row['name']}` | {int(row.get('selected_rows', 0))} | {int(row.get('folds', 0))} | "
+            f"{int(row.get('trades_taken', 0))} | {float(row.get('trade_hit_rate', 0.0)):.6f} | "
+            f"{float(row.get('cumulative_net_return_pct', 0.0)):.6f} | {row.get('reliability', '')} |"
         )
     markdown_lines.extend(
         [

@@ -1,5 +1,35 @@
 # 작업 기록
 
+## [2026-05-07] Codex → F-6b threshold 0.20 재현성 검증
+
+- 변경 파일:
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Cybos 연구 경로에 `--run-cybos-label-reproducibility-review` CLI를 추가했다.
+  - F-6에서 유일하게 양수였던 `threshold=0.20`을 자동 채택하지 않고, fold 설계와 기간 샘플을 바꿔 재현성을 확인하도록 했다.
+  - 기본 F-6 fold, 더 촘촘한 step, 짧은 학습창, 2021~2023 샘플, 2024~2026 샘플을 같은 비용 0.13% 기준으로 비교했다.
+- 실행 결과:
+  - `f6_baseline`: `trades=44`, `trade_hit_rate=0.545455`, `net=+3.577014%`
+  - `denser_step`: `trades=46`, `trade_hit_rate=0.565217`, `net=+3.706487%`
+  - `shorter_train`: `trades=109`, `trade_hit_rate=0.339450`, `net=-11.557602%`
+  - `early_2021_2023_sample`: `trades=78`, `trade_hit_rate=0.269231`, `net=-5.929057%`
+  - `recent_2024_2026_sample`: `trades=70`, `trade_hit_rate=0.442857`, `net=-2.350204%`
+- 거래 원장 참고:
+  - baseline 맞춘 거래 평균 gross `0.754928%`
+  - baseline 틀린 거래 평균 gross `-0.441063%`
+  - 양수 결과는 fold 설계 일부에서만 나타나며 기간 샘플 분리에서는 재현되지 않았다.
+- 판단:
+  - `threshold=0.20`은 재현성 부족으로 채택하지 않는다.
+  - Cybos 15분 bar-only ML의 threshold 튜닝은 우선순위를 낮추고, 다음은 룰 기반 challenger 또는 KIS 호가 데이터 누적 후 호가 피처 검증으로 분리한다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-label-reproducibility-review.json`
+  - `runtime-data/reports/backtests/latest-cybos-label-reproducibility-review.md`
+
 ## [2026-05-07] Codex → F-6 라벨 민감도 진단
 
 - 변경 파일:

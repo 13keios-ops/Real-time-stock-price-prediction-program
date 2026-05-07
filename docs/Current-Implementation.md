@@ -146,6 +146,7 @@ python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 python -m app --run-cybos-bar-only-experiment --horizon-min 15
 python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pct 0.13
+python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cost-pct 0.13
 ```
 
 현재 ML 기준은 아래와 같다.
@@ -160,6 +161,7 @@ python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pc
 - Cybos 연구 실험의 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다.
 - Cybos 손익 진단은 F-5 재현, 거래 원장 기반 손익 분해, 0.13% 왕복 비용 기준선, train-only confidence threshold, 60분 horizon 비교를 리포트로 남긴다.
 - Cybos 라벨 민감도 진단은 threshold별 결과를 비교하되, 가장 좋은 threshold를 자동 채택하지 않는다.
+- Cybos 라벨 재현성 진단은 민감도 진단에서 양수였던 threshold를 다른 fold 설계와 기간 샘플로 다시 검증한다.
 
 ## 과거 데이터 Backfill
 

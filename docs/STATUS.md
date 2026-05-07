@@ -1,5 +1,40 @@
 # docs/STATUS.md
 
+## [2026-05-07 14:54] F-6b threshold 0.20 재현성 검증
+
+- 목적: F-6에서 유일하게 양수였던 `threshold=0.20`을 채택하지 않고, 다른 fold 설계와 기간 샘플에서도 재현되는지 확인했다.
+- 실행 리포트: `runtime-data/reports/backtests/latest-cybos-label-reproducibility-review.{json,md}`
+- 공통 설정: `source=cybos-historical`, `feature_set=bar_only`, `threshold=0.20`, `min_signal_confidence=0.58`, 비용 `0.13%`.
+- 정책: 양수가 나와도 threshold를 자동 채택하지 않는다.
+
+### fold 설계 변경
+
+| 설계 | folds | trades | trade_hit_rate | 비용 반영 net pct | 판단 |
+|---|---:|---:|---:|---:|---|
+| `f6_baseline` | 42 | 44 | 0.545455 | 3.577014 | 양수 |
+| `denser_step` | 50 | 46 | 0.565217 | 3.706487 | 양수 |
+| `shorter_train` | 43 | 109 | 0.339450 | -11.557602 | 음수 |
+
+### 기간 샘플 분리
+
+| 기간 샘플 | selected rows | folds | trades | trade_hit_rate | 비용 반영 net pct | 판단 |
+|---|---:|---:|---:|---:|---:|---|
+| `early_2021_2023_sample` | 250,000 | 10 | 78 | 0.269231 | -5.929057 | 음수 |
+| `recent_2024_2026_sample` | 250,000 | 10 | 70 | 0.442857 | -2.350204 | 음수 |
+
+거래 원장 참고:
+
+| 항목 | 값 |
+|---|---:|
+| baseline trades | 44 |
+| baseline net pct | 3.577014 |
+| 맞춘 거래 평균 gross | 0.754928 |
+| 틀린 거래 평균 gross | -0.441063 |
+
+판단: 일부 fold 설계에서만 양수이고, 학습창 축소와 기간 샘플 분리에서는 음수다. `threshold=0.20`은 재현성이 부족하므로 채택하지 않는다.
+
+다음 연결점: Cybos 15분 bar-only ML의 threshold 튜닝은 우선순위를 낮춘다. 다음 실험은 룰 기반 challenger 또는 KIS 호가 데이터 누적 후 호가 피처 검증으로 분리한다.
+
 ## [2026-05-07 14:08] F-6 라벨 민감도 진단
 
 - 목적: threshold를 고르는 실험이 아니라, 15분 bar-only ML이 비용을 넘는 움직임을 구조적으로 학습하는지 확인했다.
