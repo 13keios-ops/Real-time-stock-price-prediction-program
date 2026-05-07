@@ -35,6 +35,28 @@ PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
 CYBOS_HISTORICAL_SOURCE = "cybos-historical"
 PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance", "mid_price"})
 BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
+CYBOS_EXPERIMENT_FEATURE_SETS: dict[str, list[str]] = {
+    "bar_only": BAR_ONLY_FEATURE_NAMES,
+    "bar_context": [
+        "avg_trade_size",
+        "hl_range_pct",
+        "return_1m_pct",
+        "close_position_pct",
+        "minute_slot_pct",
+        "log_volume",
+    ],
+    "bar_context_momentum": [
+        "avg_trade_size",
+        "hl_range_pct",
+        "return_1m_pct",
+        "close_position_pct",
+        "minute_slot_pct",
+        "log_volume",
+        "prev_return_pct",
+        "prev_hl_range_pct",
+        "log_volume_delta",
+    ],
+}
 
 
 @dataclass(slots=True)
@@ -845,22 +867,67 @@ def _evaluate_rows_with_model(
     }
 
 
-def _build_bar_only_training_row(
+def _cybos_feature_set_names(feature_set_name: str) -> list[str]:
+    try:
+        return list(CYBOS_EXPERIMENT_FEATURE_SETS[feature_set_name])
+    except KeyError as exc:
+        supported = ", ".join(sorted(CYBOS_EXPERIMENT_FEATURE_SETS))
+        raise ValueError(f"Unsupported Cybos experiment feature set: {feature_set_name}. Supported: {supported}") from exc
+
+
+def _market_minute_slot_pct(event_time: datetime) -> float:
+    regular_open_minute = (9 * 60)
+    regular_close_minute = (15 * 60) + 30
+    total_minutes = max(1, regular_close_minute - regular_open_minute)
+    current_minute = (event_time.hour * 60) + event_time.minute
+    return min(1.0, max(0.0, (current_minute - regular_open_minute) / total_minutes))
+
+
+def _bar_return_pct(bar: MinuteBar) -> float:
+    if bar.open <= 0:
+        return 0.0
+    return ((bar.close - bar.open) / bar.open) * 100
+
+
+def _bar_hl_range_pct(bar: MinuteBar) -> float:
+    if bar.open <= 0:
+        return 0.0
+    return ((bar.high - bar.low) / bar.open) * 100
+
+
+def _build_bar_feature_values(bar: MinuteBar, previous_bar: MinuteBar | None) -> dict[str, float]:
+    bar_range = bar.high - bar.low
+    close_position_pct = ((bar.close - bar.low) / bar_range) * 100 if bar_range > 0 else 50.0
+    previous_return = _bar_return_pct(previous_bar) if previous_bar is not None else 0.0
+    previous_range = _bar_hl_range_pct(previous_bar) if previous_bar is not None else 0.0
+    previous_log_volume = math.log1p(previous_bar.volume) if previous_bar is not None else math.log1p(bar.volume)
+    return {
+        "avg_trade_size": bar.volume / max(bar.trade_count, 1),
+        "hl_range_pct": _bar_hl_range_pct(bar),
+        "return_1m_pct": _bar_return_pct(bar),
+        "close_position_pct": close_position_pct,
+        "minute_slot_pct": _market_minute_slot_pct(bar.bar_time),
+        "log_volume": math.log1p(bar.volume),
+        "prev_return_pct": previous_return,
+        "prev_hl_range_pct": previous_range,
+        "log_volume_delta": math.log1p(bar.volume) - previous_log_volume,
+    }
+
+
+def _build_bar_training_row(
     *,
     bar: MinuteBar,
+    previous_bar: MinuteBar | None,
     future_bar: MinuteBar,
     horizon_min: int,
     threshold_pct: float,
     feature_source: str,
+    feature_names: list[str],
 ) -> dict[str, object] | None:
     if bar.open <= 0 or bar.close <= 0:
         return None
     future_return_pct = ((future_bar.close - bar.close) / bar.close) * 100
-    values = {
-        "avg_trade_size": bar.volume / max(bar.trade_count, 1),
-        "hl_range_pct": ((bar.high - bar.low) / bar.open) * 100,
-        "return_1m_pct": ((bar.close - bar.open) / bar.open) * 100,
-    }
+    values = _build_bar_feature_values(bar, previous_bar)
     return {
         "symbol": bar.symbol,
         "event_time": bar.bar_time,
@@ -868,19 +935,21 @@ def _build_bar_only_training_row(
         "future_return_pct": future_return_pct,
         "feature_source": feature_source,
         "values": values,
-        "features": [float(values[name]) for name in BAR_ONLY_FEATURE_NAMES],
+        "features": [float(values[name]) for name in feature_names],
         "horizon_min": horizon_min,
     }
 
 
-def _source_bar_only_train_validation_rows(
+def _source_bar_train_validation_rows(
     *,
     sqlite_store,
     source: str,
     horizon_min: int,
     threshold_pct: float,
     train_max_rows: int,
+    feature_set_name: str,
 ) -> dict[str, object]:
+    feature_names = _cybos_feature_set_names(feature_set_name)
     trade_dates = sqlite_store.fetch_market_source_trade_dates(source)
     if len(trade_dates) < 5:
         raise ValueError(f"Not enough trade dates are available for source={source}.")
@@ -919,17 +988,20 @@ def _source_bar_only_train_validation_rows(
         bars.sort(key=lambda item: item.bar_time)
         source_rows += len(bars)
         bar_times = [bar.bar_time for bar in bars]
-        for bar in bars:
+        for index, bar in enumerate(bars):
             target_time = bar.bar_time + timedelta(minutes=horizon_min)
             future_bar = _find_first_same_day_future_bar(bars, bar_times, target_time)
             if future_bar is None:
                 continue
-            item = _build_bar_only_training_row(
+            previous_bar = bars[index - 1] if index > 0 and bars[index - 1].bar_time.date() == bar.bar_time.date() else None
+            item = _build_bar_training_row(
                 bar=bar,
+                previous_bar=previous_bar,
                 future_bar=future_bar,
                 horizon_min=horizon_min,
                 threshold_pct=threshold_pct,
                 feature_source=source,
+                feature_names=feature_names,
             )
             if item is None:
                 continue
@@ -960,7 +1032,8 @@ def _source_bar_only_train_validation_rows(
 
     return {
         "source": source,
-        "feature_names": list(BAR_ONLY_FEATURE_NAMES),
+        "feature_set_name": feature_set_name,
+        "feature_names": feature_names,
         "symbols": symbols,
         "trade_dates": trade_dates,
         "validation_start_date": validation_start_date.isoformat(),
@@ -996,6 +1069,7 @@ def _run_lightgbm_walk_forward(
     gap_rows: int,
     step_rows: int,
     max_folds: int,
+    feature_set_name: str,
 ) -> dict[str, object]:
     if len(rows) < train_rows + gap_rows + test_rows:
         raise ValueError("Not enough rows for LightGBM walk-forward evaluation.")
@@ -1025,16 +1099,16 @@ def _run_lightgbm_walk_forward(
         model = _fit_lightgbm_model(
             train_rows=fold_train,
             feature_names=feature_names,
-            feature_set_version=settings.feature_set_version,
+            feature_set_version=f"{settings.feature_set_version}-{feature_set_name}",
             horizon_min=horizon_min,
-            model_version=f"lightgbm-cybos-bar-only-wf-h{horizon_min}-v1",
+            model_version=f"lightgbm-cybos-{feature_set_name.replace('_', '-')}-wf-h{horizon_min}-v1",
         )
         metrics = _evaluate_rows_with_model(
             rows=fold_test,
             model=model,
             settings=settings,
             horizon_min=horizon_min,
-            prediction_prefix=f"cybos-bar-only-wf-{fold_number}",
+            prediction_prefix=f"cybos-{feature_set_name}-wf-{fold_number}",
         )
         rows_evaluated = int(metrics["rows_evaluated"])
         trades_taken = int(metrics["trades_taken"])
@@ -1097,6 +1171,7 @@ def run_cybos_bar_only_experiment_from_sqlite(
     walk_forward_step_rows: int = 10_000,
     walk_forward_gap_rows: int = 15,
     walk_forward_max_folds: int = 120,
+    feature_set_name: str = "bar_only",
 ) -> dict[str, object]:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -1104,21 +1179,24 @@ def run_cybos_bar_only_experiment_from_sqlite(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for Cybos bar-only experiment.")
     threshold = settings.strategy.label_threshold_15 if horizon_min == 15 else settings.strategy.label_threshold_60
-    dataset_payload = _source_bar_only_train_validation_rows(
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    feature_slug = feature_set_name.replace("_", "-")
+    experiment_name = f"cybos {feature_slug}"
+    dataset_payload = _source_bar_train_validation_rows(
         sqlite_store=sqlite_store,
         source=CYBOS_HISTORICAL_SOURCE,
         horizon_min=horizon_min,
         threshold_pct=threshold,
         train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
     )
-    feature_names = list(dataset_payload["feature_names"])
     train_rows = list(dataset_payload["train_rows"])
     validation_rows = list(dataset_payload["validation_rows"])
-    model_version = f"lightgbm-cybos-bar-only-h{horizon_min}-v1"
+    model_version = f"lightgbm-cybos-{feature_slug}-h{horizon_min}-v1"
     model = _fit_lightgbm_model(
         train_rows=train_rows,
         feature_names=feature_names,
-        feature_set_version=settings.feature_set_version,
+        feature_set_version=f"{settings.feature_set_version}-{feature_set_name}",
         horizon_min=horizon_min,
         model_version=model_version,
     )
@@ -1128,7 +1206,7 @@ def run_cybos_bar_only_experiment_from_sqlite(
         model=model,
         settings=settings,
         horizon_min=horizon_min,
-        prediction_prefix="cybos-bar-only-validation",
+        prediction_prefix=f"cybos-{feature_set_name}-validation",
     )
     walk_rows = sorted(train_rows + validation_rows, key=lambda item: (item["event_time"], str(item["symbol"])))
     walk_forward_metrics = _run_lightgbm_walk_forward(
@@ -1141,6 +1219,7 @@ def run_cybos_bar_only_experiment_from_sqlite(
         gap_rows=walk_forward_gap_rows,
         step_rows=walk_forward_step_rows,
         max_folds=walk_forward_max_folds,
+        feature_set_name=feature_set_name,
     )
 
     completed_at = now_local(settings.timezone)
@@ -1155,15 +1234,16 @@ def run_cybos_bar_only_experiment_from_sqlite(
             started_at=completed_at,
             completed_at=completed_at,
             model_version=model_version,
-            feature_set_version=settings.feature_set_version,
+            feature_set_version=f"{settings.feature_set_version}-{feature_set_name}",
             horizon_min=horizon_min,
             train_rows=len(train_rows),
             validation_rows=len(validation_rows),
             training_summary={
-                "experiment": "F-1 cybos bar-only",
+                "experiment": experiment_name,
                 "framework": "lightgbm",
                 "class_weight": "balanced",
                 "source": CYBOS_HISTORICAL_SOURCE,
+                "feature_set_name": feature_set_name,
                 "feature_names": feature_names,
                 "label_counts": dataset_payload["label_counts"],
                 "train_max_rows": train_max_rows,
@@ -1178,7 +1258,7 @@ def run_cybos_bar_only_experiment_from_sqlite(
             evaluation_id=eval_id,
             training_run_id=training_run_id,
             evaluated_at=completed_at,
-            split_name=f"cybos_bar_only_validation_h{horizon_min}",
+            split_name=f"cybos_{feature_set_name}_validation_h{horizon_min}",
             accuracy=float(validation_metrics["overall_accuracy"]),
             total_rows=int(validation_metrics["rows_evaluated"]),
             metrics=validation_metrics,
@@ -1189,7 +1269,7 @@ def run_cybos_bar_only_experiment_from_sqlite(
             evaluation_id=wf_eval_id,
             training_run_id=training_run_id,
             evaluated_at=completed_at,
-            split_name=f"cybos_bar_only_walk_forward_h{horizon_min}",
+            split_name=f"cybos_{feature_set_name}_walk_forward_h{horizon_min}",
             accuracy=float(walk_forward_metrics["overall_accuracy"]),
             total_rows=int(walk_forward_metrics["rows_evaluated"]),
             metrics=walk_forward_metrics,
@@ -1198,12 +1278,13 @@ def run_cybos_bar_only_experiment_from_sqlite(
 
     report_dir = settings.runtime_data_dir / "reports" / "backtests"
     report_dir.mkdir(parents=True, exist_ok=True)
-    report_json_path = report_dir / f"latest-cybos-bar-only-f1-h{horizon_min}.json"
-    report_md_path = report_dir / f"latest-cybos-bar-only-f1-h{horizon_min}.md"
+    report_json_path = report_dir / f"latest-cybos-{feature_slug}-h{horizon_min}.json"
+    report_md_path = report_dir / f"latest-cybos-{feature_slug}-h{horizon_min}.md"
     payload = {
-        "experiment": "F-1 cybos bar-only",
+        "experiment": experiment_name,
         "completed_at": completed_at.isoformat(),
         "source": CYBOS_HISTORICAL_SOURCE,
+        "feature_set_name": feature_set_name,
         "horizon_min": horizon_min,
         "model_version": model_version,
         "training_run_id": training_run_id,
@@ -1237,9 +1318,10 @@ def run_cybos_bar_only_experiment_from_sqlite(
     report_md_path.write_text(
         "\n".join(
             [
-                f"# Cybos Bar-Only F-1 H{horizon_min}",
+                f"# Cybos {feature_slug} H{horizon_min}",
                 "",
                 f"- source: `{CYBOS_HISTORICAL_SOURCE}`",
+                f"- feature_set_name: `{feature_set_name}`",
                 f"- feature_names: {', '.join(feature_names)}",
                 f"- train_rows: {len(train_rows)}",
                 f"- validation_rows: {len(validation_rows)}",

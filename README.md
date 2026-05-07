@@ -268,9 +268,10 @@ Cybos 실제 15분봉만 사용하는 bar-only 기준선 실험:
 
 ```bash
 python -m app --run-cybos-bar-only-experiment --horizon-min 15
+python -m app --run-cybos-bar-only-experiment --horizon-min 15 --cybos-experiment-feature-set bar_context
 ```
 
-이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다.
+이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다. 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다.
 
 월요일 전 shadow ML 갱신 일괄 실행:
 

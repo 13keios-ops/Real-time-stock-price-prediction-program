@@ -106,6 +106,7 @@ def main() -> int:
     parser.add_argument("--cybos-experiment-walk-step-rows", type=int, default=10000, help="Fold step rows for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-walk-gap-rows", type=int, default=15, help="Gap rows for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-walk-max-folds", type=int, default=120, help="Maximum sampled folds for Cybos bar-only experiment.")
+    parser.add_argument("--cybos-experiment-feature-set", default="bar_only", help="Feature set for Cybos experiment: bar_only, bar_context, or bar_context_momentum.")
     parser.add_argument("--minutes", type=int, default=80, help="Minute count for synthetic data seeding.")
     parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume. Use 0 for unlimited listening.")
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
@@ -231,6 +232,7 @@ def main() -> int:
             walk_forward_step_rows=args.cybos_experiment_walk_step_rows,
             walk_forward_gap_rows=args.cybos_experiment_walk_gap_rows,
             walk_forward_max_folds=args.cybos_experiment_walk_max_folds,
+            feature_set_name=args.cybos_experiment_feature_set,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

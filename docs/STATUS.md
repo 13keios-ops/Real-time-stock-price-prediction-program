@@ -3,6 +3,45 @@
 생성일: 2026-05-06
 스프린트: 04 Cybos 실제 분봉 기준선
 
+## 🔴 [2026-05-07 11:35] F-5 이후 수익 양수화 실험 — 3회 연속 비개선
+
+- 상황: F-5에서 `trade_hit_rate=0.333333`으로 목표 hit-rate를 넘겼지만 walk-forward 순수익률이 `-0.159583%`로 소폭 음수였다. 수익 양수화를 목표로 추가 실험을 진행했다.
+- 가져갈 파일: `docs/STATUS.md`, `docs/logbook.md`, `README.md`, `docs/Current-Implementation.md`
+- 판단: F-6, F-7, F-8이 모두 F-5의 walk-forward 순수익률을 넘지 못했다. 완료 조건인 `trade_hit_rate >= 0.3`과 `cumulative_net_return_pct > 0`를 동시에 만족한 실험은 아직 없다.
+- 최종 조치: `3회 연속 개선 없음` 조건에 따라 자율 진행을 중단하고 운영자 판단을 요청한다. 현재까지 최고 후보는 여전히 F-5다.
+
+### 추가 실험 결과
+
+| 실험 | 설정 | label_threshold_15 | train_rows | walk-forward accuracy | trades | trade_hit_rate | cumulative_net_return_pct | 판단 |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| F-5 | `bar_only` | 0.35 | 100,000 | 0.580310 | 57 | 0.333333 | -0.159583 | 최고 후보, 손익분기 근접 |
+| F-6 | `bar_only`, 학습창 확대 | 0.35 | 200,000 | 0.575893 | 24 | 0.208333 | -4.788923 | 악화 |
+| F-7 | `bar_only`, 라벨 임계값 상향 | 0.40 | 100,000 | 0.615464 | 49 | 0.204082 | -8.857048 | 악화 |
+| F-8 | `bar_only`, 라벨 임계값 하향 | 0.33 | 100,000 | 0.564798 | 60 | 0.383333 | -3.785540 | hit-rate 개선, 수익률 악화 |
+
+### bar-context 피처 실험 참고
+
+| 실험 | feature_set | train_rows | walk-forward accuracy | trades | trade_hit_rate | cumulative_net_return_pct | 판단 |
+|---|---|---:|---:|---:|---:|---:|---|
+| F-2 | `bar_context` | 20,000 | 0.559345 | 2,124 | 0.240113 | -84.717904 | F-1c 대비 악화 |
+| F-3 | `bar_context_momentum` | 20,000 | 0.569643 | 2,054 | 0.255112 | -113.966154 | F-1c 대비 악화 |
+| F-4 | `bar_only` | 50,000 | 0.575857 | 132 | 0.303030 | -16.066645 | hit-rate 목표 도달, 수익률 음수 |
+
+### 해석
+
+- bar-context 계열(`close_position_pct`, `minute_slot_pct`, `log_volume`, 직전 봉 피처)은 거래 수를 늘렸지만 hit-rate와 순수익률을 모두 악화시켰다.
+- `bar_only`에서 학습창을 20,000 -> 50,000 -> 100,000으로 키우는 방향은 개선됐지만, 200,000까지 키우면 거래가 너무 줄고 hit-rate도 무너졌다.
+- 라벨 임계값 상향 `0.40`은 전체 accuracy는 높였지만 거래 hit-rate와 수익률을 악화시켰다.
+- 라벨 임계값 하향 `0.33`은 hit-rate를 높였지만 평균 수익이 비용을 넘지 못했다.
+
+### 운영자 판단 필요
+
+다음 중 하나를 선택해야 한다.
+
+1. F-5를 현재 최고 연구 기준선으로 유지하고 다음 스프린트에서 거래 후처리/신뢰도 calibration을 별도 실험으로 분리한다.
+2. 수익 양수화를 계속 목표로 하되, 현재 gate 기준 변경 없이 모델 확률 calibration 또는 fold별 regime 필터를 새 실험 범위로 승인한다.
+3. 완료 조건을 hit-rate 중심으로 재정의할지 검토한다. 단, 현재 `cumulative_net_return_pct`는 아직 음수다.
+
 ## [2026-05-07 04:20] 실험 F-1 — Cybos 실제 분봉 bar-only 기준선
 
 - 상황: `AGENTS.md`에 ML 실험 자율 범위를 추가한 뒤, Cybos 실제 15분봉 5년치 기준으로 LightGBM 기준선을 다시 측정했다.

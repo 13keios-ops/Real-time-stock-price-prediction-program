@@ -154,7 +154,8 @@ python -m app --run-cybos-bar-only-experiment --horizon-min 15
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
-- Cybos bar-only 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
+- Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
+- Cybos 연구 실험의 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다.
 
 ## 과거 데이터 Backfill
 

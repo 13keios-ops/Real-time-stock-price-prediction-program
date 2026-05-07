@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-05-07] Codex → F-5 이후 수익 양수화 실험
+
+- 변경 파일:
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Cybos 실험 CLI에 `--cybos-experiment-feature-set`을 추가해 `bar_only`, `bar_context`, `bar_context_momentum` 피처 세트를 선택할 수 있게 했다.
+  - `bar_context`는 `close_position_pct`, `minute_slot_pct`, `log_volume`을 추가한다.
+  - `bar_context_momentum`은 여기에 `prev_return_pct`, `prev_hl_range_pct`, `log_volume_delta`를 추가한다.
+  - 기존 F-1/F-5 계열 `bar_only` 피처는 유지했다.
+- 실험 결과:
+  - F-2 `bar_context`, `train_rows=20000`: walk-forward accuracy `0.559345`, trade_hit_rate `0.240113`, net `-84.717904`
+  - F-3 `bar_context_momentum`, `train_rows=20000`: walk-forward accuracy `0.569643`, trade_hit_rate `0.255112`, net `-113.966154`
+  - F-4 `bar_only`, `train_rows=50000`: walk-forward accuracy `0.575857`, trade_hit_rate `0.303030`, net `-16.066645`
+  - F-5 `bar_only`, `train_rows=100000`: walk-forward accuracy `0.580310`, trade_hit_rate `0.333333`, net `-0.159583`
+  - F-6 `bar_only`, `train_rows=200000`: walk-forward accuracy `0.575893`, trade_hit_rate `0.208333`, net `-4.788923`
+  - F-7 `bar_only`, `train_rows=100000`, `LABEL_THRESHOLD_15=0.40`: walk-forward accuracy `0.615464`, trade_hit_rate `0.204082`, net `-8.857048`
+  - F-8 `bar_only`, `train_rows=100000`, `LABEL_THRESHOLD_15=0.33`: walk-forward accuracy `0.564798`, trade_hit_rate `0.383333`, net `-3.785540`
+- 판단:
+  - 완료 조건인 `trade_hit_rate >= 0.3`과 `cumulative_net_return_pct > 0`을 동시에 만족한 실험은 아직 없다.
+  - F-5가 현재 최고 후보이며 순수익률은 손익분기 근처지만 여전히 음수다.
+  - F-6/F-7/F-8이 모두 F-5 수익률을 넘지 못해 `3회 연속 개선 없음` 조건에 도달했다.
+  - 자율 진행을 멈추고 운영자 판단을 요청한다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-bar-only-h15.json`
+  - `runtime-data/reports/backtests/latest-cybos-bar-context-h15.json`
+  - `runtime-data/reports/backtests/latest-cybos-bar-context-momentum-h15.json`
+  - `runtime-data/ml/models/lightgbm-cybos-bar-only-h15-v1.joblib`
+  - `runtime-data/ml/models/lightgbm-cybos-bar-context-h15-v1.joblib`
+  - `runtime-data/ml/models/lightgbm-cybos-bar-context-momentum-h15-v1.joblib`
+
 ## [2026-05-07] Codex → ML 실험 자율 범위 추가와 Cybos bar-only F-1 기준선
 
 - 변경 파일:
