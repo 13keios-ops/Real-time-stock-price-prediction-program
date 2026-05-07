@@ -1638,6 +1638,7 @@ def collect_dashboard_payload(
     latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
     latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
     latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
+    latest_walk_forward_setup_status = _build_walk_forward_setup_status(latest_walk_forward_report)
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
     if isinstance(latest_kis_verification, dict):
         latest_kis_verification = dict(latest_kis_verification)
@@ -1790,6 +1791,7 @@ def collect_dashboard_payload(
         "recent_evaluations": recent_evaluations,
         "latest_backtest_report": latest_backtest_report,
         "latest_walk_forward_report": latest_walk_forward_report,
+        "latest_walk_forward_setup_status": latest_walk_forward_setup_status,
         "latest_challenger_report": latest_challenger_report,
         "latest_kis_verification": latest_kis_verification,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
@@ -1871,6 +1873,63 @@ def _pct(value: Any, digits: int = 2) -> str:
         return f"{float(value):.{digits}f}"
     except (TypeError, ValueError):
         return _esc(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_walk_forward_setup_status(report: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(report, dict) or not report:
+        return {
+            "status": "missing",
+            "status_label": "없음",
+            "note": "정본 walk-forward 보고서가 아직 없습니다.",
+            "reasons": [],
+        }
+
+    min_train_rows = _optional_int(report.get("min_train_rows"))
+    test_window_rows = _optional_int(report.get("test_window_rows"))
+    step_rows = _optional_int(report.get("step_rows"))
+    gap_rows = _optional_int(report.get("gap_rows"))
+    max_train_rows = _optional_int(report.get("max_train_rows"))
+    folds = _optional_int(report.get("folds"))
+    reasons: list[str] = []
+
+    if min_train_rows is not None and min_train_rows < 1000:
+        reasons.append(f"min_train_rows={min_train_rows}은 승격 판단용 학습창으로 너무 작습니다.")
+    if test_window_rows is not None and test_window_rows < 100:
+        reasons.append(f"test_window_rows={test_window_rows}은 fold별 검증 표본으로 너무 작습니다.")
+    if max_train_rows is not None and max_train_rows < 1000:
+        reasons.append(f"max_train_rows={max_train_rows}은 장기 데이터 학습창으로 너무 작습니다.")
+    if folds is not None and folds > 5000:
+        reasons.append(f"folds={folds}로 너무 잘게 쪼개진 평가입니다.")
+
+    status = "needs_review" if reasons else "ok"
+    note = " ".join(reasons) if reasons else "게이트 기준 walk-forward 설정이 기본 점검을 통과했습니다."
+    return {
+        "status": status,
+        "status_label": "점검 필요" if status == "needs_review" else "정상",
+        "note": note,
+        "reasons": reasons,
+        "evaluated_at": report.get("evaluated_at"),
+        "model_version": report.get("model_version"),
+        "folds": folds,
+        "min_train_rows": min_train_rows,
+        "test_window_rows": test_window_rows,
+        "step_rows": step_rows,
+        "gap_rows": gap_rows,
+        "max_train_rows": max_train_rows,
+        "overall_accuracy": report.get("overall_accuracy"),
+        "trade_hit_rate": report.get("trade_hit_rate"),
+        "cumulative_net_return_pct": report.get("cumulative_net_return_pct"),
+        "reference_path": "runtime-data/reports/backtests/latest-walk-forward-h15.json",
+    }
 
 
 def _ratio_pct(value: Any, digits: int = 1) -> str:
@@ -2511,6 +2570,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_evaluation = payload.get("latest_evaluation", {}) or {}
     latest_backtest = payload.get("latest_backtest_report", {}) or {}
     latest_walk_forward = payload.get("latest_walk_forward_report", {}) or {}
+    latest_walk_forward_setup = payload.get("latest_walk_forward_setup_status", {}) or {}
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
@@ -2770,6 +2830,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"활성 모델(15분): {active_model.get('model_version') or '-'}",
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
         f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
+        f"게이트 기준 평가: {latest_walk_forward_setup.get('status_label') or '-'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
     post_close_maintenance = lightgbm_status.get("latest_post_close_maintenance") or {}
@@ -2812,6 +2873,22 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             or (lightgbm_status.get("latest_post_close_maintenance") or {}).get("started_at")
             or "-",
         ],
+    ]
+    walk_forward_gate_rows = [
+        ["상태", latest_walk_forward_setup.get("status_label") or "-"],
+        ["평가 시각", latest_walk_forward_setup.get("evaluated_at") or "-"],
+        ["모델 버전", latest_walk_forward_setup.get("model_version") or "-"],
+        ["reference 파일", latest_walk_forward_setup.get("reference_path") or "-"],
+        ["fold 수", latest_walk_forward_setup.get("folds") or "-"],
+        ["학습 행", latest_walk_forward_setup.get("min_train_rows") or "-"],
+        ["검증 행", latest_walk_forward_setup.get("test_window_rows") or "-"],
+        ["step 행", latest_walk_forward_setup.get("step_rows") or "-"],
+        ["gap 행", latest_walk_forward_setup.get("gap_rows") or "-"],
+        ["최대 학습 행", latest_walk_forward_setup.get("max_train_rows") or "-"],
+        ["정확도", _ratio_pct(latest_walk_forward_setup.get("overall_accuracy"), 2)],
+        ["거래 적중률", _ratio_pct(latest_walk_forward_setup.get("trade_hit_rate"), 2)],
+        ["누적 순수익률", _pct(latest_walk_forward_setup.get("cumulative_net_return_pct"), 2)],
+        ["판단 메모", latest_walk_forward_setup.get("note") or "-"],
     ]
     runtime_rows = [
         ["원시 체결", runtime.get("raw_market_ticks", 0)],
@@ -3111,6 +3188,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         note=_esc(lightgbm_status.get("description")),
                     ),
                     _section_card(
+                        "게이트 기준 워크포워드",
+                        _table(["항목", "값"], walk_forward_gate_rows, "표시할 게이트 기준 walk-forward가 없습니다.", scroll_height=330),
+                        note="정본 저장소의 승격 게이트가 보는 보고서입니다. D드라이브 snapshot post-close 산출물과 별도로 표시합니다.",
+                    ),
+                    _section_card(
                         "장후 자동 학습 상태",
                         _table(["항목", "값"], post_close_rows, "표시할 장후 자동 학습 상태가 없습니다.", scroll_height=330),
                         note="장중 수집과 분리된 스냅샷 DB로 장마감 후 재학습을 수행합니다.",
@@ -3149,6 +3231,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                                 f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
                                 f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}",
                                 f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}",
+                                f"게이트 기준: {latest_walk_forward_setup.get('status_label') or '-'}",
                                 f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}",
                             ]
                         ),

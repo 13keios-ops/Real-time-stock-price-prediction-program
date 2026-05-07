@@ -1,5 +1,34 @@
 # docs/STATUS.md
 
+## [2026-05-07 20:30] 정본 게이트 기준 walk-forward와 장중 수집 공백 점검
+
+- Cowork 검토 내용을 WSL2 정본 저장소 기준으로 재확인했다.
+- 정본 gate reference:
+  - 파일: `runtime-data/reports/backtests/latest-walk-forward-h15.json`
+  - 평가 시각: `2026-05-06T20:08:51.772212+09:00`
+  - 설정: `min_train_rows=30`, `test_window_rows=10`, `step_rows=10`, `gap_rows=15`, `max_train_rows=200`
+  - 결과: `folds=33284`, `rows_evaluated=332840`, `trades_taken=111223`, `overall_accuracy=0.380246`, `trade_hit_rate=0.104502`, `cumulative_net_return_pct=-10411.176412`
+  - 판단: 이 파일은 5년치 데이터 승격 판단용으로 학습창과 fold 구성이 너무 작다. 게이트 미통과 자체는 맞지만, 실패 사유를 단순 정확도 부족으로만 보면 다음 조치가 흐려진다.
+- challenger 정본 리포트:
+  - 변경 전 `2026-05-06T20:09:21.396280+09:00` 리포트에서는 `latest_lightgbm` accuracy `0.921672`, net `+2026.652123`처럼 walk-forward와 격차가 큰 수치가 있어 승격 근거로 쓰지 않고 평가 편향/누수 의심 대상으로 기록했다.
+  - 변경 후 `python -m app --run-challengers --horizon-min 15` 재실행으로 `2026-05-07T20:30:09.309909+09:00` 리포트를 갱신했다.
+  - 최신 best candidate 는 `linear_score_builtin`이고 accuracy `0.510456`, trade_hit_rate `0.491738`, net `+359.201116`, trades `1755`다.
+  - 최신 `latest_lightgbm`은 accuracy `0.534479`, trade_hit_rate `0.244785`, net `-723.208906`, trades `18265`다.
+  - 권장 조치는 `review_required`이며, 사유는 `Walk-forward setup needs review (...)`로 바뀌었다.
+- 장중 수집 공백:
+  - 정본 DB의 `2026-05-07` 분봉/특징은 `15:17:00`~`15:18:00` 20건뿐이다.
+  - 해당 구간 label `0`건은 15분 horizon이 장마감 이후로 넘어가므로 정상적으로 닫히지 않는 구조다.
+  - 문제는 label 계산이 아니라 09:00~15:16 live runtime 공백이다.
+- 코드 반영:
+  - challenger gate 판정에 walk-forward 설정 점검을 추가했다. `min_train_rows < 1000`, `test_window_rows < 100`, `max_train_rows < 1000`, `folds > 5000`이면 gate 통과 전에 `needs_review` 사유로 표시한다. 기존 gate 기준을 완화하지 않는다.
+  - 대시보드 `머신러닝 현황 > 현재 운용`에 `게이트 기준 워크포워드` 카드를 추가해 정본 gate reference와 D드라이브 post-close snapshot 산출물을 분리 표시한다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/services/dashboard.py`: 통과
+  - `python -m unittest tests.test_dashboard`: 13개 통과
+  - `python -m unittest tests.test_research_pipeline`: 3개 통과
+  - `python -m app --run-challengers --horizon-min 15`: 통과
+  - `python -m app --build-dashboard`: 통과, 생성 시각 `2026-05-07T20:33:54.440248+09:00`
+
 ## [2026-05-07 19:28] post-close snapshot ML 완료와 wide walk-forward 재측정
 
 - post-close ML maintenance:

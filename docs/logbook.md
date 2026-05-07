@@ -1,5 +1,34 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 정본 gate reference와 장중 수집 공백 점검
+
+- Cowork 검토 내용을 WSL2 정본 저장소 기준으로 다시 확인했다.
+- 정본 `runtime-data/reports/backtests/latest-walk-forward-h15.json`은 `2026-05-06T20:08:51.772212+09:00`에 생성된 결과이며, 설정은 `min_train_rows=30`, `test_window_rows=10`, `step_rows=10`, `gap_rows=15`, `max_train_rows=200`이다.
+- 해당 walk-forward 결과는 `folds=33284`, `overall_accuracy=0.380246`, `trade_hit_rate=0.104502`, `cumulative_net_return_pct=-10411.176412`로 gate를 통과하지 못한다.
+- 문제 해석:
+  - 현재 gate 미통과는 맞다.
+  - 다만 정본 gate reference가 5년치 데이터 승격 판단용으로는 지나치게 작은 학습창/검증창으로 만들어져 있어, 다음 조치는 gate 우회가 아니라 의미 있는 학습창의 정본 walk-forward를 다시 만드는 방향이어야 한다.
+- 변경 전 challenger 정본 리포트의 `latest_lightgbm`은 accuracy `0.921672`, net `+2026.652123`로 보였지만, 같은 정본의 walk-forward와 격차가 커서 승격 근거로 쓰지 않는다. tail validation 평가 편향 또는 데이터 누수 의심 대상으로 기록한다.
+- 코드 변경 뒤 `python -m app --run-challengers --horizon-min 15`를 재실행해 최신 challenger 리포트를 `2026-05-07T20:30:09.309909+09:00`로 갱신했다.
+  - best candidate: `linear_score_builtin`
+  - accuracy `0.510456`, trade_hit_rate `0.491738`, net `+359.201116`, trades `1755`
+  - `latest_lightgbm`: accuracy `0.534479`, trade_hit_rate `0.244785`, net `-723.208906`, trades `18265`
+  - recommended_action: `review_required`
+  - decision_reason: `Walk-forward setup needs review (...)`
+- 2026-05-07 장중 데이터:
+  - 정본 DB 기준 분봉/특징은 15:17~15:18의 20건뿐이다.
+  - label 0건은 해당 시각의 15분 horizon이 장마감 이후로 넘어가므로 정상이다.
+  - 실제 문제는 live runtime이 09:00~15:16에 켜져 있지 않았던 공백이다.
+- 변경:
+  - walk-forward gate 판정에 설정 점검 사유를 추가했다. 작은 학습창/검증창 또는 과도한 fold 수는 기준 완화 없이 `needs_review`로 표시된다.
+  - 대시보드에 `게이트 기준 워크포워드` 카드를 추가해 정본 gate reference와 post-close snapshot 산출물을 분리해서 볼 수 있게 했다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/services/dashboard.py`
+  - `python -m unittest tests.test_dashboard`: 13개 통과
+  - `python -m unittest tests.test_research_pipeline`: 3개 통과
+  - `python -m app --run-challengers --horizon-min 15`
+  - `python -m app --build-dashboard`: `2026-05-07T20:33:54.440248+09:00`
+
 ## [2026-05-07] Codex → post-close snapshot ML 완료 확인과 wide walk-forward 재측정
 
 - 확인 내용:

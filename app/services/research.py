@@ -932,6 +932,45 @@ def _load_latest_walk_forward_report(runtime_root: Path, horizon_min: int) -> di
     return payload if isinstance(payload, dict) else None
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_walk_forward_setup_review(payload: dict[str, object]) -> dict[str, object]:
+    min_train_rows = _optional_int(payload.get("min_train_rows"))
+    test_window_rows = _optional_int(payload.get("test_window_rows"))
+    step_rows = _optional_int(payload.get("step_rows"))
+    gap_rows = _optional_int(payload.get("gap_rows"))
+    max_train_rows = _optional_int(payload.get("max_train_rows"))
+    folds = _optional_int(payload.get("folds"))
+    reasons: list[str] = []
+
+    if min_train_rows is not None and min_train_rows < 1000:
+        reasons.append(f"min_train_rows={min_train_rows} is below 1000")
+    if test_window_rows is not None and test_window_rows < 100:
+        reasons.append(f"test_window_rows={test_window_rows} is below 100")
+    if max_train_rows is not None and max_train_rows < 1000:
+        reasons.append(f"max_train_rows={max_train_rows} is below 1000")
+    if folds is not None and folds > 5000:
+        reasons.append(f"folds={folds} is above 5000")
+
+    return {
+        "status": "needs_review" if reasons else "ok",
+        "reasons": reasons,
+        "min_train_rows": min_train_rows,
+        "test_window_rows": test_window_rows,
+        "step_rows": step_rows,
+        "gap_rows": gap_rows,
+        "max_train_rows": max_train_rows,
+        "folds": folds,
+    }
+
+
 def _build_walk_forward_gate(payload: dict[str, object] | None) -> dict[str, object]:
     if not payload:
         return {
@@ -944,6 +983,19 @@ def _build_walk_forward_gate(payload: dict[str, object] | None) -> dict[str, obj
     gap_rows = int(payload.get("gap_rows", 0) or 0)
     max_train_rows = payload.get("max_train_rows")
     fold_summaries = payload.get("fold_summaries", [])
+    setup_review = _build_walk_forward_setup_review(payload)
+    base_fields = {
+        "overall_accuracy": overall_accuracy,
+        "cumulative_net_return_pct": cumulative_net,
+        "gap_rows": gap_rows,
+        "max_train_rows": max_train_rows,
+        "setup_status": setup_review["status"],
+        "setup_reasons": setup_review["reasons"],
+        "min_train_rows": setup_review["min_train_rows"],
+        "test_window_rows": setup_review["test_window_rows"],
+        "step_rows": setup_review["step_rows"],
+        "folds": setup_review["folds"],
+    }
 
     weakest_fold_accuracy = None
     if isinstance(fold_summaries, list) and fold_summaries:
@@ -955,47 +1007,43 @@ def _build_walk_forward_gate(payload: dict[str, object] | None) -> dict[str, obj
         if fold_accuracies:
             weakest_fold_accuracy = min(fold_accuracies)
 
+    if setup_review["status"] == "needs_review":
+        return {
+            "status": "needs_review",
+            "reason": "Walk-forward setup needs review (" + "; ".join(str(item) for item in setup_review["reasons"]) + ").",
+            "weakest_fold_accuracy": weakest_fold_accuracy,
+            **base_fields,
+        }
+
     if overall_accuracy < 0.55:
         return {
             "status": "needs_review",
             "reason": f"Walk-forward overall accuracy is too low ({overall_accuracy:.4f}).",
-            "overall_accuracy": overall_accuracy,
-            "cumulative_net_return_pct": cumulative_net,
             "weakest_fold_accuracy": weakest_fold_accuracy,
-            "gap_rows": gap_rows,
-            "max_train_rows": max_train_rows,
+            **base_fields,
         }
 
     if weakest_fold_accuracy is not None and weakest_fold_accuracy <= 0.0:
         return {
             "status": "needs_review",
             "reason": "At least one walk-forward fold has zero accuracy.",
-            "overall_accuracy": overall_accuracy,
-            "cumulative_net_return_pct": cumulative_net,
             "weakest_fold_accuracy": weakest_fold_accuracy,
-            "gap_rows": gap_rows,
-            "max_train_rows": max_train_rows,
+            **base_fields,
         }
 
     if cumulative_net <= 0.0:
         return {
             "status": "needs_review",
             "reason": f"Walk-forward cumulative net return is not positive ({cumulative_net:.4f}).",
-            "overall_accuracy": overall_accuracy,
-            "cumulative_net_return_pct": cumulative_net,
             "weakest_fold_accuracy": weakest_fold_accuracy,
-            "gap_rows": gap_rows,
-            "max_train_rows": max_train_rows,
+            **base_fields,
         }
 
     return {
         "status": "pass",
         "reason": "Walk-forward gate passed.",
-        "overall_accuracy": overall_accuracy,
-        "cumulative_net_return_pct": cumulative_net,
         "weakest_fold_accuracy": weakest_fold_accuracy,
-        "gap_rows": gap_rows,
-        "max_train_rows": max_train_rows,
+        **base_fields,
     }
 
 
