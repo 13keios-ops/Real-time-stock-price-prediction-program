@@ -572,6 +572,27 @@ def _effective_trade_cost_pct(settings, override: float | None = None) -> float:
     return float(_estimate_trade_cost_pct(settings) if override is None else override)
 
 
+def _trade_return_diagnostics(
+    *,
+    gross_return_sum: float,
+    net_return_sum: float,
+    trades_taken: int,
+    trade_cost_pct: float,
+) -> dict[str, object]:
+    cost_drag_pct = float(trades_taken) * float(trade_cost_pct)
+    return {
+        "return_aggregation": "sum_of_trade_pct_not_portfolio",
+        "trade_sum_gross_return_pct": gross_return_sum,
+        "trade_sum_net_return_pct": net_return_sum,
+        "estimated_cost_drag_pct": cost_drag_pct,
+        "portfolio_return_pct": None,
+        "portfolio_return_unavailable_reason": (
+            "Backtest metrics sum per-trade percentage returns. A portfolio return "
+            "requires position sizing, cash allocation, overlap handling, and compounding rules."
+        ),
+    }
+
+
 def _effective_signal_confidence(settings, override: float | None = None) -> float:
     return float(settings.strategy.min_signal_confidence if override is None else override)
 
@@ -753,6 +774,12 @@ def _summarize_trade_ledger(trade_ledger: list[dict[str, object]]) -> dict[str, 
         "cumulative_net_return_pct": total_net,
         "average_gross_return_pct": (total_gross / trades) if trades else 0.0,
         "average_net_return_pct": (total_net / trades) if trades else 0.0,
+        **_trade_return_diagnostics(
+            gross_return_sum=total_gross,
+            net_return_sum=total_net,
+            trades_taken=trades,
+            trade_cost_pct=(total_gross - total_net) / trades if trades else 0.0,
+        ),
         "average_hit_gross_return_pct": (hit_gross_sum / hit_count) if hit_count else 0.0,
         "average_miss_gross_return_pct": (miss_gross_sum / miss_count) if miss_count else 0.0,
         "hit_count": hit_count,
@@ -1191,6 +1218,12 @@ def _evaluate_rows_with_model(
         "cumulative_gross_return_pct": gross_return_sum,
         "cumulative_net_return_pct": net_return_sum,
         "trade_cost_pct": trade_cost_pct,
+        **_trade_return_diagnostics(
+            gross_return_sum=gross_return_sum,
+            net_return_sum=net_return_sum,
+            trades_taken=trades_taken,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "signal_confidence_threshold": min_signal_confidence,
         "actual_label_counts": dict(actual_counter),
         "predicted_label_counts": dict(predicted_counter),
@@ -1779,6 +1812,12 @@ def _run_lightgbm_walk_forward(
         "cumulative_net_return_pct": aggregate_net,
         "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
         "trade_cost_pct": effective_trade_cost_pct,
+        **_trade_return_diagnostics(
+            gross_return_sum=aggregate_gross,
+            net_return_sum=aggregate_net,
+            trades_taken=aggregate_trades,
+            trade_cost_pct=effective_trade_cost_pct,
+        ),
         "signal_confidence_threshold": effective_signal_confidence,
         "actual_label_counts": dict(aggregate_actual),
         "predicted_label_counts": dict(aggregate_predicted),
@@ -1953,6 +1992,12 @@ def _run_lightgbm_walk_forward_train_only_threshold(
         "cumulative_net_return_pct": aggregate_net,
         "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
         "trade_cost_pct": trade_cost_pct,
+        **_trade_return_diagnostics(
+            gross_return_sum=aggregate_gross,
+            net_return_sum=aggregate_net,
+            trades_taken=aggregate_trades,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "threshold_grid": list(thresholds),
         "threshold_selection": "train_calibration_net_return",
         "threshold_calibration_rows": threshold_calibration_rows,
@@ -1980,6 +2025,12 @@ def _cost_adjusted_metric_summary(metrics: dict[str, object], trade_cost_pct: fl
         "cumulative_gross_return_pct": cumulative_gross,
         "cumulative_net_return_pct": cumulative_net,
         "average_net_return_pct": (cumulative_net / trades_taken) if trades_taken else 0.0,
+        **_trade_return_diagnostics(
+            gross_return_sum=cumulative_gross,
+            net_return_sum=cumulative_net,
+            trades_taken=trades_taken,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "trade_hit_rate": float(metrics.get("trade_hit_rate", 0.0)),
         "win_rate": float(metrics.get("win_rate", 0.0)),
         "overall_accuracy": float(metrics.get("overall_accuracy", 0.0)),
@@ -4213,6 +4264,12 @@ def run_walk_forward_backtest_from_sqlite(
         "cumulative_gross_return_pct": aggregate_gross,
         "cumulative_net_return_pct": aggregate_net,
         "trade_cost_pct": _estimate_trade_cost_pct(settings),
+        **_trade_return_diagnostics(
+            gross_return_sum=aggregate_gross,
+            net_return_sum=aggregate_net,
+            trades_taken=aggregate_trades,
+            trade_cost_pct=_estimate_trade_cost_pct(settings),
+        ),
         "actual_label_counts": dict(aggregate_actual),
         "predicted_label_counts": dict(aggregate_predicted),
         "min_train_rows": min_train_rows,
@@ -4263,6 +4320,10 @@ def run_walk_forward_backtest_from_sqlite(
         f"- `win_rate`: {win_rate:.4f}",
         f"- `average_net_return_pct`: {average_net_return_pct:.4f}",
         f"- `cumulative_net_return_pct`: {aggregate_net:.4f}",
+        f"- `return_aggregation`: sum_of_trade_pct_not_portfolio",
+        f"- `trade_sum_net_return_pct`: {aggregate_net:.4f}",
+        f"- `estimated_cost_drag_pct`: {aggregate_trades * _estimate_trade_cost_pct(settings):.4f}",
+        f"- `portfolio_return_pct`: not computed",
         f"- `gap_rows`: {gap_rows}",
         f"- `max_train_rows`: {max_train_rows if max_train_rows is not None else 'full-history'}",
         f"- `parameter_profile`: {parameter_profile}",

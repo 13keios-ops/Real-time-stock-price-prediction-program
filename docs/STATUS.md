@@ -1,5 +1,24 @@
 # docs/STATUS.md
 
+## [2026-05-08 08:45] 수익률 지표 의미 분리와 장전 자동 기동 확인
+
+- 장전 자동 기동:
+  - 확인 시각: `2026-05-08 08:37 KST`.
+  - `runtime watchdog`: `running`, `live_runtime_should_run=true`, 오류 없음.
+  - `live runtime`: `running`, `started_at=2026-05-08 08:00:59 +0900`, `trading_mode=paper`, `credentials_ready_for_quotes=true`.
+  - 판단: 2026-05-08 장전 자동 기동은 정상 작동 중이다. 실제 장중 분봉/feature 누적은 09:35 heartbeat에서 확인한다.
+- 지표 정리:
+  - 기존 `cumulative_net_return_pct`는 실제 계좌 수익률이 아니라 거래별 수익률을 단순 합산한 진단 지표다.
+  - 이 오해를 줄이기 위해 research metric에 `return_aggregation=sum_of_trade_pct_not_portfolio`를 추가했다.
+  - `trade_sum_gross_return_pct`, `trade_sum_net_return_pct`, `estimated_cost_drag_pct`, `portfolio_return_pct=null`, `portfolio_return_unavailable_reason`를 추가했다.
+  - 기존 필드는 하위 호환을 위해 유지하되, 대시보드 표시는 `누적 순수익률` 대신 `거래합산 순수익률`과 `비용 차감 합계`로 바꿨다.
+- 판단:
+  - `net=-170736%` 같은 숫자는 병합 오류의 직접 증거가 아니라, 과도한 거래 수와 거래별 비용/손익 합산이 만든 진단 신호다.
+  - 다음 모델 실험에서는 계좌 수익률처럼 보이는 합산 지표보다, 비용 초과 평균 기대값과 거래 선별 능력을 우선 본다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_research_pipeline tests.test_dashboard`: 17개 통과.
+
 ## [2026-05-08 03:30] 장전 운영 상태, gate reference 재생성, Cybos momentum 실험
 
 - 장전 운영 상태:

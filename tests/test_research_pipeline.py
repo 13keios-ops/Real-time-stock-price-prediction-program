@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 import logging
 import math
 import os
@@ -114,6 +115,14 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertEqual(walk_forward_result.parameter_profile, "ad_hoc")
             self.assertEqual(walk_forward_result.command_source, "run_walk_forward_backtest_from_sqlite")
             self.assertIsNone(walk_forward_result.feature_market_source)
+            walk_forward_payload = json.loads(walk_forward_result.report_json_path.read_text(encoding="utf-8"))
+            self.assertEqual(walk_forward_payload["return_aggregation"], "sum_of_trade_pct_not_portfolio")
+            self.assertEqual(
+                walk_forward_payload["trade_sum_net_return_pct"],
+                walk_forward_payload["cumulative_net_return_pct"],
+            )
+            self.assertIn("estimated_cost_drag_pct", walk_forward_payload)
+            self.assertIsNone(walk_forward_payload["portfolio_return_pct"])
             self.assertTrue(challenger_result.report_markdown_path.exists())
             self.assertTrue(challenger_result.report_json_path.exists())
             self.assertTrue(challenger_result.leaderboard_json_path.exists())

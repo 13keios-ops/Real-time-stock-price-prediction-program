@@ -1,5 +1,23 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 수익률 지표 의미 분리와 장전 자동 기동 확인
+
+- 장전 자동 기동 확인:
+  - `2026-05-08 08:37 KST` 기준 runtime watchdog은 `running`, `live_runtime_should_run=true`, 오류 없음.
+  - live runtime은 `2026-05-08 08:00:59 +0900`에 시작됐고 `running`, `trading_mode=paper`, `credentials_ready_for_quotes=true` 상태다.
+  - 판단: 2026-05-08 장전 자동 기동은 정상 작동했다. 실제 09:00 이후 분봉/feature 누적은 09:35 heartbeat에서 확인한다.
+- 수익률 지표 정리:
+  - 기존 `cumulative_net_return_pct`가 실제 계좌 수익률처럼 오해될 수 있어, research metric에 집계 방식 필드를 추가했다.
+  - 추가 필드: `return_aggregation=sum_of_trade_pct_not_portfolio`, `trade_sum_gross_return_pct`, `trade_sum_net_return_pct`, `estimated_cost_drag_pct`, `portfolio_return_pct=null`, `portfolio_return_unavailable_reason`.
+  - 기존 `cumulative_*` 필드는 하위 호환을 위해 유지한다.
+  - 대시보드 문구는 `누적 순수익률` 대신 `거래합산 순수익률`, `비용 차감 합계`, `수익률 집계 방식`을 보여주도록 바꿨다.
+- 판단:
+  - `net=-170736%` 같은 값은 데이터 병합 오류의 직접 증거가 아니라, 거래별 퍼센트 손익을 다수 거래에 단순 합산한 진단값이다.
+  - 다음 실험에서는 거래합산 수익률보다 비용 초과 평균 기대값과 거래 선별 능력을 우선한다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_research_pipeline tests.test_dashboard`: 17개 통과.
+
 ## [2026-05-08] Codex → 장전 운영 복구, gate reference 재생성, Cybos momentum 실험
 
 - 운영 상태:

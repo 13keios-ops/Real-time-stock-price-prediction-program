@@ -2432,7 +2432,8 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
               <span class="pill">정확도: {_pct(latest_backtest.get('overall_accuracy'), 4)}</span>
               <span class="pill">거래 수: {_esc(latest_backtest.get('trades_taken'))}</span>
               <span class="pill">평균 순수익률: {_pct(latest_backtest.get('average_net_return_pct'), 4)}</span>
-              <span class="pill">누적 순수익률: {_pct(latest_backtest.get('cumulative_net_return_pct'), 4)}</span>
+              <span class="pill">거래합산 순수익률: {_pct(latest_backtest.get('trade_sum_net_return_pct', latest_backtest.get('cumulative_net_return_pct')), 4)}</span>
+              <span class="pill">비용 차감 합계: {_pct(latest_backtest.get('estimated_cost_drag_pct'), 4)}</span>
             </div>
           </div>
           <div class="card">
@@ -2441,7 +2442,8 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
               <span class="pill">fold 수: {_esc(latest_walk_forward.get('folds'))}</span>
               <span class="pill">정확도: {_pct(latest_walk_forward.get('overall_accuracy'), 4)}</span>
               <span class="pill">거래 수: {_esc(latest_walk_forward.get('trades_taken'))}</span>
-              <span class="pill">누적 순수익률: {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 4)}</span>
+              <span class="pill">거래합산 순수익률: {_pct(latest_walk_forward.get('trade_sum_net_return_pct', latest_walk_forward.get('cumulative_net_return_pct')), 4)}</span>
+              <span class="pill">비용 차감 합계: {_pct(latest_walk_forward.get('estimated_cost_drag_pct'), 4)}</span>
             </div>
           </div>
           <div class="card">
@@ -2887,7 +2889,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["최대 학습 행", latest_walk_forward_setup.get("max_train_rows") or "-"],
         ["정확도", _ratio_pct(latest_walk_forward_setup.get("overall_accuracy"), 2)],
         ["거래 적중률", _ratio_pct(latest_walk_forward_setup.get("trade_hit_rate"), 2)],
-        ["누적 순수익률", _pct(latest_walk_forward_setup.get("cumulative_net_return_pct"), 2)],
+        ["거래합산 순수익률", _pct(latest_walk_forward_setup.get("trade_sum_net_return_pct", latest_walk_forward_setup.get("cumulative_net_return_pct")), 2)],
+        ["비용 차감 합계", _pct(latest_walk_forward_setup.get("estimated_cost_drag_pct"), 2)],
+        ["수익률 집계 방식", latest_walk_forward_setup.get("return_aggregation") or "-"],
         ["판단 메모", latest_walk_forward_setup.get("note") or "-"],
     ]
     runtime_rows = [
