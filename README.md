@@ -17,6 +17,8 @@
 
 연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. D드라이브가 없으면 `runtime-data/research-snapshots/`로 내려간다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
 
+장마감 후 자동 학습은 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh`를 백그라운드로 시작하고, 이 스크립트는 기본적으로 live DB가 아니라 snapshot DB에서 feature / label 재생성, 실제 데이터 ML 재구축, 리포트와 대시보드 생성을 수행한다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
+
 ## 핵심 문서
 
 - `AGENTS.md`: 저장소 운영 규칙의 단일 기준
@@ -298,6 +300,12 @@ python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
 
 ```bash
 ./scripts/run_ml_shadow_cycle.sh
+```
+
+장마감 후 snapshot 기반 ML maintenance 수동 재실행:
+
+```bash
+./scripts/run_post_close_ml_maintenance.sh
 ```
 
 KIS WebSocket 수신기:

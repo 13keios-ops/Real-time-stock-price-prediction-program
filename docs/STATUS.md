@@ -1,5 +1,26 @@
 # docs/STATUS.md
 
+## [2026-05-07 16:50] 장마감 후 자동 snapshot ML maintenance 연결
+
+- 목적: 사용자가 수동으로 학습을 실행하지 않아도, 장중 수집이 끝난 뒤 snapshot DB 기준으로 장후 학습/검증이 자동 실행되도록 한다.
+- 변경 스크립트:
+  - `scripts/script_dispatch.sh`
+  - `scripts/wsl_ops.py`
+- 동작 방식:
+  - runtime watchdog 이 `post-close` 상태를 감지한다.
+  - 장마감 후 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh`를 백그라운드로 시작한다.
+  - `run_post_close_ml_maintenance.sh`는 기본적으로 `runtime-data/dev.db`를 직접 학습하지 않고 snapshot DB를 만든 뒤, 그 snapshot DB를 `DATABASE_URL`로 지정해 `--rebuild-actual-ml`, runtime report, dashboard build 를 실행한다.
+  - main 상태 파일은 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다.
+  - 자동 active model 교체와 실전 주문 승격은 하지 않는다.
+- 검증:
+  - `python -m py_compile scripts/wsl_ops.py`: 통과
+  - `bash -n scripts/script_dispatch.sh`: 통과
+  - `bash -n scripts/run_post_close_ml_maintenance.sh`: 통과
+  - `run-watchdog-loop --single-pass --disable-post-close-ml`: 통과
+  - `python -m unittest discover -s tests -p "test_*.py"`: 86개 통과
+
+판단: 사용자가 직접 실행해야 하는 작업은 Cybos Plus 로그인/Windows COM 수집처럼 Codex가 대신할 수 없는 작업으로 제한하고, 일반 장후 학습은 watchdog 자동화에 맡긴다.
+
 ## [2026-05-07 16:20] 투트랙 장중 수집 + 연구 운영 구조
 
 - 목적: 장중 KIS live runtime 이 쓰는 `runtime-data/dev.db`와 오프라인 ML/룰 실험의 DB 접근을 분리해, 수집 누락과 SQLite lock 위험을 줄인다.

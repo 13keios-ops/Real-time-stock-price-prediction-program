@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 장마감 후 자동 snapshot ML maintenance 연결
+
+- 변경 파일:
+  - `AGENTS.md`
+  - `scripts/script_dispatch.sh`
+  - `scripts/wsl_ops.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - 사용자 수동 작업은 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내한다는 원칙을 `AGENTS.md`에 기록했다.
+  - `run_post_close_ml_maintenance.sh` 기본 실행을 snapshot DB 기준으로 바꿨다.
+  - snapshot DB에서 `--rebuild-actual-ml`, runtime report, dashboard build 를 실행하고, main state 파일에는 snapshot 경로와 별도 runtime output 경로를 남긴다.
+  - runtime watchdog 이 post-close 상태에서 장마감 후 기본 30분이 지나면 하루 한 번 장후 ML maintenance 를 백그라운드로 시작하도록 했다.
+  - 자동 학습은 active model 자동 교체와 실전 주문 승격을 하지 않는다.
+- 검증:
+  - `python -m py_compile scripts/wsl_ops.py`
+  - `bash -n scripts/script_dispatch.sh`
+  - `bash -n scripts/run_post_close_ml_maintenance.sh`
+  - `python scripts/wsl_ops.py run-watchdog-loop --single-pass --disable-post-close-ml`
+  - `python -m unittest discover -s tests -p "test_*.py"`: 86개 통과
+- 운영 참고:
+  - 검증 중 임시 runtime 으로 뜬 dashboard 프로세스는 중지했다.
+  - 실제 watchdog 재시작은 검증과 커밋 뒤 현재 WSL2 저장소 기준으로 다시 수행한다.
+
 ## [2026-05-07] Codex → 투트랙 장중 수집 + 연구 스냅샷 운영
 
 - 변경 파일:

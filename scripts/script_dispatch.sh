@@ -342,13 +342,25 @@ connect_kis_paper_account_interactive() {
   echo ".env saved; paper account connected."
 }
 
+post_close_data_root() {
+  if [[ -d /mnt/d ]]; then
+    printf '%s\n' "/mnt/d/CodexData/Real-time-stock-price-prediction-program"
+  else
+    printf '%s\n' "$REPO_ROOT/runtime-data"
+  fi
+}
+
 post_close_ml_maintenance() {
-  local workspace="$REPO_ROOT" runtime="" horizon="15"
+  local workspace="$REPO_ROOT" runtime="" horizon="15" use_snapshot="true" snapshot_dir="" run_dir=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --workspace-root|-WorkspaceRoot) workspace="$2"; shift 2 ;;
       --runtime-data-dir|-RuntimeDataDir) runtime="$2"; shift 2 ;;
       --horizon-min|-HorizonMin) horizon="$2"; shift 2 ;;
+      --snapshot-dir|-SnapshotDir) snapshot_dir="$2"; shift 2 ;;
+      --run-dir|-RunDir) run_dir="$2"; shift 2 ;;
+      --live-db|-LiveDb|--no-snapshot|-NoSnapshot) use_snapshot="false"; shift ;;
+      --use-snapshot|-UseSnapshot) use_snapshot="true"; shift ;;
       --restart-live-runtime|-RestartLiveRuntime) shift ;;
       *) shift ;;
     esac
@@ -356,14 +368,41 @@ post_close_ml_maintenance() {
   [[ -n "$runtime" ]] || runtime="$workspace/runtime-data"
   local state_dir="$runtime/reports/ml-maintenance/state"
   mkdir -p "$state_dir"
-  run_app --rebuild-actual-ml --horizon-min "$horizon" >/dev/null
-  run_app --build-runtime-report >/dev/null
-  run_app --build-dashboard >/dev/null
-  "$PYTHON_BIN" - "$state_dir/latest-post-close-ml.json" "$workspace" "$runtime" "$horizon" <<'PY'
+  local snapshot_path="" snapshot_manifest="" snapshot_runtime="" database_url=""
+  if [[ "$use_snapshot" == "true" ]]; then
+    local data_root
+    data_root="$(post_close_data_root)"
+    [[ -n "$snapshot_dir" ]] || snapshot_dir="$data_root/research-snapshots"
+    [[ -n "$run_dir" ]] || run_dir="$data_root/research-runs/post-close-$(date +%Y%m%d)-h${horizon}"
+    mkdir -p "$run_dir"
+    local snapshot_json
+    snapshot_json="$("$SCRIPT_DIR/create_research_db_snapshot.sh" --src "$workspace/runtime-data/dev.db" --snapshot-dir "$snapshot_dir" --prefix "post-close-h${horizon}" --json)"
+    read -r database_url snapshot_path snapshot_manifest <<<"$("$PYTHON_BIN" - "$snapshot_json" <<'PY'
+import json
+import sys
+payload = json.loads(sys.argv[1])
+print(payload["database_url"], payload["snapshot_path"], payload["manifest_path"])
+PY
+)"
+    snapshot_runtime="$run_dir/runtime-data"
+    mkdir -p "$snapshot_runtime"
+    (
+      export DATABASE_URL="$database_url"
+      export RUNTIME_DATA_DIR="$snapshot_runtime"
+      run_app --rebuild-actual-ml --horizon-min "$horizon" >/dev/null
+      run_app --build-runtime-report >/dev/null
+      run_app --build-dashboard >/dev/null
+    )
+  else
+    run_app --rebuild-actual-ml --horizon-min "$horizon" >/dev/null
+    run_app --build-runtime-report >/dev/null
+    run_app --build-dashboard >/dev/null
+  fi
+  "$PYTHON_BIN" - "$state_dir/latest-post-close-ml.json" "$workspace" "$runtime" "$horizon" "$use_snapshot" "$snapshot_path" "$snapshot_manifest" "$snapshot_runtime" <<'PY'
 import json
 import sys
 from datetime import datetime
-path, root, runtime, horizon = sys.argv[1:5]
+path, root, runtime, horizon, use_snapshot, snapshot_path, snapshot_manifest, snapshot_runtime = sys.argv[1:9]
 payload = {
     "status": "ok",
     "maintenance_date": datetime.now().strftime("%Y-%m-%d"),
@@ -371,6 +410,10 @@ payload = {
     "workspace_root": root,
     "runtime_data_dir": runtime,
     "horizon_min": int(horizon),
+    "mode": "snapshot" if use_snapshot == "true" else "live-db",
+    "snapshot_path": snapshot_path,
+    "snapshot_manifest_path": snapshot_manifest,
+    "snapshot_runtime_data_dir": snapshot_runtime,
 }
 open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 print(json.dumps(payload, ensure_ascii=False, indent=2))

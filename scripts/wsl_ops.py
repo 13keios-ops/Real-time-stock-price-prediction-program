@@ -88,6 +88,13 @@ def find_pids(*needles: str) -> list[int]:
     return found
 
 
+def find_pids_any(*needle_groups: tuple[str, ...]) -> list[int]:
+    found: set[int] = set()
+    for needles in needle_groups:
+        found.update(find_pids(*needles))
+    return sorted(found)
+
+
 def stop_pids(pids: list[int]) -> None:
     own_pid = os.getpid()
     for pid in pids:
@@ -159,6 +166,24 @@ def set_env_value(path: Path, key: str, value: str) -> None:
 
 
 def market_settings(root: Path) -> tuple[str, bool, bool]:
+    open_text, close_text, holidays = market_schedule(root)
+    now = dt.datetime.now()
+    if now.weekday() >= 5:
+        return "weekend", False, False
+    if now.strftime("%Y-%m-%d") in holidays:
+        return "holiday", False, False
+    open_h, open_m = [int(x) for x in open_text.split(":")[:2]]
+    close_h, close_m = [int(x) for x in close_text.split(":")[:2]]
+    opened = now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+    closed = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
+    if now < opened:
+        return "pre-open", False, opened - dt.timedelta(minutes=60) <= now < opened
+    if now > closed:
+        return "post-close", False, False
+    return "regular-session", True, True
+
+
+def market_schedule(root: Path) -> tuple[str, str, set[str]]:
     calendar = root / "config" / "market_calendar.toml"
     open_text = "09:00"
     close_text = "15:30"
@@ -174,20 +199,80 @@ def market_settings(root: Path) -> tuple[str, bool, bool]:
         match = re.search(r"^\s*holidays\s*=\s*\[(.*?)\]", text, re.M | re.S)
         if match:
             holidays = {item.strip().strip("'\"") for item in match.group(1).split(",") if item.strip().strip("'\"")}
-    now = dt.datetime.now()
-    if now.weekday() >= 5:
-        return "weekend", False, False
-    if now.strftime("%Y-%m-%d") in holidays:
-        return "holiday", False, False
-    open_h, open_m = [int(x) for x in open_text.split(":")[:2]]
+    return open_text, close_text, holidays
+
+
+def market_close_datetime(root: Path) -> dt.datetime:
+    _, close_text, _ = market_schedule(root)
     close_h, close_m = [int(x) for x in close_text.split(":")[:2]]
-    opened = now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
-    closed = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
-    if now < opened:
-        return "pre-open", False, opened - dt.timedelta(minutes=60) <= now < opened
-    if now > closed:
-        return "post-close", False, False
-    return "regular-session", True, True
+    now = dt.datetime.now()
+    return now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
+
+
+def maybe_start_post_close_ml(
+    *,
+    root: Path,
+    runtime: Path,
+    session: str,
+    args: argparse.Namespace,
+    errors: list[str],
+) -> str:
+    if getattr(args, "disable_post_close_ml", False):
+        return "disabled"
+    if session != "post-close":
+        return "none"
+    delay_minutes = max(int(getattr(args, "post_close_ml_delay_minutes", 30)), 0)
+    now = dt.datetime.now()
+    if now < market_close_datetime(root) + dt.timedelta(minutes=delay_minutes):
+        return f"waiting_delay_{delay_minutes}m"
+
+    state_path = runtime / "reports/ml-maintenance/state/latest-post-close-ml.json"
+    today = now.strftime("%Y-%m-%d")
+    state = read_json(state_path, {})
+    if state.get("maintenance_date") == today:
+        if state.get("status") in {"starting", "running", "ok"}:
+            return f"already_{state.get('status')}"
+
+    horizon = str(getattr(args, "post_close_ml_horizon_min", 15))
+    use_snapshot = not bool(getattr(args, "post_close_ml_live_db", False))
+    cmd = [
+        str(SCRIPT_DIR / "run_post_close_ml_maintenance.sh"),
+        "--workspace-root",
+        str(root),
+        "--runtime-data-dir",
+        str(runtime),
+        "--horizon-min",
+        horizon,
+    ]
+    if use_snapshot:
+        cmd.append("--use-snapshot")
+    else:
+        cmd.append("--live-db")
+
+    log_dir = runtime / "logs/app"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = log_dir / "post-close-ml-maintenance.stdout.log"
+    stderr_path = log_dir / "post-close-ml-maintenance.stderr.log"
+    try:
+        with stdout_path.open("ab") as out, stderr_path.open("ab") as err:
+            process = subprocess.Popen(cmd, cwd=root, stdout=out, stderr=err, start_new_session=True)
+        payload = {
+            "status": "starting",
+            "maintenance_date": today,
+            "started_at": now_text(),
+            "pid": process.pid,
+            "workspace_root": str(root),
+            "runtime_data_dir": str(runtime),
+            "horizon_min": int(horizon),
+            "mode": "snapshot" if use_snapshot else "live-db",
+            "stdout_log_path": str(stdout_path),
+            "stderr_log_path": str(stderr_path),
+        }
+        write_json(state_path, payload, echo=False)
+        return "start_snapshot_ml" if use_snapshot else "start_live_db_ml"
+    except Exception as exc:
+        errors.append(f"post_close_ml_start: {exc}")
+        return "start_failed"
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -513,6 +598,7 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             live_action = f"off_session_stop_{session}"
         elif not should_run:
             live_action = f"off_session_hold_{session}"
+        ml_action = maybe_start_post_close_ml(root=root, runtime=runtime, session=session, args=args, errors=errors)
         payload = {
             "status": "running" if not errors else "warning",
             "pid": os.getpid(),
@@ -524,6 +610,10 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             "interval_seconds": args.interval_seconds,
             "dashboard_refresh_interval_seconds": args.dashboard_refresh_interval_seconds,
             "pre_open_warmup_minutes": args.pre_open_warmup_minutes,
+            "post_close_ml_enabled": not args.disable_post_close_ml,
+            "post_close_ml_delay_minutes": args.post_close_ml_delay_minutes,
+            "post_close_ml_horizon_min": args.post_close_ml_horizon_min,
+            "post_close_ml_mode": "live-db" if args.post_close_ml_live_db else "snapshot",
             "market_session_status": session,
             "live_runtime_should_run": should_run,
             "started_at": started,
@@ -531,7 +621,7 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             "dashboard_action": dashboard_action,
             "dashboard_snapshot_action": "client_refresh",
             "live_runtime_action": live_action,
-            "ml_maintenance_action": "none",
+            "ml_maintenance_action": ml_action,
             "errors": errors,
         }
         write_json(state_path, payload, echo=False)
@@ -550,7 +640,7 @@ def start_watchdog(args: argparse.Namespace) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     if args.force_restart:
-        stop_pids(find_pids("run_runtime_watchdog_loop.sh"))
+        stop_pids(find_pids_any(("run_runtime_watchdog_loop.sh",), ("wsl_ops.py", "run-watchdog-loop")))
     else:
         state = read_json(state_path, {})
         if pid_matches_any(state.get("pid"), ("run_runtime_watchdog_loop.sh",), ("wsl_ops.py", "run-watchdog-loop")):
@@ -573,7 +663,15 @@ def start_watchdog(args: argparse.Namespace) -> None:
         str(args.dashboard_refresh_interval_seconds),
         "--pre-open-warmup-minutes",
         str(args.pre_open_warmup_minutes),
+        "--post-close-ml-delay-minutes",
+        str(args.post_close_ml_delay_minutes),
+        "--post-close-ml-horizon-min",
+        str(args.post_close_ml_horizon_min),
     ]
+    if args.disable_post_close_ml:
+        cmd.append("--disable-post-close-ml")
+    if args.post_close_ml_live_db:
+        cmd.append("--post-close-ml-live-db")
     with stdout_path.open("ab") as out, stderr_path.open("ab") as err:
         process = subprocess.Popen(cmd, cwd=root, stdout=out, stderr=err, start_new_session=True)
     time.sleep(3)
@@ -589,6 +687,10 @@ def start_watchdog(args: argparse.Namespace) -> None:
         "interval_seconds": args.interval_seconds,
         "dashboard_refresh_interval_seconds": args.dashboard_refresh_interval_seconds,
         "pre_open_warmup_minutes": args.pre_open_warmup_minutes,
+        "post_close_ml_enabled": not args.disable_post_close_ml,
+        "post_close_ml_delay_minutes": args.post_close_ml_delay_minutes,
+        "post_close_ml_horizon_min": args.post_close_ml_horizon_min,
+        "post_close_ml_mode": "live-db" if args.post_close_ml_live_db else "snapshot",
         "stdout_log_path": str(stdout_path),
         "stderr_log_path": str(stderr_path),
         "started_at": now_text(),
@@ -628,7 +730,7 @@ def stop_watchdog(args: argparse.Namespace) -> None:
     root = Path(args.workspace_root).expanduser().resolve()
     runtime = runtime_dir(root, args.runtime_data_dir)
     state_path = runtime / "reports/runtime-watchdog/state/watchdog-state.json"
-    pids = find_pids("run_runtime_watchdog_loop.sh")
+    pids = find_pids_any(("run_runtime_watchdog_loop.sh",), ("wsl_ops.py", "run-watchdog-loop"))
     stop_pids(pids)
     payload = {"status": "stopped", "stopped_pids": pids, "process_running": False, "stopped_at": now_text(), "workspace_root": str(root), "runtime_data_dir": str(runtime)}
     write_json(state_path, payload, echo=False)
@@ -1241,6 +1343,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--interval-seconds", "-IntervalSeconds", type=int, default=60)
     p.add_argument("--dashboard-refresh-interval-seconds", "-DashboardRefreshIntervalSeconds", type=int, default=600)
     p.add_argument("--pre-open-warmup-minutes", "-PreOpenWarmupMinutes", type=int, default=60)
+    p.add_argument("--post-close-ml-delay-minutes", "-PostCloseMlDelayMinutes", type=int, default=30)
+    p.add_argument("--post-close-ml-horizon-min", "-PostCloseMlHorizonMin", type=int, default=15)
+    p.add_argument("--disable-post-close-ml", "-DisablePostCloseMl", action="store_true")
+    p.add_argument("--post-close-ml-live-db", "-PostCloseMlLiveDb", action="store_true")
     p.add_argument("--single-pass", "-SinglePass", action="store_true")
 
     p = common("start-watchdog")
@@ -1249,6 +1355,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--interval-seconds", "-IntervalSeconds", type=int, default=60)
     p.add_argument("--dashboard-refresh-interval-seconds", "-DashboardRefreshIntervalSeconds", type=int, default=600)
     p.add_argument("--pre-open-warmup-minutes", "-PreOpenWarmupMinutes", type=int, default=60)
+    p.add_argument("--post-close-ml-delay-minutes", "-PostCloseMlDelayMinutes", type=int, default=30)
+    p.add_argument("--post-close-ml-horizon-min", "-PostCloseMlHorizonMin", type=int, default=15)
+    p.add_argument("--disable-post-close-ml", "-DisablePostCloseMl", action="store_true")
+    p.add_argument("--post-close-ml-live-db", "-PostCloseMlLiveDb", action="store_true")
     p.add_argument("--force-restart", "-ForceRestart", action="store_true")
     p = common("get-watchdog-status")
     p.add_argument("--heartbeat-stale-after-seconds", "-HeartbeatStaleAfterSeconds", type=int, default=0)

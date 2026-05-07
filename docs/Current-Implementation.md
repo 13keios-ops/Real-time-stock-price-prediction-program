@@ -11,6 +11,8 @@
 
 장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래이며, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
 
+장마감 후 자동 학습은 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh`를 백그라운드 실행하고, 이 경로는 기본적으로 snapshot DB를 사용한다. live DB는 장중 수집 원장으로 남기며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
+
 현재 기본 운영 자세는 아래와 같다.
 
 - 기본 거래 모드: `paper`
@@ -204,6 +206,8 @@ KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식
 
 장후 관리는 장외에 실시간 수집기를 다시 켜지 않는다.
 이미 켜져 있으면 중지해 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
+기본 실행은 snapshot DB와 격리된 research run runtime 을 사용하므로 main `runtime-data/dev.db`를 직접 무겁게 재학습하지 않는다.
+watchdog 은 장마감 후 기본 30분이 지나면 이 경로를 하루 한 번 백그라운드로 시작한다.
 
 ## 로컬 가상 계좌와 KIS 모의계좌
 
