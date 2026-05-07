@@ -1,5 +1,34 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 장전 운영 복구, gate reference 재생성, Cybos momentum 실험
+
+- 운영 상태:
+  - 확인 시각은 `2026-05-08 02:29 KST`였고 시장 상태는 `pre-open`이었다.
+  - live runtime은 꺼져 있었지만 정규장 시작 60분 전이 아니므로 정상 범위로 판단했다.
+  - runtime watchdog이 stale 상태여서 `./scripts/start_runtime_watchdog_background.sh`로 재기동했다.
+  - 대시보드 서버도 stale 상태였으나 watchdog 재시작 뒤 `running`, `dashboard_responding=true`, `dashboard_api_responding=true`로 복구됐다.
+  - 09:35 장중 수집 확인 heartbeat를 등록했다.
+- 대시보드:
+  - `python -m app --build-dashboard`를 실행해 최신 dashboard snapshot을 `2026-05-08T03:27:23.027323+09:00`로 갱신했다.
+- 정본 gate walk-forward:
+  - `python -m app --run-gate-walk-forward --horizon-min 15` 실행.
+  - `parameter_profile=gate_reference_v1`, `command_source=cli_run_gate_walk_forward`, `feature_market_source=cybos-historical`.
+  - 결과: `folds=118`, `rows_evaluated=5900000`, `trades_taken=1572715`, `overall_accuracy=0.416342`, `trade_hit_rate=0.125765`, `cumulative_net_return_pct=-170736.127782`.
+  - 설정 provenance와 Cybos source 분리는 정상화됐지만, gate 성능 조건은 통과하지 못했다.
+- challenger 재평가:
+  - `python -m app --run-challengers --horizon-min 15` 실행.
+  - `recommended_action=keep_active`, `walk_forward_gate_status=needs_review`.
+  - 최신 LightGBM 후보는 `overall_accuracy=0.343409`, `trade_hit_rate=0.170136`, `cumulative_net_return_pct=-46489.671791`.
+  - 이전의 LightGBM 0.92 수준 validation 과열은 사라졌고, 현재 challenger와 gate reference는 모두 부정적 방향으로 일관된다.
+- 모델 개선 실험:
+  - `bar_context_momentum` 피처셋으로 Cybos LightGBM 실험을 실행했다.
+  - walk-forward 결과: `folds=12`, `rows_evaluated=600000`, `trades_taken=6666`, `overall_accuracy=0.535122`, `trade_hit_rate=0.282628`, `cumulative_gross_return_pct=529.484167`, `cumulative_net_return_pct=-190.443833`.
+  - 판단: gross 기준 방향성은 일부 있으나 거래비용 `0.108%`를 넘지 못한다. 현재 병목은 비용을 초과하는 거래 선별 능력 부족이다.
+- 다음:
+  - 모델 승격은 보류한다.
+  - 장중 수집이 실제로 09:00 이후 누적되는지 09:35 heartbeat에서 확인한다.
+  - 다음 모델 실험은 비용 초과 기대값을 직접 기준으로 삼는 평가/학습 구조 또는 거래 빈도 억제 방향을 우선한다.
+
 ## [2026-05-08] Codex → WSL/D드라이브 경로 정리
 
 - 환경 확인:

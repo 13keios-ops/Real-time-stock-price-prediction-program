@@ -1,5 +1,41 @@
 # docs/STATUS.md
 
+## [2026-05-08 03:30] 장전 운영 상태, gate reference 재생성, Cybos momentum 실험
+
+- 장전 운영 상태:
+  - 확인 시각: `2026-05-08 02:29 KST`.
+  - 현재 장 상태는 `pre-open`이고, 정규장 시작 60분 전이 아니므로 live runtime이 꺼져 있는 것은 정상 범위다.
+  - `runtime watchdog`이 stale 상태였기 때문에 `./scripts/start_runtime_watchdog_background.sh`로 재기동했다.
+  - 재기동 후 watchdog 상태는 `running`, `live_runtime_should_run=false`, `live_runtime_action=off_session_hold_pre-open`.
+  - 대시보드 서버도 stale 상태였으나 watchdog 재시작 뒤 `running`, `dashboard_responding=true`, `dashboard_api_responding=true`로 복구됐다.
+  - 09:35 장중 수집 확인 heartbeat를 등록했다. 확인 대상은 watchdog/live runtime 상태와 09:00~09:35 사이 `curated_minute_bars`, `feature_model_inputs` 누적 상태다.
+- 대시보드:
+  - `python -m app --build-dashboard`를 실행해 `runtime-data/reports/dashboard/latest-dashboard.html`, `.json`을 갱신했다.
+  - 최신 생성 시각: `2026-05-08T03:27:23.027323+09:00`.
+- 정본 gate walk-forward:
+  - 실행 명령: `python -m app --run-gate-walk-forward --horizon-min 15`.
+  - `parameter_profile=gate_reference_v1`, `command_source=cli_run_gate_walk_forward`, `feature_market_source=cybos-historical`.
+  - 결과: `folds=118`, `rows_evaluated=5,900,000`, `trades_taken=1,572,715`.
+  - `overall_accuracy=0.416342`, `trade_hit_rate=0.125765`, `cumulative_gross_return_pct=-882.907782`, `cumulative_net_return_pct=-170736.127782`.
+  - 판단: 설정 provenance와 Cybos source 분리는 정상화됐지만, gate 통과 조건에는 크게 미달한다.
+- challenger 재평가:
+  - 실행 명령: `python -m app --run-challengers --horizon-min 15`.
+  - `challenger_run_id=challenger-h15-20260508024418178175`.
+  - `recommended_action=keep_active`, `decision_reason=The top challenger matches the current active model.`
+  - `walk_forward_gate_status=needs_review`, 사유: `Walk-forward overall accuracy is too low (0.4163).`
+  - 최신 LightGBM 후보는 `overall_accuracy=0.343409`, `trade_hit_rate=0.170136`, `cumulative_net_return_pct=-46489.671791`로 승격 불가.
+  - 이전의 LightGBM 0.92 수준 비정상 validation 격차는 사라졌고, 현재는 gate/challenger 모두 부정적 방향으로 일관된다.
+- 모델 개선 실험:
+  - 실행 명령: `python -m app --run-cybos-bar-only-experiment --horizon-min 15 --cybos-experiment-feature-set bar_context_momentum --cybos-experiment-train-max-rows 100000 --cybos-experiment-walk-test-rows 50000 --cybos-experiment-walk-step-rows 100000 --cybos-experiment-walk-gap-rows 15 --cybos-experiment-walk-max-folds 20`.
+  - 피처셋: `avg_trade_size`, `hl_range_pct`, `return_1m_pct`, `close_position_pct`, `minute_slot_pct`, `log_volume`, `prev_return_pct`, `prev_hl_range_pct`, `log_volume_delta`.
+  - feature importance 상위 5개: `minute_slot_pct`, `hl_range_pct`, `prev_hl_range_pct`, `prev_return_pct`, `return_1m_pct`.
+  - validation: `overall_accuracy=0.517758`, `trade_hit_rate=0.282409`, `cumulative_gross_return_pct=1449.501001`, `cumulative_net_return_pct=-1552.142999`.
+  - walk-forward: `folds=12`, `rows_evaluated=600,000`, `trades_taken=6,666`, `overall_accuracy=0.535122`, `trade_hit_rate=0.282628`, `cumulative_gross_return_pct=529.484167`, `cumulative_net_return_pct=-190.443833`.
+  - 판단: 방향성 신호가 일부 있어 gross 기준은 양수지만, 왕복 비용 `0.108%`를 넘지 못한다. 현재 병목은 예측 정확도 자체보다 비용을 넘는 거래 선별 능력 부족이다.
+- 다음 판단:
+  - 현 상태에서는 모델 승격하지 않는다.
+  - 다음 실험은 수동 threshold 튜닝보다 비용 초과 기대값을 직접 학습/평가하는 구조, 거래 빈도 억제, 또는 장중 KIS 실데이터 누적 확인을 우선한다.
+
 ## [2026-05-08 00:25] WSL/D드라이브 경로 정리
 
 - 원인:
