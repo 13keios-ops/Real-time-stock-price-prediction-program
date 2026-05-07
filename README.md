@@ -3,6 +3,14 @@
 국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
 현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
 
+## 궁극 운영 목표
+
+이 프로그램의 궁극적인 목표는 단일 모델이 바로 돈을 버는 구조가 아니라, `데이터 수집 -> 전략 후보 생성 -> 비용/슬리피지/세금 반영 검증 -> walk-forward 검증 -> paper 운용 -> 소액 실전 검증 -> 리스크 제한 운용 -> 일일 분석 -> 승격/폐기`가 반복되는 로컬 투자 연구·운영 시스템이다.
+
+수익 목표는 과도한 일간 고정 수익률을 약속하는 방향이 아니라, 손실일을 작게 제한하고 유리한 장세에서 수익 기회를 키우는 방향으로 둔다. 현재 연구 목표는 월 누적 `+50%`를 장기 stretch target 으로 기록하되, 이 값은 보장 수익률이나 즉시 운용 기준이 아니다. 전략 승격은 비용 반영 양수, 구간 분리 재현성, 최대 낙폭, 연속 손실, paper 운용 결과를 함께 통과한 경우에만 검토한다.
+
+장중 데이터 수집은 연구 실험과 분리된 백그라운드 운영 축으로 유지한다. 일반 거래일에는 `runtime watchdog`이 정규장 시작 전부터 live runtime 을 켜고, 장중 KIS WebSocket 체결/호가 데이터를 계속 쌓는다. 오프라인 ML/룰 실험은 이 수집기를 끄지 않고 기존 DB와 리포트를 읽는 방식으로 실행한다. 코스피200 Cybos 갱신은 Windows COM API 제약 때문에 장후 배치 수집과 WSL 병합 흐름으로 분리한다.
+
 ## 핵심 문서
 
 - `AGENTS.md`: 저장소 운영 규칙의 단일 기준
@@ -272,9 +280,10 @@ python -m app --run-cybos-bar-only-experiment --horizon-min 15 --cybos-experimen
 python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cost-pct 0.13
+python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
 ```
 
-이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다. 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다. profitability review는 F-5 재현, 거래 원장 손익 진단, 왕복 비용 기준선, train-only confidence threshold, H60 bar-only 비교를 연구 리포트로 남긴다. label sensitivity review는 threshold를 자동 채택하지 않고 비용 기준 라벨 민감도만 진단한다. label reproducibility review는 민감도 진단에서 튄 threshold를 다른 fold 설계와 기간 샘플로 재검증한다.
+이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다. 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다. profitability review는 F-5 재현, 거래 원장 손익 진단, 왕복 비용 기준선, train-only confidence threshold, H60 bar-only 비교를 연구 리포트로 남긴다. label sensitivity review는 threshold를 자동 채택하지 않고 비용 기준 라벨 민감도만 진단한다. label reproducibility review는 민감도 진단에서 튄 threshold를 다른 fold 설계와 기간 샘플로 재검증한다. rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교하되, 최고 결과를 자동 승격하지 않는다.
 
 월요일 전 shadow ML 갱신 일괄 실행:
 

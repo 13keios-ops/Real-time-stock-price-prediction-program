@@ -5,6 +5,10 @@
 이 프로젝트는 국내 주식 실시간 데이터를 로컬에 저장하고, 분봉과 특징을 만들고, 15분/60분 예측과 모의운용 검증까지 이어지는 기본 운영 흐름을 갖췄다.
 현재 목표는 실전 자동매매가 아니라 `수집 -> 특징 생성 -> 예측 -> 로컬 모의운용 + KIS 모의계좌 검증 -> 리포트` 흐름을 안정화하는 것이다.
 
+궁극적인 동작 목표는 `데이터 수집 -> 전략 후보 생성 -> 비용/슬리피지/세금 반영 검증 -> walk-forward 검증 -> paper 운용 -> 소액 실전 검증 -> 리스크 제한 운용 -> 일일 분석 -> 승격/폐기`가 반복되는 로컬 투자 연구·운영 시스템이다. 수익 목표는 과도한 일간 고정 수익률이 아니라 손실일을 제한하고 유리한 장세에서 수익 기회를 키우는 구조로 둔다. 월 누적 `+50%`는 장기 stretch target 으로 기록하지만, 보장 수익률이나 즉시 실전 운용 기준은 아니다.
+
+장중 데이터 수집은 실험과 분리된 백그라운드 축으로 유지한다. 일반 거래일에는 `runtime watchdog`이 live runtime 을 켜서 KIS WebSocket 체결/호가 데이터를 계속 쌓고, 오프라인 ML/룰 실험은 이 수집기를 끄지 않고 DB와 리포트를 읽는다. 코스피200 Cybos 갱신은 Windows COM API 제약 때문에 장후 배치 수집과 WSL 병합 흐름으로 분리한다.
+
 현재 기본 운영 자세는 아래와 같다.
 
 - 기본 거래 모드: `paper`
@@ -147,6 +151,7 @@ python -m app --run-cybos-bar-only-experiment --horizon-min 15
 python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cost-pct 0.13
+python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
 ```
 
 현재 ML 기준은 아래와 같다.
@@ -158,6 +163,7 @@ python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cos
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
+- Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.
 - Cybos 연구 실험의 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다.
 - Cybos 손익 진단은 F-5 재현, 거래 원장 기반 손익 분해, 0.13% 왕복 비용 기준선, train-only confidence threshold, 60분 horizon 비교를 리포트로 남긴다.
 - Cybos 라벨 민감도 진단은 threshold별 결과를 비교하되, 가장 좋은 threshold를 자동 채택하지 않는다.

@@ -39,6 +39,13 @@ CYBOS_PROFITABILITY_COST_PCT = 0.13
 CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
 CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
+CYBOS_RULE_CHALLENGER_STRATEGIES = (
+    "opening_momentum",
+    "range_expansion",
+    "momentum_follow",
+    "pullback_bounce",
+    "quiet_breakout",
+)
 CYBOS_EXPERIMENT_FEATURE_SETS: dict[str, list[str]] = {
     "bar_only": BAR_ONLY_FEATURE_NAMES,
     "bar_context": [
@@ -2018,6 +2025,317 @@ def _label_reproducibility_decision(
     }
 
 
+def _optional_float_text(value: object, digits: int = 6) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _rule_strategy_specs() -> dict[str, dict[str, object]]:
+    return {
+        "opening_momentum": {
+            "description": "장 초반 강한 양봉과 종가 위치를 보는 long-only momentum rule",
+            "direction": "long_only",
+        },
+        "range_expansion": {
+            "description": "큰 장중 범위와 상단 종가 마감을 보는 long-only breakout rule",
+            "direction": "long_only",
+        },
+        "momentum_follow": {
+            "description": "직전 봉과 현재 봉이 함께 양수인 단기 추세 지속 rule",
+            "direction": "long_only",
+        },
+        "pullback_bounce": {
+            "description": "직전 하락 뒤 현재 봉 반등과 종가 위치를 보는 long-only bounce rule",
+            "direction": "long_only",
+        },
+        "quiet_breakout": {
+            "description": "직전 좁은 변동 뒤 거래량 증가와 상방 돌파를 보는 long-only breakout rule",
+            "direction": "long_only",
+        },
+    }
+
+
+def _bar_value(row: dict[str, object], name: str, default: float = 0.0) -> float:
+    values = row.get("values", {})
+    if not isinstance(values, dict):
+        return default
+    try:
+        return float(values.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _rule_signal(row: dict[str, object], strategy_name: str) -> bool:
+    ret = _bar_value(row, "return_1m_pct")
+    prev_ret = _bar_value(row, "prev_return_pct")
+    hl_range = _bar_value(row, "hl_range_pct")
+    prev_range = _bar_value(row, "prev_hl_range_pct")
+    close_position = _bar_value(row, "close_position_pct", 50.0)
+    minute_slot = _bar_value(row, "minute_slot_pct")
+    log_volume_delta = _bar_value(row, "log_volume_delta")
+
+    if strategy_name == "opening_momentum":
+        return minute_slot <= 0.25 and ret >= 0.12 and close_position >= 65.0 and log_volume_delta >= 0.0
+    if strategy_name == "range_expansion":
+        return hl_range >= 0.45 and ret >= 0.12 and close_position >= 70.0
+    if strategy_name == "momentum_follow":
+        return prev_ret >= 0.08 and ret >= 0.08 and close_position >= 60.0
+    if strategy_name == "pullback_bounce":
+        return prev_ret <= -0.20 and ret >= 0.08 and close_position >= 55.0
+    if strategy_name == "quiet_breakout":
+        return prev_range <= 0.20 and ret >= 0.10 and close_position >= 65.0 and log_volume_delta >= 0.25
+    raise ValueError(f"Unsupported Cybos rule challenger strategy: {strategy_name}")
+
+
+def _max_drawdown_pct(net_returns: list[float]) -> float:
+    cumulative = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for net_return in net_returns:
+        cumulative += net_return
+        peak = max(peak, cumulative)
+        max_drawdown = min(max_drawdown, cumulative - peak)
+    return max_drawdown
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def _longest_losing_streak(net_returns: list[float]) -> int:
+    longest = 0
+    current = 0
+    for net_return in net_returns:
+        if net_return <= 0:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def _rule_metrics_from_ledger(
+    *,
+    strategy_name: str,
+    rows_evaluated: int,
+    trade_ledger: list[dict[str, object]],
+    trade_cost_pct: float,
+) -> dict[str, object]:
+    trades = len(trade_ledger)
+    hit_count = sum(1 for trade in trade_ledger if bool(trade["is_hit"]))
+    win_count = sum(1 for trade in trade_ledger if bool(trade["is_win"]))
+    gross_returns = [float(trade["gross_return_pct"]) for trade in trade_ledger]
+    net_returns = [float(trade["net_return_pct"]) for trade in trade_ledger]
+    positive_net = [value for value in net_returns if value > 0]
+    negative_net = [value for value in net_returns if value <= 0]
+    gross_sum = sum(gross_returns)
+    net_sum = sum(net_returns)
+    positive_sum = sum(positive_net)
+    negative_sum = sum(negative_net)
+    average_win = (positive_sum / len(positive_net)) if positive_net else 0.0
+    average_loss = (negative_sum / len(negative_net)) if negative_net else 0.0
+    daily_net: dict[str, float] = defaultdict(float)
+    by_symbol: dict[str, dict[str, float]] = {}
+    by_hour: dict[str, dict[str, float]] = {}
+    for trade in trade_ledger:
+        event_time = str(trade["event_time"])
+        trade_date = event_time[:10] if len(event_time) >= 10 else "unknown"
+        hour = event_time[11:13] if len(event_time) >= 13 else "unknown"
+        daily_net[trade_date] += float(trade["net_return_pct"])
+        for buckets, key in ((by_symbol, str(trade["symbol"])), (by_hour, hour)):
+            _add_trade_group_stat(
+                buckets,
+                key,
+                gross_return_pct=float(trade["gross_return_pct"]),
+                net_return_pct=float(trade["net_return_pct"]),
+                confidence=1.0,
+                is_hit=bool(trade["is_hit"]),
+                is_win=bool(trade["is_win"]),
+            )
+
+    daily_values = list(daily_net.values())
+    return {
+        "strategy_name": strategy_name,
+        "rows_evaluated": rows_evaluated,
+        "trades_taken": trades,
+        "trade_hit_rate": (hit_count / trades) if trades else 0.0,
+        "win_rate": (win_count / trades) if trades else 0.0,
+        "average_gross_return_pct": (gross_sum / trades) if trades else 0.0,
+        "average_net_return_pct": (net_sum / trades) if trades else 0.0,
+        "average_win_net_return_pct": average_win,
+        "average_loss_net_return_pct": average_loss,
+        "payoff_ratio": (average_win / abs(average_loss)) if average_loss < 0 else None,
+        "profit_factor": (positive_sum / abs(negative_sum)) if negative_sum < 0 else None,
+        "cumulative_gross_return_pct": gross_sum,
+        "cumulative_net_return_pct": net_sum,
+        "max_drawdown_pct": _max_drawdown_pct(net_returns),
+        "longest_losing_streak": _longest_losing_streak(net_returns),
+        "trade_cost_pct": trade_cost_pct,
+        "daily_return_stats": {
+            "days_traded": len(daily_values),
+            "positive_day_rate": (
+                sum(1 for value in daily_values if value > 0) / len(daily_values)
+                if daily_values
+                else 0.0
+            ),
+            "average_daily_net_return_pct": (sum(daily_values) / len(daily_values)) if daily_values else 0.0,
+            "median_daily_net_return_pct": _median(daily_values),
+            "best_daily_net_return_pct": max(daily_values) if daily_values else 0.0,
+            "worst_daily_net_return_pct": min(daily_values) if daily_values else 0.0,
+        },
+        "by_symbol": _finalize_trade_group_stats(by_symbol, sort_by_net=True),
+        "by_hour": _finalize_trade_group_stats(by_hour),
+    }
+
+
+def _evaluate_rule_rows(
+    *,
+    rows: list[dict[str, object]],
+    strategy_name: str,
+    trade_cost_pct: float,
+    fold_number: int | None = None,
+) -> dict[str, object]:
+    trade_ledger: list[dict[str, object]] = []
+    for row_index, row in enumerate(rows, start=1):
+        if not _rule_signal(row, strategy_name):
+            continue
+        future_return_pct = float(row["future_return_pct"])
+        net_return_pct = future_return_pct - trade_cost_pct
+        event_time = row["event_time"]
+        actual_label = str(row["label"])
+        trade_ledger.append(
+            {
+                "fold": fold_number,
+                "row_index": row_index,
+                "symbol": str(row["symbol"]),
+                "event_time": event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
+                "predicted_label": "up",
+                "actual_label": actual_label,
+                "gross_return_pct": future_return_pct,
+                "trade_cost_pct": trade_cost_pct,
+                "net_return_pct": net_return_pct,
+                "is_hit": actual_label == "up",
+                "is_win": net_return_pct > 0,
+            }
+        )
+    metrics = _rule_metrics_from_ledger(
+        strategy_name=strategy_name,
+        rows_evaluated=len(rows),
+        trade_ledger=trade_ledger,
+        trade_cost_pct=trade_cost_pct,
+    )
+    metrics["trade_ledger"] = trade_ledger
+    return metrics
+
+
+def _run_rule_walk_forward(
+    *,
+    rows: list[dict[str, object]],
+    strategy_names: tuple[str, ...],
+    train_rows: int,
+    test_rows: int,
+    gap_rows: int,
+    step_rows: int,
+    max_folds: int,
+    trade_cost_pct: float,
+) -> dict[str, object]:
+    if len(rows) < train_rows + gap_rows + test_rows:
+        raise ValueError("Not enough rows for Cybos rule challenger walk-forward evaluation.")
+    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
+    if max_folds > 0 and len(train_end_values) > max_folds:
+        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
+        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+
+    strategy_ledgers: dict[str, list[dict[str, object]]] = {name: [] for name in strategy_names}
+    strategy_rows_evaluated: dict[str, int] = {name: 0 for name in strategy_names}
+    fold_summaries: dict[str, list[dict[str, object]]] = {name: [] for name in strategy_names}
+
+    for fold_number, train_end in enumerate(train_end_values, start=1):
+        test_start = train_end + gap_rows
+        fold_test = rows[test_start : test_start + test_rows]
+        if not fold_test:
+            continue
+        for strategy_name in strategy_names:
+            metrics = _evaluate_rule_rows(
+                rows=fold_test,
+                strategy_name=strategy_name,
+                trade_cost_pct=trade_cost_pct,
+                fold_number=fold_number,
+            )
+            strategy_rows_evaluated[strategy_name] += len(fold_test)
+            strategy_ledgers[strategy_name].extend(list(metrics["trade_ledger"]))
+            fold_summaries[strategy_name].append(
+                {
+                    "fold": fold_number,
+                    "train_start_row": max(0, train_end - train_rows),
+                    "train_end_row": train_end - 1,
+                    "test_start_row": test_start,
+                    "test_end_row": test_start + len(fold_test) - 1,
+                    "test_start_event_time": fold_test[0]["event_time"].isoformat(),
+                    "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                    "trades_taken": int(metrics["trades_taken"]),
+                    "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                    "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                }
+            )
+
+    strategy_results: list[dict[str, object]] = []
+    for strategy_name in strategy_names:
+        metrics = _rule_metrics_from_ledger(
+            strategy_name=strategy_name,
+            rows_evaluated=strategy_rows_evaluated[strategy_name],
+            trade_ledger=strategy_ledgers[strategy_name],
+            trade_cost_pct=trade_cost_pct,
+        )
+        metrics["fold_summaries"] = fold_summaries[strategy_name]
+        metrics["trade_ledger_sample"] = strategy_ledgers[strategy_name][:50]
+        strategy_results.append(metrics)
+
+    return {
+        "folds": len(train_end_values),
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "gap_rows": gap_rows,
+        "step_rows": step_rows,
+        "max_folds": max_folds,
+        "trade_cost_pct": trade_cost_pct,
+        "strategy_results": strategy_results,
+    }
+
+
+def _rule_challenger_decision(strategy_results: list[dict[str, object]], min_reliable_trades: int) -> dict[str, object]:
+    reliable_positive = [
+        row
+        for row in strategy_results
+        if int(row.get("trades_taken", 0)) >= min_reliable_trades
+        and float(row.get("cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    if not reliable_positive:
+        return {
+            "label": "research_only_no_promotion",
+            "conclusion": "고정 룰 challenger 중 비용 반영 양수와 최소 거래 수를 함께 만족한 후보가 없습니다.",
+        }
+    if len(reliable_positive) == 1:
+        return {
+            "label": "single_candidate_needs_reproducibility_check",
+            "conclusion": "비용 반영 양수 후보가 하나뿐이므로 바로 채택하지 않고 기간 분리 재현성 검증으로 넘깁니다.",
+        }
+    return {
+        "label": "follow_up_candidates",
+        "conclusion": "복수의 고정 룰이 비용 반영 양수를 보여 후속 기간 분리 검증 후보로 기록합니다.",
+    }
+
+
 def run_cybos_bar_only_experiment_from_sqlite(
     *,
     project_root: Path,
@@ -2882,6 +3200,141 @@ def run_cybos_label_reproducibility_review_from_sqlite(
             f"- conclusion: {decision['conclusion']}",
             "",
             "Note: This review is diagnostic only. No label threshold is promoted automatically.",
+        ]
+    )
+    report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
+
+
+def run_cybos_rule_challenger_review_from_sqlite(
+    *,
+    project_root: Path,
+    train_max_rows: int = 100_000,
+    walk_forward_test_rows: int = 2_000,
+    walk_forward_step_rows: int = 30_000,
+    walk_forward_gap_rows: int = 15,
+    walk_forward_max_folds: int = 50,
+    trade_cost_pct: float = CYBOS_PROFITABILITY_COST_PCT,
+    min_reliable_trades: int = 30,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos rule challenger review.")
+
+    feature_set_name = "bar_context_momentum"
+    threshold = settings.strategy.label_threshold_15
+    dataset_payload = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=15,
+        threshold_pct=threshold,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+    )
+    rows = sorted(
+        list(dataset_payload["train_rows"]) + list(dataset_payload["validation_rows"]),
+        key=lambda item: (item["event_time"], str(item["symbol"])),
+    )
+    walk_forward = _run_rule_walk_forward(
+        rows=rows,
+        strategy_names=CYBOS_RULE_CHALLENGER_STRATEGIES,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+        trade_cost_pct=trade_cost_pct,
+    )
+    strategy_results = list(walk_forward["strategy_results"])
+    leaderboard = sorted(
+        strategy_results,
+        key=lambda row: (
+            float(row.get("cumulative_net_return_pct", 0.0)),
+            int(row.get("trades_taken", 0)),
+            float(row.get("profit_factor") or 0.0),
+        ),
+        reverse=True,
+    )
+    for rank, row in enumerate(leaderboard, start=1):
+        row["rank"] = rank
+        row["reliability"] = "기록 가능" if int(row.get("trades_taken", 0)) >= min_reliable_trades else "신뢰 낮음"
+
+    decision = _rule_challenger_decision(leaderboard, min_reliable_trades)
+    completed_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / "latest-cybos-rule-challengers-review.json"
+    report_md_path = report_dir / "latest-cybos-rule-challengers-review.md"
+    payload = {
+        "review": "cybos_rule_challenger_review",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "horizon_min": 15,
+        "feature_set_name": feature_set_name,
+        "feature_names": _cybos_feature_set_names(feature_set_name),
+        "label_threshold_pct": threshold,
+        "trade_cost_pct": trade_cost_pct,
+        "min_reliable_trades": min_reliable_trades,
+        "selection_policy": "research_only_no_auto_promotion",
+        "strategy_specs": _rule_strategy_specs(),
+        "settings": {
+            "train_max_rows": train_max_rows,
+            "walk_forward_test_rows": walk_forward_test_rows,
+            "walk_forward_step_rows": walk_forward_step_rows,
+            "walk_forward_gap_rows": walk_forward_gap_rows,
+            "walk_forward_max_folds": walk_forward_max_folds,
+        },
+        "dataset": {
+            "symbols": len(dataset_payload["symbols"]),
+            "trade_dates": len(dataset_payload["trade_dates"]),
+            "source_rows": dataset_payload["source_rows"],
+            "labeled_rows": dataset_payload["labeled_rows"],
+            "label_counts": dataset_payload["label_counts"],
+            "first_event_time": dataset_payload["first_event_time"],
+            "last_event_time": dataset_payload["last_event_time"],
+            "validation_start_date": dataset_payload["validation_start_date"],
+            "selected_rows": len(rows),
+        },
+        "walk_forward": {
+            key: value
+            for key, value in walk_forward.items()
+            if key != "strategy_results"
+        },
+        "leaderboard": leaderboard,
+        "decision": decision,
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    markdown_lines = [
+        "# Cybos Rule Challenger Review",
+        "",
+        f"- source: `{CYBOS_HISTORICAL_SOURCE}`",
+        "- horizon_min: `15`",
+        f"- feature_set_name: `{feature_set_name}`",
+        f"- trade_cost_pct: `{trade_cost_pct:.6f}`",
+        f"- selection_policy: `{payload['selection_policy']}`",
+        "",
+        "| rank | strategy | trades | hit_rate | win_rate | net_pct | profit_factor | max_dd | reliability |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for row in leaderboard:
+        markdown_lines.append(
+            f"| {int(row['rank'])} | `{row['strategy_name']}` | {int(row['trades_taken'])} | "
+            f"{float(row['trade_hit_rate']):.6f} | {float(row['win_rate']):.6f} | "
+            f"{float(row['cumulative_net_return_pct']):.6f} | {_optional_float_text(row.get('profit_factor'))} | "
+            f"{float(row['max_drawdown_pct']):.6f} | {row['reliability']} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            f"- decision: `{decision['label']}`",
+            f"- conclusion: {decision['conclusion']}",
+            "",
+            "Note: These are fixed research rules. The best historical row is not promoted automatically.",
         ]
     )
     report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")

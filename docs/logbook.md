@@ -1,5 +1,41 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 궁극 운영 목표 문서화와 G-1 룰 기반 challenger
+
+- 변경 파일:
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `scripts/wsl_ops.py`
+  - `tests/test_research_pipeline.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - README와 Current Implementation에 궁극 운영 목표를 명시했다.
+  - 목표는 `데이터 수집 -> 전략 후보 생성 -> 비용/슬리피지/세금 반영 검증 -> walk-forward 검증 -> paper 운용 -> 소액 실전 검증 -> 리스크 제한 운용 -> 일일 분석 -> 승격/폐기`가 반복되는 로컬 투자 연구·운영 시스템으로 정리했다.
+  - 월 누적 `+50%`는 장기 stretch target 으로 기록하되, 보장 수익률이나 즉시 실전 운용 기준은 아니라고 명시했다.
+  - 장중 데이터 수집은 ML/룰 실험과 분리된 background live runtime/watchdog 축으로 유지하고, 코스피200 Cybos 갱신은 장후 Windows 배치 + WSL 병합 흐름으로 분리한다고 문서화했다.
+  - `--run-cybos-rule-challengers` CLI를 추가해 고정 long-only 룰 후보 5개를 비용 반영 walk-forward로 비교하도록 했다.
+  - watchdog 상태 조회가 실제 `wsl_ops.py run-watchdog-loop` 프로세스를 `stale`로 오판하지 않도록 보강했다.
+- 장중 수집 점검:
+  - `2026-05-07 15:17` 현재 WSL2 저장소 기준으로 live runtime과 runtime watchdog을 재기동했다.
+  - KIS WebSocket 연결 로그를 확인했다.
+  - `15:30` 장마감 이후 상태는 `post-close`이며 watchdog의 `off_session_hold_post-close`가 정상 동작이다.
+- G-1 실행 결과:
+  - 실행 명령: `python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13`
+  - `quiet_breakout`: `trades=669`, `trade_hit_rate=0.070254`, `net=-106.838776`
+  - `opening_momentum`: `trades=1884`, `trade_hit_rate=0.242569`, `net=-201.657683`
+  - `pullback_bounce`: `trades=6144`, `trade_hit_rate=0.148438`, `net=-855.823355`
+  - `momentum_follow`: `trades=8607`, `trade_hit_rate=0.149065`, `net=-1174.643028`
+  - `range_expansion`: `trades=11810`, `trade_hit_rate=0.168417`, `net=-1642.290757`
+- 판단:
+  - 고정 룰 challenger 5개 모두 비용 반영 기준에서 음수이므로 자동 승격하지 않는다.
+  - 다음 연구 방향은 KIS 호가 데이터 누적 기반 피처 검증 또는 더 엄격한 기간 분리/시장상태 기준 실험으로 분리한다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-rule-challengers-review.json`
+  - `runtime-data/reports/backtests/latest-cybos-rule-challengers-review.md`
+
 ## [2026-05-07] Codex → F-6b threshold 0.20 재현성 검증
 
 - 변경 파일:

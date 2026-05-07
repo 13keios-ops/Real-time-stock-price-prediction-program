@@ -11,6 +11,7 @@ from app.config.settings import load_settings
 from app.services.research import (
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
+    run_cybos_rule_challenger_review_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -18,7 +19,7 @@ from app.services.research import (
     train_centroid_baseline_from_sqlite,
     train_lightgbm_from_sqlite,
 )
-from app.storage.contracts import MarketTickEvent, OrderbookSnapshot
+from app.storage.contracts import MarketTickEvent, MinuteBar, OrderbookSnapshot
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 from app.utils.time import get_timezone
 
@@ -200,6 +201,75 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertEqual(len(label_rows), 1)
             self.assertEqual(label_rows[0]["event_time"], "2026-04-11T09:15:00+09:00")
             self.assertGreater(float(label_rows[0]["future_return_pct"]), 0.0)
+            logging.shutdown()
+
+    def test_cybos_rule_challenger_review_writes_reports(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        kst = get_timezone("Asia/Seoul")
+        runtime_root = root / ".tmp-tests" / "cybos-rule-review" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+
+            for day_index in range(10):
+                base_time = datetime(2026, 4, 1 + day_index, 9, 15, tzinfo=kst)
+                previous_close = 10000.0 + (day_index * 20)
+                for bar_index in range(26):
+                    bar_time = base_time + timedelta(minutes=15 * bar_index)
+                    if bar_index < 8:
+                        close = previous_close + 80
+                    elif bar_index < 16:
+                        close = previous_close - 80
+                    else:
+                        close = previous_close + (4 if bar_index % 2 == 0 else -4)
+                    high = max(previous_close, close) + 10
+                    low = min(previous_close, close) - 10
+                    volume = 1000 + (day_index * 10) + (bar_index * 20)
+                    writer.write_market_tick(
+                        MarketTickEvent(
+                            symbol="005930",
+                            event_time=bar_time,
+                            price=close,
+                            volume=volume,
+                            source="cybos-historical",
+                        )
+                    )
+                    writer.write_minute_bar(
+                        MinuteBar(
+                            symbol="005930",
+                            bar_time=bar_time,
+                            open=previous_close,
+                            high=high,
+                            low=low,
+                            close=close,
+                            volume=volume,
+                            trade_count=10,
+                        )
+                    )
+                    previous_close = close
+
+            result = run_cybos_rule_challenger_review_from_sqlite(
+                project_root=root,
+                train_max_rows=80,
+                walk_forward_test_rows=20,
+                walk_forward_step_rows=20,
+                walk_forward_gap_rows=1,
+                walk_forward_max_folds=5,
+                trade_cost_pct=0.13,
+            )
+
+            self.assertEqual(result["review"], "cybos_rule_challenger_review")
+            self.assertTrue(Path(str(result["report_json_path"])).exists())
+            self.assertTrue(Path(str(result["report_markdown_path"])).exists())
+            self.assertEqual(len(result["leaderboard"]), 5)
+            self.assertGreaterEqual(int(result["walk_forward"]["folds"]), 1)
             logging.shutdown()
 
 

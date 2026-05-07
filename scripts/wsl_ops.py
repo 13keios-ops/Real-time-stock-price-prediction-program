@@ -72,6 +72,10 @@ def pid_matches(pid: int | str | None, *needles: str) -> bool:
     return bool(text) and all(needle in text for needle in needles)
 
 
+def pid_matches_any(pid: int | str | None, *needle_groups: tuple[str, ...]) -> bool:
+    return any(pid_matches(pid, *needles) for needles in needle_groups)
+
+
 def find_pids(*needles: str) -> list[int]:
     found: list[int] = []
     proc = Path("/proc")
@@ -549,7 +553,7 @@ def start_watchdog(args: argparse.Namespace) -> None:
         stop_pids(find_pids("run_runtime_watchdog_loop.sh"))
     else:
         state = read_json(state_path, {})
-        if pid_matches(state.get("pid"), "run_runtime_watchdog_loop.sh"):
+        if pid_matches_any(state.get("pid"), ("run_runtime_watchdog_loop.sh",), ("wsl_ops.py", "run-watchdog-loop")):
             state.update({"status": "running", "process_running": True})
             write_json(state_path, state)
             return
@@ -600,7 +604,7 @@ def get_watchdog_status(args: argparse.Namespace) -> None:
     if not state:
         print(json.dumps({"status": "stopped", "process_running": False, "raw_status": "missing", "message": "Runtime watchdog state not found."}, indent=2))
         return
-    running = pid_matches(state.get("pid"), "run_runtime_watchdog_loop.sh")
+    running = pid_matches_any(state.get("pid"), ("run_runtime_watchdog_loop.sh",), ("wsl_ops.py", "run-watchdog-loop"))
     interval = int(state.get("interval_seconds") or 60)
     stale_after = args.heartbeat_stale_after_seconds or max(interval * 10, 600)
     age = None

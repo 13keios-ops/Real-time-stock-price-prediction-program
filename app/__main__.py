@@ -35,6 +35,7 @@ from app.services.research import (
     run_cybos_label_sensitivity_review_from_sqlite,
     run_cybos_label_reproducibility_review_from_sqlite,
     run_cybos_profitability_review_from_sqlite,
+    run_cybos_rule_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
     set_builtin_model_active,
@@ -77,6 +78,7 @@ def main() -> int:
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
     parser.add_argument("--run-cybos-label-sensitivity-review", action="store_true", help="Run Cybos F-6 label threshold sensitivity diagnostics.")
     parser.add_argument("--run-cybos-label-reproducibility-review", action="store_true", help="Run Cybos F-6b threshold reproducibility diagnostics.")
+    parser.add_argument("--run-cybos-rule-challengers", action="store_true", help="Run fixed Cybos rule-based challenger diagnostics.")
     parser.add_argument("--promote-best-challenger", action="store_true", help="Promote the best challenger to the active registry entry.")
     parser.add_argument("--seed-synthetic-data", action="store_true", help="Seed synthetic intraday market data into JSONL and SQLite.")
     parser.add_argument("--replay-sample-ws", action="store_true", help="Replay sample WebSocket frames through the online pipeline.")
@@ -114,6 +116,11 @@ def main() -> int:
     parser.add_argument("--cybos-experiment-walk-max-folds", type=int, default=120, help="Maximum sampled folds for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-feature-set", default="bar_only", help="Feature set for Cybos experiment: bar_only, bar_context, or bar_context_momentum.")
     parser.add_argument("--cybos-profitability-cost-pct", type=float, default=0.13, help="Round-trip cost pct for Cybos profitability review.")
+    parser.add_argument("--cybos-rule-train-max-rows", type=int, default=100000, help="Training-window rows used to position Cybos rule challenger walk-forward folds.")
+    parser.add_argument("--cybos-rule-walk-test-rows", type=int, default=2000, help="Per-fold test rows for Cybos rule challenger review.")
+    parser.add_argument("--cybos-rule-walk-step-rows", type=int, default=30000, help="Fold step rows for Cybos rule challenger review.")
+    parser.add_argument("--cybos-rule-walk-gap-rows", type=int, default=15, help="Gap rows for Cybos rule challenger review.")
+    parser.add_argument("--cybos-rule-walk-max-folds", type=int, default=50, help="Maximum sampled folds for Cybos rule challenger review.")
     parser.add_argument("--minutes", type=int, default=80, help="Minute count for synthetic data seeding.")
     parser.add_argument("--max-frames", type=int, default=50, help="Maximum number of WebSocket frames to consume. Use 0 for unlimited listening.")
     parser.add_argument("--max-reconnects", type=int, default=2, help="Maximum reconnect attempts for KIS WebSocket listening.")
@@ -263,6 +270,19 @@ def main() -> int:
     if args.run_cybos_label_reproducibility_review:
         result = run_cybos_label_reproducibility_review_from_sqlite(
             project_root=project_root,
+            trade_cost_pct=args.cybos_profitability_cost_pct,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_cybos_rule_challengers:
+        result = run_cybos_rule_challenger_review_from_sqlite(
+            project_root=project_root,
+            train_max_rows=args.cybos_rule_train_max_rows,
+            walk_forward_test_rows=args.cybos_rule_walk_test_rows,
+            walk_forward_step_rows=args.cybos_rule_walk_step_rows,
+            walk_forward_gap_rows=args.cybos_rule_walk_gap_rows,
+            walk_forward_max_folds=args.cybos_rule_walk_max_folds,
             trade_cost_pct=args.cybos_profitability_cost_pct,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -460,7 +480,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --run-cybos-rule-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
     )
     return 2
 

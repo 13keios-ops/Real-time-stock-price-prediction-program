@@ -1,5 +1,25 @@
 # docs/STATUS.md
 
+## [2026-05-07 15:30] G-1 Cybos 룰 기반 challenger 진단
+
+- 목적: Cybos 15분 bar-only ML의 threshold 튜닝 우선순위를 낮추고, 해석 가능한 고정 long-only 룰 후보가 비용을 넘는지 확인했다.
+- 실행 명령: `python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13`
+- 실행 리포트: `runtime-data/reports/backtests/latest-cybos-rule-challengers-review.{json,md}`
+- 공통 설정: `source=cybos-historical`, horizon `15`, feature set `bar_context_momentum`, 비용 `0.13%`, fold `42`, test rows `84,000`.
+- 정책: 최고 룰을 자동 채택하거나 active 전략으로 승격하지 않는다.
+
+| rank | strategy | trades | trade_hit_rate | win_rate | 비용 반영 net pct | profit_factor | max_drawdown_pct |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | `quiet_breakout` | 669 | 0.070254 | 0.215247 | -106.838776 | 0.198372 | -107.104815 |
+| 2 | `opening_momentum` | 1,884 | 0.242569 | 0.376327 | -201.657683 | 0.677301 | -201.657683 |
+| 3 | `pullback_bounce` | 6,144 | 0.148438 | 0.304688 | -855.823355 | 0.438917 | -861.622012 |
+| 4 | `momentum_follow` | 8,607 | 0.149065 | 0.306379 | -1174.643028 | 0.455382 | -1175.108130 |
+| 5 | `range_expansion` | 11,810 | 0.168417 | 0.317866 | -1642.290757 | 0.490418 | -1645.177930 |
+
+판단: 고정 룰 challenger 5개 모두 비용 반영 수익이 음수다. 현재 룰 후보는 승격하지 않고, 다음 후보는 KIS 호가 데이터 누적 기반 피처 검증 또는 더 엄격한 기간 분리/시장상태 기준을 별도 실험으로 설계한다.
+
+장중 수집 상태: `2026-05-07 15:17`에 현재 WSL2 저장소 기준으로 live runtime/watchdog을 재기동했고 KIS WebSocket 연결 로그를 확인했다. 이후 `15:30` 장마감으로 `post-close`가 되어 watchdog은 live runtime을 다시 켜지 않는 상태가 정상이다.
+
 ## [2026-05-07 14:54] F-6b threshold 0.20 재현성 검증
 
 - 목적: F-6에서 유일하게 양수였던 `threshold=0.20`을 채택하지 않고, 다른 fold 설계와 기간 샘플에서도 재현되는지 확인했다.
