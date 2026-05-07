@@ -10,6 +10,7 @@
   - 이동 후 `DistributionName=Ubuntu`, `BasePath=D:\WSL\Ubuntu`, `Version=2`로 확인했고, `wsl -d Ubuntu --exec /bin/bash -lc "echo ok"`가 성공했다.
   - Cybos 수집기 기본 DB 경로를 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`로 변경했다.
   - 병합 안내 경로도 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/cybos/cybos_collect.db` 기준으로 갱신했다.
+  - `AGENTS.md` 산출물 규칙에 D드라이브 우선 정책을 명시했다. 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
 - 검증:
   - 이동 후 `C:` 여유 공간은 약 17GB로 회복됐다.
   - `python -m py_compile scripts/collect_cybos_historical.py` 통과.
@@ -17,8 +18,8 @@
   - `python -m unittest discover -s tests -p "test_*.py"`: 87개 통과.
   - `python -m app --build-dashboard`: `runtime-data/reports/dashboard/latest-dashboard.html`, `latest-dashboard.json` 생성 성공.
 - 남은 수동 조치:
-  - Windows 시스템 PATH에 오래된 `J:\Program Files\Git\Git\cmd`가 남아 있어 WSL 실행 때 경고가 출력된다.
-  - 해당 항목은 Machine PATH라 관리자 권한 PowerShell에서 제거해야 한다.
+  - Windows 시스템 PATH에 오래된 `J:\Program Files\Git\Git\cmd`는 제거된 것으로 확인됐다.
+  - 현재 Codex 앱 프로세스는 제거 전 PATH를 물고 있어 이 세션의 일부 `wsl` 실행에서는 경고가 남을 수 있다. 새 PowerShell 또는 Codex 재시작 후에는 사라지는 상태로 판단한다.
 
 ## [2026-05-07 23:55] WSL 자동 시작 경로, Cybos feature 재빌드, gate reference 분리
 

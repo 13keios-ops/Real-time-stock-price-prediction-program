@@ -186,8 +186,11 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 
 ## 8. 산출물 규칙
 
+- 현재 Ubuntu WSL2 배포판은 `D:\WSL\Ubuntu` 아래에 둔다. 따라서 WSL 저장소 내부의 `runtime-data/`, `.tmp-tests/`, 모델 산출물도 물리적으로 D드라이브에 위치하는 것을 기준으로 한다.
+- 이 저장소 작업에서 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
 - 누적 실행 산출물은 `runtime-data/` 아래에 둔다.
 - 새로 내려받거나 수집하는 대용량 외부 데이터는 WSL 저장소나 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관한다. WSL에서는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 접근한다.
+- Windows 전용 수집 스크립트가 임시 DB나 중간 파일을 만들 때도 기본값은 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래로 둔다. `C:\Temp`는 이 저장소 기본 경로로 사용하지 않는다.
 - root `results/`는 만들지 않는다.
 - 임시 테스트 산출물은 `.tmp-tests/` 아래에 둘 수 있고, 검증 뒤 삭제 가능하다.
 - 모델 산출물은 `runtime-data/ml/` 아래에 둔다.

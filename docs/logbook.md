@@ -9,9 +9,12 @@
 - 조치:
   - `wsl --manage Ubuntu --move D:\WSL\Ubuntu`로 Ubuntu WSL2 배포판을 D드라이브로 이동했다.
   - 이동 후 BasePath가 `D:\WSL\Ubuntu`로 바뀐 것을 확인했고, WSL 기동 smoke test가 성공했다.
-  - Machine PATH의 `J:\Program Files\Git\Git\cmd` 제거는 관리자 권한 레지스트리 쓰기 권한이 없어 실패했다. 관리자 PowerShell 수동 조치가 필요하다.
+  - Machine PATH의 `J:\Program Files\Git\Git\cmd`는 사용자 관리자 PowerShell 조치 후 제거된 것으로 확인했다.
+  - 현재 Codex 앱 프로세스는 제거 전 PATH를 물고 있어 이 세션 일부 `wsl` 실행에는 경고가 남을 수 있다. 새 PowerShell 또는 Codex 재시작 후에는 사라지는 상태로 판단한다.
   - 앞으로 Cybos 수집 임시 DB도 C드라이브가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`를 기본값으로 사용하도록 바꿨다.
+  - `AGENTS.md`에 D드라이브 우선 정책을 명시했다. 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
 - 변경:
+  - `AGENTS.md`: WSL 배포판 위치 `D:\WSL\Ubuntu`, 대용량 작업 D드라이브 우선, `C:\Temp` 기본 사용 금지 규칙 추가.
   - `scripts/collect_cybos_historical.py`: 기본 `--db-path`를 D드라이브 데이터 경로로 변경.
   - `scripts/merge_cybos_to_main.sh`, `README.md`: 병합 예시를 `/mnt/d/CodexData/.../cybos_collect.db` 기준으로 갱신.
 - 검증:
