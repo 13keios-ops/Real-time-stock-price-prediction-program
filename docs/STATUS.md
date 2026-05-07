@@ -1,5 +1,38 @@
 # docs/STATUS.md
 
+## [2026-05-07 19:28] post-close snapshot ML 완료와 wide walk-forward 재측정
+
+- post-close ML maintenance:
+  - 상태: `ok`
+  - 완료 시각: `2026-05-07 19:14:42 +0900`
+  - snapshot DB: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260507-165315.db`
+  - snapshot runtime: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/post-close-20260507-h15/runtime-data`
+- 대시보드:
+  - `python -m app --build-dashboard`: 통과
+  - 생성 시각: `2026-05-07T19:21:42.344608+09:00`
+  - `머신러닝 현황 > 현재 운용 > 장후 자동 학습 상태` 카드에서 `status=ok`와 snapshot 경로 표시 확인.
+- snapshot 데이터 진단:
+  - raw market ticks: `2,194,180`, 범위 `2026-04-28T09:01:41+09:00` ~ `2026-05-07T15:19:28+09:00`
+  - raw orderbook ticks: `1,703,559`, 범위 `2026-04-28T09:01:41+09:00` ~ `2026-05-07T15:29:38+09:00`
+  - curated minute bars/features: `10,655`, 범위 `2026-04-28T09:01:00+09:00` ~ `2026-05-07T15:18:00+09:00`
+  - 15분 labels: `10,246`, 범위 `2026-04-28T09:01:00+09:00` ~ `2026-05-04T14:46:00+09:00`
+  - 60분 labels: `9,016`, 범위 `2026-04-28T09:01:00+09:00` ~ `2026-05-04T14:01:00+09:00`
+  - `2026-05-07`은 15:17~15:18의 20개 분봉만 있어 아직 15분 라벨로 닫히지 않았다.
+- post-close 기본 결과:
+  - LightGBM validation accuracy: `0.350991`
+  - LightGBM validation trades: `37`
+  - LightGBM validation trade_hit_rate: `0.081081`
+  - LightGBM validation cumulative_net_return_pct: `-6.839696`
+  - fresh_centroid validation cumulative_net_return_pct: `+8.118964`
+  - 기본 walk-forward는 `min_train_rows=30`, `max_train_rows=40`라 실제 승격 판단용으로는 학습창이 너무 작다.
+- 추가 실험: wide walk-forward sanity
+  - 실행 DB: 위 snapshot DB
+  - 출력 runtime: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/post-close-20260507-h15-wide-wf/runtime-data`
+  - 설정: `min_train_rows=3000`, `test_rows=500`, `step_rows=500`, `gap_rows=15`, `max_train_rows=8000`
+  - 결과: `folds=14`, `rows_evaluated=7000`, `trades_taken=1495`, `overall_accuracy=0.266857`, `trade_hit_rate=0.138462`, `cumulative_net_return_pct=-262.298425`
+
+판단: 오늘 post-close 실제 KIS 데이터 기반 모델은 승격하지 않는다. 더 현실적인 학습창에서는 손실이 확대되어, 현재 단계의 다음 개선 축은 파라미터 조정보다 장중 KIS 데이터 누적, 라벨 닫힘률 개선, 대시보드에 snapshot 실제 ML 지표를 별도 표시하는 쪽이다.
+
 ## [2026-05-07 17:20] 대시보드 장후 자동 학습 상태 표시
 
 - 목적: 장중 수집과 분리된 장후 snapshot ML maintenance 가 실제로 돌고 있는지 대시보드에서 바로 확인할 수 있게 한다.

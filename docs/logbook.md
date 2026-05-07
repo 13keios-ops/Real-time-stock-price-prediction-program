@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-07] Codex → post-close snapshot ML 완료 확인과 wide walk-forward 재측정
+
+- 확인 내용:
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 상태가 `ok`로 바뀐 것을 확인했다.
+  - 완료 시각은 `2026-05-07 19:14:42 +0900`이다.
+  - snapshot DB는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260507-165315.db`이고, snapshot runtime 은 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/post-close-20260507-h15/runtime-data`이다.
+- 대시보드:
+  - `python -m app --build-dashboard`를 다시 실행해 `runtime-data/reports/dashboard/latest-dashboard.html`과 `.json`을 갱신했다.
+  - 생성 시각은 `2026-05-07T19:21:42.344608+09:00`이다.
+  - `장후 자동 학습 상태` 카드에 `status=ok`, 완료 시각, snapshot DB/runtime 경로가 표시되는 것을 확인했다.
+- 데이터 진단:
+  - snapshot DB에는 KIS WebSocket 기반 raw market ticks `2,194,180`, raw orderbook ticks `1,703,559`, curated minute bars/features `10,655`가 있다.
+  - 15분 라벨은 `10,246`, 60분 라벨은 `9,016`이다.
+  - `2026-05-07` 데이터는 15:17~15:18의 20개 분봉뿐이라 아직 15분 라벨로 닫히지 않았다.
+- 모델 개선 실험:
+  - 기본 post-close walk-forward 는 `min_train_rows=30`, `max_train_rows=40`이라 승격 판단용으로 너무 짧다.
+  - 별도 runtime 에서 wide walk-forward sanity 를 실행했다.
+  - 명령 설정: `min_train_rows=3000`, `test_rows=500`, `step_rows=500`, `gap_rows=15`, `max_train_rows=8000`
+  - 결과: `folds=14`, `rows_evaluated=7000`, `trades_taken=1495`, `overall_accuracy=0.266857`, `trade_hit_rate=0.138462`, `cumulative_net_return_pct=-262.298425`
+- 판단:
+  - 오늘 post-close 실제 KIS 데이터 기반 모델은 승격하지 않는다.
+  - 다음 개선은 단순 파라미터 조정보다 장중 데이터 누적, 라벨 닫힘률 개선, snapshot actual-ML 지표를 대시보드에 별도 표시하는 작업이 우선이다.
+
 ## [2026-05-07] Codex → 대시보드 장후 자동 학습 상태 표시
 
 - 변경 파일:
