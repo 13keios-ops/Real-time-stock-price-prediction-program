@@ -173,33 +173,117 @@ install_git_autopush_service() {
       *) shift ;;
     esac
   done
+  if windows_startup_dir >/dev/null 2>&1; then
+    install_windows_startup_launcher \
+      "GitAutoPushWatcher.cmd" \
+      "GitAutoPushWatcher" \
+      "./scripts/start_git_autopush_watcher.sh --scan-root '$scan_root' --poll-seconds $poll"
+    return
+  fi
   ops install-autopush-service --scan-root "$scan_root" --poll-seconds "$poll"
 }
 
 remove_git_autopush_service() {
   systemctl --user disable --now git-autopush-watcher.service >/dev/null 2>&1 || true
   rm -f "$HOME/.config/systemd/user/git-autopush-watcher.service"
+  remove_windows_startup_launcher "GitAutoPushWatcher.cmd" || true
   echo "Removed git autopush user service."
 }
 
+windows_startup_dir() {
+  command -v cmd.exe >/dev/null 2>&1 || return 1
+  command -v wslpath >/dev/null 2>&1 || return 1
+
+  local appdata
+  appdata="$(cmd.exe /C echo %APPDATA% 2>/dev/null | tr -d '\r' | tail -n 1)"
+  [[ -n "$appdata" && "$appdata" != "%APPDATA%" ]] || return 1
+
+  wslpath -u "$appdata\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+}
+
+install_windows_startup_launcher() {
+  local launcher_name="$1" window_title="$2" wsl_command="$3"
+  local startup_dir
+  startup_dir="$(windows_startup_dir)" || {
+    echo "Windows startup folder is not available; skipped $launcher_name"
+    return 0
+  }
+
+  mkdir -p "$startup_dir"
+  local launcher_path="$startup_dir/$launcher_name"
+  local distro="${WSL_DISTRO_NAME:-Ubuntu}"
+  cat >"$launcher_path" <<EOF
+@echo off
+start "$window_title" /min "%SystemRoot%\System32\wsl.exe" -d "$distro" --cd "$REPO_ROOT" --exec bash -lc "$wsl_command"
+EOF
+  echo "Installed Windows startup launcher: $launcher_path"
+}
+
+remove_windows_startup_launcher() {
+  local launcher_name="$1"
+  local startup_dir
+  startup_dir="$(windows_startup_dir)" || return 0
+  rm -f "$startup_dir/$launcher_name"
+}
+
 install_runtime_service() {
+  if windows_startup_dir >/dev/null 2>&1; then
+    install_windows_startup_launcher \
+      "RealTimeStockRuntime.cmd" \
+      "RealTimeStockRuntime" \
+      "./scripts/start_runtime_autoboot.sh"
+    return
+  fi
   ops install-runtime-service
 }
 
 get_runtime_service_status() {
   local service="$HOME/.config/systemd/user/stock-runtime-autoboot.service"
-  "$PYTHON_BIN" - "$service" "$REPO_ROOT" <<'PY'
+  local startup_dir="" windows_launcher=""
+  if startup_dir="$(windows_startup_dir 2>/dev/null)"; then
+    windows_launcher="$startup_dir/RealTimeStockRuntime.cmd"
+  fi
+  "$PYTHON_BIN" - "$service" "$REPO_ROOT" "$windows_launcher" <<'PY'
 import json
 import os
 import sys
 
-service, root = sys.argv[1:3]
+service, root, windows_launcher = sys.argv[1:4]
 content = open(service, encoding="utf-8").read() if os.path.exists(service) else ""
+windows_available = bool(windows_launcher)
+windows_content = ""
+if windows_launcher and os.path.exists(windows_launcher):
+    windows_content = open(windows_launcher, encoding="utf-8", errors="replace").read()
+
+systemd_installed = os.path.exists(service)
+systemd_ok = systemd_installed and root in content and "start_runtime_autoboot.sh" in content
+windows_installed = bool(windows_launcher) and os.path.exists(windows_launcher)
+windows_ok = bool(
+    windows_available
+    and windows_installed
+    and "wsl.exe" in windows_content
+    and root in windows_content
+    and "start_runtime_autoboot.sh" in windows_content
+    and "D:\\GitHub" not in windows_content
+)
+installed = windows_installed if windows_available else systemd_installed
+ok = windows_ok if windows_available else systemd_ok
 print(json.dumps({
-    "installed": os.path.exists(service),
-    "ok": root in content,
+    "installed": installed,
+    "ok": ok,
     "launcher_path": service,
     "workspace_root": root,
+    "systemd_user_service": {
+        "installed": systemd_installed,
+        "ok": systemd_ok,
+        "path": service,
+    },
+    "windows_startup_launcher": {
+        "available": windows_available,
+        "installed": windows_installed,
+        "ok": windows_ok,
+        "path": windows_launcher,
+    },
 }, indent=2))
 PY
 }
@@ -207,6 +291,7 @@ PY
 remove_runtime_service() {
   systemctl --user disable --now stock-runtime-autoboot.service >/dev/null 2>&1 || true
   rm -f "$HOME/.config/systemd/user/stock-runtime-autoboot.service"
+  remove_windows_startup_launcher "RealTimeStockRuntime.cmd" || true
   echo "Removed runtime startup user service."
 }
 
@@ -480,6 +565,7 @@ direct_sequence() {
     run_streaming_replay_demo.sh) run_app --replay-sample-ws --symbol 005930 ;;
     run_synthetic_research_loop.sh) run_app --seed-synthetic-data --symbol 005930 --minutes 90; run_app --build-minute-bars; run_app --build-feature-dataset; run_app --train-baseline --horizon-min 15 ;;
     run_walk_forward_backtest.sh) run_app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 ;;
+    run_gate_walk_forward_backtest.sh) run_app --run-gate-walk-forward --horizon-min 15 ;;
     sync_broker_paper_orders.sh) run_app --sync-broker-paper-orders ;;
     verify_kis_ws.sh) run_app --verify-kis-ws --max-frames 20 --max-reconnects 1 ;;
     *) return 1 ;;

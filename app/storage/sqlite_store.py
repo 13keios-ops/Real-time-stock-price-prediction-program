@@ -930,6 +930,46 @@ class SQLiteRuntimeStore:
         rows = self._run_safe_read_query(query, params, missing_tables=("curated_minute_bars",))
         return list(rows) if isinstance(rows, list) else []
 
+    def fetch_minute_bars_with_market_sources(self, symbol: str | None = None) -> list[sqlite3.Row]:
+        query = """
+            SELECT
+                bars.symbol,
+                bars.bar_time,
+                bars.open,
+                bars.high,
+                bars.low,
+                bars.close,
+                bars.volume,
+                bars.trade_count,
+                GROUP_CONCAT(DISTINCT lower(ticks.source)) AS market_sources
+            FROM curated_minute_bars AS bars
+            LEFT JOIN raw_market_ticks AS ticks
+                ON ticks.symbol = bars.symbol
+               AND ticks.event_time = bars.bar_time
+        """
+        params: tuple[Any, ...] = ()
+        if symbol:
+            query += " WHERE bars.symbol = ?"
+            params = (symbol,)
+        query += """
+            GROUP BY
+                bars.symbol,
+                bars.bar_time,
+                bars.open,
+                bars.high,
+                bars.low,
+                bars.close,
+                bars.volume,
+                bars.trade_count
+            ORDER BY bars.symbol, bars.bar_time
+        """
+        rows = self._run_safe_read_query(
+            query,
+            params,
+            missing_tables=("curated_minute_bars", "raw_market_ticks"),
+        )
+        return list(rows) if isinstance(rows, list) else []
+
     def fetch_market_source_symbols(self, source: str) -> list[str]:
         query = """
             SELECT DISTINCT symbol
@@ -988,7 +1028,7 @@ class SQLiteRuntimeStore:
         )
         return list(rows) if isinstance(rows, list) else []
 
-    def fetch_feature_rows(self, horizon_min: int) -> list[sqlite3.Row]:
+    def fetch_feature_rows(self, horizon_min: int, market_source: str | None = None) -> list[sqlite3.Row]:
         query = """
             WITH orderbook_source_lookup AS (
                 SELECT
@@ -1028,11 +1068,23 @@ class SQLiteRuntimeStore:
                 ON market_source_lookup.symbol = inputs.symbol
                AND market_source_lookup.event_time = inputs.event_time
             WHERE labels.horizon_min = ?
-            ORDER BY inputs.symbol, inputs.event_time
         """
+        params: tuple[Any, ...] = (horizon_min,)
+        if market_source:
+            query += """
+                AND EXISTS (
+                    SELECT 1
+                    FROM raw_market_ticks AS source_filter_ticks
+                    WHERE source_filter_ticks.symbol = inputs.symbol
+                      AND source_filter_ticks.event_time = inputs.event_time
+                      AND lower(source_filter_ticks.source) = lower(?)
+                )
+            """
+            params = (horizon_min, market_source)
+        query += " ORDER BY inputs.symbol, inputs.event_time"
         rows = self._run_safe_read_query(
             query,
-            (horizon_min,),
+            params,
             missing_tables=("feature_model_inputs", "feature_labels"),
         )
         return list(rows) if isinstance(rows, list) else []

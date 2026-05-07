@@ -217,7 +217,7 @@ python -m app --build-runtime-report
 
 KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식 샘플 기준 최대 1년 보관으로 안내되어, 5년치 학습용 기본 backfill 은 pykrx 일봉을 15분 간격 26개 proxy bar 로 변환해 기존 `curated_minute_bars`, `raw_orderbook_ticks`, `feature_model_inputs`, `feature_labels` 구조에 적재한다.
 
-Cybos Plus 15분봉 backfill 은 Windows 32bit Python 과 Cybos Plus COM 로그인이 필요하므로 Windows PowerShell 에서 직접 실행한다. 코스피200 전체 수집 시 종목 목록은 `CpUtil.CpCodeMgr`에서 동적으로 조회하되, ETF/인덱스 등 비주식 코드가 섞일 수 있어 숫자 6자리 종목 코드만 사용한다. Windows 에서 WSL2 UNC 경로의 SQLite DB를 직접 잠그지 않도록, 수집기는 기본적으로 `C:\Temp\cybos_collect.db`에 저장하고 WSL2 안에서 main runtime DB로 병합한다. Cybos `StockChart`는 긴 기간 요청에서 행 수가 잘릴 수 있어 기본 요청 단위는 60일이다.
+Cybos Plus 15분봉 backfill 은 Windows 32bit Python 과 Cybos Plus COM 로그인이 필요하므로 Windows PowerShell 에서 직접 실행한다. 코스피200 전체 수집 시 종목 목록은 `CpUtil.CpCodeMgr`에서 동적으로 조회하되, ETF/인덱스 등 비주식 코드가 섞일 수 있어 숫자 6자리 종목 코드만 사용한다. Windows 에서 WSL2 UNC 경로의 SQLite DB를 직접 잠그지 않도록, 수집기는 기본적으로 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`에 저장하고 WSL2 안에서 main runtime DB로 병합한다. Cybos `StockChart`는 긴 기간 요청에서 행 수가 잘릴 수 있어 기본 요청 단위는 60일이다.
 
 새로 내려받거나 수집하는 대용량 외부 데이터는 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더를 사용하지 않고 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관한다. WSL2에서는 같은 위치를 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 접근한다.
 
@@ -233,11 +233,11 @@ E:\Users\Keios\AppData\Local\Programs\Python\Python311-32\python.exe `
 
 ```bash
 bash ~/projects/Real-time-stock-price-prediction-program/scripts/merge_cybos_to_main.sh \
-  --src /mnt/c/Temp/cybos_collect.db \
+  --src /mnt/d/CodexData/Real-time-stock-price-prediction-program/cybos/cybos_collect.db \
   --dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db
 ```
 
-병합이 성공하면 `source=cybos-historical` 행을 기존 `raw_market_ticks` 구조에 넣고, 15분봉은 기존 `curated_minute_bars` 기본키로 upsert 한 뒤 `--src`로 넘긴 DB를 삭제한다. 보관이 필요한 수집 DB는 병합 전에 D드라이브 보관 경로로 복사해 둔다.
+병합이 성공하면 `source=cybos-historical` 행을 기존 `raw_market_ticks` 구조에 넣고, 15분봉은 기존 `curated_minute_bars` 기본키로 upsert 한 뒤 `--src`로 넘긴 DB를 삭제한다. 원본 수집 DB를 보관해야 하면 병합 전에 같은 D드라이브 보관 경로 안에서 복사본을 만들어 둔다.
 
 2026-05-07 삼성전자 테스트 기준으로 `2021-03-30T09:15:00+09:00..2026-05-04T15:30:00+09:00` 구간 32,451개 15분봉을 `source=cybos-historical`로 병합했다. `2021-01-04..2021-03-29` 구간은 15일 단위로 재시도했지만 Cybos가 0행을 반환했다.
 
@@ -252,6 +252,16 @@ walk-forward 백테스트:
 ```bash
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 ```
+
+정본 gate reference 워크포워드:
+
+```bash
+python -m app --run-gate-walk-forward --horizon-min 15
+./scripts/run_gate_walk_forward_backtest.sh
+```
+
+이 명령은 `source=cybos-historical` 학습 행만 사용하고, 리포트 JSON에 `parameter_profile=gate_reference_v1`과 `command_source=cli_run_gate_walk_forward`를 남긴다.
+일반 실험용 `--run-walk-forward`는 `parameter_profile=ad_hoc_cli`로 남아 정본 gate reference와 구분된다.
 
 최근 실험 기준 추천 조합:
 
@@ -450,8 +460,8 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
-`install_runtime_startup_launcher.sh` 는 현재 사용자 systemd user service 를 설치해서 사용자 세션 시작 후 이 autoboot 스크립트를 실행한다.
-`get_runtime_startup_launcher_status.sh` 는 launcher 존재 여부만 보는 것이 아니라, 현재 저장소 `WorkspaceRoot` / `RuntimeDataDir` / autoboot script 경로와 일치하는지도 함께 확인한다.
+`install_runtime_startup_launcher.sh` 는 WSL2/Windows 환경에서는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다. Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 로 fallback 한다.
+`get_runtime_startup_launcher_status.sh` 는 Windows 시작프로그램 런처와 systemd user service 상태를 함께 보고, 현재 저장소 경로와 일치하는지도 확인한다.
 
 복구 직후 로컬 setup 점검:
 
@@ -610,6 +620,4 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 
 전체 복구 범위는 [RECOVERY.md](./RECOVERY.md)를 기준으로 한다.
 <!-- NAS_BACKUP_END -->
-
-
 

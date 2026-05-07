@@ -34,6 +34,8 @@ from app.utils.time import now_local
 PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
 CYBOS_HISTORICAL_SOURCE = "cybos-historical"
 PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance", "mid_price"})
+ORDERBOOKLESS_TRAINING_SOURCES = frozenset({PYKRX_DAILY_PROXY_SOURCE, CYBOS_HISTORICAL_SOURCE})
+ORDERBOOKLESS_EXCLUDED_TRAINING_FEATURES = PROXY_EXCLUDED_TRAINING_FEATURES
 BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
 CYBOS_PROFITABILITY_COST_PCT = 0.13
 CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
@@ -198,6 +200,9 @@ class WalkForwardBacktestResult:
     cumulative_net_return_pct: float
     gap_rows: int
     max_train_rows: int | None
+    parameter_profile: str
+    command_source: str
+    feature_market_source: str | None
     report_markdown_path: Path
     report_json_path: Path
 
@@ -217,6 +222,9 @@ class WalkForwardBacktestResult:
             "cumulative_net_return_pct": round(self.cumulative_net_return_pct, 6),
             "gap_rows": self.gap_rows,
             "max_train_rows": self.max_train_rows,
+            "parameter_profile": self.parameter_profile,
+            "command_source": self.command_source,
+            "feature_market_source": self.feature_market_source,
             "report_markdown_path": str(self.report_markdown_path),
             "report_json_path": str(self.report_json_path),
         }
@@ -387,10 +395,12 @@ def _split_source_list(value: object) -> set[str]:
 def _resolve_feature_row_source(row) -> str:
     sources = _split_source_list(row["orderbook_sources"] if "orderbook_sources" in row.keys() else "")
     market_sources = _split_source_list(row["market_sources"] if "market_sources" in row.keys() else "")
-    if "kis-ws" in sources:
+    if "kis-ws" in sources or "kis-ws" in market_sources:
         return "kis-ws"
-    if "kis-rest-historical" in sources:
+    if "kis-rest-historical" in sources or "kis-rest-historical" in market_sources:
         return "kis-rest-historical"
+    if CYBOS_HISTORICAL_SOURCE in market_sources:
+        return CYBOS_HISTORICAL_SOURCE
     if PYKRX_DAILY_PROXY_SOURCE in sources:
         return PYKRX_DAILY_PROXY_SOURCE
     if sources:
@@ -402,23 +412,30 @@ def _resolve_feature_row_source(row) -> str:
     return "unknown"
 
 
-def _load_labeled_feature_dataset(sqlite_store, horizon_min: int) -> tuple[list[str], list[dict[str, object]]]:
-    rows = sqlite_store.fetch_feature_rows(horizon_min=horizon_min)
+def _load_labeled_feature_dataset(
+    sqlite_store,
+    horizon_min: int,
+    *,
+    feature_market_source: str | None = None,
+) -> tuple[list[str], list[dict[str, object]]]:
+    rows = sqlite_store.fetch_feature_rows(horizon_min=horizon_min, market_source=feature_market_source)
     if len(rows) < 5:
         raise ValueError("Not enough labeled feature rows are available for training.")
 
     pending_rows: list[dict[str, object]] = []
     raw_feature_names: set[str] = set()
-    has_proxy_rows = False
+    has_orderbookless_rows = False
     for row in rows:
         raw_values = {str(key): float(value) for key, value in json.loads(row["values_json"]).items()}
         feature_source = _resolve_feature_row_source(row)
         excluded_features: list[str] = []
         effective_values = dict(raw_values)
-        if feature_source == PYKRX_DAILY_PROXY_SOURCE:
-            has_proxy_rows = True
-            excluded_features = sorted(name for name in PROXY_EXCLUDED_TRAINING_FEATURES if name in effective_values)
-            for name in PROXY_EXCLUDED_TRAINING_FEATURES:
+        if feature_source in ORDERBOOKLESS_TRAINING_SOURCES:
+            has_orderbookless_rows = True
+            excluded_features = sorted(
+                name for name in ORDERBOOKLESS_EXCLUDED_TRAINING_FEATURES if name in effective_values
+            )
+            for name in ORDERBOOKLESS_EXCLUDED_TRAINING_FEATURES:
                 effective_values.pop(name, None)
         raw_feature_names.update(effective_values.keys())
         pending_rows.append(
@@ -434,8 +451,8 @@ def _load_labeled_feature_dataset(sqlite_store, horizon_min: int) -> tuple[list[
             }
         )
 
-    if has_proxy_rows:
-        raw_feature_names.difference_update(PROXY_EXCLUDED_TRAINING_FEATURES)
+    if has_orderbookless_rows:
+        raw_feature_names.difference_update(ORDERBOOKLESS_EXCLUDED_TRAINING_FEATURES)
     feature_names = sorted(raw_feature_names)
     dataset: list[dict[str, object]] = []
     for row in pending_rows:
@@ -3455,11 +3472,13 @@ def build_feature_dataset_from_sqlite(
     if clear_existing:
         sqlite_store.clear_tables(["feature_model_inputs", "feature_labels"])
 
+    fetch_minute_bars = getattr(sqlite_store, "fetch_minute_bars_with_market_sources", sqlite_store.fetch_minute_bars)
+
     if actual_only:
         scope = build_runtime_scope(sqlite_store, settings)
         minute_bar_rows = filter_actual_rows(
             "curated_minute_bars",
-            [dict(row) for row in sqlite_store.fetch_minute_bars()],
+            [dict(row) for row in fetch_minute_bars()],
             scope,
         )
         orderbook_rows = filter_actual_rows(
@@ -3468,15 +3487,18 @@ def build_feature_dataset_from_sqlite(
             scope,
         )
     else:
-        minute_bar_rows = [dict(row) for row in sqlite_store.fetch_minute_bars()]
+        minute_bar_rows = [dict(row) for row in fetch_minute_bars()]
         orderbook_rows = [dict(row) for row in sqlite_store.fetch_orderbook_snapshots()]
 
     bars_by_symbol: dict[str, list[MinuteBar]] = defaultdict(list)
+    market_sources_by_symbol: dict[str, dict[datetime, set[str]]] = defaultdict(dict)
     for row in minute_bar_rows:
-        bars_by_symbol[row["symbol"]].append(
+        symbol = str(row["symbol"])
+        bar_time = _row_timestamp(str(row["bar_time"]))
+        bars_by_symbol[symbol].append(
             MinuteBar(
-                symbol=row["symbol"],
-                bar_time=_row_timestamp(row["bar_time"]),
+                symbol=symbol,
+                bar_time=bar_time,
                 open=float(row["open"]),
                 high=float(row["high"]),
                 low=float(row["low"]),
@@ -3485,6 +3507,7 @@ def build_feature_dataset_from_sqlite(
                 trade_count=int(row["trade_count"]),
             )
         )
+        market_sources_by_symbol[symbol][bar_time] = _split_source_list(row.get("market_sources", ""))
 
     orderbooks_by_symbol: dict[str, dict[datetime, OrderbookSnapshot]] = defaultdict(dict)
     for row in orderbook_rows:
@@ -3505,16 +3528,45 @@ def build_feature_dataset_from_sqlite(
     labels_written = 0
     feature_batch: list[FeatureSnapshot] = []
     label_batch: list[FeatureLabel] = []
+    batch_limit = 50_000
+
+    def flush_batches() -> None:
+        nonlocal feature_batch, label_batch
+        if not feature_batch and not label_batch:
+            return
+        if writer is not None:
+            writer.write_feature_snapshots_batch(feature_batch)
+            writer.write_feature_labels_batch(label_batch)
+        else:
+            sqlite_store.upsert_feature_snapshots_many(feature_batch)
+            sqlite_store.upsert_feature_labels_many(label_batch)
+        feature_batch = []
+        label_batch = []
 
     for symbol, bars in bars_by_symbol.items():
         bars.sort(key=lambda bar: bar.bar_time)
         bar_times = [bar.bar_time for bar in bars]
         latest_orderbook: OrderbookSnapshot | None = None
         for bar in bars:
-            latest_orderbook = orderbooks_by_symbol[symbol].get(bar.bar_time, latest_orderbook)
-            if latest_orderbook is None:
+            market_sources = market_sources_by_symbol[symbol].get(bar.bar_time, set())
+            if CYBOS_HISTORICAL_SOURCE in market_sources:
+                feature_orderbook = OrderbookSnapshot(
+                    symbol=bar.symbol,
+                    event_time=bar.bar_time,
+                    bid_price=bar.close,
+                    ask_price=bar.close,
+                    bid_size=0,
+                    ask_size=0,
+                    source=CYBOS_HISTORICAL_SOURCE,
+                )
+            else:
+                latest_orderbook = orderbooks_by_symbol[symbol].get(bar.bar_time, latest_orderbook)
+                if latest_orderbook is None:
+                    continue
+                feature_orderbook = latest_orderbook
+            if feature_orderbook is None:
                 continue
-            feature_snapshot = build_feature_snapshot(bar, latest_orderbook, settings.feature_set_version)
+            feature_snapshot = build_feature_snapshot(bar, feature_orderbook, settings.feature_set_version)
             feature_batch.append(feature_snapshot)
             features_written += 1
 
@@ -3536,12 +3588,10 @@ def build_feature_dataset_from_sqlite(
                 label_batch.append(label)
                 labels_written += 1
 
-    if writer is not None:
-        writer.write_feature_snapshots_batch(feature_batch)
-        writer.write_feature_labels_batch(label_batch)
-    else:
-        sqlite_store.upsert_feature_snapshots_many(feature_batch)
-        sqlite_store.upsert_feature_labels_many(label_batch)
+            if len(feature_batch) >= batch_limit or len(label_batch) >= batch_limit:
+                flush_batches()
+
+    flush_batches()
 
     return FeatureDatasetBuildResult(
         features_written=features_written,
@@ -3640,6 +3690,8 @@ def rebuild_actual_runtime_ml_state(project_root: Path, horizon_min: int = 15) -
             step_rows=10,
             gap_rows=15,
             max_train_rows=40,
+            parameter_profile="post_close_quick_rebuild",
+            command_source="rebuild_actual_runtime_ml_state",
         )
     except ValueError as exc:
         errors["walk_forward"] = str(exc)
@@ -4029,6 +4081,9 @@ def run_walk_forward_backtest_from_sqlite(
     step_rows: int | None = None,
     gap_rows: int | None = None,
     max_train_rows: int | None = None,
+    parameter_profile: str = "ad_hoc",
+    command_source: str = "run_walk_forward_backtest_from_sqlite",
+    feature_market_source: str | None = None,
 ) -> WalkForwardBacktestResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -4036,7 +4091,11 @@ def run_walk_forward_backtest_from_sqlite(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for walk-forward backtesting.")
 
-    feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+    )
     if step_rows is None:
         step_rows = test_window_rows
     if gap_rows is None:
@@ -4161,6 +4220,9 @@ def run_walk_forward_backtest_from_sqlite(
         "step_rows": step_rows,
         "gap_rows": gap_rows,
         "max_train_rows": max_train_rows,
+        "parameter_profile": parameter_profile,
+        "command_source": command_source,
+        "feature_market_source": feature_market_source,
         "fold_summaries": fold_summaries,
     }
 
@@ -4203,6 +4265,9 @@ def run_walk_forward_backtest_from_sqlite(
         f"- `cumulative_net_return_pct`: {aggregate_net:.4f}",
         f"- `gap_rows`: {gap_rows}",
         f"- `max_train_rows`: {max_train_rows if max_train_rows is not None else 'full-history'}",
+        f"- `parameter_profile`: {parameter_profile}",
+        f"- `command_source`: {command_source}",
+        f"- `feature_market_source`: {feature_market_source or 'all'}",
         "",
         "## Fold Summary",
         "",
@@ -4232,6 +4297,9 @@ def run_walk_forward_backtest_from_sqlite(
         cumulative_net_return_pct=aggregate_net,
         gap_rows=gap_rows,
         max_train_rows=max_train_rows,
+        parameter_profile=parameter_profile,
+        command_source=command_source,
+        feature_market_source=feature_market_source,
         report_markdown_path=markdown_path,
         report_json_path=json_path,
     )

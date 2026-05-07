@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_DB_PATH = r"C:\Temp\cybos_collect.db"
+DEFAULT_DB_PATH = r"D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db"
 DEFAULT_SOURCE = "cybos-historical"
 KST = timezone(timedelta(hours=9))
 KOREAN_STOCK_SYMBOL_RE = re.compile(r"^[0-9]{6}$")
@@ -97,7 +97,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--db-path",
         default=DEFAULT_DB_PATH,
-        help="SQLite DB path. Defaults to C:\\Temp\\cybos_collect.db.",
+        help=(
+            "SQLite DB path. Defaults to "
+            "D:\\CodexData\\Real-time-stock-price-prediction-program\\cybos\\cybos_collect.db."
+        ),
     )
     parser.add_argument(
         "--source",

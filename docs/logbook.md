@@ -1,5 +1,47 @@
 # 작업 기록
 
+## [2026-05-08] Codex → WSL/D드라이브 경로 정리
+
+- 환경 확인:
+  - `C:` 여유 공간이 약 0.8GB, `D:` 여유 공간이 약 970GB로 확인됐다.
+  - Ubuntu WSL2 배포판 BasePath가 `C:\Users\Keios\AppData\Local\wsl\{5043514c-aa32-4220-928c-802d47b0f90b}`로 확인됐다.
+  - Windows Machine PATH에 오래된 `J:\Program Files\Git\Git\cmd`가 남아 있고, User PATH에는 없음을 확인했다.
+- 조치:
+  - `wsl --manage Ubuntu --move D:\WSL\Ubuntu`로 Ubuntu WSL2 배포판을 D드라이브로 이동했다.
+  - 이동 후 BasePath가 `D:\WSL\Ubuntu`로 바뀐 것을 확인했고, WSL 기동 smoke test가 성공했다.
+  - Machine PATH의 `J:\Program Files\Git\Git\cmd` 제거는 관리자 권한 레지스트리 쓰기 권한이 없어 실패했다. 관리자 PowerShell 수동 조치가 필요하다.
+  - 앞으로 Cybos 수집 임시 DB도 C드라이브가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`를 기본값으로 사용하도록 바꿨다.
+- 변경:
+  - `scripts/collect_cybos_historical.py`: 기본 `--db-path`를 D드라이브 데이터 경로로 변경.
+  - `scripts/merge_cybos_to_main.sh`, `README.md`: 병합 예시를 `/mnt/d/CodexData/.../cybos_collect.db` 기준으로 갱신.
+- 검증:
+  - 이동 후 `C:` 여유 공간이 약 17GB로 회복됐다.
+  - `python -m py_compile scripts/collect_cybos_historical.py` 통과.
+  - `bash -n scripts/merge_cybos_to_main.sh scripts/run_gate_walk_forward_backtest.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 87개 통과.
+  - `python -m app --build-dashboard`: `runtime-data/reports/dashboard/latest-dashboard.html`, `latest-dashboard.json` 생성 성공.
+
+## [2026-05-07] Codex → WSL 자동 시작, Cybos feature 재빌드, gate reference 분리
+
+- WSL 정본 자동 시작:
+  - Windows 시작프로그램의 `RealTimeStockRuntime.cmd`, `GitAutoPushWatcher.cmd`가 예전 `D:\GitHub\Real-time-stock-price-prediction-program` 경로를 가리키던 것을 확인했다.
+  - 두 런처를 현재 WSL 정본 저장소 `/home/keios/projects/Real-time-stock-price-prediction-program` 기준 `wsl.exe -d Ubuntu --cd ...` 명령으로 갱신했다.
+  - WSL systemd user service는 이 환경에서 WSL 세션 불안정을 일으킬 수 있어 비활성화/삭제했다.
+  - `install_runtime_startup_launcher.sh`, `install_git_autopush_startup_launcher.sh`는 Windows 시작프로그램을 사용할 수 있으면 systemd user service를 만들지 않고 Windows 런처만 갱신하도록 바꿨다.
+  - 검증: `get_runtime_startup_launcher_status.sh` 결과 `installed=true`, `ok=true`, `windows_startup_launcher.ok=true`, systemd service `not-found`.
+- Cybos feature/label:
+  - 원인: 기존 feature builder가 호가 snapshot이 있는 분봉만 feature를 생성해, 호가가 없는 `cybos-historical` 15분봉 대부분이 학습 feature에 들어오지 못했다.
+  - 조치: `source=cybos-historical` 분봉은 내부 synthetic orderbook으로 feature row를 만들고, 학습에서는 `mid_price`, `spread_bps`, `bid_ask_imbalance`를 제외한다.
+  - `python -m app --build-feature-dataset` 실행 완료: `features_written=6386509`, `labels_written=11544717`.
+  - 재확인: `feature_model_inputs=6386509`, `feature_labels=11544717`, labeled feature source 샘플은 `cybos-historical`.
+- Gate reference:
+  - walk-forward 리포트에 `parameter_profile`, `command_source`, `feature_market_source` provenance 를 남기도록 변경했다.
+  - 정본 gate reference 전용 명령 `python -m app --run-gate-walk-forward --horizon-min 15`와 `scripts/run_gate_walk_forward_backtest.sh`를 추가했다.
+  - gate 전용 경로는 `feature_market_source=cybos-historical`, `parameter_profile=gate_reference_v1`로 기록한다.
+- 복구 메모:
+  - 대용량 feature 재빌드 직후 WSL이 일시적으로 `Wsl/Service/E_UNEXPECTED` 상태가 되었고, Windows 재부팅 후 복구됐다.
+  - 이후 systemd user service 대신 Windows 시작프로그램 런처를 주 자동 기동 경로로 둔다.
+
 ## [2026-05-07] Codex → walk-forward 생성 경로, challenger split, live 공백 원인 진단
 
 - 정본 walk-forward 생성 경로:

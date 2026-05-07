@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/merge_cybos_to_main.sh --src /mnt/c/Temp/cybos_collect.db --dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db
+  bash scripts/merge_cybos_to_main.sh --src /mnt/d/CodexData/Real-time-stock-price-prediction-program/cybos/cybos_collect.db --dst ~/projects/Real-time-stock-price-prediction-program/runtime-data/dev.db
 
 Merges Cybos Plus historical collection rows into the main WSL2 runtime DB, then
 deletes the source collection DB after a successful merge.

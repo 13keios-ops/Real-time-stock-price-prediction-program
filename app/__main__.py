@@ -73,6 +73,7 @@ def main() -> int:
     parser.add_argument("--set-active-builtin", action="store_true", help="Set a builtin model as the active runtime model.")
     parser.add_argument("--run-backtest", action="store_true", help="Run the validation-tail backtest using the active prediction model.")
     parser.add_argument("--run-walk-forward", action="store_true", help="Run an expanding-window walk-forward backtest.")
+    parser.add_argument("--run-gate-walk-forward", action="store_true", help="Run the fixed gate-reference walk-forward profile.")
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
@@ -109,6 +110,8 @@ def main() -> int:
     parser.add_argument("--walk-forward-step-rows", type=int, default=10, help="Fold step size for walk-forward backtests.")
     parser.add_argument("--walk-forward-gap-rows", type=int, default=None, help="Gap rows between train and test windows for walk-forward backtests.")
     parser.add_argument("--walk-forward-max-train-rows", type=int, default=None, help="Maximum rolling training rows for walk-forward backtests.")
+    parser.add_argument("--walk-forward-parameter-profile", default="ad_hoc_cli", help="Provenance label written into walk-forward reports.")
+    parser.add_argument("--walk-forward-feature-market-source", default="", help="Optional raw market source filter for walk-forward feature rows.")
     parser.add_argument("--cybos-experiment-train-max-rows", type=int, default=2000, help="Training rows for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-walk-test-rows", type=int, default=2000, help="Per-fold test rows for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-walk-step-rows", type=int, default=10000, help="Fold step rows for Cybos bar-only experiment.")
@@ -215,6 +218,22 @@ def main() -> int:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
+    if args.run_gate_walk_forward:
+        result = run_walk_forward_backtest_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            min_train_rows=100000,
+            test_window_rows=50000,
+            step_rows=50000,
+            gap_rows=args.horizon_min,
+            max_train_rows=200000,
+            parameter_profile="gate_reference_v1",
+            command_source="cli_run_gate_walk_forward",
+            feature_market_source="cybos-historical",
+        )
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
     if args.run_walk_forward:
         result = run_walk_forward_backtest_from_sqlite(
             project_root=project_root,
@@ -224,6 +243,9 @@ def main() -> int:
             step_rows=args.walk_forward_step_rows,
             gap_rows=args.walk_forward_gap_rows,
             max_train_rows=args.walk_forward_max_train_rows,
+            parameter_profile=args.walk_forward_parameter_profile,
+            command_source="cli_run_walk_forward",
+            feature_market_source=args.walk_forward_feature_market_source or None,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0

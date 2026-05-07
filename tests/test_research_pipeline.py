@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.services.research import (
+    _load_labeled_feature_dataset,
+    _resolve_feature_row_source,
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
     run_cybos_rule_challenger_review_from_sqlite,
@@ -109,6 +111,9 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(walk_forward_result.folds, 1)
             self.assertEqual(walk_forward_result.gap_rows, 15)
             self.assertIsNone(walk_forward_result.max_train_rows)
+            self.assertEqual(walk_forward_result.parameter_profile, "ad_hoc")
+            self.assertEqual(walk_forward_result.command_source, "run_walk_forward_backtest_from_sqlite")
+            self.assertIsNone(walk_forward_result.feature_market_source)
             self.assertTrue(challenger_result.report_markdown_path.exists())
             self.assertTrue(challenger_result.report_json_path.exists())
             self.assertTrue(challenger_result.leaderboard_json_path.exists())
@@ -201,6 +206,64 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertEqual(len(label_rows), 1)
             self.assertEqual(label_rows[0]["event_time"], "2026-04-11T09:15:00+09:00")
             self.assertGreater(float(label_rows[0]["future_return_pct"]), 0.0)
+            logging.shutdown()
+
+    def test_cybos_bars_build_bar_only_features_without_orderbook(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        kst = get_timezone("Asia/Seoul")
+        runtime_root = root / ".tmp-tests" / "research-cybos-features" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+
+            base_time = datetime(2026, 4, 13, 9, 15, tzinfo=kst)
+            for index in range(24):
+                bar_time = base_time + timedelta(minutes=15 * index)
+                close = 70000 + (index * 10)
+                writer.write_market_tick(
+                    MarketTickEvent(
+                        symbol="005930",
+                        event_time=bar_time,
+                        price=float(close),
+                        volume=1000 + index,
+                        source="cybos-historical",
+                    )
+                )
+                writer.write_minute_bar(
+                    MinuteBar(
+                        symbol="005930",
+                        bar_time=bar_time,
+                        open=float(close - 5),
+                        high=float(close + 20),
+                        low=float(close - 20),
+                        close=float(close),
+                        volume=1000 + index,
+                        trade_count=10,
+                    )
+                )
+
+            feature_result = build_feature_dataset_from_sqlite(project_root=root, horizons=(15,))
+            sqlite_store = get_sqlite_store(settings)
+
+            self.assertIsNotNone(sqlite_store)
+            self.assertEqual(feature_result.features_written, 24)
+            self.assertGreater(feature_result.labels_written, 0)
+
+            feature_rows = sqlite_store.fetch_feature_rows(horizon_min=15)
+            self.assertGreater(len(feature_rows), 0)
+            self.assertEqual(_resolve_feature_row_source(feature_rows[0]), "cybos-historical")
+
+            feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=15)
+            self.assertEqual(feature_names, ["avg_trade_size", "hl_range_pct", "return_1m_pct"])
+            self.assertGreater(len(dataset), 0)
+            self.assertEqual(dataset[0]["feature_source"], "cybos-historical")
             logging.shutdown()
 
     def test_cybos_rule_challenger_review_writes_reports(self) -> None:

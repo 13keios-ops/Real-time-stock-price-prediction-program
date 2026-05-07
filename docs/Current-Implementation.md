@@ -103,6 +103,7 @@ python -m app --build-dashboard
 - 원시 체결/호가 행은 화면에 직접 표시하지 않고 분 단위 집계 카운트만 사용해 대시보드 재생성 부하를 낮춘다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
+- 정본 gate reference 워크포워드는 `python -m app --run-gate-walk-forward --horizon-min 15` 또는 `./scripts/run_gate_walk_forward_backtest.sh`로 생성하며, `source=cybos-historical`, `parameter_profile=gate_reference_v1` provenance 를 리포트에 남긴다.
 - 스냅샷 파일 저장은 임시 파일 교체와 짧은 재시도를 사용해, 상태 점검이 같은 JSON 파일을 읽는 순간의 동시 읽기 충돌을 줄인다.
 - SQLite 잠금이 잠깐 발생하면 연결을 끊지 않고 `일시 점검` 응답을 내려준다.
 - 저장된 pid 만 믿지 않고 실제 명령줄과 포트 응답을 함께 확인한다.
@@ -151,6 +152,7 @@ python -m app --build-dashboard
 python -m app --train-lightgbm --horizon-min 15
 python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
+python -m app --run-gate-walk-forward --horizon-min 15
 python -m app --run-challengers --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh
@@ -373,6 +375,9 @@ PC 재부팅 후 자동 시작 루틴:
 
 하위 `python -m app ...` 명령이 실패하면 성공처럼 넘기지 않고 즉시 오류로 처리한다.
 
+WSL2/Windows 환경의 `install_runtime_startup_launcher.sh`는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다.
+Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 를 fallback 으로 사용한다.
+
 ## 월요일 시작 루틴
 
 ```bash
@@ -483,6 +488,12 @@ bash 백그라운드 실행기는 Codex 자동화가 없을 때만 쓰는 예비
 
 ```bash
 ./scripts/run_walk_forward_backtest.sh
+```
+
+정본 gate reference 워크포워드:
+
+```bash
+./scripts/run_gate_walk_forward_backtest.sh
 ```
 
 현재 데이터셋 권장 워크포워드 변형:
