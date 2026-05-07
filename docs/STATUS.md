@@ -1,5 +1,33 @@
 # docs/STATUS.md
 
+## [2026-05-07 17:20] 대시보드 장후 자동 학습 상태 표시
+
+- 목적: 장중 수집과 분리된 장후 snapshot ML maintenance 가 실제로 돌고 있는지 대시보드에서 바로 확인할 수 있게 한다.
+- 변경 파일:
+  - `app/services/dashboard.py`
+  - `tests/test_dashboard.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 표시 위치:
+  - 대시보드 `머신러닝 현황` 탭
+  - `현재 운용` 하위 탭
+  - `장후 자동 학습 상태` 카드
+- 표시 항목:
+  - 상태, 기준일, 시작/완료 시각, 실행 모드, 예측 수평선, 프로세스 ID
+  - snapshot DB 경로, snapshot runtime 경로
+  - stdout/stderr 로그 경로, 오류 메시지
+- 모델 개선 병행:
+  - 현재 watchdog 이 시작한 post-close snapshot 재학습이 백그라운드에서 진행 중이다.
+  - 무거운 학습을 중복 실행하지 않고, 완료 상태와 산출물 경로를 대시보드와 상태 파일에서 추적한다.
+- 검증:
+  - `python -m py_compile app/services/dashboard.py`: 통과
+  - `python -m unittest tests.test_dashboard`: 13개 통과
+  - `python -m unittest discover -s tests -p "test_*.py"`: 86개 통과
+  - `git diff --check`: 통과
+  - `python -m app --build-dashboard`: post-close snapshot 재학습이 진행 중이라 180초 제한 내 완료되지 않음. 재학습 완료 뒤 재시도 대상.
+
 ## [2026-05-07 16:50] 장마감 후 자동 snapshot ML maintenance 연결
 
 - 목적: 사용자가 수동으로 학습을 실행하지 않아도, 장중 수집이 끝난 뒤 snapshot DB 기준으로 장후 학습/검증이 자동 실행되도록 한다.

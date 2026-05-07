@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-07] Codex → 대시보드 장후 자동 학습 상태 표시
+
+- 변경 파일:
+  - `app/services/dashboard.py`
+  - `tests/test_dashboard.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - 대시보드 `머신러닝 현황 > 현재 운용` 화면에 `장후 자동 학습 상태` 카드를 추가했다.
+  - 이 카드는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`의 상태, 기준일, 시작/완료 시각, 실행 모드, horizon, pid, snapshot DB, snapshot runtime, stdout/stderr 로그, 오류 메시지를 보여준다.
+  - 장중 수집과 연구/학습 snapshot 트랙이 분리되어 있으므로, 사용자가 터미널 로그를 직접 열지 않아도 장후 자동 학습 진행 여부를 대시보드에서 확인할 수 있다.
+- 모델 개선 병행:
+  - watchdog 이 시작한 post-close snapshot 재학습을 유지한다.
+  - 현재 실행 중인 무거운 재학습과 DB snapshot 작업을 방해하지 않기 위해 추가 중복 학습은 시작하지 않고, 완료 상태와 산출물 확인을 다음 연결점으로 둔다.
+- 검증:
+  - `python -m py_compile app/services/dashboard.py`
+  - `python -m unittest tests.test_dashboard`: 13개 통과
+  - `python -m unittest discover -s tests -p "test_*.py"`: 86개 통과
+  - `git diff --check`
+  - `python -m app --build-dashboard`: post-close snapshot 재학습 진행 중 180초 제한 내 미완료. 재학습 완료 후 실제 dashboard snapshot 재생성을 다시 확인한다.
+
 ## [2026-05-07] Codex → 장마감 후 자동 snapshot ML maintenance 연결
 
 - 변경 파일:

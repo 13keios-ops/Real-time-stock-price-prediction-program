@@ -2772,6 +2772,26 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
+    post_close_maintenance = lightgbm_status.get("latest_post_close_maintenance") or {}
+    post_close_rows = [
+        ["상태", post_close_maintenance.get("status") or "-"],
+        ["기준일", post_close_maintenance.get("maintenance_date") or "-"],
+        ["시작 시각", post_close_maintenance.get("started_at") or "-"],
+        ["완료 시각", post_close_maintenance.get("completed_at") or "-"],
+        ["실행 모드", post_close_maintenance.get("mode") or "-"],
+        [
+            "예측 수평선",
+            f"{post_close_maintenance.get('horizon_min')}분"
+            if post_close_maintenance.get("horizon_min") is not None
+            else "-",
+        ],
+        ["프로세스 ID", post_close_maintenance.get("pid") or "-"],
+        ["스냅샷 DB", post_close_maintenance.get("snapshot_path") or "-"],
+        ["스냅샷 runtime", post_close_maintenance.get("snapshot_runtime_data_dir") or "-"],
+        ["stdout 로그", post_close_maintenance.get("stdout_log_path") or "-"],
+        ["stderr 로그", post_close_maintenance.get("stderr_log_path") or "-"],
+        ["오류", post_close_maintenance.get("error") or "-"],
+    ]
     lightgbm_rows = [
         ["프레임워크", lightgbm_status.get("framework") or "-"],
         ["최신 모델 버전", lightgbm_status.get("latest_model_version") or "-"],
@@ -3089,6 +3109,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "LightGBM 실제 현황",
                         _table(["항목", "값"], lightgbm_rows, "표시할 LightGBM 현황이 없습니다.", scroll_height=330),
                         note=_esc(lightgbm_status.get("description")),
+                    ),
+                    _section_card(
+                        "장후 자동 학습 상태",
+                        _table(["항목", "값"], post_close_rows, "표시할 장후 자동 학습 상태가 없습니다.", scroll_height=330),
+                        note="장중 수집과 분리된 스냅샷 DB로 장마감 후 재학습을 수행합니다.",
                     ),
                     _section_card("모델별 상태", _table(["구분", "모델 버전", "종류", "상태", "평가 점수", "메모"], model_rows, "표시할 모델 상태가 없습니다.")),
                 ),
