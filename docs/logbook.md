@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-07] Codex → walk-forward 생성 경로, challenger split, live 공백 원인 진단
+
+- 정본 walk-forward 생성 경로:
+  - `runtime-data/reports/backtests/latest-walk-forward-h15.json`은 `2026-05-06T20:08:51.772212+09:00`에 평가되고 `20:08:58 +0900`에 파일이 갱신됐다.
+  - 현재 설정은 `min_train_rows=30`, `test_window_rows=10`, `step_rows=10`, `gap_rows=15`, `max_train_rows=200`이다.
+  - `scripts/run_walk_forward_backtest.sh` 기본 경로는 `max_train_rows`를 넘기지 않고, `--rebuild-actual-ml` 경로는 `max_train_rows=40`을 쓴다.
+  - 따라서 현재 정본 gate reference는 자동 post-close 산출물이 아니라, 2026-05-06 실험 E의 수동 명령 `--walk-forward-gap-rows 15 --walk-forward-max-train-rows 200`이 안정 경로를 덮어쓴 결과로 판단한다.
+  - 후속 후보: walk-forward JSON에 생성 명령/parameter profile을 남기고, gate reference 전용 생성 경로를 분리한다.
+- challenger 누수 진단:
+  - 현재 코드의 split은 거래일 기준 tail 20% validation + horizon purge 구조다.
+  - 정본 DB 기준 현재 15분 labeled dataset은 `343807` rows이며, train `262178` rows(`2021-01-04..2025-04-08`), validation `81629` rows(`2025-04-09..2026-05-06`)로 나뉜다.
+  - train/validation `(symbol,event_time)` overlap은 `0`, 날짜 overlap도 `0`이다.
+  - 최신 LightGBM candidate의 학습 run `train-lightgbm-h15-20260506200645749446`도 last train `2025-04-08T15:00:00+09:00`, first validation `2025-04-09T09:00:00+09:00`로 기록되어 직접 row leakage 증거는 없다.
+  - 다만 LightGBM 학습 시 validation으로 쓰인 tail 구간과 challenger evaluation 구간이 사실상 같은 기간이라, challenger metric은 독립 out-of-sample 평가가 아니라 validation 재사용 평가로 취급한다.
+  - 추가로 canonical labeled dataset source resolve 결과 `pykrx-daily-proxy=328429`, `cybos-historical=152`라서, 5년치 Cybos 병합 이후 기대한 `cybos-historical only` feature/label 상태가 아니다. 기준선 재측정 전 feature 재생성과 source resolve 점검이 필요하다.
+- 2026-05-07 live runtime 공백:
+  - 정본 DB의 2026-05-07 분봉/특징은 15:17~15:18의 20건뿐이다.
+  - WSL 정본 로그에서 2026-05-07 첫 live runtime 연결은 `15:17:48`, KIS WebSocket 연결 성공은 `15:17:50`이다.
+  - 현재 watchdog state의 `started_at`은 `2026-05-07 16:53:13 +0900`이라 장전/장중 자동 기동을 담당했다는 증거가 없다.
+  - `get_runtime_startup_launcher_status.sh` 결과는 `installed=false`, `systemctl --user is-enabled stock-runtime-autoboot.service`는 `not-found`다.
+  - 반면 오래된 local setup check에는 Windows 시작프로그램 런처가 `D:\GitHub\Real-time-stock-price-prediction-program`을 가리키던 기록이 남아 있다.
+  - 결론: 저장소 이전 뒤 WSL 정본 기준 자동 시작 런처가 재설치되지 않은 것이 5/7 장중 공백의 1차 원인이다. 다음 조치는 WSL 정본을 대상으로 한 시작 런처 재설치/검증이다.
+
 ## [2026-05-07] Codex → 정본 gate reference와 장중 수집 공백 점검
 
 - Cowork 검토 내용을 WSL2 정본 저장소 기준으로 다시 확인했다.

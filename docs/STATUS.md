@@ -1,5 +1,76 @@
 # docs/STATUS.md
 
+## [2026-05-07 21:15] walk-forward 생성 경로, challenger split, live 공백 원인 진단
+
+### 1. 정본 walk-forward 생성 경로
+
+- 정본 파일:
+  - `runtime-data/reports/backtests/latest-walk-forward-h15.json`
+  - `evaluated_at=2026-05-06T20:08:51.772212+09:00`
+  - 파일 mtime: `2026-05-06 20:08:58 +0900`
+- 현재 파일의 설정:
+  - `min_train_rows=30`
+  - `test_window_rows=10`
+  - `step_rows=10`
+  - `gap_rows=15`
+  - `max_train_rows=200`
+- 생성 경로 확인:
+  - CLI `python -m app --run-walk-forward`는 `app/__main__.py`에서 `run_walk_forward_backtest_from_sqlite()`로 직접 연결된다.
+  - CLI 기본값은 `min_train_rows=30`, `test_rows=10`, `step_rows=10`, `gap_rows=None`, `max_train_rows=None`이다.
+  - `scripts/run_walk_forward_backtest.sh`는 `scripts/script_dispatch.sh`에서 `--walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10`만 넘긴다. 따라서 현재 파일의 `gap_rows=15`, `max_train_rows=200`과 완전히 일치하지 않는다.
+  - `--rebuild-actual-ml` 경로는 `app/services/research.py`의 `rebuild_actual_runtime_ml_state()`에서 `min_train_rows=30`, `test_rows=10`, `step_rows=10`, `gap_rows=15`, `max_train_rows=40`을 쓴다. 따라서 현재 파일의 `max_train_rows=200`과 다르다.
+  - `docs/logbook.md`의 2026-05-06 실험 E 기록에 아래 수동 명령이 남아 있고, 현재 파일의 설정과 일치한다.
+    - `python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 200`
+- 판단:
+  - 현재 gate reference는 자동 post-close 산출물이 아니라, 2026-05-06 수동 실험 E 명령이 안정 경로 `latest-walk-forward-h15.json`을 덮어쓴 결과로 보는 것이 가장 타당하다.
+  - 현 구조는 생성 명령/파라미터 provenance가 JSON에 명확히 남지 않고, 모든 실행이 같은 `latest-*` 경로를 덮어쓴다. 다음 수정 후보는 walk-forward 리포트에 `command_source`/`parameter_profile`을 남기고, gate reference 생성 명령을 별도로 고정하는 것이다.
+
+### 2. challenger 누수 진단
+
+- 현재 `run_model_challenger_review_from_sqlite()`는 `app/services/research.py`에서 `_load_labeled_feature_dataset()` 후 `_split_dataset()`을 사용한다.
+- split 방식:
+  - `_date_level_tail_split()`으로 거래일 기준 tail 20%를 validation으로 분리한다.
+  - `_apply_horizon_purge()`가 validation 시작 시각 기준으로 train row를 purge한다.
+  - train에 `down/flat/up` 라벨이 모두 없을 때만 row-level fallback을 사용한다.
+- 현재 정본 DB 기준 15분 labeled dataset 진단:
+  - 전체 rows `343807`, 날짜 `1309`, 범위 `2021-01-04T09:00:00+09:00..2026-05-06T15:15:00+09:00`
+  - train rows `262178`, 날짜 `1047`, 범위 `2021-01-04..2025-04-08`
+  - validation rows `81629`, 날짜 `262`, 범위 `2025-04-09..2026-05-06`
+  - train/validation `(symbol,event_time)` overlap: `0`
+  - train/validation date overlap: `0`
+- 최신 LightGBM candidate:
+  - challenger training_run_id: `train-lightgbm-h15-20260506200645749446`
+  - 학습 당시 train rows `254350`, validation rows `78542`
+  - 학습 summary split: last train `2025-04-08T15:00:00+09:00`, first validation `2025-04-09T09:00:00+09:00`
+- 판단:
+  - LightGBM 학습 rows와 challenger evaluation rows가 같은 날짜/시각으로 직접 겹친 증거는 없다.
+  - 다만 LightGBM 학습 시 validation으로 쓴 tail 구간과 challenger가 다시 평가하는 tail validation 구간이 사실상 같은 기간이다. 따라서 현재 challenger 수치는 독립 out-of-sample 평가가 아니라 validation 재사용 평가로 본다.
+  - 즉시 확인된 문제는 직접 row leakage가 아니라 평가 독립성 부족이다. 승격 판단은 계속 walk-forward gate를 우선해야 한다.
+- 추가 관찰:
+  - 현재 canonical labeled dataset은 `pykrx-daily-proxy`가 `328429` rows로 대부분이고, `cybos-historical`로 resolve된 rows는 `152`뿐이다. 5년치 Cybos 병합과 별개로 정본 feature/label dataset이 기대한 `cybos-historical only` 상태가 아니므로, 다음 기준선 재측정 전 feature 재생성/소스 resolve를 다시 점검해야 한다.
+
+### 3. 2026-05-07 live runtime 공백 원인
+
+- 정본 DB 확인:
+  - `curated_minute_bars`: `20` rows, 범위 `2026-05-07T15:17:00+09:00..2026-05-07T15:18:00+09:00`
+  - `feature_model_inputs`: `20` rows, 같은 범위
+  - `feature_labels`: `0` rows
+- 로그 확인:
+  - `runtime-data/logs/app/app.log`와 `live-runtime.stderr.log`의 2026-05-07 첫 WSL 정본 live runtime 연결 로그는 `15:17:48`이다.
+  - `15:17:50`에 KIS WebSocket 연결은 성공했다.
+  - 09:00~15:16 사이 WSL 정본 live runtime 연결 로그는 확인되지 않았다.
+- watchdog 상태:
+  - 현재 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json`의 watchdog `started_at=2026-05-07 16:53:13 +0900`이다.
+  - 즉 당일 장전/장중 자동 기동을 담당하던 watchdog이 WSL 정본 기준으로 살아 있었다는 증거가 없다.
+- startup launcher:
+  - 현재 `./scripts/get_runtime_startup_launcher_status.sh` 결과는 `installed=false`다.
+  - `systemctl --user is-enabled stock-runtime-autoboot.service` 결과도 `not-found`다.
+  - 반면 오래된 `runtime-data/reports/recovery/latest-local-setup-check.json`에는 Windows 시작프로그램 런처가 `D:\GitHub\Real-time-stock-price-prediction-program`을 가리키던 기록이 남아 있다.
+- 판단:
+  - 5/7 장중 공백의 1차 원인은 WSL 정본 저장소 기준 watchdog/autoboot가 장전부터 자동 시작되지 않은 것이다.
+  - 저장소 이전 뒤 자동 시작 경로가 WSL 정본으로 재설치되지 않았고, 예전 D드라이브 런처 기록이 남아 있어 장전 자동 기동이 정본 DB에 도달하지 못한 것으로 본다.
+  - 다음 실질 조치는 WSL 정본을 대상으로 한 Windows 로그인 시작 런처 또는 WSL systemd user service를 설치/검증하는 것이다. OS 시작프로그램 변경이므로 별도 실행 전에 사용자 승인 또는 명시 지시가 필요하다.
+
 ## [2026-05-07 20:30] 정본 게이트 기준 walk-forward와 장중 수집 공백 점검
 
 - Cowork 검토 내용을 WSL2 정본 저장소 기준으로 재확인했다.
