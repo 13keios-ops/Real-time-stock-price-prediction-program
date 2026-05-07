@@ -32,6 +32,7 @@ from app.services.research import (
     rebuild_actual_runtime_ml_state,
     run_model_challenger_review_from_sqlite,
     run_cybos_bar_only_experiment_from_sqlite,
+    run_cybos_label_sensitivity_review_from_sqlite,
     run_cybos_profitability_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -73,6 +74,7 @@ def main() -> int:
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
+    parser.add_argument("--run-cybos-label-sensitivity-review", action="store_true", help="Run Cybos F-6 label threshold sensitivity diagnostics.")
     parser.add_argument("--promote-best-challenger", action="store_true", help="Promote the best challenger to the active registry entry.")
     parser.add_argument("--seed-synthetic-data", action="store_true", help="Seed synthetic intraday market data into JSONL and SQLite.")
     parser.add_argument("--replay-sample-ws", action="store_true", help="Replay sample WebSocket frames through the online pipeline.")
@@ -242,6 +244,14 @@ def main() -> int:
 
     if args.run_cybos_profitability_review:
         result = run_cybos_profitability_review_from_sqlite(
+            project_root=project_root,
+            trade_cost_pct=args.cybos_profitability_cost_pct,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_cybos_label_sensitivity_review:
+        result = run_cybos_label_sensitivity_review_from_sqlite(
             project_root=project_root,
             trade_cost_pct=args.cybos_profitability_cost_pct,
         )
@@ -440,7 +450,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-profitability-review, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
     )
     return 2
 

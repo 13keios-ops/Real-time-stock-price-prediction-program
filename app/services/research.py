@@ -37,6 +37,7 @@ PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance",
 BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
 CYBOS_PROFITABILITY_COST_PCT = 0.13
 CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
+CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_EXPERIMENT_FEATURE_SETS: dict[str, list[str]] = {
     "bar_only": BAR_ONLY_FEATURE_NAMES,
     "bar_context": [
@@ -1349,8 +1350,13 @@ def _source_bar_train_validation_rows(
     threshold_pct: float,
     train_max_rows: int,
     feature_set_name: str,
+    label_sensitivity_thresholds: tuple[float, ...] | None = None,
 ) -> dict[str, object]:
     feature_names = _cybos_feature_set_names(feature_set_name)
+    label_sensitivity_counts: dict[str, Counter[str]] = {
+        _threshold_key(threshold): Counter()
+        for threshold in (label_sensitivity_thresholds or ())
+    }
     trade_dates = sqlite_store.fetch_market_source_trade_dates(source)
     if len(trade_dates) < 5:
         raise ValueError(f"Not enough trade dates are available for source={source}.")
@@ -1408,6 +1414,10 @@ def _source_bar_train_validation_rows(
                 continue
             labeled_rows += 1
             label_counts[str(item["label"])] += 1
+            for sensitivity_threshold in label_sensitivity_thresholds or ():
+                label_sensitivity_counts[_threshold_key(sensitivity_threshold)][
+                    classify_return(float(item["future_return_pct"]), sensitivity_threshold)
+                ] += 1
             event_time = item["event_time"]
             if isinstance(event_time, datetime):
                 first_event_time = event_time if first_event_time is None else min(first_event_time, event_time)
@@ -1441,6 +1451,10 @@ def _source_bar_train_validation_rows(
         "source_rows": source_rows,
         "labeled_rows": labeled_rows,
         "label_counts": dict(label_counts),
+        "label_sensitivity_counts": {
+            threshold: dict(counts)
+            for threshold, counts in label_sensitivity_counts.items()
+        },
         "first_event_time": first_event_time.isoformat() if first_event_time else None,
         "last_event_time": last_event_time.isoformat() if last_event_time else None,
         "train_rows": train_rows,
@@ -1782,6 +1796,68 @@ def _cost_adjusted_metric_summary(metrics: dict[str, object], trade_cost_pct: fl
 
 def _top_group_rows(rows: list[dict[str, object]], *, limit: int = 8) -> list[dict[str, object]]:
     return rows[:limit]
+
+
+def _threshold_key(threshold_pct: float) -> str:
+    return f"{threshold_pct:.6f}".rstrip("0").rstrip(".")
+
+
+def _relabel_training_rows(rows: list[dict[str, object]], threshold_pct: float) -> list[dict[str, object]]:
+    relabeled_rows: list[dict[str, object]] = []
+    for row in rows:
+        copied = dict(row)
+        copied["label"] = classify_return(float(row["future_return_pct"]), threshold_pct)
+        relabeled_rows.append(copied)
+    return relabeled_rows
+
+
+def _label_counts_for_rows(rows: list[dict[str, object]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        counts[str(row["label"])] += 1
+    return dict(counts)
+
+
+def _fixed_label_sensitivity_grid(current_threshold_pct: float) -> tuple[float, ...]:
+    values = [*CYBOS_LABEL_SENSITIVITY_BASE_GRID, current_threshold_pct]
+    return tuple(sorted({round(float(value), 6) for value in values}))
+
+
+def _label_sensitivity_decision(results: list[dict[str, object]]) -> dict[str, str]:
+    ok_results = [item for item in results if item.get("status") == "ok"]
+    positive_results = [
+        item
+        for item in ok_results
+        if float(item.get("cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    reliable_positive_results = [
+        item
+        for item in positive_results
+        if int(item.get("trades_taken", 0)) >= 30
+    ]
+    if len(reliable_positive_results) >= 2:
+        return {
+            "status": "follow_up_candidate",
+            "label": "후속 검증 후보",
+            "conclusion": "여러 threshold에서 비용 반영 수익이 양수이고 trades >= 30이므로 후속 검증 후보로만 기록한다. 자동 채택은 하지 않는다.",
+        }
+    if positive_results:
+        return {
+            "status": "hold_overfit_risk",
+            "label": "채택 보류, 과최적화 의심",
+            "conclusion": "일부 threshold에서만 양수이거나 표본이 부족하므로 threshold를 채택하지 않고 과최적화 위험으로 보류한다.",
+        }
+    if ok_results and all(float(item.get("cumulative_net_return_pct", 0.0)) <= 0.0 for item in ok_results):
+        return {
+            "status": "alpha_insufficient",
+            "label": "bar-only ML 알파 부족",
+            "conclusion": "모든 threshold에서 비용 반영 수익이 음수이므로 현재 Cybos 15분 bar-only ML은 비용 초과 알파가 부족한 것으로 판단한다.",
+        }
+    return {
+        "status": "inconclusive",
+        "label": "판단 보류",
+        "conclusion": "일부 threshold 평가가 실패해 라벨 민감도 결론을 확정하지 않는다.",
+    }
 
 
 def run_cybos_bar_only_experiment_from_sqlite(
@@ -2202,6 +2278,184 @@ def run_cybos_profitability_review_from_sqlite(
             f"- walk_forward_trades: `{int(h60_walk_forward_metrics['trades_taken'])}`",
             f"- walk_forward_trade_hit_rate: `{float(h60_walk_forward_metrics['trade_hit_rate']):.6f}`",
             f"- walk_forward_cost_adjusted_net_pct: `{float(h60_walk_forward_metrics['cumulative_net_return_pct']):.6f}`",
+        ]
+    )
+    report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
+
+
+def run_cybos_label_sensitivity_review_from_sqlite(
+    *,
+    project_root: Path,
+    train_max_rows: int = 100_000,
+    walk_forward_test_rows: int = 2_000,
+    walk_forward_step_rows: int = 30_000,
+    walk_forward_gap_rows: int = 15,
+    walk_forward_max_folds: int = 50,
+    trade_cost_pct: float = CYBOS_PROFITABILITY_COST_PCT,
+    min_reliable_trades: int = 30,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos label sensitivity review.")
+
+    feature_set_name = "bar_only"
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    current_threshold = float(settings.strategy.label_threshold_15)
+    threshold_grid = _fixed_label_sensitivity_grid(current_threshold)
+    dataset_payload = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=15,
+        threshold_pct=current_threshold,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+        label_sensitivity_thresholds=threshold_grid,
+    )
+    base_rows = sorted(
+        list(dataset_payload["train_rows"]) + list(dataset_payload["validation_rows"]),
+        key=lambda item: (item["event_time"], str(item["symbol"])),
+    )
+    threshold_results: list[dict[str, object]] = []
+    for threshold in threshold_grid:
+        relabeled_rows = _relabel_training_rows(base_rows, threshold)
+        selected_label_counts = _label_counts_for_rows(relabeled_rows)
+        total_label_counts = dict(dataset_payload["label_sensitivity_counts"].get(_threshold_key(threshold), {}))
+        result: dict[str, object] = {
+            "threshold_pct": threshold,
+            "is_current_setting": math.isclose(threshold, current_threshold, rel_tol=0.0, abs_tol=1e-9),
+            "cost_relationship": "above_cost" if threshold > trade_cost_pct else "at_or_below_cost",
+            "total_label_counts": total_label_counts,
+            "selected_label_counts": selected_label_counts,
+            "up_label_count": int(total_label_counts.get("up", 0)),
+            "down_label_count": int(total_label_counts.get("down", 0)),
+        }
+        try:
+            metrics = _run_lightgbm_walk_forward(
+                rows=relabeled_rows,
+                feature_names=feature_names,
+                settings=settings,
+                horizon_min=15,
+                train_rows=train_max_rows,
+                test_rows=walk_forward_test_rows,
+                gap_rows=walk_forward_gap_rows,
+                step_rows=walk_forward_step_rows,
+                max_folds=walk_forward_max_folds,
+                feature_set_name=feature_set_name,
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=settings.strategy.min_signal_confidence,
+                collect_trade_ledger=False,
+                collect_prediction_stats=False,
+            )
+        except ValueError as exc:
+            result.update(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "reliability": "평가 실패",
+                }
+            )
+            threshold_results.append(result)
+            continue
+        trades_taken = int(metrics["trades_taken"])
+        result.update(
+            {
+                "status": "ok",
+                "folds": int(metrics["folds"]),
+                "rows_evaluated": int(metrics["rows_evaluated"]),
+                "trades_taken": trades_taken,
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "win_rate": float(metrics["win_rate"]),
+                "cumulative_gross_return_pct": float(metrics["cumulative_gross_return_pct"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                "average_net_return_pct": float(metrics["average_net_return_pct"]),
+                "reliability": "신뢰 낮음" if trades_taken < min_reliable_trades else "기록 가능",
+                "fold_summaries": metrics["fold_summaries"],
+            }
+        )
+        threshold_results.append(result)
+
+    decision = _label_sensitivity_decision(threshold_results)
+    completed_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / "latest-cybos-label-sensitivity-review.json"
+    report_md_path = report_dir / "latest-cybos-label-sensitivity-review.md"
+    payload = {
+        "review": "cybos_label_sensitivity_review",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "feature_set_name": feature_set_name,
+        "feature_names": feature_names,
+        "settings": {
+            "current_label_threshold_15": current_threshold,
+            "trade_cost_pct": trade_cost_pct,
+            "current_threshold_vs_cost": "higher" if current_threshold > trade_cost_pct else "not_higher",
+            "threshold_grid": list(threshold_grid),
+            "train_max_rows": train_max_rows,
+            "walk_forward_test_rows": walk_forward_test_rows,
+            "walk_forward_step_rows": walk_forward_step_rows,
+            "walk_forward_gap_rows": walk_forward_gap_rows,
+            "walk_forward_max_folds": walk_forward_max_folds,
+            "min_signal_confidence": settings.strategy.min_signal_confidence,
+            "min_reliable_trades": min_reliable_trades,
+            "selection_policy": "diagnostic_only_no_threshold_adoption",
+        },
+        "dataset": {
+            "symbols": len(dataset_payload["symbols"]),
+            "trade_dates": len(dataset_payload["trade_dates"]),
+            "source_rows": dataset_payload["source_rows"],
+            "labeled_rows": dataset_payload["labeled_rows"],
+            "first_event_time": dataset_payload["first_event_time"],
+            "last_event_time": dataset_payload["last_event_time"],
+            "validation_start_date": dataset_payload["validation_start_date"],
+        },
+        "threshold_results": threshold_results,
+        "decision": decision,
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_lines = [
+        "# Cybos Label Sensitivity Review",
+        "",
+        f"- source: `{CYBOS_HISTORICAL_SOURCE}`",
+        f"- feature_set_name: `{feature_set_name}`",
+        f"- current_label_threshold_15: `{current_threshold:.6f}`",
+        f"- round_trip_cost_pct: `{trade_cost_pct:.6f}`",
+        f"- current_threshold_vs_cost: `{payload['settings']['current_threshold_vs_cost']}`",
+        f"- threshold_grid: `{', '.join(_threshold_key(item) for item in threshold_grid)}`",
+        f"- policy: `{payload['settings']['selection_policy']}`",
+        "",
+        "| threshold | current | up labels | down labels | trades | hit_rate | net_pct | reliability |",
+        "|---:|:---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for row in threshold_results:
+        if row.get("status") != "ok":
+            markdown_lines.append(
+                f"| {float(row['threshold_pct']):.2f} | "
+                f"{'yes' if row['is_current_setting'] else ''} | "
+                f"{int(row.get('up_label_count', 0))} | {int(row.get('down_label_count', 0))} | "
+                f"0 | 0.000000 | 0.000000 | {row.get('reliability', 'failed')} |"
+            )
+            continue
+        markdown_lines.append(
+            f"| {float(row['threshold_pct']):.2f} | "
+            f"{'yes' if row['is_current_setting'] else ''} | "
+            f"{int(row['up_label_count'])} | {int(row['down_label_count'])} | "
+            f"{int(row['trades_taken'])} | {float(row['trade_hit_rate']):.6f} | "
+            f"{float(row['cumulative_net_return_pct']):.6f} | {row['reliability']} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            f"- decision: `{decision['label']}`",
+            f"- conclusion: {decision['conclusion']}",
+            "",
+            "Note: This review is diagnostic only. No label threshold is promoted automatically.",
         ]
     )
     report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")

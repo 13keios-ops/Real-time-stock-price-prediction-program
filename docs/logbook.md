@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-05-07] Codex → F-6 라벨 민감도 진단
+
+- 변경 파일:
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Cybos 연구 경로에 `--run-cybos-label-sensitivity-review` CLI를 추가했다.
+  - F-6은 threshold 선택/승격 실험이 아니라 라벨 민감도 진단으로 구현했다.
+  - threshold grid는 실행 전 고정값 `[0.13, 0.20, 0.35, 0.50]`로 두고, 현재 설정값 `0.35`를 포함했다.
+  - threshold별 전체 up/down 라벨 수, walk-forward 거래 수, hit-rate, 비용 0.13% 반영 순수익률, `trades < 30` 신뢰 낮음 표시를 리포트에 남겼다.
+- 사전 확인:
+  - 실제 로딩된 `label_threshold_15=0.35%`
+  - 왕복 비용 기준 `0.13%`
+  - 현재 threshold는 비용보다 높아, 현 설정 자체가 비용 미만 움직임을 학습하는 구조라고 보기는 어렵다.
+- 실행 결과:
+  - threshold `0.13`: `trades=25`, `trade_hit_rate=0.480000`, `net=-1.724058%`, `신뢰 낮음`
+  - threshold `0.20`: `trades=44`, `trade_hit_rate=0.545455`, `net=+3.577014%`
+  - threshold `0.35`: `trades=57`, `trade_hit_rate=0.333333`, `net=-1.413583%`
+  - threshold `0.50`: `trades=77`, `trade_hit_rate=0.181818`, `net=-18.729151%`
+- 판단:
+  - `0.20` 하나만 양수이고 여러 threshold에서 일관된 양수 패턴이 아니다.
+  - threshold를 자동 채택하지 않고 `채택 보류, 과최적화 의심`으로 기록한다.
+  - 다음 검증은 별도 기간/다른 fold 설계 또는 룰 기반 challenger와 비교하는 방식으로 분리한다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-label-sensitivity-review.json`
+  - `runtime-data/reports/backtests/latest-cybos-label-sensitivity-review.md`
+
 ## [2026-05-07] Codex → F-5 손익 진단과 비용 반영 재평가
 
 - 변경 파일:
