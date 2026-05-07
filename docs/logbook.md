@@ -1,5 +1,34 @@
 # 작업 기록
 
+## [2026-05-07] Codex → F-5 손익 진단과 비용 반영 재평가
+
+- 변경 파일:
+  - `app/__main__.py`
+  - `app/services/research.py`
+  - `README.md`
+  - `docs/Current-Implementation.md`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - Cybos 연구 경로에 `--run-cybos-profitability-review` CLI를 추가했다.
+  - F-5 walk-forward 거래 원장, 종목/시간대/confidence 구간별 손익 진단, 비용 재계산, train-only confidence threshold, H60 bar-only 비교를 한 번에 남기도록 했다.
+  - threshold 실험은 사전 고정 grid `[0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80]`만 사용하고, 각 fold의 train calibration 구간에서만 선택한 뒤 test에 적용했다.
+  - 수동 시간대/종목 제외 필터는 과최적화 위험 때문에 만들지 않았다.
+- 실행 결과:
+  - F-5 재현: `trades=57`, `overall_accuracy=0.580310`, `trade_hit_rate=0.333333`, `gross=+5.996417%`
+  - F-5 기존 비용 0.108% net: `-0.159583%`
+  - F-5 요청 비용 0.13% net: `-1.413583%`
+  - F-5 구조 가설: 소수 거래와 비용 민감도가 핵심이며, confidence가 수익 거래를 안정적으로 분리하지 못함.
+  - train-only threshold: `trades=55`, `trade_hit_rate=0.327273`, `net=-2.295251%`
+  - H60 bar-only walk-forward: `trades=112`, `overall_accuracy=0.587108`, `trade_hit_rate=0.187500`, `net=-60.233578%`
+- 판단:
+  - F-5는 실전 비용 기준으로 손익분기라 보기 어렵다.
+  - threshold 보정과 60분 horizon 전환 모두 개선이 아니었다.
+  - 다음 실험은 단순 confidence 조정보다 새로운 정보가 있는 피처 또는 데이터 품질 개선 쪽이 필요하다.
+- 산출물:
+  - `runtime-data/reports/backtests/latest-cybos-profitability-review.json`
+  - `runtime-data/reports/backtests/latest-cybos-profitability-review.md`
+
 ## [2026-05-07] Codex → F-5 이후 수익 양수화 실험
 
 - 변경 파일:

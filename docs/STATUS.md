@@ -1,5 +1,98 @@
 # docs/STATUS.md
 
+## [2026-05-07 12:41] F-5 손익 진단 + 비용 기준선 + train-only threshold + 60분 horizon
+
+- 상황: F-5가 기본 비용 기준으로 손익분기 근처였는지, 비용 반영 후에도 의미가 있는지 확인하기 위해 원장 기반 진단을 재실행했다.
+- 실행 리포트: `runtime-data/reports/backtests/latest-cybos-profitability-review.{json,md}`
+- 공통 설정: `source=cybos-historical`, `feature_set=bar_only`, `train_rows=100000`, `test_rows=2000`, `step_rows=30000`, `gap_rows=15`, `max_folds=50`, `min_signal_confidence=0.58`
+- 비용 기준: 수수료 편도 0.015% + 슬리피지 편도 0.05%, 왕복 0.13%. 세금은 이번 비용 기준에서 제외하고 후속 보수 시나리오로 둔다.
+
+### 1단계. F-5 손익 진단
+
+| 지표 | 값 |
+|---|---:|
+| folds | 42 |
+| rows_evaluated | 84,000 |
+| trades_taken | 57 |
+| overall_accuracy | 0.580310 |
+| trade_hit_rate | 0.333333 |
+| win_rate | 0.438596 |
+| cumulative_gross_return_pct | 5.996417 |
+| cumulative_net_return_pct @ 기존 비용 0.108% | -0.159583 |
+| cumulative_net_return_pct @ 비용 0.13% | -1.413583 |
+
+손익 분해:
+
+| 항목 | 관찰 |
+|---|---|
+| 맞춘 거래 평균 gross | 0.801686% |
+| 틀린 거래 평균 gross | -0.243043% |
+| 시간대 | 09시 `+2.025118%`, 13시 `+1.026586%`는 양수지만 10시 `-2.717397%`, 11시 `-0.764369%`, 15시 `-0.758251%`가 손실을 키움 |
+| confidence 구간 | `0.58-0.60`만 `+2.395907%`, `0.60-0.65`는 `-2.441334%`, `0.70-0.75`도 `-1.016512%` |
+| up 예측 전체 | 16,511건, 평균 future return `+0.037929%` |
+| down 예측 전체 | 17,845건, 평균 future return `+0.005615%`로 방향성 분리 실패 |
+
+구조적 문제 가설: F-5 손실은 소수 거래와 비용 민감도가 핵심이며, confidence가 수익 거래를 안정적으로 분리하지 못한다.
+
+주의: 위 시간대/종목/구간 결과는 손실 원인 진단용이며, 해당 구간을 수동으로 제외하는 필터는 만들지 않았다.
+
+### 2단계. 거래비용 포함 기준선
+
+| 비용 기준 | cumulative_net_return_pct |
+|---|---:|
+| 기존 코드 비용 0.108% | -0.159583 |
+| 요청 비용 0.13% | -1.413583 |
+
+판단: F-5는 비용 없는 gross 기준으로는 양수지만, 보수 비용 기준에서는 명확히 음수다. 실전 기준선은 `-1.413583%`로 본다.
+
+### 3단계. train-only confidence threshold
+
+threshold 후보는 사전 고정 grid `[0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80]`를 사용했다. 각 fold의 train calibration 구간에서 비용 반영 net return 기준으로 threshold를 선택하고 test에만 적용했다.
+
+| 지표 | 값 |
+|---|---:|
+| folds | 42 |
+| trades_taken | 55 |
+| overall_accuracy | 0.580310 |
+| trade_hit_rate | 0.327273 |
+| cumulative_net_return_pct @ 비용 0.13% | -2.295251 |
+
+threshold 선택 분포:
+
+| threshold | fold 수 |
+|---:|---:|
+| 0.58 | 40 |
+| 0.60 | 1 |
+| 0.62 | 1 |
+
+판단: train-only threshold는 과최적화 방지 구조로 실행했지만, F-5 비용 기준선보다 악화됐다. confidence threshold만으로는 손익 전환이 어렵다.
+
+### 4단계. 60분 horizon 전환
+
+F-5와 동일하게 Cybos bar-only, class_weight=balanced, 일봉 split 계열 설정을 유지하고 horizon만 60분으로 바꿨다.
+
+| 구분 | validation | walk-forward |
+|---|---:|---:|
+| accuracy | 0.558385 | 0.587108 |
+| trades_taken | 824 | 112 |
+| trade_hit_rate | 0.234223 | 0.187500 |
+| cumulative_net_return_pct @ 비용 0.13% | -27.818170 | -60.233578 |
+
+H60 feature importance:
+
+| rank | feature | importance |
+|---:|---|---:|
+| 1 | `avg_trade_size` | 4,105 |
+| 2 | `hl_range_pct` | 3,759 |
+| 3 | `return_1m_pct` | 3,401 |
+
+최종 판단:
+
+- F-5 기본 비용 결과는 재현됐지만 비용 0.13% 적용 시 실전 기준선은 음수다.
+- train-only confidence threshold는 개선이 아니며, 수동 시간대/종목 필터는 과최적화 위험 때문에 적용하지 않았다.
+- 60분 horizon은 hit-rate와 수익률 모두 악화되어 현재 bar-only 피처만으로는 대안이 아니다.
+- 다음 실험은 단순 threshold 확대보다 새로운 정보가 있는 피처 또는 데이터 소스 품질 개선이 필요하다.
+
 생성일: 2026-05-06
 스프린트: 04 Cybos 실제 분봉 기준선
 

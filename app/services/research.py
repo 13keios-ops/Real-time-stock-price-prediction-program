@@ -35,6 +35,8 @@ PYKRX_DAILY_PROXY_SOURCE = "pykrx-daily-proxy"
 CYBOS_HISTORICAL_SOURCE = "cybos-historical"
 PROXY_EXCLUDED_TRAINING_FEATURES = frozenset({"spread_bps", "bid_ask_imbalance", "mid_price"})
 BAR_ONLY_FEATURE_NAMES = ["avg_trade_size", "hl_range_pct", "return_1m_pct"]
+CYBOS_PROFITABILITY_COST_PCT = 0.13
+CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
 CYBOS_EXPERIMENT_FEATURE_SETS: dict[str, list[str]] = {
     "bar_only": BAR_ONLY_FEATURE_NAMES,
     "bar_context": [
@@ -540,6 +542,210 @@ def _estimate_trade_cost_pct(settings) -> float:
     )
 
 
+def _effective_trade_cost_pct(settings, override: float | None = None) -> float:
+    return float(_estimate_trade_cost_pct(settings) if override is None else override)
+
+
+def _effective_signal_confidence(settings, override: float | None = None) -> float:
+    return float(settings.strategy.min_signal_confidence if override is None else override)
+
+
+def _prediction_directional_return_pct(predicted_label: str, future_return_pct: float) -> float:
+    if predicted_label == "up":
+        return future_return_pct
+    if predicted_label == "down":
+        return -future_return_pct
+    return 0.0
+
+
+def _confidence_bin(confidence: float) -> str:
+    if confidence < 0.60:
+        return "0.58-0.60"
+    if confidence < 0.65:
+        return "0.60-0.65"
+    if confidence < 0.70:
+        return "0.65-0.70"
+    if confidence < 0.75:
+        return "0.70-0.75"
+    return "0.75+"
+
+
+def _new_prediction_direction_bucket() -> dict[str, float]:
+    return {
+        "count": 0.0,
+        "future_return_sum": 0.0,
+        "directional_return_sum": 0.0,
+        "confidence_sum": 0.0,
+    }
+
+
+def _add_prediction_direction_stat(
+    buckets: dict[str, dict[str, float]],
+    *,
+    predicted_label: str,
+    future_return_pct: float,
+    confidence: float,
+) -> None:
+    bucket = buckets.setdefault(predicted_label, _new_prediction_direction_bucket())
+    bucket["count"] += 1
+    bucket["future_return_sum"] += future_return_pct
+    bucket["directional_return_sum"] += _prediction_directional_return_pct(predicted_label, future_return_pct)
+    bucket["confidence_sum"] += confidence
+
+
+def _finalize_prediction_direction_stats(
+    buckets: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    finalized: dict[str, dict[str, float]] = {}
+    for label in ("up", "down", "flat"):
+        bucket = buckets.get(label, _new_prediction_direction_bucket())
+        count = int(bucket["count"])
+        finalized[label] = {
+            "count": count,
+            "average_confidence": (bucket["confidence_sum"] / count) if count else 0.0,
+            "average_future_return_pct": (bucket["future_return_sum"] / count) if count else 0.0,
+            "cumulative_future_return_pct": bucket["future_return_sum"],
+            "average_directional_return_pct": (bucket["directional_return_sum"] / count) if count else 0.0,
+            "cumulative_directional_return_pct": bucket["directional_return_sum"],
+        }
+    return finalized
+
+
+def _merge_prediction_direction_stats(
+    target: dict[str, dict[str, float]],
+    finalized: dict[str, dict[str, float]],
+) -> None:
+    for label, stats in finalized.items():
+        bucket = target.setdefault(label, _new_prediction_direction_bucket())
+        bucket["count"] += int(stats.get("count", 0))
+        bucket["future_return_sum"] += float(stats.get("cumulative_future_return_pct", 0.0))
+        bucket["directional_return_sum"] += float(stats.get("cumulative_directional_return_pct", 0.0))
+        bucket["confidence_sum"] += float(stats.get("average_confidence", 0.0)) * int(stats.get("count", 0))
+
+
+def _new_trade_group_bucket() -> dict[str, float]:
+    return {
+        "trades": 0.0,
+        "hits": 0.0,
+        "wins": 0.0,
+        "gross_return_sum": 0.0,
+        "net_return_sum": 0.0,
+        "confidence_sum": 0.0,
+    }
+
+
+def _add_trade_group_stat(
+    buckets: dict[str, dict[str, float]],
+    key: str,
+    *,
+    gross_return_pct: float,
+    net_return_pct: float,
+    confidence: float,
+    is_hit: bool,
+    is_win: bool,
+) -> None:
+    bucket = buckets.setdefault(key, _new_trade_group_bucket())
+    bucket["trades"] += 1
+    bucket["hits"] += 1 if is_hit else 0
+    bucket["wins"] += 1 if is_win else 0
+    bucket["gross_return_sum"] += gross_return_pct
+    bucket["net_return_sum"] += net_return_pct
+    bucket["confidence_sum"] += confidence
+
+
+def _finalize_trade_group_stats(
+    buckets: dict[str, dict[str, float]],
+    *,
+    sort_by_net: bool = False,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for key, bucket in buckets.items():
+        trades = int(bucket["trades"])
+        rows.append(
+            {
+                "key": key,
+                "trades": trades,
+                "hit_rate": (bucket["hits"] / trades) if trades else 0.0,
+                "win_rate": (bucket["wins"] / trades) if trades else 0.0,
+                "average_confidence": (bucket["confidence_sum"] / trades) if trades else 0.0,
+                "average_gross_return_pct": (bucket["gross_return_sum"] / trades) if trades else 0.0,
+                "average_net_return_pct": (bucket["net_return_sum"] / trades) if trades else 0.0,
+                "cumulative_net_return_pct": bucket["net_return_sum"],
+            }
+        )
+    if sort_by_net:
+        return sorted(rows, key=lambda item: float(item["cumulative_net_return_pct"]))
+    return sorted(rows, key=lambda item: str(item["key"]))
+
+
+def _summarize_trade_ledger(trade_ledger: list[dict[str, object]]) -> dict[str, object]:
+    by_symbol: dict[str, dict[str, float]] = {}
+    by_hour: dict[str, dict[str, float]] = {}
+    by_predicted_label: dict[str, dict[str, float]] = {}
+    by_confidence_bin: dict[str, dict[str, float]] = {}
+    hit_gross_sum = 0.0
+    hit_count = 0
+    miss_gross_sum = 0.0
+    miss_count = 0
+
+    for trade in trade_ledger:
+        gross_return_pct = float(trade["gross_return_pct"])
+        net_return_pct = float(trade["net_return_pct"])
+        confidence = float(trade["confidence"])
+        is_hit = bool(trade["is_hit"])
+        is_win = bool(trade["is_win"])
+        event_time = str(trade["event_time"])
+        hour = event_time[11:13] if len(event_time) >= 13 else "unknown"
+        if is_hit:
+            hit_gross_sum += gross_return_pct
+            hit_count += 1
+        else:
+            miss_gross_sum += gross_return_pct
+            miss_count += 1
+        for buckets, key in (
+            (by_symbol, str(trade["symbol"])),
+            (by_hour, hour),
+            (by_predicted_label, str(trade["predicted_label"])),
+            (by_confidence_bin, _confidence_bin(confidence)),
+        ):
+            _add_trade_group_stat(
+                buckets,
+                key,
+                gross_return_pct=gross_return_pct,
+                net_return_pct=net_return_pct,
+                confidence=confidence,
+                is_hit=is_hit,
+                is_win=is_win,
+            )
+
+    trades = len(trade_ledger)
+    total_net = sum(float(trade["net_return_pct"]) for trade in trade_ledger)
+    total_gross = sum(float(trade["gross_return_pct"]) for trade in trade_ledger)
+    return {
+        "trades": trades,
+        "cumulative_gross_return_pct": total_gross,
+        "cumulative_net_return_pct": total_net,
+        "average_gross_return_pct": (total_gross / trades) if trades else 0.0,
+        "average_net_return_pct": (total_net / trades) if trades else 0.0,
+        "average_hit_gross_return_pct": (hit_gross_sum / hit_count) if hit_count else 0.0,
+        "average_miss_gross_return_pct": (miss_gross_sum / miss_count) if miss_count else 0.0,
+        "hit_count": hit_count,
+        "miss_count": miss_count,
+        "by_symbol": _finalize_trade_group_stats(by_symbol, sort_by_net=True),
+        "by_hour": _finalize_trade_group_stats(by_hour),
+        "by_predicted_label": _finalize_trade_group_stats(by_predicted_label),
+        "by_confidence_bin": _finalize_trade_group_stats(by_confidence_bin),
+    }
+
+
+def _build_profitability_hypothesis(summary: dict[str, object]) -> str:
+    hit_avg = float(summary.get("average_hit_gross_return_pct", 0.0))
+    miss_avg = float(summary.get("average_miss_gross_return_pct", 0.0))
+    if abs(miss_avg) > hit_avg:
+        return "F-5 손실은 hit-rate보다 손익 비대칭이 핵심이며, 틀린 거래의 평균 손실이 맞춘 거래의 평균 이익보다 큽니다."
+    return "F-5 손실은 소수 거래와 비용 민감도가 핵심이며, confidence가 수익 거래를 안정적으로 분리하지 못합니다."
+
+
 def _fit_centroid_model(
     *,
     train_rows: list[dict[str, object]],
@@ -791,8 +997,14 @@ def _evaluate_rows_with_model(
     settings,
     horizon_min: int,
     prediction_prefix: str,
+    trade_cost_pct_override: float | None = None,
+    min_signal_confidence_override: float | None = None,
+    trade_ledger: list[dict[str, object]] | None = None,
+    fold_number: int | None = None,
+    collect_prediction_stats: bool = True,
 ) -> dict[str, object]:
-    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    trade_cost_pct = _effective_trade_cost_pct(settings, trade_cost_pct_override)
+    min_signal_confidence = _effective_signal_confidence(settings, min_signal_confidence_override)
     rows_evaluated = len(rows)
     overall_correct = 0
     trades_taken = 0
@@ -803,6 +1015,7 @@ def _evaluate_rows_with_model(
     confidence_sum = 0.0
     actual_counter: Counter[str] = Counter()
     predicted_counter: Counter[str] = Counter()
+    prediction_direction_buckets: dict[str, dict[str, float]] = {}
 
     model_version = getattr(getattr(model, "artifact", None), "model_version", None)
     if model_version is None:
@@ -826,27 +1039,213 @@ def _evaluate_rows_with_model(
             prediction.probability_flat,
             prediction.probability_down,
         )
+        probability_pairs = sorted(
+            [
+                ("up", prediction.probability_up),
+                ("flat", prediction.probability_flat),
+                ("down", prediction.probability_down),
+            ],
+            key=lambda item: item[1],
+            reverse=True,
+        )
         actual_label = str(row["label"])
         confidence = max(prediction.probability_up, prediction.probability_flat, prediction.probability_down)
+        confidence_margin = probability_pairs[0][1] - probability_pairs[1][1]
+        future_return_pct = float(row["future_return_pct"])
         actual_counter[actual_label] += 1
         predicted_counter[predicted_label] += 1
         confidence_sum += confidence
+        if collect_prediction_stats:
+            _add_prediction_direction_stat(
+                prediction_direction_buckets,
+                predicted_label=predicted_label,
+                future_return_pct=future_return_pct,
+                confidence=confidence,
+            )
 
         if predicted_label == actual_label:
             overall_correct += 1
 
-        if predicted_label != "up" or prediction.probability_up < settings.strategy.min_signal_confidence:
+        if predicted_label != "up" or prediction.probability_up < min_signal_confidence:
             continue
 
         trades_taken += 1
-        future_return_pct = float(row["future_return_pct"])
         gross_return_sum += future_return_pct
         net_return_pct = future_return_pct - trade_cost_pct
         net_return_sum += net_return_pct
-        if actual_label == "up":
+        is_hit = actual_label == "up"
+        is_win = net_return_pct > 0
+        if is_hit:
             trade_correct += 1
-        if net_return_pct > 0:
+        if is_win:
             wins += 1
+        if trade_ledger is not None:
+            event_time = row["event_time"]
+            trade_ledger.append(
+                {
+                    "fold": fold_number,
+                    "row_index": index,
+                    "symbol": str(row["symbol"]),
+                    "event_time": event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
+                    "predicted_label": predicted_label,
+                    "actual_label": actual_label,
+                    "probability_up": prediction.probability_up,
+                    "probability_flat": prediction.probability_flat,
+                    "probability_down": prediction.probability_down,
+                    "confidence": confidence,
+                    "confidence_margin": confidence_margin,
+                    "future_return_pct": future_return_pct,
+                    "gross_return_pct": future_return_pct,
+                    "trade_cost_pct": trade_cost_pct,
+                    "net_return_pct": net_return_pct,
+                    "is_hit": is_hit,
+                    "is_win": is_win,
+                }
+            )
+
+    metrics = {
+        "model_version": model_version,
+        "rows_evaluated": rows_evaluated,
+        "trades_taken": trades_taken,
+        "overall_correct": overall_correct,
+        "overall_accuracy": (overall_correct / rows_evaluated) if rows_evaluated else 0.0,
+        "trade_hit_rate": (trade_correct / trades_taken) if trades_taken else 0.0,
+        "win_rate": (wins / trades_taken) if trades_taken else 0.0,
+        "average_confidence": (confidence_sum / rows_evaluated) if rows_evaluated else 0.0,
+        "average_gross_return_pct": (gross_return_sum / trades_taken) if trades_taken else 0.0,
+        "average_net_return_pct": (net_return_sum / trades_taken) if trades_taken else 0.0,
+        "cumulative_gross_return_pct": gross_return_sum,
+        "cumulative_net_return_pct": net_return_sum,
+        "trade_cost_pct": trade_cost_pct,
+        "signal_confidence_threshold": min_signal_confidence,
+        "actual_label_counts": dict(actual_counter),
+        "predicted_label_counts": dict(predicted_counter),
+    }
+    if collect_prediction_stats:
+        metrics["prediction_direction_stats"] = _finalize_prediction_direction_stats(prediction_direction_buckets)
+    return metrics
+
+
+def _score_rows_with_model(
+    *,
+    rows: list[dict[str, object]],
+    model,
+    settings,
+    horizon_min: int,
+    prediction_prefix: str,
+    fold_number: int | None = None,
+) -> list[dict[str, object]]:
+    scored_rows: list[dict[str, object]] = []
+    for index, row in enumerate(rows, start=1):
+        feature_snapshot = FeatureSnapshot(
+            symbol=str(row["symbol"]),
+            event_time=row["event_time"],
+            feature_set_version=settings.feature_set_version,
+            values=dict(row["values"]),
+        )
+        prediction = model.predict(
+            feature_snapshot=feature_snapshot,
+            horizon_min=horizon_min,
+            prediction_id=f"{prediction_prefix}-{index:06d}",
+        )
+        predicted_label = _prediction_label(
+            prediction.probability_up,
+            prediction.probability_flat,
+            prediction.probability_down,
+        )
+        probability_pairs = sorted(
+            [
+                ("up", prediction.probability_up),
+                ("flat", prediction.probability_flat),
+                ("down", prediction.probability_down),
+            ],
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        event_time = row["event_time"]
+        scored_rows.append(
+            {
+                "fold": fold_number,
+                "row_index": index,
+                "symbol": str(row["symbol"]),
+                "event_time": event_time.isoformat() if isinstance(event_time, datetime) else str(event_time),
+                "actual_label": str(row["label"]),
+                "predicted_label": predicted_label,
+                "probability_up": prediction.probability_up,
+                "probability_flat": prediction.probability_flat,
+                "probability_down": prediction.probability_down,
+                "confidence": probability_pairs[0][1],
+                "confidence_margin": probability_pairs[0][1] - probability_pairs[1][1],
+                "future_return_pct": float(row["future_return_pct"]),
+                "model_version": prediction.model_version,
+            }
+        )
+    return scored_rows
+
+
+def _metrics_from_scored_predictions(
+    *,
+    scored_rows: list[dict[str, object]],
+    settings,
+    trade_cost_pct: float,
+    signal_confidence_threshold: float,
+    trade_ledger: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    rows_evaluated = len(scored_rows)
+    overall_correct = 0
+    trades_taken = 0
+    trade_correct = 0
+    wins = 0
+    gross_return_sum = 0.0
+    net_return_sum = 0.0
+    confidence_sum = 0.0
+    actual_counter: Counter[str] = Counter()
+    predicted_counter: Counter[str] = Counter()
+    prediction_direction_buckets: dict[str, dict[str, float]] = {}
+    model_version = "unknown-model"
+
+    for record in scored_rows:
+        model_version = str(record.get("model_version", model_version))
+        predicted_label = str(record["predicted_label"])
+        actual_label = str(record["actual_label"])
+        confidence = float(record["confidence"])
+        probability_up = float(record["probability_up"])
+        future_return_pct = float(record["future_return_pct"])
+        actual_counter[actual_label] += 1
+        predicted_counter[predicted_label] += 1
+        confidence_sum += confidence
+        _add_prediction_direction_stat(
+            prediction_direction_buckets,
+            predicted_label=predicted_label,
+            future_return_pct=future_return_pct,
+            confidence=confidence,
+        )
+        if predicted_label == actual_label:
+            overall_correct += 1
+        if predicted_label != "up" or probability_up < signal_confidence_threshold:
+            continue
+        trades_taken += 1
+        gross_return_sum += future_return_pct
+        net_return_pct = future_return_pct - trade_cost_pct
+        net_return_sum += net_return_pct
+        is_hit = actual_label == "up"
+        is_win = net_return_pct > 0
+        if is_hit:
+            trade_correct += 1
+        if is_win:
+            wins += 1
+        if trade_ledger is not None:
+            ledger_record = dict(record)
+            ledger_record.update(
+                {
+                    "gross_return_pct": future_return_pct,
+                    "trade_cost_pct": trade_cost_pct,
+                    "net_return_pct": net_return_pct,
+                    "is_hit": is_hit,
+                    "is_win": is_win,
+                }
+            )
+            trade_ledger.append(ledger_record)
 
     return {
         "model_version": model_version,
@@ -862,8 +1261,10 @@ def _evaluate_rows_with_model(
         "cumulative_gross_return_pct": gross_return_sum,
         "cumulative_net_return_pct": net_return_sum,
         "trade_cost_pct": trade_cost_pct,
+        "signal_confidence_threshold": signal_confidence_threshold,
         "actual_label_counts": dict(actual_counter),
         "predicted_label_counts": dict(predicted_counter),
+        "prediction_direction_stats": _finalize_prediction_direction_stats(prediction_direction_buckets),
     }
 
 
@@ -1070,6 +1471,10 @@ def _run_lightgbm_walk_forward(
     step_rows: int,
     max_folds: int,
     feature_set_name: str,
+    trade_cost_pct: float | None = None,
+    signal_confidence_threshold: float | None = None,
+    collect_trade_ledger: bool = False,
+    collect_prediction_stats: bool = True,
 ) -> dict[str, object]:
     if len(rows) < train_rows + gap_rows + test_rows:
         raise ValueError("Not enough rows for LightGBM walk-forward evaluation.")
@@ -1087,7 +1492,11 @@ def _run_lightgbm_walk_forward(
     aggregate_net = 0.0
     aggregate_actual: Counter[str] = Counter()
     aggregate_predicted: Counter[str] = Counter()
+    aggregate_prediction_direction: dict[str, dict[str, float]] = {}
+    trade_ledger: list[dict[str, object]] = []
     fold_summaries: list[dict[str, object]] = []
+    effective_trade_cost_pct = _effective_trade_cost_pct(settings, trade_cost_pct)
+    effective_signal_confidence = _effective_signal_confidence(settings, signal_confidence_threshold)
 
     for fold_number, train_end in enumerate(train_end_values, start=1):
         train_start = max(0, train_end - train_rows)
@@ -1109,6 +1518,11 @@ def _run_lightgbm_walk_forward(
             settings=settings,
             horizon_min=horizon_min,
             prediction_prefix=f"cybos-{feature_set_name}-wf-{fold_number}",
+            trade_cost_pct_override=effective_trade_cost_pct,
+            min_signal_confidence_override=effective_signal_confidence,
+            trade_ledger=trade_ledger if collect_trade_ledger else None,
+            fold_number=fold_number,
+            collect_prediction_stats=collect_prediction_stats,
         )
         rows_evaluated = int(metrics["rows_evaluated"])
         trades_taken = int(metrics["trades_taken"])
@@ -1121,6 +1535,11 @@ def _run_lightgbm_walk_forward(
         aggregate_net += float(metrics["cumulative_net_return_pct"])
         aggregate_actual.update(metrics["actual_label_counts"])
         aggregate_predicted.update(metrics["predicted_label_counts"])
+        if collect_prediction_stats:
+            _merge_prediction_direction_stats(
+                aggregate_prediction_direction,
+                metrics.get("prediction_direction_stats", {}),
+            )
         fold_summaries.append(
             {
                 "fold": fold_number,
@@ -1136,11 +1555,187 @@ def _run_lightgbm_walk_forward(
                 "trades_taken": trades_taken,
                 "trade_hit_rate": float(metrics["trade_hit_rate"]),
                 "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                "trade_cost_pct": effective_trade_cost_pct,
+                "signal_confidence_threshold": effective_signal_confidence,
             }
         )
 
     if aggregate_rows <= 0:
         raise ValueError("LightGBM walk-forward did not produce any folds.")
+    result = {
+        "folds": len(fold_summaries),
+        "rows_evaluated": aggregate_rows,
+        "trades_taken": aggregate_trades,
+        "overall_accuracy": aggregate_correct / aggregate_rows,
+        "trade_hit_rate": aggregate_trade_hits / aggregate_trades if aggregate_trades else 0.0,
+        "win_rate": aggregate_wins / aggregate_trades if aggregate_trades else 0.0,
+        "cumulative_gross_return_pct": aggregate_gross,
+        "cumulative_net_return_pct": aggregate_net,
+        "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
+        "trade_cost_pct": effective_trade_cost_pct,
+        "signal_confidence_threshold": effective_signal_confidence,
+        "actual_label_counts": dict(aggregate_actual),
+        "predicted_label_counts": dict(aggregate_predicted),
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "gap_rows": gap_rows,
+        "step_rows": step_rows,
+        "max_folds": max_folds,
+        "fold_summaries": fold_summaries,
+    }
+    if collect_prediction_stats:
+        result["prediction_direction_stats"] = _finalize_prediction_direction_stats(aggregate_prediction_direction)
+    if collect_trade_ledger:
+        result["trade_ledger"] = trade_ledger
+    return result
+
+
+def _run_lightgbm_walk_forward_train_only_threshold(
+    *,
+    rows: list[dict[str, object]],
+    feature_names: list[str],
+    settings,
+    horizon_min: int,
+    train_rows: int,
+    test_rows: int,
+    gap_rows: int,
+    step_rows: int,
+    max_folds: int,
+    feature_set_name: str,
+    trade_cost_pct: float,
+    threshold_grid: tuple[float, ...],
+    threshold_calibration_rows: int = 20_000,
+    min_train_trades: int = 10,
+) -> dict[str, object]:
+    if len(rows) < train_rows + gap_rows + test_rows:
+        raise ValueError("Not enough rows for threshold walk-forward evaluation.")
+    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
+    if max_folds > 0 and len(train_end_values) > max_folds:
+        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
+        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+
+    aggregate_rows = 0
+    aggregate_trades = 0
+    aggregate_correct = 0
+    aggregate_trade_hits = 0.0
+    aggregate_wins = 0.0
+    aggregate_gross = 0.0
+    aggregate_net = 0.0
+    aggregate_actual: Counter[str] = Counter()
+    aggregate_predicted: Counter[str] = Counter()
+    aggregate_prediction_direction: dict[str, dict[str, float]] = {}
+    trade_ledger: list[dict[str, object]] = []
+    fold_summaries: list[dict[str, object]] = []
+    thresholds = tuple(sorted({float(item) for item in threshold_grid}))
+    default_threshold = _effective_signal_confidence(settings)
+
+    for fold_number, train_end in enumerate(train_end_values, start=1):
+        train_start = max(0, train_end - train_rows)
+        fold_train = rows[train_start:train_end]
+        test_start = train_end + gap_rows
+        fold_test = rows[test_start : test_start + test_rows]
+        if not _has_complete_direction_labels(fold_train) or not fold_test:
+            continue
+        model = _fit_lightgbm_model(
+            train_rows=fold_train,
+            feature_names=feature_names,
+            feature_set_version=f"{settings.feature_set_version}-{feature_set_name}-threshold",
+            horizon_min=horizon_min,
+            model_version=f"lightgbm-cybos-{feature_set_name.replace('_', '-')}-threshold-h{horizon_min}-v1",
+        )
+        calibration_rows = fold_train[-min(len(fold_train), threshold_calibration_rows) :]
+        scored_calibration = _score_rows_with_model(
+            rows=calibration_rows,
+            model=model,
+            settings=settings,
+            horizon_min=horizon_min,
+            prediction_prefix=f"cybos-{feature_set_name}-threshold-cal-{fold_number}",
+            fold_number=fold_number,
+        )
+        threshold_candidates: list[dict[str, object]] = []
+        for threshold in thresholds:
+            candidate_metrics = _metrics_from_scored_predictions(
+                scored_rows=scored_calibration,
+                settings=settings,
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=threshold,
+            )
+            threshold_candidates.append(
+                {
+                    "threshold": threshold,
+                    "eligible": int(candidate_metrics["trades_taken"]) >= min_train_trades,
+                    "trades_taken": int(candidate_metrics["trades_taken"]),
+                    "trade_hit_rate": float(candidate_metrics["trade_hit_rate"]),
+                    "cumulative_net_return_pct": float(candidate_metrics["cumulative_net_return_pct"]),
+                }
+            )
+        eligible_candidates = [candidate for candidate in threshold_candidates if bool(candidate["eligible"])]
+        if eligible_candidates:
+            selected = max(
+                eligible_candidates,
+                key=lambda item: (
+                    float(item["cumulative_net_return_pct"]),
+                    float(item["trade_hit_rate"]),
+                    int(item["trades_taken"]),
+                ),
+            )
+        else:
+            selected = min(threshold_candidates, key=lambda item: abs(float(item["threshold"]) - default_threshold))
+
+        selected_threshold = float(selected["threshold"])
+        scored_test = _score_rows_with_model(
+            rows=fold_test,
+            model=model,
+            settings=settings,
+            horizon_min=horizon_min,
+            prediction_prefix=f"cybos-{feature_set_name}-threshold-test-{fold_number}",
+            fold_number=fold_number,
+        )
+        metrics = _metrics_from_scored_predictions(
+            scored_rows=scored_test,
+            settings=settings,
+            trade_cost_pct=trade_cost_pct,
+            signal_confidence_threshold=selected_threshold,
+            trade_ledger=trade_ledger,
+        )
+        rows_evaluated = int(metrics["rows_evaluated"])
+        trades_taken = int(metrics["trades_taken"])
+        aggregate_rows += rows_evaluated
+        aggregate_trades += trades_taken
+        aggregate_correct += int(metrics["overall_correct"])
+        aggregate_trade_hits += float(metrics["trade_hit_rate"]) * trades_taken
+        aggregate_wins += float(metrics["win_rate"]) * trades_taken
+        aggregate_gross += float(metrics["cumulative_gross_return_pct"])
+        aggregate_net += float(metrics["cumulative_net_return_pct"])
+        aggregate_actual.update(metrics["actual_label_counts"])
+        aggregate_predicted.update(metrics["predicted_label_counts"])
+        _merge_prediction_direction_stats(
+            aggregate_prediction_direction,
+            metrics.get("prediction_direction_stats", {}),
+        )
+        fold_summaries.append(
+            {
+                "fold": fold_number,
+                "train_start_row": train_start,
+                "train_end_row": train_end - 1,
+                "test_start_row": test_start,
+                "test_end_row": test_start + rows_evaluated - 1,
+                "train_start_event_time": fold_train[0]["event_time"].isoformat(),
+                "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
+                "test_start_event_time": fold_test[0]["event_time"].isoformat(),
+                "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "selected_threshold": selected_threshold,
+                "threshold_selection": selected,
+                "threshold_candidates": threshold_candidates,
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trades_taken": trades_taken,
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+            }
+        )
+
+    if aggregate_rows <= 0:
+        raise ValueError("Threshold walk-forward did not produce any folds.")
     return {
         "folds": len(fold_summaries),
         "rows_evaluated": aggregate_rows,
@@ -1151,15 +1746,42 @@ def _run_lightgbm_walk_forward(
         "cumulative_gross_return_pct": aggregate_gross,
         "cumulative_net_return_pct": aggregate_net,
         "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
+        "trade_cost_pct": trade_cost_pct,
+        "threshold_grid": list(thresholds),
+        "threshold_selection": "train_calibration_net_return",
+        "threshold_calibration_rows": threshold_calibration_rows,
+        "min_train_trades": min_train_trades,
         "actual_label_counts": dict(aggregate_actual),
         "predicted_label_counts": dict(aggregate_predicted),
+        "prediction_direction_stats": _finalize_prediction_direction_stats(aggregate_prediction_direction),
         "train_rows": train_rows,
         "test_rows": test_rows,
         "gap_rows": gap_rows,
         "step_rows": step_rows,
         "max_folds": max_folds,
         "fold_summaries": fold_summaries,
+        "trade_ledger": trade_ledger,
     }
+
+
+def _cost_adjusted_metric_summary(metrics: dict[str, object], trade_cost_pct: float) -> dict[str, object]:
+    trades_taken = int(metrics.get("trades_taken", 0))
+    cumulative_gross = float(metrics.get("cumulative_gross_return_pct", 0.0))
+    cumulative_net = cumulative_gross - (trades_taken * trade_cost_pct)
+    return {
+        "trades_taken": trades_taken,
+        "trade_cost_pct": trade_cost_pct,
+        "cumulative_gross_return_pct": cumulative_gross,
+        "cumulative_net_return_pct": cumulative_net,
+        "average_net_return_pct": (cumulative_net / trades_taken) if trades_taken else 0.0,
+        "trade_hit_rate": float(metrics.get("trade_hit_rate", 0.0)),
+        "win_rate": float(metrics.get("win_rate", 0.0)),
+        "overall_accuracy": float(metrics.get("overall_accuracy", 0.0)),
+    }
+
+
+def _top_group_rows(rows: list[dict[str, object]], *, limit: int = 8) -> list[dict[str, object]]:
+    return rows[:limit]
 
 
 def run_cybos_bar_only_experiment_from_sqlite(
@@ -1338,6 +1960,251 @@ def run_cybos_bar_only_experiment_from_sqlite(
         + "\n",
         encoding="utf-8",
     )
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
+
+
+def run_cybos_profitability_review_from_sqlite(
+    *,
+    project_root: Path,
+    train_max_rows: int = 100_000,
+    walk_forward_test_rows: int = 2_000,
+    walk_forward_step_rows: int = 30_000,
+    walk_forward_gap_rows: int = 15,
+    walk_forward_max_folds: int = 50,
+    trade_cost_pct: float = CYBOS_PROFITABILITY_COST_PCT,
+    threshold_grid: tuple[float, ...] = CYBOS_CONFIDENCE_THRESHOLD_GRID,
+    threshold_calibration_rows: int = 20_000,
+    threshold_min_train_trades: int = 10,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos profitability review.")
+
+    feature_set_name = "bar_only"
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    default_trade_cost_pct = _estimate_trade_cost_pct(settings)
+    default_signal_confidence = settings.strategy.min_signal_confidence
+
+    h15_threshold = settings.strategy.label_threshold_15
+    h15_dataset = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=15,
+        threshold_pct=h15_threshold,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+    )
+    h15_rows = sorted(
+        list(h15_dataset["train_rows"]) + list(h15_dataset["validation_rows"]),
+        key=lambda item: (item["event_time"], str(item["symbol"])),
+    )
+    f5_cost_metrics = _run_lightgbm_walk_forward(
+        rows=h15_rows,
+        feature_names=feature_names,
+        settings=settings,
+        horizon_min=15,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+        feature_set_name=feature_set_name,
+        trade_cost_pct=trade_cost_pct,
+        signal_confidence_threshold=default_signal_confidence,
+        collect_trade_ledger=True,
+        collect_prediction_stats=True,
+    )
+    trade_ledger = list(f5_cost_metrics.get("trade_ledger", []))
+    f5_diagnosis = _summarize_trade_ledger(trade_ledger)
+    f5_hypothesis = _build_profitability_hypothesis(f5_diagnosis)
+    f5_default_cost_summary = _cost_adjusted_metric_summary(f5_cost_metrics, default_trade_cost_pct)
+    f5_requested_cost_summary = _cost_adjusted_metric_summary(f5_cost_metrics, trade_cost_pct)
+
+    threshold_metrics = _run_lightgbm_walk_forward_train_only_threshold(
+        rows=h15_rows,
+        feature_names=feature_names,
+        settings=settings,
+        horizon_min=15,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+        feature_set_name=feature_set_name,
+        trade_cost_pct=trade_cost_pct,
+        threshold_grid=threshold_grid,
+        threshold_calibration_rows=threshold_calibration_rows,
+        min_train_trades=threshold_min_train_trades,
+    )
+
+    h60_threshold = settings.strategy.label_threshold_60
+    h60_dataset = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=60,
+        threshold_pct=h60_threshold,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+    )
+    h60_train_rows = list(h60_dataset["train_rows"])
+    h60_validation_rows = list(h60_dataset["validation_rows"])
+    h60_model = _fit_lightgbm_model(
+        train_rows=h60_train_rows,
+        feature_names=feature_names,
+        feature_set_version=f"{settings.feature_set_version}-{feature_set_name}",
+        horizon_min=60,
+        model_version="lightgbm-cybos-bar-only-h60-v1",
+    )
+    h60_validation_metrics = _evaluate_rows_with_model(
+        rows=h60_validation_rows,
+        model=h60_model,
+        settings=settings,
+        horizon_min=60,
+        prediction_prefix="cybos-bar-only-h60-validation",
+        trade_cost_pct_override=trade_cost_pct,
+        min_signal_confidence_override=default_signal_confidence,
+        collect_prediction_stats=True,
+    )
+    h60_rows = sorted(
+        h60_train_rows + h60_validation_rows,
+        key=lambda item: (item["event_time"], str(item["symbol"])),
+    )
+    h60_walk_forward_metrics = _run_lightgbm_walk_forward(
+        rows=h60_rows,
+        feature_names=feature_names,
+        settings=settings,
+        horizon_min=60,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+        feature_set_name=feature_set_name,
+        trade_cost_pct=trade_cost_pct,
+        signal_confidence_threshold=default_signal_confidence,
+        collect_trade_ledger=True,
+        collect_prediction_stats=True,
+    )
+
+    completed_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / "latest-cybos-profitability-review.json"
+    report_md_path = report_dir / "latest-cybos-profitability-review.md"
+    payload = {
+        "review": "cybos_profitability_review",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "feature_set_name": feature_set_name,
+        "feature_names": feature_names,
+        "settings": {
+            "train_max_rows": train_max_rows,
+            "walk_forward_test_rows": walk_forward_test_rows,
+            "walk_forward_step_rows": walk_forward_step_rows,
+            "walk_forward_gap_rows": walk_forward_gap_rows,
+            "walk_forward_max_folds": walk_forward_max_folds,
+            "default_trade_cost_pct": default_trade_cost_pct,
+            "requested_trade_cost_pct": trade_cost_pct,
+            "default_signal_confidence": default_signal_confidence,
+            "threshold_grid": list(threshold_grid),
+        },
+        "stage_1_f5_diagnosis": {
+            "dataset": {
+                "symbols": len(h15_dataset["symbols"]),
+                "trade_dates": len(h15_dataset["trade_dates"]),
+                "labeled_rows": h15_dataset["labeled_rows"],
+                "label_counts": h15_dataset["label_counts"],
+                "validation_start_date": h15_dataset["validation_start_date"],
+            },
+            "walk_forward": f5_cost_metrics,
+            "trade_diagnosis": f5_diagnosis,
+            "prediction_direction_stats": f5_cost_metrics.get("prediction_direction_stats", {}),
+            "hypothesis": f5_hypothesis,
+        },
+        "stage_2_cost_baseline": {
+            "cost_basis": "commission 0.015% one-way plus slippage 0.05% one-way; tax excluded",
+            "default_cost_summary": f5_default_cost_summary,
+            "requested_cost_summary": f5_requested_cost_summary,
+        },
+        "stage_3_train_only_confidence_threshold": threshold_metrics,
+        "stage_4_h60_bar_only": {
+            "dataset": {
+                "symbols": len(h60_dataset["symbols"]),
+                "trade_dates": len(h60_dataset["trade_dates"]),
+                "labeled_rows": h60_dataset["labeled_rows"],
+                "label_counts": h60_dataset["label_counts"],
+                "validation_start_date": h60_dataset["validation_start_date"],
+            },
+            "validation": h60_validation_metrics,
+            "walk_forward": h60_walk_forward_metrics,
+            "feature_importance_top5": _lightgbm_feature_importance(h60_model)[:5],
+        },
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_lines = [
+        "# Cybos Profitability Review",
+        "",
+        "## Stage 1. F-5 Diagnosis",
+        "",
+        f"- trades: `{int(f5_cost_metrics['trades_taken'])}`",
+        f"- trade_hit_rate: `{float(f5_cost_metrics['trade_hit_rate']):.6f}`",
+        f"- net_return_cost_0_13_pct: `{float(f5_requested_cost_summary['cumulative_net_return_pct']):.6f}`",
+        f"- hypothesis: {f5_hypothesis}",
+        "",
+        "### Worst Symbol Buckets",
+        "",
+        "| symbol | trades | hit_rate | net_pct |",
+        "|---|---:|---:|---:|",
+    ]
+    for row in _top_group_rows(f5_diagnosis["by_symbol"]):
+        markdown_lines.append(
+            f"| `{row['key']}` | {row['trades']} | {float(row['hit_rate']):.3f} | "
+            f"{float(row['cumulative_net_return_pct']):.6f} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "### Hour Buckets",
+            "",
+            "| hour | trades | hit_rate | net_pct |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for row in f5_diagnosis["by_hour"]:
+        markdown_lines.append(
+            f"| `{row['key']}` | {row['trades']} | {float(row['hit_rate']):.3f} | "
+            f"{float(row['cumulative_net_return_pct']):.6f} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Stage 2. Cost Baseline",
+            "",
+            f"- default_cost_pct: `{default_trade_cost_pct:.6f}`",
+            f"- requested_cost_pct: `{trade_cost_pct:.6f}`",
+            f"- default_cost_net_pct: `{float(f5_default_cost_summary['cumulative_net_return_pct']):.6f}`",
+            f"- requested_cost_net_pct: `{float(f5_requested_cost_summary['cumulative_net_return_pct']):.6f}`",
+            "",
+            "## Stage 3. Train-Only Confidence Threshold",
+            "",
+            f"- trades: `{int(threshold_metrics['trades_taken'])}`",
+            f"- trade_hit_rate: `{float(threshold_metrics['trade_hit_rate']):.6f}`",
+            f"- cost_adjusted_net_pct: `{float(threshold_metrics['cumulative_net_return_pct']):.6f}`",
+            "",
+            "## Stage 4. H60 Bar-Only",
+            "",
+            f"- validation_accuracy: `{float(h60_validation_metrics['overall_accuracy']):.6f}`",
+            f"- walk_forward_accuracy: `{float(h60_walk_forward_metrics['overall_accuracy']):.6f}`",
+            f"- walk_forward_trades: `{int(h60_walk_forward_metrics['trades_taken'])}`",
+            f"- walk_forward_trade_hit_rate: `{float(h60_walk_forward_metrics['trade_hit_rate']):.6f}`",
+            f"- walk_forward_cost_adjusted_net_pct: `{float(h60_walk_forward_metrics['cumulative_net_return_pct']):.6f}`",
+        ]
+    )
+    report_md_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
     payload["report_json_path"] = str(report_json_path)
     payload["report_markdown_path"] = str(report_md_path)
     return payload
