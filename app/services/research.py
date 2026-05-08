@@ -41,6 +41,7 @@ CYBOS_PROFITABILITY_COST_PCT = 0.13
 CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.75, 0.80)
 CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
+CHALLENGER_HOLDOUT_FRACTION = 0.10
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
     "range_expansion",
@@ -246,6 +247,7 @@ class ChallengerCandidateResult:
     trades_taken: int
     rows_evaluated: int
     ranking_score: float
+    evaluation_independence_status: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -263,6 +265,7 @@ class ChallengerCandidateResult:
             "trades_taken": self.trades_taken,
             "rows_evaluated": self.rows_evaluated,
             "ranking_score": round(self.ranking_score, 6),
+            "evaluation_independence_status": self.evaluation_independence_status,
         }
 
 
@@ -544,6 +547,166 @@ def _split_dataset(
     return _apply_horizon_purge(train_rows, validation_rows, horizon_min), validation_rows
 
 
+def _tail_split_by_fraction(
+    dataset: list[dict[str, object]],
+    *,
+    tail_fraction: float,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], str]:
+    if not 0.0 < tail_fraction < 1.0:
+        raise ValueError("tail_fraction must be between 0 and 1.")
+    if len(dataset) < 3:
+        return [], [], "insufficient_rows"
+
+    trade_dates = sorted({row["event_time"].date() for row in dataset})
+    if len(trade_dates) >= 3:
+        tail_date_count = max(1, math.ceil(len(trade_dates) * tail_fraction))
+        tail_date_count = min(tail_date_count, len(trade_dates) - 1)
+        tail_start_date = trade_dates[-tail_date_count]
+        head_rows = [row for row in dataset if row["event_time"].date() < tail_start_date]
+        tail_rows = [row for row in dataset if row["event_time"].date() >= tail_start_date]
+        if head_rows and tail_rows:
+            return head_rows, tail_rows, "trade_date_tail"
+
+    split_index = max(1, math.floor(len(dataset) * (1.0 - tail_fraction)))
+    split_index = min(split_index, len(dataset) - 1)
+    tail_start_time = dataset[split_index]["event_time"]
+    while split_index > 0 and dataset[split_index - 1]["event_time"] == tail_start_time:
+        split_index -= 1
+    if split_index <= 0:
+        split_index = max(1, math.floor(len(dataset) * (1.0 - tail_fraction)))
+    return dataset[:split_index], dataset[split_index:], "event_time_tail"
+
+
+def _row_window_bounds(rows: list[dict[str, object]]) -> dict[str, object]:
+    if not rows:
+        return {
+            "rows": 0,
+            "date_count": 0,
+            "first_date": None,
+            "last_date": None,
+            "first_event_time": None,
+            "last_event_time": None,
+        }
+    trade_dates = sorted({row["event_time"].date().isoformat() for row in rows})
+    event_times = sorted(row["event_time"] for row in rows)
+    return {
+        "rows": len(rows),
+        "date_count": len(trade_dates),
+        "first_date": trade_dates[0],
+        "last_date": trade_dates[-1],
+        "first_event_time": event_times[0].isoformat(),
+        "last_event_time": event_times[-1].isoformat(),
+    }
+
+
+def _build_split_metadata(
+    *,
+    train_rows: list[dict[str, object]],
+    validation_rows: list[dict[str, object]],
+    challenger_rows: list[dict[str, object]],
+    holdout_method: str,
+    holdout_fraction: float,
+    development_rows_before_purge: int,
+    development_rows_after_purge: int,
+    fallback_reason: str | None = None,
+) -> dict[str, object]:
+    return {
+        "method": "trade_date_dev_validation_plus_challenger_holdout",
+        "holdout_method": holdout_method,
+        "holdout_fraction": holdout_fraction,
+        "dataset_scope": (
+            "challenger_holdout_tail_10pct"
+            if challenger_rows
+            else "validation_tail_20pct_fallback"
+        ),
+        "development_rows_before_holdout_purge": development_rows_before_purge,
+        "development_rows_after_holdout_purge": development_rows_after_purge,
+        "holdout_purged_rows": max(0, development_rows_before_purge - development_rows_after_purge),
+        "fallback_reason": fallback_reason,
+        "train": _row_window_bounds(train_rows),
+        "validation": _row_window_bounds(validation_rows),
+        "challenger_holdout": _row_window_bounds(challenger_rows),
+    }
+
+
+def _split_dataset_with_challenger_holdout(
+    dataset: list[dict[str, object]],
+    *,
+    horizon_min: int,
+    holdout_fraction: float = CHALLENGER_HOLDOUT_FRACTION,
+) -> dict[str, object]:
+    development_rows, challenger_rows, holdout_method = _tail_split_by_fraction(
+        dataset,
+        tail_fraction=holdout_fraction,
+    )
+    fallback_reason: str | None = None
+    if not development_rows or not challenger_rows or not _has_complete_direction_labels(development_rows):
+        fallback_reason = "independent challenger holdout could not preserve complete development labels"
+        train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
+        return {
+            "train_rows": train_rows,
+            "validation_rows": validation_rows,
+            "development_rows": train_rows,
+            "challenger_rows": validation_rows,
+            "metadata": _build_split_metadata(
+                train_rows=train_rows,
+                validation_rows=validation_rows,
+                challenger_rows=[],
+                holdout_method=holdout_method,
+                holdout_fraction=holdout_fraction,
+                development_rows_before_purge=len(dataset),
+                development_rows_after_purge=len(train_rows) + len(validation_rows),
+                fallback_reason=fallback_reason,
+            ),
+        }
+
+    development_rows_before_purge = len(development_rows)
+    purged_development_rows = _apply_horizon_purge(
+        development_rows,
+        challenger_rows,
+        horizon_min,
+    )
+    train_rows, validation_rows = _split_dataset(purged_development_rows, horizon_min=horizon_min)
+    if not train_rows or not validation_rows:
+        fallback_reason = "independent challenger holdout left no train/validation rows"
+        train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
+        return {
+            "train_rows": train_rows,
+            "validation_rows": validation_rows,
+            "development_rows": train_rows,
+            "challenger_rows": validation_rows,
+            "metadata": _build_split_metadata(
+                train_rows=train_rows,
+                validation_rows=validation_rows,
+                challenger_rows=[],
+                holdout_method=holdout_method,
+                holdout_fraction=holdout_fraction,
+                development_rows_before_purge=len(dataset),
+                development_rows_after_purge=len(train_rows) + len(validation_rows),
+                fallback_reason=fallback_reason,
+            ),
+        }
+    return {
+        "train_rows": train_rows,
+        "validation_rows": validation_rows,
+        "development_rows": purged_development_rows,
+        "challenger_rows": challenger_rows,
+        "metadata": _build_split_metadata(
+            train_rows=train_rows,
+            validation_rows=validation_rows,
+            challenger_rows=challenger_rows,
+            holdout_method=holdout_method,
+            holdout_fraction=holdout_fraction,
+            development_rows_before_purge=development_rows_before_purge,
+            development_rows_after_purge=len(purged_development_rows),
+        ),
+    }
+
+
+def _is_independent_challenger_scope(split_metadata: dict[str, object]) -> bool:
+    return str(split_metadata.get("dataset_scope")) == "challenger_holdout_tail_10pct"
+
+
 def _prediction_label(probability_up: float, probability_flat: float, probability_down: float) -> str:
     labels = {
         "up": probability_up,
@@ -553,11 +716,61 @@ def _prediction_label(probability_up: float, probability_flat: float, probabilit
     return max(labels.items(), key=lambda item: item[1])[0]
 
 
-def _resolve_training_run_id(sqlite_store, model_version: str, horizon_min: int) -> str:
+def _resolve_latest_training_run_row(sqlite_store, model_version: str, horizon_min: int):
     for row in reversed(sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")):
         if row["model_version"] == model_version and int(row["horizon_min"]) == horizon_min:
-            return str(row["training_run_id"])
+            return row
+    return None
+
+
+def _resolve_training_run_id(sqlite_store, model_version: str, horizon_min: int) -> str:
+    row = _resolve_latest_training_run_row(sqlite_store, model_version, horizon_min)
+    if row is not None:
+        return str(row["training_run_id"])
     return f"adhoc-{model_version}"
+
+
+def _resolve_training_run_summary(sqlite_store, model_version: str, horizon_min: int) -> dict[str, object] | None:
+    row = _resolve_latest_training_run_row(sqlite_store, model_version, horizon_min)
+    if row is None:
+        return None
+    try:
+        payload = json.loads(str(row["training_summary_json"]))
+    except (json.JSONDecodeError, KeyError):
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _training_run_holdout_status(
+    training_summary: dict[str, object] | None,
+    split_metadata: dict[str, object],
+) -> str:
+    if not _is_independent_challenger_scope(split_metadata):
+        return "not_independent_validation_fallback"
+    if training_summary is None:
+        return "unknown_training_summary"
+    training_split = training_summary.get("challenger_holdout_split")
+    if not isinstance(training_split, dict):
+        return "legacy_training_without_reserved_holdout"
+    if str(training_split.get("dataset_scope")) != "challenger_holdout_tail_10pct":
+        return "training_reserved_holdout_missing"
+
+    training_holdout = training_split.get("challenger_holdout")
+    evaluation_holdout = split_metadata.get("challenger_holdout")
+    if not isinstance(training_holdout, dict) or not isinstance(evaluation_holdout, dict):
+        return "holdout_metadata_missing"
+    if training_holdout.get("first_event_time") != evaluation_holdout.get("first_event_time"):
+        return "holdout_window_mismatch"
+
+    training_validation = training_split.get("validation")
+    if isinstance(training_validation, dict):
+        validation_last = str(training_validation.get("last_event_time") or "")
+        holdout_first = str(evaluation_holdout.get("first_event_time") or "")
+        if validation_last and holdout_first and validation_last >= holdout_first:
+            return "validation_overlaps_challenger_holdout"
+    return "independent_challenger_holdout"
 
 
 def _estimate_trade_cost_pct(settings) -> float:
@@ -4269,7 +4482,9 @@ def train_centroid_baseline_from_sqlite(
         raise ValueError("A sqlite database_url is required for training.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    train_rows = list(split_payload["train_rows"])
+    validation_rows = list(split_payload["validation_rows"])
 
     model_version = f"centroid-h{horizon_min}-v1"
     model = _fit_centroid_model(
@@ -4319,6 +4534,8 @@ def train_centroid_baseline_from_sqlite(
             training_summary={
                 "labels_seen": sorted({str(row["label"]) for row in dataset}),
                 "feature_names": feature_names,
+                "validation_split": _split_window_summary(train_rows, validation_rows),
+                "challenger_holdout_split": split_payload["metadata"],
                 "activation_applied": set_active,
             },
         )
@@ -4367,7 +4584,9 @@ def train_lightgbm_from_sqlite(
         raise ValueError("A sqlite database_url is required for training.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    train_rows = list(split_payload["train_rows"])
+    validation_rows = list(split_payload["validation_rows"])
 
     model_version = f"lightgbm-h{horizon_min}-v1"
     model = _fit_lightgbm_model(
@@ -4432,9 +4651,10 @@ def train_lightgbm_from_sqlite(
                     "source_counts": dict(Counter(str(row.get("feature_source", "unknown")) for row in dataset)),
                 },
                 "validation_split": _split_window_summary(train_rows, validation_rows),
+                "challenger_holdout_split": split_payload["metadata"],
                 "validation_purge": {
                     "horizon_min": horizon_min,
-                    "split": "trade_date_tail_20pct",
+                    "split": "development_tail_after_challenger_holdout",
                     "purge_rule": "drop train rows where event_time + horizon reaches validation_start_time",
                 },
                 "training_window": "recent_60_trading_days_plus_today",
@@ -4864,9 +5084,18 @@ def run_model_challenger_review_from_sqlite(
         raise ValueError("A sqlite database_url is required for challenger evaluation.")
 
     feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
-    train_rows, validation_rows = _split_dataset(dataset, horizon_min=horizon_min)
-    if not validation_rows:
-        raise ValueError("Not enough validation rows are available for challenger evaluation.")
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    train_rows = list(split_payload["train_rows"])
+    development_rows = list(split_payload["development_rows"])
+    evaluation_rows = list(split_payload["challenger_rows"])
+    split_metadata = dict(split_payload["metadata"])
+    evaluation_dataset_scope = str(split_metadata["dataset_scope"])
+    evaluation_independent = _is_independent_challenger_scope(split_metadata)
+    default_independence_status = (
+        "independent_challenger_holdout" if evaluation_independent else "not_independent_validation_fallback"
+    )
+    if not evaluation_rows:
+        raise ValueError("Not enough independent rows are available for challenger evaluation.")
 
     review_time = now_local(settings.timezone)
     challenger_run_id = f"challenger-h{horizon_min}-{review_time.strftime('%Y%m%d%H%M%S%f')}"
@@ -4879,17 +5108,17 @@ def run_model_challenger_review_from_sqlite(
     if active_model_version is None:
         prediction = active_model.predict(
             feature_snapshot=FeatureSnapshot(
-                symbol=str(validation_rows[0]["symbol"]),
-                event_time=validation_rows[0]["event_time"],
+                symbol=str(evaluation_rows[0]["symbol"]),
+                event_time=evaluation_rows[0]["event_time"],
                 feature_set_version=settings.feature_set_version,
-                values=dict(validation_rows[0]["values"]),
+                values=dict(evaluation_rows[0]["values"]),
             ),
             horizon_min=horizon_min,
             prediction_id="candidate-version-probe",
         )
         active_model_version = prediction.model_version
     active_metrics = _evaluate_rows_with_model(
-        rows=validation_rows,
+        rows=evaluation_rows,
         model=active_model,
         settings=settings,
         horizon_min=horizon_min,
@@ -4901,6 +5130,7 @@ def run_model_challenger_review_from_sqlite(
         "model_kind": "active_runtime",
         "training_run_id": _resolve_training_run_id(sqlite_store, str(active_model_version), horizon_min),
         "promotable": False,
+        "evaluation_independence_status": "not_applicable_active_model",
         "promotion_entry": None,
         **active_metrics,
     }
@@ -4911,7 +5141,7 @@ def run_model_challenger_review_from_sqlite(
         model_version_h60=settings.model_version_h60,
     )
     baseline_metrics = _evaluate_rows_with_model(
-        rows=validation_rows,
+        rows=evaluation_rows,
         model=baseline_model,
         settings=settings,
         horizon_min=horizon_min,
@@ -4924,7 +5154,8 @@ def run_model_challenger_review_from_sqlite(
             "model_version": baseline_version,
             "model_kind": "builtin",
             "training_run_id": f"builtin-{baseline_version}",
-            "promotable": True,
+            "promotable": evaluation_independent,
+            "evaluation_independence_status": default_independence_status,
             "promotion_entry": ModelRegistryEntry(
                 horizon_min=horizon_min,
                 model_version=baseline_version,
@@ -4939,7 +5170,7 @@ def run_model_challenger_review_from_sqlite(
 
     linear_model = load_named_builtin_model(settings, horizon_min=horizon_min, builtin_name="linear_score")
     linear_metrics = _evaluate_rows_with_model(
-        rows=validation_rows,
+        rows=evaluation_rows,
         model=linear_model,
         settings=settings,
         horizon_min=horizon_min,
@@ -4952,7 +5183,8 @@ def run_model_challenger_review_from_sqlite(
             "model_version": linear_version,
             "model_kind": "builtin",
             "training_run_id": f"builtin-{linear_version}",
-            "promotable": True,
+            "promotable": evaluation_independent,
+            "evaluation_independence_status": default_independence_status,
             "promotion_entry": ModelRegistryEntry(
                 horizon_min=horizon_min,
                 model_version=linear_version,
@@ -4970,8 +5202,17 @@ def run_model_challenger_review_from_sqlite(
         latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
         latest_lightgbm_version = latest_lightgbm_model.artifact.model_version
         if latest_lightgbm_version != str(active_candidate["model_version"]):
+            lightgbm_training_summary = _resolve_training_run_summary(
+                sqlite_store,
+                latest_lightgbm_version,
+                horizon_min,
+            )
+            lightgbm_independence_status = _training_run_holdout_status(
+                lightgbm_training_summary,
+                split_metadata,
+            )
             lightgbm_metrics = _evaluate_rows_with_model(
-                rows=validation_rows,
+                rows=evaluation_rows,
                 model=latest_lightgbm_model,
                 settings=settings,
                 horizon_min=horizon_min,
@@ -4983,7 +5224,8 @@ def run_model_challenger_review_from_sqlite(
                     "model_version": latest_lightgbm_version,
                     "model_kind": "lightgbm_artifact",
                     "training_run_id": _resolve_training_run_id(sqlite_store, latest_lightgbm_version, horizon_min),
-                    "promotable": True,
+                    "promotable": lightgbm_independence_status == "independent_challenger_holdout",
+                    "evaluation_independence_status": lightgbm_independence_status,
                     "promotion_entry": ModelRegistryEntry(
                         horizon_min=horizon_min,
                         model_version=latest_lightgbm_version,
@@ -5000,15 +5242,16 @@ def run_model_challenger_review_from_sqlite(
             )
 
     fresh_centroid_version = f"centroid-challenger-h{horizon_min}-v1"
+    fresh_train_rows = development_rows if _has_complete_direction_labels(development_rows) else train_rows
     fresh_centroid_model = _fit_centroid_model(
-        train_rows=train_rows,
+        train_rows=fresh_train_rows,
         feature_names=feature_names,
         feature_set_version=settings.feature_set_version,
         horizon_min=horizon_min,
         model_version=fresh_centroid_version,
     )
     centroid_metrics = _evaluate_rows_with_model(
-        rows=validation_rows,
+        rows=evaluation_rows,
         model=fresh_centroid_model,
         settings=settings,
         horizon_min=horizon_min,
@@ -5024,7 +5267,8 @@ def run_model_challenger_review_from_sqlite(
             "model_version": fresh_centroid_version,
             "model_kind": "centroid_artifact",
             "training_run_id": _resolve_training_run_id(sqlite_store, f"centroid-h{horizon_min}-v1", horizon_min),
-            "promotable": True,
+            "promotable": evaluation_independent,
+            "evaluation_independence_status": default_independence_status,
             "promotion_entry": ModelRegistryEntry(
                 horizon_min=horizon_min,
                 model_version=fresh_centroid_version,
@@ -5037,7 +5281,7 @@ def run_model_challenger_review_from_sqlite(
     )
 
     for candidate in candidates:
-        split_name = f"challenger_validation_h{horizon_min}_{candidate['candidate_name']}"
+        split_name = f"challenger_holdout_h{horizon_min}_{candidate['candidate_name']}"
         writer.write_model_evaluation(
             ModelEvaluation(
                 evaluation_id=f"{challenger_run_id}-{candidate['candidate_name']}",
@@ -5050,7 +5294,8 @@ def run_model_challenger_review_from_sqlite(
                     "candidate_name": candidate["candidate_name"],
                     "model_version": candidate["model_version"],
                     "model_kind": candidate["model_kind"],
-                    "dataset_scope": "validation_tail_20pct",
+                    "dataset_scope": evaluation_dataset_scope,
+                    "evaluation_independence_status": candidate["evaluation_independence_status"],
                     "horizon_min": horizon_min,
                     "promotable": bool(candidate["promotable"]),
                     "trade_cost_pct": float(candidate["trade_cost_pct"]),
@@ -5086,6 +5331,7 @@ def run_model_challenger_review_from_sqlite(
                 trades_taken=int(candidate["trades_taken"]),
                 rows_evaluated=int(candidate["rows_evaluated"]),
                 ranking_score=_challenger_ranking_score(candidate),
+                evaluation_independence_status=str(candidate["evaluation_independence_status"]),
             )
         )
 
@@ -5141,6 +5387,8 @@ def run_model_challenger_review_from_sqlite(
             if walk_forward_reference
             else None
         ),
+        "dataset_scope": evaluation_dataset_scope,
+        "evaluation_split": split_metadata,
         "promotion_requested": promote_best,
         "promotion_applied": promotion_applied,
         "promoted_model_version": promoted_model_version,
@@ -5159,6 +5407,7 @@ def run_model_challenger_review_from_sqlite(
             "decision_reason": decision_reason,
             "walk_forward_gate_status": walk_forward_gate["status"],
             "walk_forward_gate_reason": walk_forward_gate["reason"],
+            "dataset_scope": evaluation_dataset_scope,
             "promotion_requested": promote_best,
             "promotion_applied": promotion_applied,
             "promoted_model_version": promoted_model_version,
@@ -5179,6 +5428,8 @@ def run_model_challenger_review_from_sqlite(
         f"- `decision_reason`: {decision_reason}",
         f"- `walk_forward_gate_status`: {walk_forward_gate['status']}",
         f"- `walk_forward_gate_reason`: {walk_forward_gate['reason']}",
+        f"- `dataset_scope`: {evaluation_dataset_scope}",
+        f"- `evaluation_independent`: {evaluation_independent}",
         f"- `promotion_requested`: {promote_best}",
         f"- `promotion_applied`: {promotion_applied}",
         f"- `promoted_model_version`: {promoted_model_version or 'none'}",
@@ -5192,7 +5443,8 @@ def run_model_challenger_review_from_sqlite(
             f"- `rank {candidate.rank}` {candidate.candidate_name} "
             f"model={candidate.model_version} kind={candidate.model_kind} "
             f"trades={candidate.trades_taken} accuracy={candidate.overall_accuracy:.4f} "
-            f"net={candidate.cumulative_net_return_pct:.4f} score={candidate.ranking_score:.4f}"
+            f"net={candidate.cumulative_net_return_pct:.4f} score={candidate.ranking_score:.4f} "
+            f"independence={candidate.evaluation_independence_status}"
         )
     markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

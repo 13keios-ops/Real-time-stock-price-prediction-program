@@ -1,5 +1,40 @@
 # docs/STATUS.md
 
+## [2026-05-09 03:30] challenger 독립성 보강과 실제 holdout 재평가
+
+- 목적:
+  - 기존 challenger 평가는 LightGBM 학습 때 validation으로 본 tail 구간을 다시 평가에 쓰는 구조라, row overlap은 없어도 모델 선택용 validation과 challenger 평가가 독립적이지 않았다.
+  - 이번 변경은 마지막 tail `10%`를 `challenger_holdout_tail_10pct`로 예약하고, LightGBM 학습/validation은 그 이전 development 구간에서만 수행하도록 분리했다.
+- 구현:
+  - `train_lightgbm_from_sqlite`와 centroid 학습 summary에 `challenger_holdout_split` 메타데이터를 기록한다.
+  - `run_model_challenger_review_from_sqlite`는 `validation_tail_20pct`가 아니라 reserved holdout을 평가 구간으로 사용한다.
+  - 각 candidate에 `evaluation_independence_status`를 기록한다.
+  - 최신 LightGBM artifact가 reserved holdout 메타데이터 없이 학습된 legacy 모델이면 promotable 후보에서 제외할 수 있게 했다.
+- 실제 정본 DB 재실행:
+  - `python -m app --train-lightgbm --horizon-min 15`
+    - `training_run_id=train-lightgbm-h15-20260509030957756047`
+    - `train_rows=4,295,040`, `validation_rows=1,183,354`
+    - `validation_accuracy=0.571482`
+    - `activation_applied=false`
+  - `python -m app --run-challengers --horizon-min 15`
+    - `dataset_scope=challenger_holdout_tail_10pct`
+    - holdout rows `662,401`
+    - holdout start `2025-10-24T09:00:00+09:00`
+    - best candidate `latest_lightgbm`
+    - `latest_lightgbm`: accuracy `0.504269`, trade_hit_rate `0.202465`, trades `568`, net `-30.697069%`
+    - `evaluation_independence_status=independent_challenger_holdout`
+    - `recommended_action=review_required`
+    - `decision_reason=Walk-forward overall accuracy is too low (0.4163).`
+- 판단:
+  - 예전 `0.92`대 validation 과열을 challenger 승격 근거로 쓰지 않도록 평가 독립성은 보강됐다.
+  - 독립 holdout 기준 LightGBM은 여전히 비용 반영 순수익과 trade hit rate가 부족하므로 active model은 `baseline-h15-v1` 유지가 맞다.
+- 대시보드:
+  - `python -m app --build-dashboard`: `generated_at=2026-05-09T03:26:29.971728+09:00`.
+- 검증:
+  - `python -m py_compile app/services/research.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline`: 5개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+
 ## [2026-05-08 22:15] cowork 의견 반영: quick/heavy 분리, dashboard 병목 고정, EV 안정성 진단
 
 - 비판적 검토:

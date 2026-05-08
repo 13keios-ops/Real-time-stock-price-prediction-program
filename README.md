@@ -276,7 +276,7 @@ challenger 비교:
 python -m app --run-challengers --horizon-min 15
 ```
 
-이제 challenger는 validation 구간 성능만 보지 않고 최신 walk-forward 결과를 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다.
+이제 challenger는 학습 validation 구간을 다시 평가 구간으로 쓰지 않고 마지막 tail `10%`를 reserved holdout으로 분리해 평가한다. candidate별 `evaluation_independence_status`를 기록하고, 최신 walk-forward 결과도 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다.
 
 active model을 안전하게 baseline으로 고정:
 

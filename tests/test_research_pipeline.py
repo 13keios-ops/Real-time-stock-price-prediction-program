@@ -105,6 +105,14 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(training_result.validation_accuracy, 0.0)
             self.assertTrue(training_result.model_version.startswith("lightgbm-h15-"))
             self.assertFalse(training_result.activation_applied)
+            lightgbm_training_rows = [
+                row
+                for row in sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")
+                if row["model_version"] == training_result.model_version
+            ]
+            self.assertTrue(lightgbm_training_rows)
+            lightgbm_training_summary = json.loads(lightgbm_training_rows[-1]["training_summary_json"])
+            self.assertIn("challenger_holdout_split", lightgbm_training_summary)
             self.assertTrue(backtest_result.report_markdown_path.exists())
             self.assertTrue(backtest_result.report_json_path.exists())
             self.assertGreaterEqual(backtest_result.rows_evaluated, 1)
@@ -127,6 +135,15 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(challenger_result.report_markdown_path.exists())
             self.assertTrue(challenger_result.report_json_path.exists())
             self.assertTrue(challenger_result.leaderboard_json_path.exists())
+            challenger_payload = json.loads(challenger_result.report_json_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                challenger_payload["dataset_scope"],
+                {"challenger_holdout_tail_10pct", "validation_tail_20pct_fallback"},
+            )
+            self.assertIn("evaluation_split", challenger_payload)
+            self.assertTrue(
+                all("evaluation_independence_status" in candidate for candidate in challenger_payload["candidates"])
+            )
             self.assertGreaterEqual(len(challenger_result.candidates), 3)
             self.assertTrue(any(candidate.candidate_name == "latest_lightgbm" for candidate in challenger_result.candidates))
             self.assertIn(challenger_result.recommended_action, {"promote", "keep_active", "review_required"})

@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-09] Codex → challenger 독립 holdout 보강
+
+- 목적:
+  - LightGBM 학습 validation tail과 challenger 평가 tail이 사실상 같은 기간이던 문제를 줄였다.
+  - 이제 challenger는 마지막 tail `10%`를 reserved holdout으로 떼어내고, 학습/validation은 그 이전 development 구간에서만 수행한다.
+- 구현:
+  - `app/services/research.py`에 challenger holdout split을 추가했다.
+  - 학습 summary에 `challenger_holdout_split`을 기록한다.
+  - challenger report와 candidate별 결과에 `dataset_scope`, `evaluation_split`, `evaluation_independence_status`를 기록한다.
+  - 최신 LightGBM 학습 summary가 reserved holdout과 맞지 않으면 해당 LightGBM은 promotable 후보로 보지 않도록 했다.
+- 실제 재실행:
+  - `python -m app --train-lightgbm --horizon-min 15`
+    - `training_run_id=train-lightgbm-h15-20260509030957756047`
+    - `train_rows=4,295,040`, `validation_rows=1,183,354`, `validation_accuracy=0.571482`
+  - `python -m app --run-challengers --horizon-min 15`
+    - `dataset_scope=challenger_holdout_tail_10pct`
+    - holdout rows `662,401`, start `2025-10-24T09:00:00+09:00`
+    - best `latest_lightgbm`: accuracy `0.504269`, trade_hit_rate `0.202465`, net `-30.697069%`, trades `568`
+    - `recommended_action=review_required`, active model은 `baseline-h15-v1` 유지
+  - `python -m app --build-dashboard`: `generated_at=2026-05-09T03:26:29.971728+09:00`
+- 판단:
+  - challenger 평가 독립성은 개선됐지만, 독립 holdout 기준 비용 반영 성과가 음수라 모델 승격은 보류한다.
+- 검증:
+  - `python -m py_compile app/services/research.py` 통과.
+  - `python -m unittest tests.test_research_pipeline`: 5개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+
 ## [2026-05-08] Codex → cowork 의견 반영: post-close quick 분리, dashboard 병목 제거, EV 안정성 진단
 
 - 판단:
