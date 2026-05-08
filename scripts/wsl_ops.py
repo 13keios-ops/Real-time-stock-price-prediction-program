@@ -230,7 +230,7 @@ def maybe_start_post_close_ml(
     today = now.strftime("%Y-%m-%d")
     state = read_json(state_path, {})
     if state.get("maintenance_date") == today:
-        if state.get("status") in {"starting", "running", "ok"}:
+        if state.get("status"):
             return f"already_{state.get('status')}"
 
     horizon = str(getattr(args, "post_close_ml_horizon_min", 15))

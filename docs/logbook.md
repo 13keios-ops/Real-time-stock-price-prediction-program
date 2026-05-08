@@ -1,5 +1,29 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 장후 maintenance 중단, expected-value review 완료
+
+- 장후 운영 상태:
+  - 확인 시각: `2026-05-08 18:07 KST`.
+  - live runtime은 `2026-05-08 15:30:33 +0900`에 정상 정지했고, watchdog은 post-close 상태에서 running 이다.
+  - 09:00 이후 정본 DB 누적: `raw_market_ticks=1,170,143`, `raw_orderbook_ticks=647,201`, `curated_minute_bars=3,770`, `feature_model_inputs=3,770`, `serving_predictions=7,540`, `serving_trade_signals=3,770`.
+- post-close maintenance:
+  - 자동 post-close maintenance는 D드라이브 snapshot `post-close-h15-20260508-160019.db`를 만든 뒤 `--rebuild-actual-ml` 단계에서 2시간 가까이 진행됐다.
+  - main DB가 아니라 snapshot/runtime 격리 경로에서 실행 중이었으나, 더 진행하면 같은 heavy job이 반복될 가능성이 커서 중단했다.
+  - `latest-post-close-ml.json`은 `failed`로 표시했다.
+  - watchdog이 `failed` 상태를 보고 같은 날짜 maintenance를 계속 재시작하는 문제가 있어, 오늘 날짜에 status 값이 있으면 `already_<status>`로 보고 재시작하지 않도록 `scripts/wsl_ops.py`를 수정했다.
+  - 중단 중 생긴 불완전한 D드라이브 snapshot `post-close-h15-20260508-181250*`, `post-close-h15-20260508-181459*`는 삭제했다.
+- expected-value review:
+  - 실행 경로: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/expected-value-20260508-h15/runtime-data`.
+  - 입력 DB: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260508-160019.db`.
+  - 명령은 도구 1시간 제한에서 timeout 됐지만 리포트 생성은 완료됐다.
+  - 결과: `folds=12`, `rows_evaluated=600,000`, `trades_taken=3,008`, `overall_accuracy=0.534130`, `trade_hit_rate=0.304854`, `win_rate=0.523271`, `average_net_return_pct=0.006320`, `trade_sum_net_return_pct=+19.012036`, `estimated_cost_drag_pct=324.864`.
+  - fold 안정성: 양수 fold 7개, 음수 fold 2개, no-trade fold 3개.
+  - 판단: 비용 `0.108%` 기준에서는 train-only expected-value 선별이 처음으로 양수 거래합산 순수익과 0.3 이상 hit rate를 만들었다. 다만 0.13% 보수 비용 재검증과 portfolio-level 수익률 환산 전까지 자동 승격하지 않는다.
+- 대시보드:
+  - expected-value 리포트는 정본 `runtime-data/reports/backtests/`에도 복사했다.
+  - `python -m app --build-dashboard`는 5분 제한에서 끝나지 않아 중단했다.
+  - dashboard server는 `http://127.0.0.1:8765`에서 running, API responding 상태이며 최신 snapshot은 `2026-05-08 18:48` 파일이다.
+
 ## [2026-05-08] Codex → 장중 broker paper 체결 조회 rate-limit 완화
 
 - 관찰:

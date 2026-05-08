@@ -1,5 +1,33 @@
 # docs/STATUS.md
 
+## [2026-05-08 19:30] 장후 maintenance 중단과 expected-value review 결과
+
+- 장후 운영 상태:
+  - 확인 시각: `2026-05-08 18:07 KST`.
+  - live runtime은 `2026-05-08 15:30:33 +0900`에 정상 정지했다.
+  - runtime watchdog은 post-close 상태에서 running 이며, latest 상태는 `ml_maintenance_action=already_failed`다.
+  - 09:00 이후 정본 DB 누적: `raw_market_ticks=1,170,143`, `raw_orderbook_ticks=647,201`, `curated_minute_bars=3,770`, `feature_model_inputs=3,770`, `serving_predictions=7,540`, `serving_trade_signals=3,770`.
+- post-close maintenance:
+  - 자동 maintenance는 D드라이브 snapshot `post-close-h15-20260508-160019.db`를 만든 뒤 `--rebuild-actual-ml` 단계에서 2시간 가까이 진행됐다.
+  - main DB가 아니라 snapshot/runtime 격리 경로였지만, 과도하게 오래 걸려 중단했고 상태 파일은 `failed`로 기록했다.
+  - watchdog이 `failed` 상태를 보고 같은 날짜 maintenance를 계속 재시작하는 문제가 있어 `scripts/wsl_ops.py`를 수정했다. 이제 오늘 날짜에 status 값이 있으면 `already_<status>`로 보고 재시작하지 않는다.
+  - 중단 중 생긴 불완전한 D드라이브 snapshot `post-close-h15-20260508-181250*`, `post-close-h15-20260508-181459*`는 삭제했다.
+- expected-value review:
+  - 입력 DB: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260508-160019.db`.
+  - 출력 runtime: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/expected-value-20260508-h15/runtime-data`.
+  - 리포트: `latest-cybos-expected-value-bar-context-momentum-h15.json`, `.md`.
+  - dataset: `symbols=199`, `trade_dates=1,249`, `source_rows=6,283,279`, `labeled_rows=6,040,981`, 기간 `2021-03-30T09:15:00+09:00..2026-05-04T15:15:00+09:00`.
+  - walk-forward: `folds=12`, `rows_evaluated=600,000`, `trades_taken=3,008`, `overall_accuracy=0.534130`, `trade_hit_rate=0.304854`, `win_rate=0.523271`.
+  - 비용 `0.108%` 반영: `average_net_return_pct=0.006320`, `trade_sum_net_return_pct=+19.012036`, `estimated_cost_drag_pct=324.864`.
+  - fold 안정성: 양수 fold 7개, 음수 fold 2개, no-trade fold 3개.
+- 판단:
+  - 🟢 완료 조건 일부 충족: 비용 `0.108%` 기준으로 `trade_hit_rate >= 0.3`와 비용 반영 거래합산 순수익 양수를 동시에 달성했다.
+  - 다만 이 값은 계좌 수익률이 아니라 `sum_of_trade_pct_not_portfolio`이며, 보수 비용 `0.13%` 재검증과 portfolio-level 환산 전까지 모델 승격은 보류한다.
+- 대시보드:
+  - expected-value 리포트는 정본 `runtime-data/reports/backtests/`에도 복사했다.
+  - `python -m app --build-dashboard`는 5분 제한에서 끝나지 않아 중단했다.
+  - dashboard server는 `http://127.0.0.1:8765`에서 running/API responding 상태다.
+
 ## [2026-05-08 15:00] broker paper 체결 조회 rate-limit 완화
 
 - 관찰:

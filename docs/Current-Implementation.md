@@ -214,6 +214,7 @@ KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식
 이미 켜져 있으면 중지해 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
 기본 실행은 snapshot DB와 격리된 research run runtime 을 사용하므로 main `runtime-data/dev.db`를 직접 무겁게 재학습하지 않는다.
 watchdog 은 장마감 후 기본 30분이 지나면 이 경로를 하루 한 번 백그라운드로 시작한다.
+같은 날짜의 post-close maintenance 상태 파일에 `starting`, `running`, `ok`, `failed` 등 status 값이 이미 있으면 watchdog 은 같은 작업을 반복 시작하지 않는다.
 
 ## 로컬 가상 계좌와 KIS 모의계좌
 
