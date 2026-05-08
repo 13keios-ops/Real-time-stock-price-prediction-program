@@ -201,7 +201,12 @@ class BrokerPaperExecutionSync:
         self._sequence += 1
         return f"{prefix}-{self._run_namespace}-{self._sequence:06d}"
 
-    def sync_recent_orders(self, *, lookback_days: int = 3) -> BrokerPaperSyncResult:
+    def sync_recent_orders(
+        self,
+        *,
+        lookback_days: int = 3,
+        retry_delays_seconds: tuple[float, ...] | None = None,
+    ) -> BrokerPaperSyncResult:
         synced_at = now_local(self.settings.timezone)
         markdown_path, json_path = _report_paths(self.settings.runtime_data_dir)
 
@@ -283,7 +288,10 @@ class BrokerPaperExecutionSync:
             latest_status_by_order[str(row["local_order_id"])] = dict(row)
 
         try:
-            broker_rows = self.broker_mirror.fetch_recent_order_fills(lookback_days=lookback_days)
+            broker_rows = self.broker_mirror.fetch_recent_order_fills(
+                lookback_days=lookback_days,
+                retry_delays_seconds=retry_delays_seconds,
+            )
         except KisApiError as exc:
             if not is_kis_rate_limit_error(exc):
                 raise
@@ -492,8 +500,12 @@ def sync_broker_paper_orders(
     project_root: Path,
     *,
     lookback_days: int = 3,
+    retry_delays_seconds: tuple[float, ...] | None = None,
 ) -> BrokerPaperSyncResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     service = BrokerPaperExecutionSync(settings)
-    return service.sync_recent_orders(lookback_days=lookback_days)
+    return service.sync_recent_orders(
+        lookback_days=lookback_days,
+        retry_delays_seconds=retry_delays_seconds,
+    )

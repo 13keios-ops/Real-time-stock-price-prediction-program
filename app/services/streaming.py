@@ -239,7 +239,9 @@ class OnlinePipelineProcessor:
             return
         if not force and self._last_broker_sync_minute == sync_minute:
             return
-        result = self.broker_paper_sync.sync_recent_orders()
+        result = self.broker_paper_sync.sync_recent_orders(
+            retry_delays_seconds=None if force else (),
+        )
         self.pending_order_symbols = set(result.pending_symbols)
         self.pending_buy_symbols = {
             symbol

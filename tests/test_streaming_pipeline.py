@@ -216,9 +216,11 @@ class StreamingPipelineTests(unittest.TestCase):
         class FakeBrokerSync:
             def __init__(self) -> None:
                 self.calls = 0
+                self.retry_delays_seen = []
 
-            def sync_recent_orders(self) -> BrokerPaperSyncResult:
+            def sync_recent_orders(self, **kwargs) -> BrokerPaperSyncResult:
                 self.calls += 1
+                self.retry_delays_seen.append(kwargs.get("retry_delays_seconds"))
                 status = "rate_limited" if self.calls == 1 else "ok"
                 return BrokerPaperSyncResult(
                     ok=status == "ok",
@@ -249,6 +251,7 @@ class StreamingPipelineTests(unittest.TestCase):
             processor._run_broker_sync(bar_time=first_time.replace(minute=20))
 
         self.assertEqual(fake_sync.calls, 2)
+        self.assertEqual(fake_sync.retry_delays_seen, [(), ()])
 
 
 if __name__ == "__main__":

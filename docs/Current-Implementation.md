@@ -267,9 +267,9 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 계좌 비교에서 KIS 원시 현금값은 체결 뒤에도 총 예수금처럼 보일 수 있다.
 따라서 대시보드와 reconciliation 은 `total_asset_amount - stock_evaluation_amount` 로 계산한 브로커 유효현금을 기준으로 비교하고, 원시 현금 차이는 `raw_cash_gap` 으로 따로 남긴다.
 
-브로커 주문/체결 조회가 KIS `EGW00201` rate-limit 에 걸리면 짧게 재시도한다.
+수동 브로커 주문/체결 조회가 KIS `EGW00201` rate-limit 에 걸리면 짧게 재시도한다.
 계속 막히면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
-실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 5분 동안 추가 조회를 쉬어 KIS 호출 제한과 로그 증가를 줄인다.
+실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 즉시 재시도하지 않은 뒤 5분 동안 추가 조회를 쉬어 KIS 호출 제한, 지연, 로그 증가를 줄인다.
 
 ## KIS 계좌 설정 메모
 

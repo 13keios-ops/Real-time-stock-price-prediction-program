@@ -1,5 +1,23 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 장중 broker paper 체결 조회 rate-limit 완화
+
+- 관찰:
+  - 확인 시각: `2026-05-08 14:56 KST`.
+  - live runtime은 `running`, `current_session_status=regular-session`, `trading_mode=paper` 상태다.
+  - 09:00 이후 정본 DB 누적: `curated_minute_bars=3,550`, `feature_model_inputs=3,550`, `serving_predictions=7,100`, `serving_trade_signals=3,550`.
+  - `live-runtime.stderr.log`에서 `KIS broker paper order-fill query rate-limited` 경고가 누적 231회 확인됐다.
+- 조치:
+  - 수동 `sync_broker_paper_orders`는 기존처럼 짧은 재시도를 유지한다.
+  - 장중 `OnlinePipelineProcessor`의 브로커 체결 동기화는 rate-limit 발생 시 같은 호출 안에서 즉시 재시도하지 않고, 기존 5분 cooldown 으로 빠지도록 바꿨다.
+  - 목적은 KIS 호출 제한 충돌, live loop 지연, 로그 폭증을 줄이는 것이다.
+  - 현재 실행 중인 live runtime은 코드 변경 전 프로세스이므로, 이번 변경은 다음 runtime 재시작부터 적용된다.
+- 검증:
+  - `python -m py_compile app/services/broker_paper.py app/services/broker_paper_sync.py app/services/streaming.py` 통과.
+  - `python -m unittest tests.test_broker_paper_sync tests.test_streaming_pipeline`: 11개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+  - `git diff --check` 통과.
+
 ## [2026-05-08] Codex → 장중 수집 확인과 train-only expected-value 실험 경로 추가
 
 - 장중 수집 상태:

@@ -55,13 +55,23 @@ class BrokerPaperMirror:
     def fetch_balance_snapshot(self) -> KisAccountBalanceSnapshot:
         return self.client.get_account_balance()
 
-    def fetch_recent_order_fills(self, *, lookback_days: int = 3) -> list[KisDailyOrderFillRecord]:
+    def fetch_recent_order_fills(
+        self,
+        *,
+        lookback_days: int = 3,
+        retry_delays_seconds: tuple[float, ...] | None = None,
+    ) -> list[KisDailyOrderFillRecord]:
         end_date = now_local(self.settings.timezone).date()
         start_date = end_date - timedelta(days=max(lookback_days - 1, 0))
         start_date_text = start_date.strftime("%Y%m%d")
         end_date_text = end_date.strftime("%Y%m%d")
+        retry_delays = (
+            ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS
+            if retry_delays_seconds is None
+            else tuple(float(delay) for delay in retry_delays_seconds)
+        )
         last_error: KisApiError | None = None
-        for attempt in range(len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS) + 1):
+        for attempt in range(len(retry_delays) + 1):
             try:
                 return self.client.get_daily_order_fills(
                     start_date=start_date_text,
@@ -69,13 +79,13 @@ class BrokerPaperMirror:
                 )
             except KisApiError as exc:
                 last_error = exc
-                if not is_kis_rate_limit_error(exc) or attempt >= len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS):
+                if not is_kis_rate_limit_error(exc) or attempt >= len(retry_delays):
                     raise
-                delay_seconds = ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS[attempt]
+                delay_seconds = retry_delays[attempt]
                 LOGGER.warning(
                     "KIS broker paper order-fill query rate-limited on attempt %s/%s. Retrying after %.1fs.",
                     attempt + 1,
-                    len(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS) + 1,
+                    len(retry_delays) + 1,
                     delay_seconds,
                 )
                 time.sleep(delay_seconds)

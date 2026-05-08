@@ -415,6 +415,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 ```
 
 현재 기본 전략 설정은 `true` 이고, 대시보드에는 현재 켜짐 여부와 브로커 제출 주문 수가 함께 표시된다.
+실시간 수집 중 브로커 체결 조회가 KIS rate-limit 에 걸리면 즉시 재시도하지 않고 5분 cooldown 으로 빠진다. 수동 동기화 명령은 기존처럼 짧게 재시도한다.
 
 로컬 대시보드 background 시작 / 상태 / 중지:
 

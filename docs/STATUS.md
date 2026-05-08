@@ -1,5 +1,22 @@
 # docs/STATUS.md
 
+## [2026-05-08 15:00] broker paper 체결 조회 rate-limit 완화
+
+- 관찰:
+  - live runtime: `running`, `current_session_status=regular-session`, `trading_mode=paper`.
+  - 09:00 이후 누적: `curated_minute_bars=3,550`, `feature_model_inputs=3,550`, `serving_predictions=7,100`, `serving_trade_signals=3,550`.
+  - `live-runtime.stderr.log`의 `KIS broker paper order-fill query rate-limited` 경고가 누적 231회였다.
+- 조치:
+  - 수동 브로커 체결 동기화는 기존 짧은 재시도를 유지한다.
+  - 장중 온라인 처리 루프에서는 rate-limit 발생 시 즉시 재시도하지 않고, 기존 5분 cooldown 으로 빠지도록 변경했다.
+  - 기대 효과: KIS 호출 제한 충돌 감소, live loop 지연 감소, stderr 로그 증가 감소.
+  - 현재 실행 중인 live runtime은 코드 변경 전 프로세스이므로 다음 runtime 재시작부터 적용된다.
+- 검증:
+  - `python -m py_compile app/services/broker_paper.py app/services/broker_paper_sync.py app/services/streaming.py` 통과.
+  - `python -m unittest tests.test_broker_paper_sync tests.test_streaming_pipeline`: 11개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+  - `git diff --check` 통과.
+
 ## [2026-05-08 12:20] 장중 수집 확인과 train-only expected-value 실험 경로
 
 - 장중 수집 상태:
