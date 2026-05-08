@@ -303,9 +303,11 @@ python -m app --run-cybos-profitability-review --cybos-profitability-cost-pct 0.
 python -m app --run-cybos-label-sensitivity-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
+python -m app --run-cybos-expected-value-review --horizon-min 15 --cybos-experiment-feature-set bar_context_momentum --cybos-profitability-cost-pct 0.108
 ```
 
 이 실험은 `source=cybos-historical`만 사용하고 `pykrx-daily-proxy`, `kis-ws`는 제외한다. Cybos 과거 데이터에는 호가가 없으므로 `mid_price`, `spread_bps`, `bid_ask_imbalance`도 제외한다. 지원 피처 세트는 `bar_only`, `bar_context`, `bar_context_momentum`이다. profitability review는 F-5 재현, 거래 원장 손익 진단, 왕복 비용 기준선, train-only confidence threshold, H60 bar-only 비교를 연구 리포트로 남긴다. label sensitivity review는 threshold를 자동 채택하지 않고 비용 기준 라벨 민감도만 진단한다. label reproducibility review는 민감도 진단에서 튄 threshold를 다른 fold 설계와 기간 샘플로 재검증한다. rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교하되, 최고 결과를 자동 승격하지 않는다.
+expected-value review는 각 fold의 train tail calibration 구간에서만 `probability_up` threshold를 고르고 test 구간에 적용한다. 선택 기준은 비용 차감 평균 기대값이 양수인 후보이며, test 결과를 보고 threshold를 다시 맞추지 않는다. 이 리포트도 연구용 진단이며 active model 자동 승격에는 쓰지 않는다.
 
 월요일 전 shadow ML 갱신 일괄 실행:
 
@@ -620,4 +622,3 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 
 전체 복구 범위는 [RECOVERY.md](./RECOVERY.md)를 기준으로 한다.
 <!-- NAS_BACKUP_END -->
-

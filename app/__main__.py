@@ -32,6 +32,7 @@ from app.services.research import (
     rebuild_actual_runtime_ml_state,
     run_model_challenger_review_from_sqlite,
     run_cybos_bar_only_experiment_from_sqlite,
+    run_cybos_expected_value_review_from_sqlite,
     run_cybos_label_sensitivity_review_from_sqlite,
     run_cybos_label_reproducibility_review_from_sqlite,
     run_cybos_profitability_review_from_sqlite,
@@ -76,6 +77,7 @@ def main() -> int:
     parser.add_argument("--run-gate-walk-forward", action="store_true", help="Run the fixed gate-reference walk-forward profile.")
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
+    parser.add_argument("--run-cybos-expected-value-review", action="store_true", help="Run train-only expected-value threshold review for Cybos LightGBM.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
     parser.add_argument("--run-cybos-label-sensitivity-review", action="store_true", help="Run Cybos F-6 label threshold sensitivity diagnostics.")
     parser.add_argument("--run-cybos-label-reproducibility-review", action="store_true", help="Run Cybos F-6b threshold reproducibility diagnostics.")
@@ -118,6 +120,9 @@ def main() -> int:
     parser.add_argument("--cybos-experiment-walk-gap-rows", type=int, default=15, help="Gap rows for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-walk-max-folds", type=int, default=120, help="Maximum sampled folds for Cybos bar-only experiment.")
     parser.add_argument("--cybos-experiment-feature-set", default="bar_only", help="Feature set for Cybos experiment: bar_only, bar_context, or bar_context_momentum.")
+    parser.add_argument("--cybos-expected-value-thresholds", default="0.58,0.62,0.66,0.70,0.75,0.80,0.85,0.90", help="Comma-separated probability_up thresholds for expected-value review.")
+    parser.add_argument("--cybos-expected-value-calibration-rows", type=int, default=20000, help="Train-tail calibration rows per fold for expected-value review.")
+    parser.add_argument("--cybos-expected-value-min-calibration-trades", type=int, default=30, help="Minimum calibration trades required for expected-value threshold eligibility.")
     parser.add_argument("--cybos-profitability-cost-pct", type=float, default=0.13, help="Round-trip cost pct for Cybos profitability review.")
     parser.add_argument("--cybos-rule-train-max-rows", type=int, default=100000, help="Training-window rows used to position Cybos rule challenger walk-forward folds.")
     parser.add_argument("--cybos-rule-walk-test-rows", type=int, default=2000, help="Per-fold test rows for Cybos rule challenger review.")
@@ -269,6 +274,29 @@ def main() -> int:
             walk_forward_gap_rows=args.cybos_experiment_walk_gap_rows,
             walk_forward_max_folds=args.cybos_experiment_walk_max_folds,
             feature_set_name=args.cybos_experiment_feature_set,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_cybos_expected_value_review:
+        threshold_grid = tuple(
+            float(item.strip())
+            for item in args.cybos_expected_value_thresholds.split(",")
+            if item.strip()
+        )
+        result = run_cybos_expected_value_review_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            train_max_rows=args.cybos_experiment_train_max_rows,
+            walk_forward_test_rows=args.cybos_experiment_walk_test_rows,
+            walk_forward_step_rows=args.cybos_experiment_walk_step_rows,
+            walk_forward_gap_rows=args.cybos_experiment_walk_gap_rows,
+            walk_forward_max_folds=args.cybos_experiment_walk_max_folds,
+            feature_set_name=args.cybos_experiment_feature_set,
+            trade_cost_pct=args.cybos_profitability_cost_pct,
+            threshold_grid=threshold_grid,
+            calibration_rows=args.cybos_expected_value_calibration_rows,
+            min_calibration_trades=args.cybos_expected_value_min_calibration_trades,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -502,7 +530,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --run-cybos-rule-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-expected-value-review, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --run-cybos-rule-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
     )
     return 2
 

@@ -14,6 +14,7 @@ from app.services.research import (
     _resolve_feature_row_source,
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
+    run_cybos_expected_value_review_from_sqlite,
     run_cybos_rule_challenger_review_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
@@ -342,6 +343,77 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(Path(str(result["report_markdown_path"])).exists())
             self.assertEqual(len(result["leaderboard"]), 5)
             self.assertGreaterEqual(int(result["walk_forward"]["folds"]), 1)
+            logging.shutdown()
+
+    def test_cybos_expected_value_review_writes_reports(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        kst = get_timezone("Asia/Seoul")
+        runtime_root = root / ".tmp-tests" / "cybos-expected-value" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+
+            for day_index in range(14):
+                base_time = datetime(2026, 4, 1 + day_index, 9, 15, tzinfo=kst)
+                previous_close = 10000.0 + (day_index * 10)
+                for bar_index in range(26):
+                    bar_time = base_time + timedelta(minutes=15 * bar_index)
+                    close = previous_close + (90 if bar_index % 3 == 0 else (-70 if bar_index % 3 == 1 else 5))
+                    high = max(previous_close, close) + 8
+                    low = min(previous_close, close) - 8
+                    volume = 1000 + (day_index * 10) + (bar_index * 25)
+                    writer.write_market_tick(
+                        MarketTickEvent(
+                            symbol="005930",
+                            event_time=bar_time,
+                            price=close,
+                            volume=volume,
+                            source="cybos-historical",
+                        )
+                    )
+                    writer.write_minute_bar(
+                        MinuteBar(
+                            symbol="005930",
+                            bar_time=bar_time,
+                            open=previous_close,
+                            high=high,
+                            low=low,
+                            close=close,
+                            volume=volume,
+                            trade_count=10,
+                        )
+                    )
+                    previous_close = close
+
+            result = run_cybos_expected_value_review_from_sqlite(
+                project_root=root,
+                train_max_rows=120,
+                walk_forward_test_rows=30,
+                walk_forward_step_rows=30,
+                walk_forward_gap_rows=1,
+                walk_forward_max_folds=4,
+                feature_set_name="bar_context_momentum",
+                trade_cost_pct=0.13,
+                threshold_grid=(0.0, 0.3, 0.5),
+                calibration_rows=20,
+                min_calibration_trades=1,
+            )
+
+            self.assertEqual(result["review"], "cybos_expected_value_review")
+            self.assertTrue(Path(str(result["report_json_path"])).exists())
+            self.assertTrue(Path(str(result["report_markdown_path"])).exists())
+            self.assertGreaterEqual(int(result["walk_forward"]["folds"]), 1)
+            self.assertEqual(
+                result["walk_forward"]["return_aggregation"],
+                "sum_of_trade_pct_not_portfolio",
+            )
             logging.shutdown()
 
 

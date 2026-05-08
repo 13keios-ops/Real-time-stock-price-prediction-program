@@ -1368,6 +1368,12 @@ def _metrics_from_scored_predictions(
         "cumulative_gross_return_pct": gross_return_sum,
         "cumulative_net_return_pct": net_return_sum,
         "trade_cost_pct": trade_cost_pct,
+        **_trade_return_diagnostics(
+            gross_return_sum=gross_return_sum,
+            net_return_sum=net_return_sum,
+            trades_taken=trades_taken,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "signal_confidence_threshold": signal_confidence_threshold,
         "actual_label_counts": dict(actual_counter),
         "predicted_label_counts": dict(predicted_counter),
@@ -2015,6 +2021,239 @@ def _run_lightgbm_walk_forward_train_only_threshold(
     }
 
 
+def _select_expected_value_threshold(
+    *,
+    scored_rows: list[dict[str, object]],
+    threshold_grid: tuple[float, ...],
+    trade_cost_pct: float,
+    min_trades: int,
+) -> dict[str, object]:
+    candidates: list[dict[str, object]] = []
+    for threshold in threshold_grid:
+        trades = [
+            row
+            for row in scored_rows
+            if str(row.get("predicted_label")) == "up" and float(row.get("probability_up", 0.0)) >= threshold
+        ]
+        trade_count = len(trades)
+        gross_sum = sum(float(row.get("future_return_pct", 0.0)) for row in trades)
+        net_sum = gross_sum - (trade_count * trade_cost_pct)
+        avg_net = net_sum / trade_count if trade_count else 0.0
+        candidates.append(
+            {
+                "threshold": threshold,
+                "trades": trade_count,
+                "cumulative_gross_return_pct": gross_sum,
+                "cumulative_net_return_pct": net_sum,
+                "average_net_return_pct": avg_net,
+                **_trade_return_diagnostics(
+                    gross_return_sum=gross_sum,
+                    net_return_sum=net_sum,
+                    trades_taken=trade_count,
+                    trade_cost_pct=trade_cost_pct,
+                ),
+                "eligible": trade_count >= min_trades and avg_net > 0.0,
+            }
+        )
+    eligible = [item for item in candidates if bool(item["eligible"])]
+    if eligible:
+        selected = max(
+            eligible,
+            key=lambda item: (
+                float(item["average_net_return_pct"]),
+                float(item["cumulative_net_return_pct"]),
+                int(item["trades"]),
+            ),
+        )
+        return {
+            "selected_threshold": float(selected["threshold"]),
+            "selection_reason": "positive_train_average_net_return",
+            "selected_candidate": selected,
+            "candidates": candidates,
+        }
+    best = max(
+        candidates,
+        key=lambda item: (
+            float(item["average_net_return_pct"]),
+            float(item["cumulative_net_return_pct"]),
+            int(item["trades"]),
+        ),
+    ) if candidates else None
+    return {
+        "selected_threshold": 1.01,
+        "selection_reason": "no_train_threshold_with_positive_average_net_return",
+        "selected_candidate": best,
+        "candidates": candidates,
+    }
+
+
+def _run_lightgbm_walk_forward_train_only_expected_value(
+    *,
+    rows: list[dict[str, object]],
+    feature_names: list[str],
+    settings,
+    horizon_min: int,
+    train_rows: int,
+    test_rows: int,
+    gap_rows: int,
+    step_rows: int,
+    max_folds: int,
+    feature_set_name: str,
+    trade_cost_pct: float,
+    threshold_grid: tuple[float, ...],
+    calibration_rows: int,
+    min_calibration_trades: int,
+) -> dict[str, object]:
+    if len(rows) < train_rows + gap_rows + test_rows:
+        raise ValueError("Not enough rows for expected-value walk-forward evaluation.")
+    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
+    if max_folds > 0 and len(train_end_values) > max_folds:
+        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
+        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+
+    thresholds = tuple(sorted({float(item) for item in threshold_grid}))
+    aggregate_rows = 0
+    aggregate_trades = 0
+    aggregate_correct = 0
+    aggregate_trade_hits = 0.0
+    aggregate_wins = 0.0
+    aggregate_gross = 0.0
+    aggregate_net = 0.0
+    aggregate_actual: Counter[str] = Counter()
+    aggregate_predicted: Counter[str] = Counter()
+    aggregate_prediction_direction: dict[str, dict[str, float]] = {}
+    fold_summaries: list[dict[str, object]] = []
+
+    for fold_number, train_end in enumerate(train_end_values, start=1):
+        train_start = max(0, train_end - train_rows)
+        fold_train = rows[train_start:train_end]
+        test_start = train_end + gap_rows
+        fold_test = rows[test_start : test_start + test_rows]
+        if not fold_test:
+            continue
+        calibration_size = min(calibration_rows, max(1, len(fold_train) // 5))
+        model_train = fold_train[:-calibration_size]
+        calibration = fold_train[-calibration_size:]
+        if (
+            len(model_train) < 5
+            or len(calibration) < 5
+            or not _has_complete_direction_labels(model_train)
+        ):
+            continue
+        model = _fit_lightgbm_model(
+            train_rows=model_train,
+            feature_names=feature_names,
+            feature_set_version=f"{settings.feature_set_version}-{feature_set_name}-expected-value",
+            horizon_min=horizon_min,
+            model_version=f"lightgbm-cybos-{feature_set_name.replace('_', '-')}-ev-h{horizon_min}-v1",
+        )
+        calibration_scores = _score_rows_with_model(
+            rows=calibration,
+            model=model,
+            settings=settings,
+            horizon_min=horizon_min,
+            prediction_prefix=f"cybos-{feature_set_name}-ev-cal-{fold_number}",
+            fold_number=fold_number,
+        )
+        selection = _select_expected_value_threshold(
+            scored_rows=calibration_scores,
+            threshold_grid=thresholds,
+            trade_cost_pct=trade_cost_pct,
+            min_trades=min_calibration_trades,
+        )
+        selected_threshold = float(selection["selected_threshold"])
+        test_scores = _score_rows_with_model(
+            rows=fold_test,
+            model=model,
+            settings=settings,
+            horizon_min=horizon_min,
+            prediction_prefix=f"cybos-{feature_set_name}-ev-test-{fold_number}",
+            fold_number=fold_number,
+        )
+        metrics = _metrics_from_scored_predictions(
+            scored_rows=test_scores,
+            settings=settings,
+            trade_cost_pct=trade_cost_pct,
+            signal_confidence_threshold=selected_threshold,
+        )
+        rows_evaluated = int(metrics["rows_evaluated"])
+        trades_taken = int(metrics["trades_taken"])
+        aggregate_rows += rows_evaluated
+        aggregate_trades += trades_taken
+        aggregate_correct += int(metrics["overall_correct"])
+        aggregate_trade_hits += float(metrics["trade_hit_rate"]) * trades_taken
+        aggregate_wins += float(metrics["win_rate"]) * trades_taken
+        aggregate_gross += float(metrics["cumulative_gross_return_pct"])
+        aggregate_net += float(metrics["cumulative_net_return_pct"])
+        aggregate_actual.update(metrics["actual_label_counts"])
+        aggregate_predicted.update(metrics["predicted_label_counts"])
+        _merge_prediction_direction_stats(
+            aggregate_prediction_direction,
+            metrics.get("prediction_direction_stats", {}),
+        )
+        fold_summaries.append(
+            {
+                "fold": fold_number,
+                "train_start_row": train_start,
+                "train_end_row": train_end - 1,
+                "model_train_rows": len(model_train),
+                "calibration_rows": len(calibration),
+                "test_start_row": test_start,
+                "test_end_row": test_start + rows_evaluated - 1,
+                "train_start_event_time": fold_train[0]["event_time"].isoformat(),
+                "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
+                "test_start_event_time": fold_test[0]["event_time"].isoformat(),
+                "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "selected_threshold": selected_threshold,
+                "threshold_selection_reason": selection["selection_reason"],
+                "selected_train_candidate": selection["selected_candidate"],
+                "threshold_candidates": selection["candidates"],
+                "overall_accuracy": float(metrics["overall_accuracy"]),
+                "trades_taken": trades_taken,
+                "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "average_net_return_pct": float(metrics["average_net_return_pct"]),
+                "cumulative_gross_return_pct": float(metrics["cumulative_gross_return_pct"]),
+                "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
+                "estimated_cost_drag_pct": float(metrics["estimated_cost_drag_pct"]),
+            }
+        )
+
+    if aggregate_rows <= 0:
+        raise ValueError("Expected-value walk-forward did not produce any folds.")
+    result = {
+        "folds": len(fold_summaries),
+        "rows_evaluated": aggregate_rows,
+        "trades_taken": aggregate_trades,
+        "overall_accuracy": aggregate_correct / aggregate_rows,
+        "trade_hit_rate": aggregate_trade_hits / aggregate_trades if aggregate_trades else 0.0,
+        "win_rate": aggregate_wins / aggregate_trades if aggregate_trades else 0.0,
+        "cumulative_gross_return_pct": aggregate_gross,
+        "cumulative_net_return_pct": aggregate_net,
+        "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
+        "trade_cost_pct": trade_cost_pct,
+        **_trade_return_diagnostics(
+            gross_return_sum=aggregate_gross,
+            net_return_sum=aggregate_net,
+            trades_taken=aggregate_trades,
+            trade_cost_pct=trade_cost_pct,
+        ),
+        "threshold_grid": list(thresholds),
+        "threshold_selection": "train_only_positive_average_net_return",
+        "calibration_rows": calibration_rows,
+        "min_calibration_trades": min_calibration_trades,
+        "actual_label_counts": dict(aggregate_actual),
+        "predicted_label_counts": dict(aggregate_predicted),
+        "prediction_direction_stats": _finalize_prediction_direction_stats(aggregate_prediction_direction),
+        "train_rows": train_rows,
+        "test_rows": test_rows,
+        "gap_rows": gap_rows,
+        "step_rows": step_rows,
+        "max_folds": max_folds,
+        "fold_summaries": fold_summaries,
+    }
+    return result
+
+
 def _cost_adjusted_metric_summary(metrics: dict[str, object], trade_cost_pct: float) -> dict[str, object]:
     trades_taken = int(metrics.get("trades_taken", 0))
     cumulative_gross = float(metrics.get("cumulative_gross_return_pct", 0.0))
@@ -2623,6 +2862,124 @@ def run_cybos_bar_only_experiment_from_sqlite(
                 f"- walk_forward_trades_taken: {int(walk_forward_metrics['trades_taken'])}",
                 f"- walk_forward_trade_hit_rate: {float(walk_forward_metrics['trade_hit_rate']):.6f}",
                 f"- walk_forward_cumulative_net_return_pct: {float(walk_forward_metrics['cumulative_net_return_pct']):.6f}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    payload["report_json_path"] = str(report_json_path)
+    payload["report_markdown_path"] = str(report_md_path)
+    return payload
+
+
+def run_cybos_expected_value_review_from_sqlite(
+    *,
+    project_root: Path,
+    horizon_min: int = 15,
+    train_max_rows: int = 100_000,
+    walk_forward_test_rows: int = 50_000,
+    walk_forward_step_rows: int = 100_000,
+    walk_forward_gap_rows: int = 15,
+    walk_forward_max_folds: int = 20,
+    feature_set_name: str = "bar_context_momentum",
+    trade_cost_pct: float | None = None,
+    threshold_grid: tuple[float, ...] = (0.58, 0.62, 0.66, 0.70, 0.75, 0.80, 0.85, 0.90),
+    calibration_rows: int = 20_000,
+    min_calibration_trades: int = 30,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for Cybos expected-value review.")
+    threshold = settings.strategy.label_threshold_15 if horizon_min == 15 else settings.strategy.label_threshold_60
+    feature_names = _cybos_feature_set_names(feature_set_name)
+    feature_slug = feature_set_name.replace("_", "-")
+    effective_trade_cost_pct = _effective_trade_cost_pct(settings, trade_cost_pct)
+    dataset_payload = _source_bar_train_validation_rows(
+        sqlite_store=sqlite_store,
+        source=CYBOS_HISTORICAL_SOURCE,
+        horizon_min=horizon_min,
+        threshold_pct=threshold,
+        train_max_rows=train_max_rows,
+        feature_set_name=feature_set_name,
+    )
+    train_rows = list(dataset_payload["train_rows"])
+    validation_rows = list(dataset_payload["validation_rows"])
+    walk_rows = sorted(train_rows + validation_rows, key=lambda item: (item["event_time"], str(item["symbol"])))
+    walk_forward_metrics = _run_lightgbm_walk_forward_train_only_expected_value(
+        rows=walk_rows,
+        feature_names=feature_names,
+        settings=settings,
+        horizon_min=horizon_min,
+        train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        gap_rows=walk_forward_gap_rows,
+        step_rows=walk_forward_step_rows,
+        max_folds=walk_forward_max_folds,
+        feature_set_name=feature_set_name,
+        trade_cost_pct=effective_trade_cost_pct,
+        threshold_grid=threshold_grid,
+        calibration_rows=calibration_rows,
+        min_calibration_trades=min_calibration_trades,
+    )
+
+    completed_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "backtests"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_json_path = report_dir / f"latest-cybos-expected-value-{feature_slug}-h{horizon_min}.json"
+    report_md_path = report_dir / f"latest-cybos-expected-value-{feature_slug}-h{horizon_min}.md"
+    payload = {
+        "review": "cybos_expected_value_review",
+        "completed_at": completed_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "feature_set_name": feature_set_name,
+        "horizon_min": horizon_min,
+        "feature_names": feature_names,
+        "label_threshold_pct": threshold,
+        "dataset": {
+            "symbols": len(dataset_payload["symbols"]),
+            "trade_dates": len(dataset_payload["trade_dates"]),
+            "source_rows": dataset_payload["source_rows"],
+            "labeled_rows": dataset_payload["labeled_rows"],
+            "label_counts": dataset_payload["label_counts"],
+            "first_event_time": dataset_payload["first_event_time"],
+            "last_event_time": dataset_payload["last_event_time"],
+            "validation_start_date": dataset_payload["validation_start_date"],
+        },
+        "settings": {
+            "train_max_rows": train_max_rows,
+            "walk_forward_test_rows": walk_forward_test_rows,
+            "walk_forward_step_rows": walk_forward_step_rows,
+            "walk_forward_gap_rows": walk_forward_gap_rows,
+            "walk_forward_max_folds": walk_forward_max_folds,
+            "trade_cost_pct": effective_trade_cost_pct,
+            "threshold_grid": list(threshold_grid),
+            "threshold_selection": "train_only_positive_average_net_return",
+            "calibration_rows": calibration_rows,
+            "min_calibration_trades": min_calibration_trades,
+        },
+        "walk_forward": walk_forward_metrics,
+    }
+    report_json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_md_path.write_text(
+        "\n".join(
+            [
+                f"# Cybos Expected-Value {feature_slug} H{horizon_min}",
+                "",
+                f"- source: `{CYBOS_HISTORICAL_SOURCE}`",
+                f"- feature_set_name: `{feature_set_name}`",
+                f"- threshold_selection: `train_only_positive_average_net_return`",
+                f"- trade_cost_pct: `{effective_trade_cost_pct:.6f}`",
+                f"- folds: `{int(walk_forward_metrics['folds'])}`",
+                f"- rows_evaluated: `{int(walk_forward_metrics['rows_evaluated'])}`",
+                f"- trades_taken: `{int(walk_forward_metrics['trades_taken'])}`",
+                f"- overall_accuracy: `{float(walk_forward_metrics['overall_accuracy']):.6f}`",
+                f"- trade_hit_rate: `{float(walk_forward_metrics['trade_hit_rate']):.6f}`",
+                f"- average_net_return_pct: `{float(walk_forward_metrics['average_net_return_pct']):.6f}`",
+                f"- trade_sum_net_return_pct: `{float(walk_forward_metrics['trade_sum_net_return_pct']):.6f}`",
+                f"- estimated_cost_drag_pct: `{float(walk_forward_metrics['estimated_cost_drag_pct']):.6f}`",
+                f"- return_aggregation: `{walk_forward_metrics['return_aggregation']}`",
             ]
         )
         + "\n",

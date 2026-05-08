@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 장중 수집 확인과 train-only expected-value 실험 경로 추가
+
+- 장중 수집 상태:
+  - 확인 시각: `2026-05-08 12:14 KST`.
+  - live runtime은 `2026-05-08 08:00:59 +0900`부터 `running`, `current_session_status=regular-session`, `trading_mode=paper` 상태다.
+  - runtime watchdog은 `running`, `live_runtime_should_run=true`, 오류 없음이다.
+  - 09:00 이후 정본 DB 누적: `curated_minute_bars=1,940`, `feature_model_inputs=1,946`, `serving_predictions=3,900`, `serving_trade_signals=1,950`.
+  - 판단: 2026-05-08 장중 수집/추론 축은 살아 있다.
+- 장중 heavy snapshot 중단:
+  - `run_research_on_snapshot.sh --prefix intraday-metrics-gate -- python -m app --run-gate-walk-forward --horizon-min 15`는 live DB backup 단계가 1시간 이상 끝나지 않아 중단했다.
+  - 미완성 D드라이브 snapshot 파일은 삭제했다.
+  - 판단: 장중에는 live DB 전체 snapshot/gate 재생성을 직접 밀지 않고, 장후 maintenance에서 snapshot 기반으로 실행한다.
+- 모델 개선 경로:
+  - `python -m app --run-cybos-expected-value-review`를 추가했다.
+  - 이 경로는 각 fold의 train tail calibration 구간에서만 `probability_up` threshold를 고르고 test 구간에 적용한다.
+  - 선택 기준은 비용 차감 평균 기대값 양수 여부이며, test 결과를 보고 threshold를 다시 맞추지 않는다.
+  - 장후 후속 heartbeat는 16:20 KST에 gate/challenger 재생성과 expected-value review를 이어서 확인하도록 갱신했다.
+- 검증:
+  - `python -m py_compile app/__main__.py app/services/research.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_research_pipeline tests.test_dashboard`: 18개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+  - `git diff --check` 통과.
+
 ## [2026-05-08] Codex → 수익률 지표 의미 분리와 장전 자동 기동 확인
 
 - 장전 자동 기동 확인:

@@ -1,5 +1,29 @@
 # docs/STATUS.md
 
+## [2026-05-08 12:20] 장중 수집 확인과 train-only expected-value 실험 경로
+
+- 장중 수집 상태:
+  - live runtime: `running`, `started_at=2026-05-08 08:00:59 +0900`, `current_session_status=regular-session`, `trading_mode=paper`.
+  - runtime watchdog: `running`, `live_runtime_should_run=true`, 오류 없음.
+  - 09:00 이후 누적: `curated_minute_bars=1,940`, `feature_model_inputs=1,946`, `serving_predictions=3,900`, `serving_trade_signals=1,950`.
+  - 판단: 2026-05-08 장중 수집/추론은 정상 축으로 유지 중이다.
+- 장중 heavy snapshot 판단:
+  - `run_research_on_snapshot.sh --prefix intraday-metrics-gate -- python -m app --run-gate-walk-forward --horizon-min 15`는 live DB backup 단계가 1시간 이상 끝나지 않아 중단했다.
+  - 미완성 D드라이브 snapshot 파일은 삭제했다.
+  - 판단: 장중에는 live DB 전체 snapshot/gate 재생성을 피하고, 정규장 종료 뒤 snapshot maintenance로 처리한다.
+- 모델 개선:
+  - `python -m app --run-cybos-expected-value-review`를 추가했다.
+  - 목적: `bar_context_momentum` Cybos LightGBM에서 비용을 초과하는 거래만 남길 수 있는지 train-only calibration으로 진단한다.
+  - threshold 선택 기준: 각 fold train tail calibration 구간의 비용 차감 평균 기대값 양수 여부.
+  - 안전장치: test 결과를 보고 threshold를 재조정하지 않고, active model 자동 승격도 하지 않는다.
+- 다음 실행:
+  - 16:20 KST heartbeat에서 장후 snapshot 기반 gate/challenger 재생성과 expected-value review를 이어간다.
+- 검증:
+  - `python -m py_compile app/__main__.py app/services/research.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_research_pipeline tests.test_dashboard`: 18개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+  - `git diff --check` 통과.
+
 ## [2026-05-08 08:45] 수익률 지표 의미 분리와 장전 자동 기동 확인
 
 - 장전 자동 기동:
