@@ -1,5 +1,34 @@
 # docs/STATUS.md
 
+## [2026-05-08 22:15] cowork 의견 반영: quick/heavy 분리, dashboard 병목 고정, EV 안정성 진단
+
+- 비판적 검토:
+  - 모델 승격 보류 판단은 유지한다. `0.13%` 비용에서 expected-value 결과가 음수이고, `portfolio_return_pct=-1.802245`는 실제 계좌 수익률이 아니라 fixed-fraction 진단 프록시다.
+  - cowork 의견처럼 단일 평균보다 fold 분포와 신뢰구간을 보는 쪽이 맞다.
+  - 비용 sweep 전체 재학습은 장시간 작업이므로 먼저 기존 `0.13%` 리포트에서 안정성 요약을 생성했다.
+- post-close 운영 분리:
+  - watchdog 기본 post-close 모드를 `quick-live-report`로 변경했다.
+  - quick 작업은 `build-runtime-report`, `build-dashboard`만 수행하고 목표 시간은 10분이다.
+  - snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 `run_post_close_ml_maintenance.sh --heavy-research --use-snapshot` 명시 실행으로 분리했다.
+  - 2026-05-08 quick maintenance 직접 실행 결과: `status=ok`, `mode=quick-live-report`, `completed_at=2026-05-08 22:10:23 +0900`.
+  - dashboard snapshot 재생성: `generated_at=2026-05-08T22:12:07.623207+09:00`, 장후 자동 학습 상태 카드가 quick `ok` 상태를 읽는다.
+- dashboard profiling:
+  - profile 산출물: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260508-215838/`.
+  - cProfile 기준 병목: `runtime_scope.build_runtime_scope`가 Cybos 5년치 raw row까지 장 상태 판정에 넣으며 660만 회 이상 `get_market_session_status` 계열 호출을 만들었다.
+  - 보강: actual runtime scope 는 `kis-rest`, `kis-ws` source만 SQL에서 먼저 읽고, 장 시간 판정은 minute 단위 캐시로 줄였다.
+  - 재측정: `python -m app --build-dashboard`가 `0:35.04`, max RSS `453,960KB`로 완료됐다. 직전 측정 `3:27`, `5.4GB` 대비 크게 완화됐다.
+- expected-value 안정성:
+  - 리포트: `runtime-data/reports/backtests/latest-cybos-expected-value-stability-bar-context-momentum-h15.{json,md}`.
+  - fold 분포: 양수 fold `5`, 음수 fold `2`, no-trade fold `5`.
+  - bootstrap 95% fold-sum net CI: `-203.859408..42.553578`.
+  - reliability flags: `low_fold_count`, `contains_no_trade_folds`, `bootstrap_ci_crosses_zero`, `hit_rate_near_random_or_lower`.
+  - 결론: `hold: cost-adjusted trade-sum return is negative.`
+- 검증:
+  - `python -m py_compile app/services/runtime_scope.py app/storage/sqlite_store.py scripts/wsl_ops.py scripts/summarize_expected_value_stability.py`: 통과.
+  - `bash -n scripts/script_dispatch.sh scripts/profile_dashboard_build.sh scripts/run_post_close_ml_maintenance.sh`: 통과.
+  - `python scripts/wsl_ops.py run-watchdog-loop --single-pass`: 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+
 ## [2026-05-08 21:35] 보수 비용 expected-value 재검증과 dashboard 병목 완화
 
 - expected-value 0.13% 비용 재검증:

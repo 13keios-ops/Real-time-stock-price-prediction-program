@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-08] Codex → cowork 의견 반영: post-close quick 분리, dashboard 병목 제거, EV 안정성 진단
+
+- 판단:
+  - cowork 의견 중 모델 승격 보류, portfolio proxy 해석 주의, fold 분포/CI 필요, quick/heavy 트랙 분리는 타당하다고 봤다.
+  - 비용 sweep 전체 재학습은 장시간 작업이므로 먼저 기존 `0.13%` expected-value 결과를 재학습 없이 안정성 리포트로 요약했다.
+- post-close 운영:
+  - watchdog 기본 post-close 모드를 `quick-live-report`로 변경했다.
+  - quick 경로는 `build-runtime-report`, `build-dashboard`만 수행하고, snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 `--heavy-research --use-snapshot` 명시 실행으로 분리했다.
+  - `run_post_close_ml_maintenance.sh --quick` 직접 실행 결과 `status=ok`, `completed_at=2026-05-08 22:10:23 +0900`.
+  - watchdog을 재기동해 `post_close_ml_mode=quick-live-report`를 새 기본값으로 반영했다.
+- dashboard 병목:
+  - profile 산출물: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260508-215838/`.
+  - cProfile에서 `runtime_scope.build_runtime_scope`가 Cybos 5년치 raw row까지 actual runtime 판정에 넣는 것이 병목으로 확인됐다.
+  - `fetch_raw_symbol_minute_source_counts(..., sources=...)`를 추가하고 actual scope 에서는 `kis-rest`, `kis-ws`만 SQL에서 먼저 읽도록 바꿨다.
+  - 장 시간 판정은 minute 단위 캐시를 사용한다.
+  - 재측정: `python -m app --build-dashboard`가 `0:35.04`, max RSS `453,960KB`로 완료됐다.
+- expected-value 안정성:
+  - 리포트: `runtime-data/reports/backtests/latest-cybos-expected-value-stability-bar-context-momentum-h15.{json,md}`.
+  - fold 분포: 양수 `5`, 음수 `2`, no-trade `5`.
+  - bootstrap 95% fold-sum net CI: `-203.859408..42.553578`.
+  - 결론: 비용 반영 거래합산 수익률이 음수이고 fold 안정성도 낮으므로 모델 승격 보류를 유지한다.
+- 검증:
+  - `python -m py_compile app/services/runtime_scope.py app/storage/sqlite_store.py scripts/wsl_ops.py scripts/summarize_expected_value_stability.py` 통과.
+  - `bash -n scripts/script_dispatch.sh scripts/profile_dashboard_build.sh scripts/run_post_close_ml_maintenance.sh` 통과.
+  - `python scripts/wsl_ops.py run-watchdog-loop --single-pass` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+
 ## [2026-05-08] Codex → 0.13% expected-value 재검증, 포트폴리오 프록시, dashboard 최적화
 
 - expected-value 0.13% 비용 재검증:

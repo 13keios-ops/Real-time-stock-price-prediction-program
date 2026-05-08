@@ -436,7 +436,7 @@ post_close_data_root() {
 }
 
 post_close_ml_maintenance() {
-  local workspace="$REPO_ROOT" runtime="" horizon="15" use_snapshot="true" snapshot_dir="" run_dir=""
+  local workspace="$REPO_ROOT" runtime="" horizon="15" use_snapshot="false" snapshot_dir="" run_dir="" maintenance_mode="quick"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --workspace-root|-WorkspaceRoot) workspace="$2"; shift 2 ;;
@@ -444,8 +444,18 @@ post_close_ml_maintenance() {
       --horizon-min|-HorizonMin) horizon="$2"; shift 2 ;;
       --snapshot-dir|-SnapshotDir) snapshot_dir="$2"; shift 2 ;;
       --run-dir|-RunDir) run_dir="$2"; shift 2 ;;
+      --quick|-Quick) maintenance_mode="quick"; use_snapshot="false"; shift ;;
+      --heavy-research|-HeavyResearch) maintenance_mode="heavy"; use_snapshot="true"; shift ;;
+      --mode|-Mode)
+        case "$2" in
+          quick) maintenance_mode="quick"; use_snapshot="false" ;;
+          heavy|heavy-research|snapshot) maintenance_mode="heavy"; use_snapshot="true" ;;
+          *) echo "unknown post-close maintenance mode: $2" >&2; exit 2 ;;
+        esac
+        shift 2
+        ;;
       --live-db|-LiveDb|--no-snapshot|-NoSnapshot) use_snapshot="false"; shift ;;
-      --use-snapshot|-UseSnapshot) use_snapshot="true"; shift ;;
+      --use-snapshot|-UseSnapshot) maintenance_mode="heavy"; use_snapshot="true"; shift ;;
       --restart-live-runtime|-RestartLiveRuntime) shift ;;
       *) shift ;;
     esac
@@ -454,7 +464,10 @@ post_close_ml_maintenance() {
   local state_dir="$runtime/reports/ml-maintenance/state"
   mkdir -p "$state_dir"
   local snapshot_path="" snapshot_manifest="" snapshot_runtime="" database_url=""
-  if [[ "$use_snapshot" == "true" ]]; then
+  if [[ "$maintenance_mode" == "quick" ]]; then
+    run_app --build-runtime-report >/dev/null
+    run_app --build-dashboard >/dev/null
+  elif [[ "$use_snapshot" == "true" ]]; then
     local data_root
     data_root="$(post_close_data_root)"
     [[ -n "$snapshot_dir" ]] || snapshot_dir="$data_root/research-snapshots"
@@ -483,11 +496,20 @@ PY
     run_app --build-runtime-report >/dev/null
     run_app --build-dashboard >/dev/null
   fi
-  "$PYTHON_BIN" - "$state_dir/latest-post-close-ml.json" "$workspace" "$runtime" "$horizon" "$use_snapshot" "$snapshot_path" "$snapshot_manifest" "$snapshot_runtime" <<'PY'
+  "$PYTHON_BIN" - "$state_dir/latest-post-close-ml.json" "$workspace" "$runtime" "$horizon" "$maintenance_mode" "$use_snapshot" "$snapshot_path" "$snapshot_manifest" "$snapshot_runtime" <<'PY'
 import json
 import sys
 from datetime import datetime
-path, root, runtime, horizon, use_snapshot, snapshot_path, snapshot_manifest, snapshot_runtime = sys.argv[1:9]
+path, root, runtime, horizon, maintenance_mode, use_snapshot, snapshot_path, snapshot_manifest, snapshot_runtime = sys.argv[1:10]
+if maintenance_mode == "quick":
+    mode = "quick-live-report"
+    tasks = ["build-runtime-report", "build-dashboard"]
+elif use_snapshot == "true":
+    mode = "heavy-snapshot"
+    tasks = ["create-research-db-snapshot", "rebuild-actual-ml", "build-runtime-report", "build-dashboard"]
+else:
+    mode = "heavy-live-db"
+    tasks = ["rebuild-actual-ml", "build-runtime-report", "build-dashboard"]
 payload = {
     "status": "ok",
     "maintenance_date": datetime.now().strftime("%Y-%m-%d"),
@@ -495,7 +517,10 @@ payload = {
     "workspace_root": root,
     "runtime_data_dir": runtime,
     "horizon_min": int(horizon),
-    "mode": "snapshot" if use_snapshot == "true" else "live-db",
+    "mode": mode,
+    "maintenance_scope": maintenance_mode,
+    "tasks": tasks,
+    "time_cap_target_minutes": 10 if maintenance_mode == "quick" else None,
     "snapshot_path": snapshot_path,
     "snapshot_manifest_path": snapshot_manifest,
     "snapshot_runtime_data_dir": snapshot_runtime,

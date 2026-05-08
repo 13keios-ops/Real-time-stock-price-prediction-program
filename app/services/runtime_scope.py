@@ -8,7 +8,7 @@ from typing import Any
 
 from app.config.settings import AppSettings
 from app.storage.sqlite_store import SQLiteRuntimeStore
-from app.utils.time import get_market_session_status
+from app.utils.time import parse_hhmm
 
 ACTUAL_RAW_SOURCES = frozenset({"kis-rest", "kis-ws"})
 TEST_ID_MARKERS = ("demo", "replay")
@@ -35,14 +35,39 @@ class RuntimeScope:
     actual_raw_counts_by_table: dict[str, dict[tuple[str, str], int]]
 
 
-def _is_regular_session_timestamp(timestamp_text: str | None, settings: AppSettings) -> bool:
-    if not timestamp_text:
-        return False
-    try:
-        timestamp = datetime.fromisoformat(str(timestamp_text))
-    except ValueError:
-        return False
-    return get_market_session_status(settings.market_calendar, timestamp) == "regular-session"
+def _regular_session_timestamp_checker(settings: AppSettings):
+    holiday_dates = {
+        str(value).strip()
+        for value in getattr(settings.market_calendar, "holidays", ())
+        if str(value).strip()
+    }
+    session_open = parse_hhmm(settings.market_calendar.session_open)
+    session_close = parse_hhmm(settings.market_calendar.session_close)
+    cache: dict[str, bool] = {}
+
+    def check(timestamp_text: str | None) -> bool:
+        if not timestamp_text:
+            return False
+        cache_key = str(timestamp_text)[:16]
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            timestamp = datetime.fromisoformat(str(timestamp_text))
+        except ValueError:
+            cache[cache_key] = False
+            return False
+        current_date = timestamp.date().isoformat()
+        current_time = timestamp.timetz().replace(tzinfo=None)
+        is_regular = (
+            timestamp.weekday() < 5
+            and current_date not in holiday_dates
+            and session_open <= current_time <= session_close
+        )
+        cache[cache_key] = is_regular
+        return is_regular
+
+    return check
 
 
 def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings) -> RuntimeScope:
@@ -51,10 +76,11 @@ def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings)
         "raw_market_ticks": {},
         "raw_orderbook_ticks": {},
     }
+    is_regular_session_timestamp = _regular_session_timestamp_checker(settings)
     for table_name in ("raw_market_ticks", "raw_orderbook_ticks"):
-        for raw_row in sqlite_store.fetch_raw_symbol_minute_source_counts(table_name):
+        for raw_row in sqlite_store.fetch_raw_symbol_minute_source_counts(table_name, sources=ACTUAL_RAW_SOURCES):
             row = dict(raw_row)
-            if not _is_regular_session_timestamp(str(row.get("sample_time", "")), settings):
+            if not is_regular_session_timestamp(str(row.get("sample_time", ""))):
                 continue
             minute = str(row.get("minute_key") or "")
             if not minute:

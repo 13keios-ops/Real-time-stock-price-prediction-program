@@ -53,6 +53,15 @@ class RuntimeScopeTests(unittest.TestCase):
                     source="kis-ws",
                 )
             )
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-04-13T10:44:58+09:00"),
+                    price=203500.0,
+                    volume=470,
+                    source="cybos-historical",
+                )
+            )
             sqlite_store.upsert_minute_bar(
                 MinuteBar(
                     symbol="005930",
@@ -89,6 +98,18 @@ class RuntimeScopeTests(unittest.TestCase):
                     trade_count=14,
                 )
             )
+            sqlite_store.upsert_minute_bar(
+                MinuteBar(
+                    symbol="005930",
+                    bar_time=datetime.fromisoformat("2026-04-13T10:44:00+09:00"),
+                    open=203500.0,
+                    high=203500.0,
+                    low=203250.0,
+                    close=203500.0,
+                    volume=470,
+                    trade_count=14,
+                )
+            )
 
             scope = build_runtime_scope(sqlite_store, settings)
             minute_rows = [dict(row) for row in sqlite_store.fetch_all_rows("curated_minute_bars", "bar_time")]
@@ -97,6 +118,7 @@ class RuntimeScopeTests(unittest.TestCase):
         self.assertIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
         self.assertNotIn(("005930", "2026-04-12T16:44"), scope.actual_symbol_minutes)
         self.assertNotIn(("005930", "2026-05-01T10:43"), scope.actual_symbol_minutes)
+        self.assertNotIn(("005930", "2026-04-13T10:44"), scope.actual_symbol_minutes)
         self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"][("005930", "2026-04-13T10:43")], 1)
         self.assertEqual([row["bar_time"] for row in filtered_rows], ["2026-04-13T10:43:00+09:00"])
 

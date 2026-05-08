@@ -17,7 +17,7 @@
 
 연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. D드라이브가 없으면 `runtime-data/research-snapshots/`로 내려간다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
 
-장마감 후 자동 학습은 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh`를 백그라운드로 시작하고, 이 스크립트는 기본적으로 live DB가 아니라 snapshot DB에서 feature / label 재생성, 실제 데이터 ML 재구축, 리포트와 대시보드 생성을 수행한다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
+장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report 와 dashboard snapshot 만 갱신한다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
 
 ## 핵심 문서
 
@@ -97,8 +97,9 @@
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
 - 대시보드 상단 경고는 이제 `오늘 학습 부재`를 무조건 띄우지 않고, 최신 학습이나 평가 기록이 실제로 `없음` 또는 `지연` 상태일 때만 올린다.
 - 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
-- 장마감 후 재학습 경로는 `run_post_close_ml_maintenance.sh` 와 `--rebuild-actual-ml` 로 실제 데이터만 다시 읽어 batch 기반으로 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 를 빠르게 재생성한다.
-- post-close ML maintenance 는 최신 재학습 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
+- 장마감 후 자동 quick maintenance 는 `run_post_close_ml_maintenance.sh --quick` 로 runtime report 와 dashboard snapshot 을 10분 안에 갱신하는 것을 목표로 한다.
+- heavy research 는 `run_post_close_ml_maintenance.sh --heavy-research --use-snapshot` 처럼 명시적으로 실행할 때만 snapshot DB에서 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 재구축을 수행한다.
+- post-close maintenance 는 최신 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, heavy research 의 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
 - post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 pre-open warmup 으로 live runtime 을 미리 켠다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - runtime watchdog 상태 조회는 프로세스 존재뿐 아니라 `last_checked_at` 심박 나이도 확인한다. 기본 10분 이상 심박이 멈추면 `stale` 로 보고, 시작 스크립트는 같은 watchdog 프로세스를 재사용하지 않고 재시작한다.
@@ -315,10 +316,16 @@ expected-value review는 각 fold의 train tail calibration 구간에서만 `pro
 ./scripts/run_ml_shadow_cycle.sh
 ```
 
-장마감 후 snapshot 기반 ML maintenance 수동 재실행:
+장마감 후 quick maintenance 수동 재실행:
 
 ```bash
-./scripts/run_post_close_ml_maintenance.sh
+./scripts/run_post_close_ml_maintenance.sh --quick
+```
+
+장마감 후 snapshot 기반 heavy research 수동 재실행:
+
+```bash
+./scripts/run_post_close_ml_maintenance.sh --heavy-research --use-snapshot
 ```
 
 KIS WebSocket 수신기:

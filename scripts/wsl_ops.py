@@ -234,7 +234,9 @@ def maybe_start_post_close_ml(
             return f"already_{state.get('status')}"
 
     horizon = str(getattr(args, "post_close_ml_horizon_min", 15))
-    use_snapshot = not bool(getattr(args, "post_close_ml_live_db", False))
+    heavy_research = bool(getattr(args, "post_close_ml_heavy_research", False))
+    use_snapshot = heavy_research and not bool(getattr(args, "post_close_ml_live_db", False))
+    maintenance_mode = post_close_ml_mode_name(args)
     cmd = [
         str(SCRIPT_DIR / "run_post_close_ml_maintenance.sh"),
         "--workspace-root",
@@ -244,9 +246,13 @@ def maybe_start_post_close_ml(
         "--horizon-min",
         horizon,
     ]
+    if heavy_research:
+        cmd.append("--heavy-research")
+    else:
+        cmd.append("--quick")
     if use_snapshot:
         cmd.append("--use-snapshot")
-    else:
+    elif heavy_research:
         cmd.append("--live-db")
 
     log_dir = runtime / "logs/app"
@@ -264,15 +270,26 @@ def maybe_start_post_close_ml(
             "workspace_root": str(root),
             "runtime_data_dir": str(runtime),
             "horizon_min": int(horizon),
-            "mode": "snapshot" if use_snapshot else "live-db",
+            "mode": maintenance_mode,
+            "maintenance_scope": "heavy" if heavy_research else "quick",
             "stdout_log_path": str(stdout_path),
             "stderr_log_path": str(stderr_path),
         }
         write_json(state_path, payload, echo=False)
-        return "start_snapshot_ml" if use_snapshot else "start_live_db_ml"
+        if heavy_research:
+            return "start_heavy_snapshot_ml" if use_snapshot else "start_heavy_live_db_ml"
+        return "start_quick_post_close"
     except Exception as exc:
         errors.append(f"post_close_ml_start: {exc}")
         return "start_failed"
+
+
+def post_close_ml_mode_name(args: argparse.Namespace) -> str:
+    if not bool(getattr(args, "post_close_ml_heavy_research", False)):
+        return "quick-live-report"
+    if bool(getattr(args, "post_close_ml_live_db", False)):
+        return "heavy-live-db"
+    return "heavy-snapshot"
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -613,7 +630,7 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             "post_close_ml_enabled": not args.disable_post_close_ml,
             "post_close_ml_delay_minutes": args.post_close_ml_delay_minutes,
             "post_close_ml_horizon_min": args.post_close_ml_horizon_min,
-            "post_close_ml_mode": "live-db" if args.post_close_ml_live_db else "snapshot",
+            "post_close_ml_mode": post_close_ml_mode_name(args),
             "market_session_status": session,
             "live_runtime_should_run": should_run,
             "started_at": started,
@@ -670,6 +687,8 @@ def start_watchdog(args: argparse.Namespace) -> None:
     ]
     if args.disable_post_close_ml:
         cmd.append("--disable-post-close-ml")
+    if args.post_close_ml_heavy_research:
+        cmd.append("--post-close-ml-heavy-research")
     if args.post_close_ml_live_db:
         cmd.append("--post-close-ml-live-db")
     with stdout_path.open("ab") as out, stderr_path.open("ab") as err:
@@ -690,7 +709,7 @@ def start_watchdog(args: argparse.Namespace) -> None:
         "post_close_ml_enabled": not args.disable_post_close_ml,
         "post_close_ml_delay_minutes": args.post_close_ml_delay_minutes,
         "post_close_ml_horizon_min": args.post_close_ml_horizon_min,
-        "post_close_ml_mode": "live-db" if args.post_close_ml_live_db else "snapshot",
+        "post_close_ml_mode": post_close_ml_mode_name(args),
         "stdout_log_path": str(stdout_path),
         "stderr_log_path": str(stderr_path),
         "started_at": now_text(),
@@ -1346,6 +1365,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--post-close-ml-delay-minutes", "-PostCloseMlDelayMinutes", type=int, default=30)
     p.add_argument("--post-close-ml-horizon-min", "-PostCloseMlHorizonMin", type=int, default=15)
     p.add_argument("--disable-post-close-ml", "-DisablePostCloseMl", action="store_true")
+    p.add_argument("--post-close-ml-heavy-research", "-PostCloseMlHeavyResearch", action="store_true")
     p.add_argument("--post-close-ml-live-db", "-PostCloseMlLiveDb", action="store_true")
     p.add_argument("--single-pass", "-SinglePass", action="store_true")
 
@@ -1358,6 +1378,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--post-close-ml-delay-minutes", "-PostCloseMlDelayMinutes", type=int, default=30)
     p.add_argument("--post-close-ml-horizon-min", "-PostCloseMlHorizonMin", type=int, default=15)
     p.add_argument("--disable-post-close-ml", "-DisablePostCloseMl", action="store_true")
+    p.add_argument("--post-close-ml-heavy-research", "-PostCloseMlHeavyResearch", action="store_true")
     p.add_argument("--post-close-ml-live-db", "-PostCloseMlLiveDb", action="store_true")
     p.add_argument("--force-restart", "-ForceRestart", action="store_true")
     p = common("get-watchdog-status")
