@@ -132,8 +132,31 @@ def _parse_json_column(row: dict[str, Any] | None, key: str, *, target_key: str)
     return payload
 
 
-def _filtered_rows(sqlite_store, table_name: str, order_by: str, scope) -> list[dict[str, Any]]:
-    rows = [dict(row) for row in sqlite_store.fetch_all_rows(table_name, order_by)]
+def _filtered_rows(
+    sqlite_store,
+    table_name: str,
+    order_by: str,
+    scope,
+    period_filter: DashboardPeriodFilter | None = None,
+) -> list[dict[str, Any]]:
+    if (
+        period_filter is not None
+        and period_filter.start_at is not None
+        and period_filter.end_at is not None
+        and order_by in {"bar_time", "event_time", "completed_at", "evaluated_at", "as_of"}
+    ):
+        rows = [
+            dict(row)
+            for row in sqlite_store.fetch_rows_between(
+                table_name,
+                order_by,
+                period_filter.start_at.isoformat(),
+                period_filter.end_at.isoformat(),
+                order_by,
+            )
+        ]
+    else:
+        rows = [dict(row) for row in sqlite_store.fetch_all_rows(table_name, order_by)]
     return filter_actual_rows(table_name, rows, scope)
 
 
@@ -248,6 +271,38 @@ def _resolve_default_dashboard_date(
     return None
 
 
+def _resolve_default_dashboard_date_from_scope(settings, scope) -> str | None:
+    latest_minute = max(getattr(scope, "actual_global_minutes", set()) or {""})
+    if not latest_minute:
+        return None
+    latest_timestamp = _parse_iso_datetime(f"{latest_minute}:00")
+    if latest_timestamp is None:
+        return None
+    today_local = now_local(settings.timezone).date()
+    latest_local_date = latest_timestamp.astimezone(get_timezone(settings.timezone)).date()
+    if latest_local_date < today_local:
+        return latest_local_date.isoformat()
+    return None
+
+
+def _period_filter_from_runtime_scope(settings, scope) -> DashboardPeriodFilter | None:
+    minutes = sorted(getattr(scope, "actual_global_minutes", set()) or [])
+    if not minutes:
+        return None
+    start_at = _parse_iso_datetime(f"{minutes[0]}:00")
+    end_at = _parse_iso_datetime(f"{minutes[-1]}:00")
+    if start_at is None or end_at is None:
+        return None
+    return DashboardPeriodFilter(
+        range_key="actual-scope",
+        selected_date=start_at.astimezone(get_timezone(settings.timezone)).date().isoformat(),
+        label="actual-scope",
+        description="actual runtime scope",
+        start_at=start_at,
+        end_at=end_at + timedelta(minutes=1),
+    )
+
+
 def _row_time(row: dict[str, Any], *field_names: str) -> datetime | None:
     for field_name in field_names:
         value = row.get(field_name)
@@ -276,16 +331,17 @@ def _reverse_recent(rows: list[dict[str, Any]], limit: int) -> list[dict[str, An
     return list(reversed(rows[-limit:])) if limit > 0 else list(reversed(rows))
 
 
-def _summarize_runtime(sqlite_store, scope) -> dict[str, int]:
+def _summarize_runtime(sqlite_store, scope, settings) -> dict[str, int]:
     evaluation_rows = [dict(row) for row in sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")]
+    scope_filter = _period_filter_from_runtime_scope(settings, scope)
     return {
         "raw_market_ticks": _raw_count_from_scope(scope, "raw_market_ticks"),
         "raw_orderbook_ticks": _raw_count_from_scope(scope, "raw_orderbook_ticks"),
-        "minute_bars": len(_filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)),
-        "feature_rows": len(_filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope)),
-        "labels": len(_filtered_rows(sqlite_store, "feature_labels", "event_time", scope)),
-        "predictions": len(_filtered_rows(sqlite_store, "serving_predictions", "event_time", scope)),
-        "signals": len(_filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)),
+        "minute_bars": len(_filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope, scope_filter)),
+        "feature_rows": len(_filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope, scope_filter)),
+        "labels": len(_filtered_rows(sqlite_store, "feature_labels", "event_time", scope, scope_filter)),
+        "predictions": len(_filtered_rows(sqlite_store, "serving_predictions", "event_time", scope, scope_filter)),
+        "signals": len(_filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope, scope_filter)),
         "orders": len(_filtered_rows(sqlite_store, "paper_orders", "event_time", scope)),
         "fills": len(_filtered_rows(sqlite_store, "paper_fills", "event_time", scope)),
         "broker_order_submissions": len(_filtered_rows(sqlite_store, "broker_paper_order_submissions", "event_time", scope)),
@@ -1354,37 +1410,11 @@ def collect_dashboard_payload(
 
     scope = build_runtime_scope(sqlite_store, settings)
     symbol_names = load_symbol_names(project_root)
-    runtime_summary_all = _summarize_runtime(sqlite_store, scope)
-
-    minute_bar_rows_all = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope)
-    feature_rows_all = _filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope)
-    feature_label_rows_all = _filtered_rows(sqlite_store, "feature_labels", "event_time", scope)
-    prediction_rows_all = _filtered_rows(sqlite_store, "serving_predictions", "event_time", scope)
-    signal_rows_all = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope)
-    order_rows_all = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope)
-    fill_rows_all = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope)
-    broker_submission_rows_all = _filtered_rows(sqlite_store, "broker_paper_order_submissions", "event_time", scope)
-    position_rows_all = _filtered_rows(sqlite_store, "paper_positions", "symbol", scope)
-    open_position_rows_all = [row for row in position_rows_all if int(row.get("qty", 0) or 0) > 0]
-    snapshot_rows_all = _filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope)
-
-    training_rows_all = [
-        _parse_json_column(dict(row), "training_summary_json", target_key="training_summary")
-        for row in sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")
-    ]
-    evaluation_rows_all = [
-        _parse_json_column(dict(row), "metrics_json", target_key="metrics")
-        for row in sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")
-    ]
+    runtime_summary_all = _summarize_runtime(sqlite_store, scope, settings)
 
     default_dashboard_date = None
     if (range_key or "today").strip().lower() == "today" and not selected_date:
-        default_dashboard_date = _resolve_default_dashboard_date(
-            settings,
-            minute_bar_rows=minute_bar_rows_all,
-            prediction_rows=prediction_rows_all,
-            signal_rows=signal_rows_all,
-        )
+        default_dashboard_date = _resolve_default_dashboard_date_from_scope(settings, scope)
     period_filter = _build_period_filter(
         settings,
         range_key=range_key,
@@ -1396,17 +1426,37 @@ def collect_dashboard_payload(
         selected_date_text=now_local(settings.timezone).date().isoformat(),
     )
 
+    minute_bar_rows = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope, period_filter)
+    feature_rows = _filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope, period_filter)
+    feature_label_rows = _filtered_rows(sqlite_store, "feature_labels", "event_time", scope, period_filter)
+    prediction_rows = _filtered_rows(sqlite_store, "serving_predictions", "event_time", scope, period_filter)
+    signal_rows = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope, period_filter)
+    order_rows = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope, period_filter)
+    fill_rows = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope, period_filter)
+    broker_submission_rows = _filtered_rows(
+        sqlite_store,
+        "broker_paper_order_submissions",
+        "event_time",
+        scope,
+        period_filter,
+    )
+    broker_submission_rows_all = _filtered_rows(sqlite_store, "broker_paper_order_submissions", "event_time", scope)
+    position_rows_all = _filtered_rows(sqlite_store, "paper_positions", "symbol", scope)
+    open_position_rows_all = [row for row in position_rows_all if int(row.get("qty", 0) or 0) > 0]
+    snapshot_rows = _filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope, period_filter)
+    snapshot_rows_all = _filtered_rows(sqlite_store, "paper_portfolio_snapshots", "event_time", scope)
+
+    training_rows_all = [
+        _parse_json_column(dict(row), "training_summary_json", target_key="training_summary")
+        for row in sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")
+    ]
+    evaluation_rows_all = [
+        _parse_json_column(dict(row), "metrics_json", target_key="metrics")
+        for row in sqlite_store.fetch_all_rows("ml_model_evaluations", "evaluated_at")
+    ]
+
     raw_market_count = _raw_count_from_scope(scope, "raw_market_ticks", period_filter)
     raw_orderbook_count = _raw_count_from_scope(scope, "raw_orderbook_ticks", period_filter)
-    minute_bar_rows = _filter_rows_by_period(minute_bar_rows_all, period_filter, "bar_time")
-    feature_rows = _filter_rows_by_period(feature_rows_all, period_filter, "event_time")
-    feature_label_rows = _filter_rows_by_period(feature_label_rows_all, period_filter, "event_time")
-    prediction_rows = _filter_rows_by_period(prediction_rows_all, period_filter, "event_time")
-    signal_rows = _filter_rows_by_period(signal_rows_all, period_filter, "event_time")
-    order_rows = _filter_rows_by_period(order_rows_all, period_filter, "event_time")
-    fill_rows = _filter_rows_by_period(fill_rows_all, period_filter, "event_time")
-    broker_submission_rows = _filter_rows_by_period(broker_submission_rows_all, period_filter, "event_time")
-    snapshot_rows = _filter_rows_by_period(snapshot_rows_all, period_filter, "event_time")
     training_rows = _filter_rows_by_period(training_rows_all, period_filter, "completed_at")
     evaluation_rows = _filter_rows_by_period(evaluation_rows_all, period_filter, "evaluated_at")
     today_training_rows = _filter_rows_by_period(training_rows_all, calendar_today_filter, "completed_at")
@@ -1478,8 +1528,8 @@ def collect_dashboard_payload(
     prediction_views = _prediction_view(
         prediction_rows,
         symbol_names,
-        minute_bar_rows=minute_bar_rows_all,
-        feature_label_rows=feature_label_rows_all,
+        minute_bar_rows=minute_bar_rows,
+        feature_label_rows=feature_label_rows,
         settings=settings,
     )
     signal_views = _signal_view(signal_rows, symbol_names)

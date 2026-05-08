@@ -414,6 +414,11 @@ class ResearchPipelineTests(unittest.TestCase):
                 result["walk_forward"]["return_aggregation"],
                 "sum_of_trade_pct_not_portfolio",
             )
+            self.assertIsNotNone(result["walk_forward"]["portfolio_return_pct"])
+            self.assertEqual(
+                result["walk_forward"]["portfolio_return_model"],
+                "fixed_fraction_per_signal_horizon_proxy",
+            )
             logging.shutdown()
 
 

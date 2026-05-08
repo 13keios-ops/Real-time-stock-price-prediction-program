@@ -101,6 +101,7 @@ python -m app --build-dashboard
 - 수동 갱신과 10분 자동 새로고침은 `/api/refresh` 로 스냅샷을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드 서버 시작 시 기존 캐시 스냅샷이 있으면 무거운 스냅샷 재생성을 먼저 하지 않고 서버부터 열어 기동 지연을 줄인다.
 - 원시 체결/호가 행은 화면에 직접 표시하지 않고 분 단위 집계 카운트만 사용해 대시보드 재생성 부하를 낮춘다.
+- 기본 날짜 조회처럼 기간 필터가 있는 대시보드 생성은 대형 테이블 전체를 읽지 않고 SQL 시간 범위로 먼저 좁힌 뒤 실제 runtime 필터를 적용한다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
 - 정본 gate reference 워크포워드는 `python -m app --run-gate-walk-forward --horizon-min 15` 또는 `./scripts/run_gate_walk_forward_backtest.sh`로 생성하며, `source=cybos-historical`, `parameter_profile=gate_reference_v1` provenance 를 리포트에 남긴다.
@@ -180,6 +181,7 @@ python -m app --run-cybos-expected-value-review --horizon-min 15 --cybos-experim
 - Cybos 라벨 민감도 진단은 threshold별 결과를 비교하되, 가장 좋은 threshold를 자동 채택하지 않는다.
 - Cybos 라벨 재현성 진단은 민감도 진단에서 양수였던 threshold를 다른 fold 설계와 기간 샘플로 다시 검증한다.
 - Cybos expected-value review는 각 walk-forward fold 안에서 train tail calibration 구간으로만 `probability_up` threshold를 선택하고 test 구간에 적용한다. 선택 기준은 비용 차감 평균 기대값 양수 여부이며, 수동 필터를 사후 튜닝하거나 자동 승격하지 않는다.
+- Cybos expected-value review는 거래별 퍼센트 손익 합산과 별도로 `fixed_fraction_per_signal_horizon_proxy` 포트폴리오 프록시를 기록한다. 기본 해석은 `5% 고정 비중`, `총 익스포저 100% 제한`, `horizon 기반 청산`이며 실제 paper 계좌 수익률이 아니라 승격 전 진단값이다.
 
 ## 과거 데이터 Backfill
 

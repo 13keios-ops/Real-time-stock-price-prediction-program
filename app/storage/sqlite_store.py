@@ -1099,6 +1099,23 @@ class SQLiteRuntimeStore:
         rows = self._run_safe_read_query(query, missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
+    def fetch_rows_between(
+        self,
+        table_name: str,
+        time_column: str,
+        start_at: str,
+        end_at: str,
+        order_by_column: str,
+    ) -> list[sqlite3.Row]:
+        query = f"""
+            SELECT *
+            FROM {table_name}
+            WHERE {time_column} >= ? AND {time_column} < ?
+            ORDER BY {order_by_column}
+        """
+        rows = self._run_safe_read_query(query, (start_at, end_at), missing_tables=(table_name,))
+        return list(rows) if isinstance(rows, list) else []
+
     def fetch_raw_symbol_minute_source_counts(self, table_name: str) -> list[sqlite3.Row]:
         if table_name not in {"raw_market_ticks", "raw_orderbook_ticks"}:
             raise ValueError(f"Unsupported raw table for minute counts: {table_name}")

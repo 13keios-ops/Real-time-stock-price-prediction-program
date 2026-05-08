@@ -1,5 +1,28 @@
 # docs/STATUS.md
 
+## [2026-05-08 21:35] 보수 비용 expected-value 재검증과 dashboard 병목 완화
+
+- expected-value 0.13% 비용 재검증:
+  - 입력 DB: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260508-160019.db`.
+  - 출력 runtime: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/expected-value-20260508-h15-cost013/runtime-data`.
+  - source: `cybos-historical`, feature set: `bar_context_momentum`, horizon: `15`.
+  - 비용: 왕복 `0.13%`.
+  - 결과: `folds=12`, `rows_evaluated=600,000`, `trades_taken=2,599`, `overall_accuracy=0.534130`, `trade_hit_rate=0.300500`, `win_rate=0.497114`.
+  - 거래합산: `trade_sum_gross_return_pct=+286.618690`, `trade_sum_net_return_pct=-51.251310`, `average_net_return_pct=-0.019720`.
+  - 포트폴리오 프록시: `portfolio_return_pct=-1.802245`, model=`fixed_fraction_per_signal_horizon_proxy`, allocation=`5%`, max gross exposure=`100%`, executed=`2,006`, skipped by exposure=`593`.
+- 판단:
+  - `0.108%` 비용에서는 양수였던 expected-value 선별이 `0.13%` 보수 비용에서는 음수로 돌아섰다.
+  - hit rate는 `0.3005`로 문턱만 넘었지만, 비용 초과 기대값은 아직 부족하다.
+  - 모델 승격은 계속 보류한다.
+- 코드 보강:
+  - expected-value walk-forward 리포트에 포트폴리오 프록시 수익률을 추가했다.
+  - 이 값은 실제 paper 계좌 수익률이 아니라, `5% 고정 비중 / horizon 기반 청산 / 총 익스포저 100% 제한`으로 계산한 보수적 진단값이다.
+- dashboard 병목:
+  - 기존 `python -m app --build-dashboard`는 `8분 03초`, max RSS 약 `7.9GB`.
+  - 대형 테이블을 기본 `오늘` 화면에서도 전부 읽던 경로를 줄이고, 기간 필터가 있으면 SQL 범위 조회를 우선 사용하도록 바꿨다.
+  - 재측정 결과 `3분 27초`, max RSS 약 `5.4GB`.
+  - 아직 가볍지는 않지만 10분 자동 갱신 주기 안에는 들어왔다. 다음 병목은 raw tick minute source 집계다.
+
 ## [2026-05-08 19:30] 장후 maintenance 중단과 expected-value review 결과
 
 - 장후 운영 상태:

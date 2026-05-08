@@ -593,6 +593,111 @@ def _trade_return_diagnostics(
     }
 
 
+def _portfolio_proxy_diagnostics_from_ledger(
+    *,
+    trade_ledger: list[dict[str, object]],
+    horizon_min: int,
+    allocation_pct: float = 5.0,
+    max_gross_exposure_pct: float = 100.0,
+) -> dict[str, object]:
+    if not trade_ledger:
+        return {
+            "portfolio_return_pct": 0.0,
+            "portfolio_return_model": "fixed_fraction_per_signal_horizon_proxy",
+            "portfolio_proxy_allocation_pct": allocation_pct,
+            "portfolio_proxy_max_gross_exposure_pct": max_gross_exposure_pct,
+            "portfolio_proxy_trades_executed": 0,
+            "portfolio_proxy_trades_skipped_exposure": 0,
+            "portfolio_proxy_max_concurrent_positions": 0,
+            "portfolio_proxy_max_gross_exposure_observed_pct": 0.0,
+            "portfolio_proxy_final_equity": 1.0,
+            "portfolio_return_unavailable_reason": None,
+            "portfolio_return_caveat": (
+                "Proxy only: fixed-fraction sizing, horizon-based exits, no taxes, "
+                "and no live order book fill constraints."
+            ),
+        }
+
+    def parse_event_time(value: object) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        return datetime.fromisoformat(str(value))
+
+    normalized_trades = sorted(
+        (
+            {
+                "event_time": parse_event_time(item.get("event_time")),
+                "net_return_pct": float(item.get("net_return_pct", 0.0)),
+            }
+            for item in trade_ledger
+        ),
+        key=lambda item: item["event_time"],
+    )
+    equity = 1.0
+    active_positions: list[dict[str, object]] = []
+    executed = 0
+    skipped_exposure = 0
+    max_concurrent = 0
+    max_exposure_observed_pct = 0.0
+
+    def close_due_positions(current_time: datetime) -> None:
+        nonlocal equity, active_positions
+        remaining: list[dict[str, object]] = []
+        for position in active_positions:
+            if position["exit_time"] <= current_time:
+                equity += float(position["notional"]) * (float(position["net_return_pct"]) / 100.0)
+            else:
+                remaining.append(position)
+        active_positions = remaining
+
+    def observe_exposure() -> None:
+        nonlocal max_concurrent, max_exposure_observed_pct
+        active_notional = sum(float(position["notional"]) for position in active_positions)
+        exposure_pct = (active_notional / equity * 100.0) if equity > 0 else 0.0
+        max_concurrent = max(max_concurrent, len(active_positions))
+        max_exposure_observed_pct = max(max_exposure_observed_pct, exposure_pct)
+
+    for trade in normalized_trades:
+        event_time = trade["event_time"]
+        close_due_positions(event_time)
+        active_notional = sum(float(position["notional"]) for position in active_positions)
+        max_notional = equity * (max_gross_exposure_pct / 100.0)
+        trade_notional = equity * (allocation_pct / 100.0)
+        if equity <= 0 or trade_notional <= 0 or active_notional + trade_notional > max_notional:
+            skipped_exposure += 1
+            observe_exposure()
+            continue
+        active_positions.append(
+            {
+                "exit_time": event_time + timedelta(minutes=horizon_min),
+                "notional": trade_notional,
+                "net_return_pct": float(trade["net_return_pct"]),
+            }
+        )
+        executed += 1
+        observe_exposure()
+
+    for position in sorted(active_positions, key=lambda item: item["exit_time"]):
+        equity += float(position["notional"]) * (float(position["net_return_pct"]) / 100.0)
+
+    return {
+        "portfolio_return_pct": (equity - 1.0) * 100.0,
+        "portfolio_return_model": "fixed_fraction_per_signal_horizon_proxy",
+        "portfolio_proxy_allocation_pct": allocation_pct,
+        "portfolio_proxy_max_gross_exposure_pct": max_gross_exposure_pct,
+        "portfolio_proxy_trades_executed": executed,
+        "portfolio_proxy_trades_skipped_exposure": skipped_exposure,
+        "portfolio_proxy_max_concurrent_positions": max_concurrent,
+        "portfolio_proxy_max_gross_exposure_observed_pct": max_exposure_observed_pct,
+        "portfolio_proxy_final_equity": equity,
+        "portfolio_return_unavailable_reason": None,
+        "portfolio_return_caveat": (
+            "Proxy only: fixed-fraction sizing, horizon-based exits, no taxes, "
+            "and no live order book fill constraints."
+        ),
+    }
+
+
 def _effective_signal_confidence(settings, override: float | None = None) -> float:
     return float(settings.strategy.min_signal_confidence if override is None else override)
 
@@ -2122,6 +2227,7 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
     aggregate_actual: Counter[str] = Counter()
     aggregate_predicted: Counter[str] = Counter()
     aggregate_prediction_direction: dict[str, dict[str, float]] = {}
+    aggregate_trade_ledger: list[dict[str, object]] = []
     fold_summaries: list[dict[str, object]] = []
 
     for fold_number, train_end in enumerate(train_end_values, start=1):
@@ -2170,11 +2276,18 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
             prediction_prefix=f"cybos-{feature_set_name}-ev-test-{fold_number}",
             fold_number=fold_number,
         )
+        fold_trade_ledger: list[dict[str, object]] = []
         metrics = _metrics_from_scored_predictions(
             scored_rows=test_scores,
             settings=settings,
             trade_cost_pct=trade_cost_pct,
             signal_confidence_threshold=selected_threshold,
+            trade_ledger=fold_trade_ledger,
+        )
+        aggregate_trade_ledger.extend(fold_trade_ledger)
+        fold_portfolio_proxy = _portfolio_proxy_diagnostics_from_ledger(
+            trade_ledger=fold_trade_ledger,
+            horizon_min=horizon_min,
         )
         rows_evaluated = int(metrics["rows_evaluated"])
         trades_taken = int(metrics["trades_taken"])
@@ -2215,11 +2328,21 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
                 "cumulative_gross_return_pct": float(metrics["cumulative_gross_return_pct"]),
                 "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
                 "estimated_cost_drag_pct": float(metrics["estimated_cost_drag_pct"]),
+                "portfolio_return_pct": float(fold_portfolio_proxy["portfolio_return_pct"]),
+                "portfolio_return_model": fold_portfolio_proxy["portfolio_return_model"],
+                "portfolio_proxy_trades_executed": int(fold_portfolio_proxy["portfolio_proxy_trades_executed"]),
+                "portfolio_proxy_trades_skipped_exposure": int(
+                    fold_portfolio_proxy["portfolio_proxy_trades_skipped_exposure"]
+                ),
             }
         )
 
     if aggregate_rows <= 0:
         raise ValueError("Expected-value walk-forward did not produce any folds.")
+    portfolio_proxy = _portfolio_proxy_diagnostics_from_ledger(
+        trade_ledger=aggregate_trade_ledger,
+        horizon_min=horizon_min,
+    )
     result = {
         "folds": len(fold_summaries),
         "rows_evaluated": aggregate_rows,
@@ -2237,6 +2360,7 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
             trades_taken=aggregate_trades,
             trade_cost_pct=trade_cost_pct,
         ),
+        **portfolio_proxy,
         "threshold_grid": list(thresholds),
         "threshold_selection": "train_only_positive_average_net_return",
         "calibration_rows": calibration_rows,
@@ -2980,6 +3104,11 @@ def run_cybos_expected_value_review_from_sqlite(
                 f"- trade_sum_net_return_pct: `{float(walk_forward_metrics['trade_sum_net_return_pct']):.6f}`",
                 f"- estimated_cost_drag_pct: `{float(walk_forward_metrics['estimated_cost_drag_pct']):.6f}`",
                 f"- return_aggregation: `{walk_forward_metrics['return_aggregation']}`",
+                f"- portfolio_return_pct: `{float(walk_forward_metrics['portfolio_return_pct']):.6f}`",
+                f"- portfolio_return_model: `{walk_forward_metrics['portfolio_return_model']}`",
+                f"- portfolio_proxy_allocation_pct: `{float(walk_forward_metrics['portfolio_proxy_allocation_pct']):.6f}`",
+                f"- portfolio_proxy_trades_executed: `{int(walk_forward_metrics['portfolio_proxy_trades_executed'])}`",
+                f"- portfolio_proxy_trades_skipped_exposure: `{int(walk_forward_metrics['portfolio_proxy_trades_skipped_exposure'])}`",
             ]
         )
         + "\n",

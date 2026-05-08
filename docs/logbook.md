@@ -1,5 +1,24 @@
 # 작업 기록
 
+## [2026-05-08] Codex → 0.13% expected-value 재검증, 포트폴리오 프록시, dashboard 최적화
+
+- expected-value 0.13% 비용 재검증:
+  - 입력 DB: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/post-close-h15-20260508-160019.db`.
+  - 출력 runtime: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/expected-value-20260508-h15-cost013/runtime-data`.
+  - source=`cybos-historical`, feature set=`bar_context_momentum`, horizon=`15`, trade cost=`0.13%`.
+  - 결과: `folds=12`, `rows_evaluated=600,000`, `trades_taken=2,599`, `overall_accuracy=0.534130`, `trade_hit_rate=0.300500`, `win_rate=0.497114`.
+  - 거래합산: `trade_sum_net_return_pct=-51.251310`, `average_net_return_pct=-0.019720`.
+  - 포트폴리오 프록시: `portfolio_return_pct=-1.802245`, `allocation=5%`, `max_gross_exposure=100%`, `executed=2,006`, `skipped_exposure=593`.
+  - 판단: 0.108% 비용에서는 양수였지만 0.13% 보수 비용에서는 다시 음수다. hit rate는 문턱만 넘었고 비용 초과 기대값은 아직 부족하므로 모델 승격은 보류한다.
+- 구현:
+  - expected-value walk-forward에 `fixed_fraction_per_signal_horizon_proxy` 포트폴리오 프록시 수익률을 추가했다.
+  - 이 값은 실제 paper 계좌 수익률이 아니라, 거래별 수익률 합산을 덜 과장해서 보기 위한 진단값이다.
+- 대시보드:
+  - `python -m app --build-dashboard` 기존 측정: `8분 03초`, max RSS 약 `7.9GB`.
+  - 기본 `오늘` 화면에서 대형 테이블 전체를 읽지 않도록 기간 SQL 조회를 우선 사용하게 바꿨다.
+  - 재측정: `3분 27초`, max RSS 약 `5.4GB`.
+  - dashboard server와 watchdog은 둘 다 running 상태다.
+
 ## [2026-05-08] Codex → 장후 maintenance 중단, expected-value review 완료
 
 - 장후 운영 상태:
