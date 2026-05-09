@@ -170,6 +170,7 @@ python -m app --run-cybos-expected-value-review --horizon-min 15 --cybos-experim
 python scripts/summarize_cybos_research_suite.py
 python scripts/summarize_kis_live_data_quality.py --recent-days 10
 python scripts/summarize_feature_source_drift.py
+python scripts/summarize_kis_live_feature_diagnostics.py
 ```
 
 현재 ML 기준은 아래와 같다.
@@ -192,6 +193,7 @@ python scripts/summarize_feature_source_drift.py
 - Cybos 연구 suite 요약은 기존 `latest-cybos-*` 리포트를 재학습 없이 묶어 `latest-cybos-research-suite-summary.{json,md}`로 남긴다. 이 요약은 후보 승격이 아니라 다음 실험 우선순위를 정하는 진단표다.
 - KIS live data quality 요약은 `raw_market_ticks`, `raw_orderbook_ticks`, 실제 KIS 분봉, feature, h15/h60 label coverage 를 최근 거래일별로 묶어 `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`로 남긴다. 이 요약은 월요일 장전/장중 수집률 점검과 장후 label 닫힘 여부 확인에 쓴다.
 - KIS live vs Cybos historical feature source drift 요약은 `runtime-data/reports/data-quality/latest-feature-source-drift.{json,md}`로 남긴다. KIS 표본은 가능하면 Cybos 마지막 일자 이후 live 날짜만 사용하며, `spread_bps`, `bid_ask_imbalance`처럼 Cybos historical 에 구조적으로 없는 호가 feature 분포 차이를 승격 판단 전에 확인한다. Cybos-only 후보는 실제 KIS live 성능의 직접 대리값이 아니라 구조 탐색과 후보 축소용으로 본다.
+- KIS live feature diagnostics 요약은 `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.{json,md}`로 남긴다. Cybos 마지막 일자 이후 live 날짜 중 h15 label 이 닫힌 feature row만 사용해, 단일 피처별 future return 상관과 구간별 label 분포를 확인한다. 이 리포트는 피처 후보 탐색용이며 모델 승격 근거로 쓰지 않는다.
 
 ## 과거 데이터 Backfill
 

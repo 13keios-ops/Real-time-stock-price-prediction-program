@@ -1,5 +1,23 @@
 # 작업 기록
 
+## [2026-05-10] Codex → KIS live feature-label 진단
+
+- 목적:
+  - 실제 KIS live 표본 안에서 현재 피처가 h15 label/future return 과 어떤 관계를 보이는지 확인했다.
+- 구현:
+  - `scripts/summarize_kis_live_feature_diagnostics.py` 추가.
+  - `tests/test_kis_live_feature_diagnostics.py` 추가.
+  - 출력 리포트: `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.{json,md}`.
+- 결과:
+  - 표본 rows `6,420`, symbols `10`, labeled trade_dates `2`.
+  - h15 label distribution: down `1,041`, flat `3,997`, up `1,382`.
+  - strongest by absolute Pearson: `return_1m_pct`, Pearson `-0.039879`, top-bottom future_return delta `-0.068962`.
+  - `hl_range_pct`는 Pearson `0.015360`으로 약하지만 top-bottom up-ratio delta `0.217290`이 관찰됐다.
+  - `bid_ask_imbalance`, `spread_bps`의 단일 피처 상관은 아직 매우 약하다.
+- 판단:
+  - posture: `sample_too_small`.
+  - 현재 KIS live 데이터는 피처 후보를 관찰하는 정도로만 쓰고, 모델 승격 근거로 쓰지 않는다. 월요일 이후 더 쌓인 live 데이터로 같은 리포트를 재확인한다.
+
 ## [2026-05-10] Codex → KIS live vs Cybos historical feature source drift 진단
 
 - 목적:

@@ -1,5 +1,33 @@
 # docs/STATUS.md
 
+## [2026-05-10 08:31] KIS live feature-label 진단
+
+- 목적:
+  - Cybos-only 후보를 live-KIS 대리값으로 보지 않기로 한 뒤, 실제 KIS live 표본 안에서 어떤 피처가 다음 실험 후보로 볼 만한지 가볍게 점검했다.
+- 구현:
+  - `scripts/summarize_kis_live_feature_diagnostics.py` 추가.
+  - `tests/test_kis_live_feature_diagnostics.py` 추가.
+  - 출력:
+    - `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`
+    - `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.md`
+  - Cybos 마지막 일자 이후 KIS live 날짜를 우선 사용하고, h15 label 이 닫힌 feature row만 분석한다.
+- 표본:
+  - rows `6,420`, symbols `10`, labeled trade_dates `2`.
+  - range `2026-05-06T08:30:00+09:00..2026-05-08T15:04:00+09:00`.
+  - h15 label distribution: down `1,041`, flat `3,997`, up `1,382`.
+  - avg_future_return_pct `0.048176`.
+- 피처 진단:
+  - `return_1m_pct`: Pearson `-0.039879`, top-bottom future_return delta `-0.068962`.
+  - `mid_price`: Pearson `0.023373`, delta `0.033498`.
+  - `hl_range_pct`: Pearson `0.015360`, delta `0.048852`, top-bottom up-ratio delta `0.217290`.
+  - `bid_ask_imbalance`: Pearson `-0.011923`, delta `0.005725`.
+  - `avg_trade_size`: Pearson `0.008470`, delta `-0.003330`.
+  - `spread_bps`: Pearson `0.003806`, delta `0.000817`.
+- 판단:
+  - posture: `sample_too_small`.
+  - 현재 KIS live 표본은 feature triage 용으로는 쓸 수 있지만, 모델 승격이나 강한 피처 결론에는 부족하다.
+  - 단일 피처 상관은 모두 약하다. `hl_range_pct`의 구간별 up-ratio 차이는 눈에 띄지만, 거래일 2일 표본이라 월요일 이후 누적 데이터로 재확인한다.
+
 ## [2026-05-10 07:20] KIS live vs Cybos historical feature source drift 진단
 
 - 목적:
