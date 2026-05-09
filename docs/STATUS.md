@@ -28,6 +28,35 @@
   - `python -m unittest discover -s tests -p "test_*.py"`: 93개 통과.
   - dashboard server `http://127.0.0.1:8765`는 PID `439371`, API responding 상태다.
 
+## [2026-05-10 03:05] Cybos 연구 suite 통합 요약
+
+- 목적:
+  - 주말 자율 연구 두 번째 라운드로, 새 대형 학습을 돌리기 전에 기존 Cybos ML/EV/룰/라벨 리포트를 한 장짜리 판단표로 묶었다.
+- 구현:
+  - `scripts/summarize_cybos_research_suite.py` 추가.
+  - 입력: `runtime-data/reports/backtests/latest-cybos-*.json`.
+  - 출력:
+    - `runtime-data/reports/backtests/latest-cybos-research-suite-summary.json`
+    - `runtime-data/reports/backtests/latest-cybos-research-suite-summary.md`
+- 요약 결과:
+  - posture: `hold_all_current_cybos_candidates`.
+  - bar experiments:
+    - `bar_only`: hit_rate `0.383333`, net `-3.785540%`, 상태 `hit_rate_ok_but_cost_negative`.
+    - `F-1 cybos bar-only`: hit_rate `0.284987`, net `-25.134498%`, 상태 `hold`.
+    - `bar_context`: hit_rate `0.240113`, net `-84.717904%`, 상태 `hold`.
+    - `bar_context_momentum`: hit_rate `0.282628`, net `-190.443833%`, 상태 `hold`.
+  - expected-value 비용 sweep:
+    - `0.10%`, `0.108%` 비용에서는 headline 양수지만 bootstrap CI 하단이 음수라 안정성이 부족하다.
+    - `0.13%` 이상에서는 비용 반영 순수익이 음수다.
+  - rule challengers:
+    - best by net return 은 `quiet_breakout`이지만 trade_hit_rate `0.070254`, net `-106.838776%`로 승격 후보가 아니다.
+  - label reviews:
+    - sensitivity: `채택 보류, 과최적화 의심`.
+    - reproducibility: `재현성 부족`.
+- 판단:
+  - 현재 Cybos 15분 과거봉 기반 ML/룰 후보는 자동 승격 후보가 없다.
+  - 다음 모델 작업은 신규 threshold/grid 튜닝보다 KIS 실시간 호가/체결 데이터 누적 품질, 0.13% 이상 비용 기준 CI 하단 양수 여부, regime/시장상태 피처 설계 쪽을 우선한다.
+
 ## [2026-05-09 14:45] 대시보드 표기 점검과 ML 카드 정정
 
 - 점검:

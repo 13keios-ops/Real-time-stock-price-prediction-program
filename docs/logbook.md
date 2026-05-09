@@ -1,5 +1,25 @@
 # 작업 기록
 
+## [2026-05-10] Codex → Cybos 연구 suite 통합 요약
+
+- 목적:
+  - 주말 연구 두 번째 라운드로 기존 Cybos 리포트를 한곳에 모아 다음 의사결정 기준을 명확히 했다.
+  - 새 대형 학습 없이 기존 결과를 재해석하는 안전한 작업으로 진행했다.
+- 구현:
+  - `scripts/summarize_cybos_research_suite.py` 추가.
+  - `tests/test_cybos_research_suite_summary.py` 추가.
+  - 출력 리포트: `runtime-data/reports/backtests/latest-cybos-research-suite-summary.{json,md}`.
+- 결과:
+  - posture: `hold_all_current_cybos_candidates`.
+  - `bar_only`는 hit_rate `0.383333`이지만 net `-3.785540%`로 비용을 넘지 못했다.
+  - `bar_context`, `bar_context_momentum`, `F-1 cybos bar-only`도 모두 비용 반영 net 음수다.
+  - expected-value는 낮은 비용 `0.10%`, `0.108%`에서만 headline 양수이고 bootstrap CI 하단은 음수다.
+  - rule challenger 최선인 `quiet_breakout`도 hit_rate `0.070254`, net `-106.838776%`로 승격 후보가 아니다.
+  - label sensitivity/reproducibility는 각각 과최적화 의심, 재현성 부족으로 정리됐다.
+- 판단:
+  - 현재 Cybos 15분 과거봉 기반 후보는 자동 승격할 후보가 없다.
+  - 다음 모델 방향은 신규 grid 튜닝보다 KIS 실시간 호가/체결 데이터 품질 누적, 비용 `0.13%` 이상에서 CI 하단 양수인 후보 탐색, regime/시장상태 피처 설계가 우선이다.
+
 ## [2026-05-10] Codex → 주말 연구 배치: EV 비용 sweep 과 dashboard raw-source 인덱스
 
 - 목적:
