@@ -1,5 +1,21 @@
 # docs/STATUS.md
 
+## [2026-05-09 14:45] 대시보드 표기 점검과 ML 카드 정정
+
+- 점검:
+  - dashboard server는 `http://127.0.0.1:8765`에서 응답 중이었지만, 기존 프로세스가 오래 떠 있어 새 코드 기준과 표시가 일부 어긋났다.
+  - 기존 dashboard snapshot은 LightGBM `검증 정확도`를 학습 validation `57.15%`가 아니라 challenger holdout `50.43%`로 표시했다. 학습 행/검증 행과 함께 보이면 잘못 해석될 수 있는 표기였다.
+  - 최신 challenger report는 `6b5b056`의 artifact lineage guard 이전 산출물이라 `latest_lightgbm.promotable=true`를 담고 있었다. 현재 코드 기준에서는 기존 artifact에 `training_run_id` metadata가 없어 `artifact_missing_training_run_id`로 승격 불가가 맞다.
+- 수정:
+  - dashboard는 LightGBM 상태에서 학습 validation split만 찾아 `학습 validation 정확도`로 표시한다.
+  - dashboard 생성 시점의 artifact lineage guard를 challenger report 위에 덧씌워, legacy artifact metadata가 없는 LightGBM 후보는 `승격 가능=아니오`로 표시한다.
+  - 챌린저 비교 표에 `승격 가능`, `독립성/아티팩트` 컬럼을 추가했다.
+  - LightGBM 실제 현황 표에 artifact 정합성, artifact 학습 run, DB 최신 학습 run을 표시한다.
+- 실제 반영:
+  - `python -m app --build-dashboard`: `generated_at=2026-05-09T14:44:36.689019+09:00`.
+  - dashboard server를 재시작해 PID `439371`, `raw_status=running`, API 응답 정상으로 맞췄다.
+  - 최신 dashboard JSON 확인 결과 `validation_accuracy=0.5714815684909165`, `validation_split_name=validation`, `artifact_lineage_status=artifact_missing_training_run_id`, `latest_lightgbm.promotable=false`로 표시된다.
+
 ## [2026-05-09 12:55] LightGBM artifact/DB 정합성 가드 보강
 
 - 목적:

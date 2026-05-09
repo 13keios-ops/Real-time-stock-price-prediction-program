@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from app.config.settings import load_settings
 
 from app.services.dashboard import (
+    _apply_current_challenger_dashboard_guards,
     _build_account_sync_status,
     build_dashboard_snapshot,
     collect_dashboard_payload,
@@ -24,6 +25,32 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class DashboardTests(unittest.TestCase):
+    def test_challenger_dashboard_guard_marks_legacy_lightgbm_not_promotable(self) -> None:
+        report = {
+            "candidates": [
+                {
+                    "candidate_name": "latest_lightgbm",
+                    "model_kind": "lightgbm_artifact",
+                    "model_version": "lightgbm-h15-v1",
+                    "promotable": True,
+                    "evaluation_independence_status": "independent_challenger_holdout",
+                }
+            ]
+        }
+        lightgbm_status = {
+            "artifact_lineage_status": "artifact_missing_training_run_id",
+            "artifact_training_run_id": None,
+        }
+
+        guarded = _apply_current_challenger_dashboard_guards(report, lightgbm_status)
+
+        self.assertIsInstance(guarded, dict)
+        candidate = guarded["candidates"][0]
+        self.assertFalse(candidate["promotable"])
+        self.assertTrue(candidate["report_promotable"])
+        self.assertEqual(candidate["artifact_training_status"], "artifact_missing_training_run_id")
+        self.assertEqual(guarded["current_guard_status"], "artifact_lineage_guard_applied")
+
     def _mock_account_report(self) -> MagicMock:
         report = MagicMock()
         report.to_dict.return_value = {

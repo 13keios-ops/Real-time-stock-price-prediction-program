@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from app.config.settings import load_settings
-from app.models.lightgbm_model import find_latest_lightgbm_artifact
+from app.models.lightgbm_model import LightGbmDirectionModel, find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
@@ -1296,6 +1296,7 @@ def _build_lightgbm_status(
     artifact_updated_at = None
     if artifact_path and artifact_path.exists():
         artifact_updated_at = datetime.fromtimestamp(artifact_path.stat().st_mtime, tz=get_timezone(settings.timezone)).isoformat()
+    artifact_lineage = _build_lightgbm_artifact_lineage_status(settings=settings, latest_training=latest_training)
 
     training_summary = (latest_training or {}).get("training_summary") or {}
     latest_model_version = (latest_training or {}).get("model_version") or "미학습"
@@ -1310,7 +1311,9 @@ def _build_lightgbm_status(
         "train_rows": (latest_training or {}).get("train_rows"),
         "validation_rows": (latest_training or {}).get("validation_rows"),
         "validation_accuracy": (latest_evaluation or {}).get("accuracy"),
+        "validation_split_name": (latest_evaluation or {}).get("split_name"),
         "evaluated_rows": (latest_evaluation or {}).get("total_rows"),
+        "validation_evaluated_at": (latest_evaluation or {}).get("evaluated_at"),
         "labels_seen": training_summary.get("labels_seen") or [],
         "class_labels": training_summary.get("class_labels") or [],
         "feature_count": len(training_summary.get("feature_names") or []),
@@ -1318,7 +1321,110 @@ def _build_lightgbm_status(
         "actual_feature_rows": runtime_summary.get("feature_rows", 0),
         "actual_label_rows": runtime_summary.get("labels", 0),
         "description": "최근 60거래일과 오늘 장중 분봉·호가 기반 수치 특징으로 다음 15분/60분의 상승·보합·하락 확률을 학습합니다. 장중에는 추론만 수행하고, 장후 재학습 또는 실제 데이터 재구성 시점에만 새 모델을 만듭니다.",
+        **artifact_lineage,
     }
+
+
+def _build_lightgbm_artifact_lineage_status(
+    *,
+    settings,
+    latest_training: dict[str, Any] | None,
+) -> dict[str, Any]:
+    artifact_path = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=15)
+    latest_training_run_id = str((latest_training or {}).get("training_run_id") or "")
+    base = {
+        "artifact_lineage_status": "artifact_missing",
+        "artifact_lineage_label": "아티팩트 없음",
+        "artifact_training_run_id": None,
+        "expected_training_run_id": latest_training_run_id or None,
+        "artifact_dataset_scope": None,
+        "artifact_holdout_first_event_time": None,
+        "artifact_lineage_promotable": False,
+    }
+    if artifact_path is None or not artifact_path.exists():
+        return base
+    try:
+        artifact = LightGbmDirectionModel.from_path(artifact_path).artifact
+    except Exception as exc:  # pragma: no cover - corrupted local joblib is environment-specific
+        base.update(
+            {
+                "artifact_lineage_status": "artifact_unreadable",
+                "artifact_lineage_label": "아티팩트 읽기 실패",
+                "artifact_lineage_error": str(exc),
+            }
+        )
+        return base
+
+    artifact_training_run_id = artifact.training_run_id
+    status = "artifact_training_run_match"
+    label = "DB 학습 run과 일치"
+    promotable = True
+    if not artifact_training_run_id:
+        status = "artifact_missing_training_run_id"
+        label = "legacy artifact metadata 없음"
+        promotable = False
+    elif not latest_training_run_id:
+        status = "unknown_training_summary"
+        label = "DB 최신 학습 run 없음"
+        promotable = False
+    elif str(artifact_training_run_id) != latest_training_run_id:
+        status = "artifact_training_run_mismatch"
+        label = "DB 학습 run과 artifact 불일치"
+        promotable = False
+
+    base.update(
+        {
+            "artifact_lineage_status": status,
+            "artifact_lineage_label": label,
+            "artifact_training_run_id": artifact_training_run_id,
+            "artifact_dataset_scope": artifact.dataset_scope,
+            "artifact_holdout_first_event_time": artifact.challenger_holdout_first_event_time,
+            "artifact_lineage_promotable": promotable,
+        }
+    )
+    return base
+
+
+def _apply_current_challenger_dashboard_guards(
+    report: dict[str, Any] | list[Any] | None,
+    lightgbm_status: dict[str, Any],
+) -> dict[str, Any] | list[Any] | None:
+    if not isinstance(report, dict):
+        return report
+    guarded = json.loads(json.dumps(report, ensure_ascii=False))
+    artifact_status = str(lightgbm_status.get("artifact_lineage_status") or "")
+    artifact_training_run_id = lightgbm_status.get("artifact_training_run_id")
+    guard_note = ""
+    if artifact_status and artifact_status != "artifact_training_run_match":
+        guard_note = (
+            "현재 dashboard 생성 시점의 LightGBM artifact lineage guard가 적용되어, "
+            f"artifact 상태 {artifact_status} 후보는 승격 불가로 표시합니다."
+        )
+
+    candidates = guarded.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            is_lightgbm = (
+                str(candidate.get("candidate_name")) == "latest_lightgbm"
+                or str(candidate.get("model_kind")) == "lightgbm_artifact"
+            )
+            if not is_lightgbm:
+                continue
+            candidate.setdefault("report_promotable", candidate.get("promotable"))
+            candidate["artifact_training_status"] = artifact_status or candidate.get("artifact_training_status")
+            candidate["artifact_training_run_id"] = artifact_training_run_id or candidate.get("artifact_training_run_id")
+            if artifact_status and artifact_status != "artifact_training_run_match":
+                candidate["promotable"] = False
+                candidate["promotion_block_reason_current"] = guard_note
+
+    if guard_note:
+        guarded["current_guard_status"] = "artifact_lineage_guard_applied"
+        guarded["current_guard_note"] = guard_note
+    else:
+        guarded["current_guard_status"] = "artifact_lineage_guard_ok"
+    return guarded
 
 
 def _build_today_report(
@@ -1494,15 +1600,21 @@ def collect_dashboard_payload(
     active_registry = ModelRegistry(settings.runtime_data_dir).load()
     latest_training = training_rows_all[-1] if training_rows_all else None
     latest_evaluation = evaluation_rows_all[-1] if evaluation_rows_all else None
-    latest_training_evaluation = None
+    latest_training_validation_evaluation = None
+    latest_training_any_evaluation = None
     if latest_training is not None:
         training_run_id = str(latest_training.get("training_run_id") or "")
         for row in reversed(evaluation_rows_all):
             if str(row.get("training_run_id") or "") == training_run_id:
-                latest_training_evaluation = row
-                break
-    if latest_training_evaluation is not None:
-        latest_evaluation = latest_training_evaluation
+                if latest_training_any_evaluation is None:
+                    latest_training_any_evaluation = row
+                if str(row.get("split_name") or "") == "validation":
+                    latest_training_validation_evaluation = row
+                    break
+    if latest_training_validation_evaluation is not None:
+        latest_evaluation = latest_training_validation_evaluation
+    elif latest_training_any_evaluation is not None:
+        latest_evaluation = latest_training_any_evaluation
 
     active_models = active_registry.get("active_models", {}) if isinstance(active_registry, dict) else {}
     active_model_entry = _effective_active_model_entry(
@@ -1730,6 +1842,7 @@ def collect_dashboard_payload(
         active_model_entry=active_model_entry,
         runtime_summary=runtime_summary,
     )
+    latest_challenger_report = _apply_current_challenger_dashboard_guards(latest_challenger_report, lightgbm_status)
     lightgbm_status["today_training_count"] = len(today_training_runs)
     lightgbm_status["today_evaluation_count"] = len(today_evaluations)
     lightgbm_status["recent_training_count"] = len(training_rows_all)
@@ -2724,7 +2837,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         for row in payload.get("recent_evaluations", [])
     ]
     challenger_rows = [
-        [row.get("rank"), row.get("candidate_name"), row.get("model_version"), _ratio_pct(row.get("overall_accuracy"), 2), _ratio_pct(row.get("trade_hit_rate"), 2), _pct(row.get("cumulative_net_return_pct"), 2)]
+        [
+            row.get("rank"),
+            row.get("candidate_name"),
+            row.get("model_version"),
+            _ratio_pct(row.get("overall_accuracy"), 2),
+            _ratio_pct(row.get("trade_hit_rate"), 2),
+            _pct(row.get("cumulative_net_return_pct"), 2),
+            "예" if row.get("promotable") else "아니오",
+            row.get("artifact_training_status") or row.get("evaluation_independence_status") or "-",
+        ]
         for row in latest_challenger.get("candidates", [])
     ]
     walk_forward_rows = [
@@ -2881,7 +3003,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"최신 학습 모델: {latest_training.get('model_version') or '-'}",
         f"활성 모델(15분): {active_model.get('model_version') or '-'}",
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
-        f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
+        f"학습 validation 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
         f"게이트 기준 평가: {latest_walk_forward_setup.get('status_label') or '-'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
@@ -2911,7 +3033,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["활성 모델 여부", "예" if lightgbm_status.get("is_active") else "아니오"],
         ["학습 행 수", lightgbm_status.get("train_rows") or 0],
         ["검증 행 수", lightgbm_status.get("validation_rows") or 0],
-        ["검증 정확도", _ratio_pct(lightgbm_status.get("validation_accuracy"), 2)],
+        ["학습 validation 정확도", _ratio_pct(lightgbm_status.get("validation_accuracy"), 2)],
+        ["학습 validation split", lightgbm_status.get("validation_split_name") or "-"],
+        ["학습 validation 평가 행", lightgbm_status.get("evaluated_rows") or "-"],
         ["특징 수", lightgbm_status.get("feature_count") or 0],
         ["실운용 특징 행", lightgbm_status.get("actual_feature_rows") or 0],
         ["실운용 라벨 행", lightgbm_status.get("actual_label_rows") or 0],
@@ -2919,6 +3043,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["오늘 평가 건수", lightgbm_status.get("today_evaluation_count") or 0],
         ["학습 창", lightgbm_status.get("training_window") or "-"],
         ["아티팩트 갱신 시각", lightgbm_status.get("artifact_updated_at") or "-"],
+        ["아티팩트 정합성", lightgbm_status.get("artifact_lineage_label") or "-"],
+        ["아티팩트 학습 run", lightgbm_status.get("artifact_training_run_id") or "-"],
+        ["DB 최신 학습 run", lightgbm_status.get("expected_training_run_id") or "-"],
         [
             "최근 장후 재학습",
             (lightgbm_status.get("latest_post_close_maintenance") or {}).get("completed_at")
@@ -3282,7 +3409,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "최신 검증 요약",
                         _pill_row(
                             [
-                                f"최신 평가 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
+                                f"학습 validation 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
                                 f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}",
                                 f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}",
                                 f"게이트 기준: {latest_walk_forward_setup.get('status_label') or '-'}",
@@ -3300,7 +3427,15 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "ml-challenger",
                 "챌린저 및 워크포워드",
                 _stack_cards(
-                    _section_card("챌린저 비교", _table(["순위", "후보", "모델 버전", "정확도", "거래 적중률", "누적 순수익률"], challenger_rows, "챌린저 비교 결과가 없습니다.")),
+                    _section_card(
+                        "챌린저 비교",
+                        _table(
+                            ["순위", "후보", "모델 버전", "정확도", "거래 적중률", "누적 순수익률", "승격 가능", "독립성/아티팩트"],
+                            challenger_rows,
+                            "챌린저 비교 결과가 없습니다.",
+                        ),
+                        note=_esc(latest_challenger.get("current_guard_note") or "현재 코드 기준 가드가 적용된 승격 가능 여부를 표시합니다."),
+                    ),
                     _section_card("워크포워드 상세", _table(["fold", "정확도", "거래 수", "거래 적중률", "누적 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),
             ),

@@ -29,6 +29,9 @@
   - cowork 리뷰의 남은 위험인 artifact/DB 불일치 복구 시나리오도 보강했다. 새 LightGBM artifact는 `training_run_id`, `trained_at`, `dataset_scope`, `challenger_holdout_first_event_time`를 payload에 저장하고, challenger는 DB 최신 training row와 artifact의 `training_run_id`가 다르면 승격 후보에서 제외한다.
   - 정본 전체 `python -m app --train-lightgbm --horizon-min 15`와 `python -m app --run-challengers --horizon-min 15`는 각각 15분/10분 제한에서 완료되지 않고 메모리 95% 안팎까지 사용해 중단했다. 기존 artifact 시각은 `2026-05-09 03:09`로 partial overwrite는 확인되지 않았다.
   - 판단: 전체 LightGBM/challenger는 quick 작업이 아니라 D드라이브 snapshot 기반 heavy research 또는 bounded 평가 경로로 분리해야 한다.
+  - 대시보드 표기도 점검했다. 기존 화면은 LightGBM `검증 정확도`를 학습 validation `57.15%`가 아니라 challenger holdout `50.43%`로 보여 혼동 여지가 있었고, 예전 challenger report의 `promotable=true`도 새 artifact lineage guard 기준과 맞지 않았다.
+  - dashboard는 학습 validation split만 찾아 `학습 validation 정확도`로 표시하고, 현재 artifact lineage guard를 적용해 legacy metadata 없는 LightGBM 후보를 `승격 가능=아니오`로 표시하도록 바꿨다.
+  - `python -m app --build-dashboard`로 `generated_at=2026-05-09T14:44:36.689019+09:00` snapshot을 만들고 dashboard server를 PID `439371`로 재시작했다.
 - 검증:
   - `python -m py_compile app/models/lightgbm_model.py app/services/research.py` 통과.
   - `python -m unittest tests.test_research_pipeline`: 8개 통과.
