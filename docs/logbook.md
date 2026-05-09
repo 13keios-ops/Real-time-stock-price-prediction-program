@@ -1,5 +1,24 @@
 # 작업 기록
 
+## [2026-05-10] Codex → KIS live vs Cybos historical feature source drift 진단
+
+- 목적:
+  - Cybos 5년치 15분봉 후보를 실제 KIS live 데이터의 직접 대리값으로 볼 수 있는지 feature 분포 기준으로 확인했다.
+- 구현:
+  - `scripts/summarize_feature_source_drift.py` 추가.
+  - `tests/test_feature_source_drift_summary.py` 추가.
+  - 출력 리포트: `runtime-data/reports/data-quality/latest-feature-source-drift.{json,md}`.
+  - KIS 표본은 Cybos 마지막 일자 이후 live 날짜를 우선 사용해 같은 feature row가 양쪽 표본에 섞이지 않게 했다.
+- 결과:
+  - KIS 표본: `6,590` rows, `10` symbols, `3` trade dates, `2026-05-06..2026-05-08`.
+  - Cybos 표본: `100,000` rows, `199` symbols, `20` trade dates, `2026-04-06..2026-05-04`.
+  - `spread_bps`: KIS mean `12.546763`, zero_ratio `0.006070`; Cybos mean `0.0`, zero_ratio `1.0`.
+  - `bid_ask_imbalance`: KIS mean `0.038760`, zero_ratio `0.007436`; Cybos mean `0.0`, zero_ratio `1.0`.
+  - `avg_trade_size`도 KIS mean `400.831744` vs Cybos mean `1054.741933`으로 차이가 컸다.
+- 판단:
+  - posture: `source_drift_detected`.
+  - Cybos historical 은 live 호가 feature 분포를 담지 못하므로, Cybos-only 연구 후보는 구조 탐색용으로만 보고 실제 KIS live 성능의 직접 대리값으로 승격 판단하지 않는다.
+
 ## [2026-05-10] Codex → KIS live 데이터 품질 요약과 label 닫힘 보정
 
 - 목적:

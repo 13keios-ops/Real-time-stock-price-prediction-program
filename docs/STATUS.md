@@ -1,5 +1,30 @@
 # docs/STATUS.md
 
+## [2026-05-10 07:20] KIS live vs Cybos historical feature source drift 진단
+
+- 목적:
+  - Cybos 5년치 15분봉 연구 후보가 모두 승격 보류인 상태에서, Cybos 기반 결과를 실제 KIS live 데이터의 직접 대리값으로 볼 수 있는지 feature 분포 기준으로 점검했다.
+- 구현:
+  - `scripts/summarize_feature_source_drift.py` 추가.
+  - `tests/test_feature_source_drift_summary.py` 추가.
+  - 출력:
+    - `runtime-data/reports/data-quality/latest-feature-source-drift.json`
+    - `runtime-data/reports/data-quality/latest-feature-source-drift.md`
+  - KIS 표본은 가능하면 Cybos 마지막 일자 이후의 live 날짜만 선택한다. 이번 정본 DB에서는 `post_cybos_overlap` 방식으로 `2026-05-06`, `2026-05-07`, `2026-05-08`을 사용했다.
+- 표본:
+  - KIS live: rows `6,590`, symbols `10`, trade_dates `3`, range `2026-05-06T08:30:00+09:00..2026-05-08T15:19:00+09:00`.
+  - KIS h15 labels: down `1,041`, flat `3,997`, up `1,382`.
+  - Cybos historical sample: rows `100,000`, symbols `199`, trade_dates `20`, range `2026-04-06T13:15:00+09:00..2026-05-04T15:30:00+09:00`.
+  - Cybos h15 labels: down `14,059`, flat `67,467`, up `14,497`.
+- 주요 drift:
+  - `spread_bps`: KIS mean `12.546763`, zero_ratio `0.006070`; Cybos mean `0.0`, zero_ratio `1.0`.
+  - `bid_ask_imbalance`: KIS mean `0.038760`, zero_ratio `0.007436`; Cybos mean `0.0`, zero_ratio `1.0`.
+  - `avg_trade_size`: KIS mean `400.831744`, Cybos mean `1054.741933`, Cybos 표준편차 기준 delta `-2.377566`.
+- 판단:
+  - posture: `source_drift_detected`.
+  - Cybos historical row는 live 호가 feature 분포를 담지 못한다. 따라서 Cybos-only 후보의 성과는 실제 KIS live 성과의 직접 대리값으로 쓰지 않고, 구조 탐색/후보 축소용으로만 본다.
+  - 다음 모델 개선은 KIS live 데이터가 충분히 누적될 때까지 Cybos threshold/grid 추가 튜닝보다 KIS live feature 품질, source drift, 비용 초과 기대값 검증을 우선한다.
+
 ## [2026-05-10 04:56] KIS live 데이터 품질 요약과 label 닫힘 보정
 
 - 목적:
