@@ -1,5 +1,41 @@
 # docs/STATUS.md
 
+## [2026-05-10 04:56] KIS live 데이터 품질 요약과 label 닫힘 보정
+
+- 목적:
+  - Cybos 15분 과거봉 후보가 모두 승격 보류인 상태에서, 다음 모델 개선의 전제인 KIS 실시간 체결/호가 데이터 누적 품질을 정본 DB 기준으로 점검했다.
+- 구현:
+  - `scripts/summarize_kis_live_data_quality.py` 추가.
+  - `tests/test_kis_live_data_quality_summary.py` 추가.
+  - 출력:
+    - `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
+    - `runtime-data/reports/data-quality/latest-kis-live-data-quality.md`
+  - 초기 구현은 SQLite 임시 actual-minute 테이블 조인이 10분을 넘겨 중단했다. 최종 구현은 raw KIS 분 단위 인덱스를 한 번 만들고, 파생 테이블은 `symbol + 시간범위`로 좁혀 읽도록 바꿔 정본 DB 기준 약 10초 안에 완료된다.
+- label 닫힘:
+  - 첫 품질 리포트에서 2026-05-08 KIS feature 는 `3,790` symbol-minute 인데 h15/h60 label 이 `0`으로 확인됐다.
+  - `python -m app --build-feature-dataset` 실행으로 feature / label 을 재생성했다.
+  - 결과: `features_written=6,390,299`, `labels_written=11,551,557`, horizons `[15, 60]`, 실행 시간 약 15분.
+- 최신 품질 결과:
+  - observed KIS dates: `7`, range `2026-04-28..2026-05-08`.
+  - raw source:
+    - `raw_market_ticks/kis-ws`: `4,227,658` rows, `10` symbols.
+    - `raw_orderbook_ticks/kis-ws`: `2,920,106` rows, `10` symbols.
+  - latest date `2026-05-08`:
+    - market symbol-minutes `3,821`
+    - orderbook symbol-minutes `4,060`
+    - minute bars `3,790`
+    - features `3,790`
+    - h15 labels `3,640`
+    - h60 labels `3,200`
+    - feature/bar ratio `1.0`
+    - h15 label/feature ratio `0.960422`
+    - h15 label distribution: down `614`, flat `2,208`, up `818`
+  - assessment: `ok`.
+- 해석:
+  - 2026-05-08 기준 KIS live 데이터는 feature 와 label 이 학습 가능한 상태로 닫혔다.
+  - 2026-05-07은 market symbol-minutes `30`, orderbook symbol-minutes `130`으로 매우 작아, 이전에 확인한 live runtime 늦은 재기동일로 계속 취급한다.
+  - 월요일에는 새 모델 튜닝보다 09:30 기준 live runtime/watchdog 자동 기동과 symbol-minute 증가 여부를 먼저 확인한다.
+
 ## [2026-05-10 02:00] 주말 연구 배치: EV 비용 sweep 과 dashboard 인덱스 최적화
 
 - 목적:

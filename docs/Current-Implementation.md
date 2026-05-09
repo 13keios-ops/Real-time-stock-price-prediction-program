@@ -166,6 +166,7 @@ python -m app --run-cybos-label-reproducibility-review --cybos-profitability-cos
 python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
 python -m app --run-cybos-expected-value-review --horizon-min 15 --cybos-experiment-feature-set bar_context_momentum --cybos-profitability-cost-pct 0.108
 python scripts/summarize_cybos_research_suite.py
+python scripts/summarize_kis_live_data_quality.py --recent-days 10
 ```
 
 현재 ML 기준은 아래와 같다.
@@ -186,6 +187,7 @@ python scripts/summarize_cybos_research_suite.py
 - Cybos expected-value review는 각 walk-forward fold 안에서 train tail calibration 구간으로만 `probability_up` threshold를 선택하고 test 구간에 적용한다. 선택 기준은 비용 차감 평균 기대값 양수 여부이며, 수동 필터를 사후 튜닝하거나 자동 승격하지 않는다.
 - Cybos expected-value review는 거래별 퍼센트 손익 합산과 별도로 `fixed_fraction_per_signal_horizon_proxy` 포트폴리오 프록시를 기록한다. 기본 해석은 `5% 고정 비중`, `총 익스포저 100% 제한`, `horizon 기반 청산`이며 실제 paper 계좌 수익률이 아니라 승격 전 진단값이다.
 - Cybos 연구 suite 요약은 기존 `latest-cybos-*` 리포트를 재학습 없이 묶어 `latest-cybos-research-suite-summary.{json,md}`로 남긴다. 이 요약은 후보 승격이 아니라 다음 실험 우선순위를 정하는 진단표다.
+- KIS live data quality 요약은 `raw_market_ticks`, `raw_orderbook_ticks`, 실제 KIS 분봉, feature, h15/h60 label coverage 를 최근 거래일별로 묶어 `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`로 남긴다. 이 요약은 월요일 장전/장중 수집률 점검과 장후 label 닫힘 여부 확인에 쓴다.
 
 ## 과거 데이터 Backfill
 

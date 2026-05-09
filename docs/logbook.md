@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-05-10] Codex → KIS live 데이터 품질 요약과 label 닫힘 보정
+
+- 목적:
+  - 다음 모델 개선 전에 KIS 실시간 체결/호가 데이터가 feature/label 까지 닫히는지 정본 DB 기준으로 확인했다.
+- 구현:
+  - `scripts/summarize_kis_live_data_quality.py` 추가.
+  - `tests/test_kis_live_data_quality_summary.py` 추가.
+  - 출력 리포트: `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`.
+  - 첫 구현은 SQLite 임시 actual-minute 조인이 10분을 넘겨 중단했고, 반복 조인을 제거해 정본 DB 기준 약 10초 안에 완료되도록 바꿨다.
+- 실행:
+  - 첫 리포트에서 2026-05-08 feature `3,790` symbol-minute 대비 h15/h60 label 이 `0`으로 확인됐다.
+  - `python -m app --build-feature-dataset` 실행 완료: `features_written=6,390,299`, `labels_written=11,551,557`, horizons `[15, 60]`.
+  - 재실행한 품질 리포트 assessment 는 `ok`.
+- 최신 2026-05-08 품질:
+  - market symbol-minutes `3,821`
+  - orderbook symbol-minutes `4,060`
+  - minute bars `3,790`
+  - features `3,790`
+  - h15 labels `3,640`
+  - h60 labels `3,200`
+  - h15 label distribution: down `614`, flat `2,208`, up `818`
+- 판단:
+  - 최신 KIS live 데이터는 feature/label 기준으로 학습 가능한 상태까지 닫혔다.
+  - 2026-05-07은 live runtime 늦은 재기동으로 인한 부분 수집일로 유지한다.
+  - 월요일에는 장전/09:30 수집률 확인을 먼저 하고, 모델 튜닝은 그 이후 KIS 누적 품질을 보고 진행한다.
+
 ## [2026-05-10] Codex → Cybos 연구 suite 통합 요약
 
 - 목적:
