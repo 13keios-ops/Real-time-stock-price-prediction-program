@@ -1,5 +1,17 @@
 # docs/STATUS.md
 
+## [2026-05-09 04:05] cowork 리뷰 반영: holdout 가드 테스트와 문서 보강
+
+- 반영:
+  - cowork 리뷰 중 `challenger_holdout_tail_10pct` 구조 자체는 타당하다는 판단을 유지한다.
+  - ISO datetime 문자열 비교는 timezone 표기가 섞일 때 위험할 수 있어 `datetime.fromisoformat` 기반 비교로 바꿨다.
+  - `legacy_training_without_reserved_holdout`, `training_reserved_holdout_missing`, `holdout_metadata_missing`, `holdout_window_mismatch`, `validation_overlaps_challenger_holdout`, 성공 분기 `independent_challenger_holdout`을 단위 테스트로 고정했다.
+  - split 테스트에서 train/validation key와 challenger holdout key가 겹치지 않는 것도 확인한다.
+- 문서 보강:
+  - `0.92` validation 과열 자체의 원인 분석은 이번 변경 범위가 아니며, 이번 변경은 해당 validation 구간을 challenger 승격 근거로 재사용하지 않게 한 것이라고 정리했다.
+  - `best candidate` 표현은 `best by sort key`, 즉 모두 음수인 후보 중 가장 덜 나쁜 후보라는 뜻으로 정정했다.
+  - 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행해야 한다는 운영 invariant를 기록했다.
+
 ## [2026-05-09 03:30] challenger 독립성 보강과 실제 holdout 재평가
 
 - 목적:
@@ -9,7 +21,8 @@
   - `train_lightgbm_from_sqlite`와 centroid 학습 summary에 `challenger_holdout_split` 메타데이터를 기록한다.
   - `run_model_challenger_review_from_sqlite`는 `validation_tail_20pct`가 아니라 reserved holdout을 평가 구간으로 사용한다.
   - 각 candidate에 `evaluation_independence_status`를 기록한다.
-  - 최신 LightGBM artifact가 reserved holdout 메타데이터 없이 학습된 legacy 모델이면 promotable 후보에서 제외할 수 있게 했다.
+  - 최신 LightGBM artifact가 reserved holdout 메타데이터 없이 학습된 legacy 모델이면 promotable 후보에서 제외된다.
+  - 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 `holdout_window_mismatch`로 fail-safe 차단된다. 따라서 LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행해야 한다.
 - 실제 정본 DB 재실행:
   - `python -m app --train-lightgbm --horizon-min 15`
     - `training_run_id=train-lightgbm-h15-20260509030957756047`
@@ -20,13 +33,13 @@
     - `dataset_scope=challenger_holdout_tail_10pct`
     - holdout rows `662,401`
     - holdout start `2025-10-24T09:00:00+09:00`
-    - best candidate `latest_lightgbm`
+    - best by sort key `latest_lightgbm` (모든 주요 후보가 음수이며, 가장 덜 나쁜 후보)
     - `latest_lightgbm`: accuracy `0.504269`, trade_hit_rate `0.202465`, trades `568`, net `-30.697069%`
     - `evaluation_independence_status=independent_challenger_holdout`
     - `recommended_action=review_required`
     - `decision_reason=Walk-forward overall accuracy is too low (0.4163).`
 - 판단:
-  - 예전 `0.92`대 validation 과열을 challenger 승격 근거로 쓰지 않도록 평가 독립성은 보강됐다.
+  - 예전 `0.92`대 validation 과열을 challenger 승격 근거로 재사용하지 않도록 평가 독립성은 보강됐다. 다만 `0.92` validation 자체의 원인 분석은 별도 과제로 남긴다.
   - 독립 holdout 기준 LightGBM은 여전히 비용 반영 순수익과 trade hit rate가 부족하므로 active model은 `baseline-h15-v1` 유지가 맞다.
 - 대시보드:
   - `python -m app --build-dashboard`: `generated_at=2026-05-09T03:26:29.971728+09:00`.

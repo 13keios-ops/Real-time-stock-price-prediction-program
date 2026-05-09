@@ -10,6 +10,8 @@
   - 학습 summary에 `challenger_holdout_split`을 기록한다.
   - challenger report와 candidate별 결과에 `dataset_scope`, `evaluation_split`, `evaluation_independence_status`를 기록한다.
   - 최신 LightGBM 학습 summary가 reserved holdout과 맞지 않으면 해당 LightGBM은 promotable 후보로 보지 않도록 했다.
+  - cowork 리뷰 반영으로 holdout 경계/validation overlap 비교는 ISO 문자열 비교가 아니라 `datetime.fromisoformat` 비교로 보강했다.
+  - legacy/mismatch/overlap/fallback 가드 분기와 split key 비중복을 단위 테스트로 고정했다.
 - 실제 재실행:
   - `python -m app --train-lightgbm --horizon-min 15`
     - `training_run_id=train-lightgbm-h15-20260509030957756047`
@@ -22,6 +24,8 @@
   - `python -m app --build-dashboard`: `generated_at=2026-05-09T03:26:29.971728+09:00`
 - 판단:
   - challenger 평가 독립성은 개선됐지만, 독립 holdout 기준 비용 반영 성과가 음수라 모델 승격은 보류한다.
+  - `0.92` validation 과열 자체는 이번 변경으로 직접 설명된 것이 아니며, 이번 변경은 해당 validation 구간을 challenger 승격 근거로 재사용하지 않게 한 조치다.
+  - LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어 실행해야 한다. live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막힌다.
 - 검증:
   - `python -m py_compile app/services/research.py` 통과.
   - `python -m unittest tests.test_research_pipeline`: 5개 통과.

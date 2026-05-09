@@ -173,7 +173,7 @@ python -m app --run-cybos-expected-value-review --horizon-min 15 --cybos-experim
 - 장후: 특징 / 라벨 재생성, LightGBM 재학습, 백테스트, 워크포워드, 도전자 모델 비교
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
-- LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 `challenger_holdout_tail_10pct`를 기본으로 쓰며, candidate별 `evaluation_independence_status`를 리포트에 남긴다.
+- LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 `challenger_holdout_tail_10pct`를 기본으로 쓰며, candidate별 `evaluation_independence_status`를 리포트에 남긴다. 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행한다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.

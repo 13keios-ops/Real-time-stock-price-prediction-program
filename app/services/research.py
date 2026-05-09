@@ -743,6 +743,15 @@ def _resolve_training_run_summary(sqlite_store, model_version: str, horizon_min:
     return None
 
 
+def _metadata_datetime(value: object) -> datetime | None:
+    if value in (None, ""):
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 def _training_run_holdout_status(
     training_summary: dict[str, object] | None,
     split_metadata: dict[str, object],
@@ -761,14 +770,19 @@ def _training_run_holdout_status(
     evaluation_holdout = split_metadata.get("challenger_holdout")
     if not isinstance(training_holdout, dict) or not isinstance(evaluation_holdout, dict):
         return "holdout_metadata_missing"
-    if training_holdout.get("first_event_time") != evaluation_holdout.get("first_event_time"):
+    training_holdout_first = _metadata_datetime(training_holdout.get("first_event_time"))
+    evaluation_holdout_first = _metadata_datetime(evaluation_holdout.get("first_event_time"))
+    if training_holdout_first is None or evaluation_holdout_first is None:
+        return "holdout_metadata_invalid"
+    if training_holdout_first != evaluation_holdout_first:
         return "holdout_window_mismatch"
 
     training_validation = training_split.get("validation")
     if isinstance(training_validation, dict):
-        validation_last = str(training_validation.get("last_event_time") or "")
-        holdout_first = str(evaluation_holdout.get("first_event_time") or "")
-        if validation_last and holdout_first and validation_last >= holdout_first:
+        validation_last = _metadata_datetime(training_validation.get("last_event_time"))
+        if validation_last is None:
+            return "holdout_metadata_invalid"
+        if validation_last >= evaluation_holdout_first:
             return "validation_overlaps_challenger_holdout"
     return "independent_challenger_holdout"
 

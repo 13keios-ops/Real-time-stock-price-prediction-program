@@ -12,6 +12,8 @@ from app.config.settings import load_settings
 from app.services.research import (
     _load_labeled_feature_dataset,
     _resolve_feature_row_source,
+    _split_dataset_with_challenger_holdout,
+    _training_run_holdout_status,
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
     run_cybos_expected_value_review_from_sqlite,
@@ -29,6 +31,114 @@ from app.utils.time import get_timezone
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_challenger_holdout_split_keeps_validation_before_holdout(self) -> None:
+        kst = get_timezone("Asia/Seoul")
+        base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)
+        labels = ("down", "flat", "up")
+        dataset = []
+        for day_index in range(60):
+            event_time = base_time + timedelta(days=day_index)
+            dataset.append(
+                {
+                    "symbol": "005930",
+                    "event_time": event_time,
+                    "label": labels[day_index % len(labels)],
+                }
+            )
+
+        split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=15)
+        train_rows = split_payload["train_rows"]
+        validation_rows = split_payload["validation_rows"]
+        challenger_rows = split_payload["challenger_rows"]
+        metadata = split_payload["metadata"]
+
+        self.assertEqual(metadata["dataset_scope"], "challenger_holdout_tail_10pct")
+        self.assertGreater(len(train_rows), 0)
+        self.assertGreater(len(validation_rows), 0)
+        self.assertGreater(len(challenger_rows), 0)
+        self.assertLess(
+            max(row["event_time"] for row in validation_rows),
+            min(row["event_time"] for row in challenger_rows),
+        )
+        training_keys = {(row["symbol"], row["event_time"]) for row in train_rows + validation_rows}
+        challenger_keys = {(row["symbol"], row["event_time"]) for row in challenger_rows}
+        self.assertFalse(training_keys.intersection(challenger_keys))
+
+    def test_training_run_holdout_status_guards_independence(self) -> None:
+        split_metadata = {
+            "dataset_scope": "challenger_holdout_tail_10pct",
+            "challenger_holdout": {
+                "first_event_time": "2025-10-24T09:00:00+09:00",
+            },
+        }
+        valid_summary = {
+            "challenger_holdout_split": {
+                "dataset_scope": "challenger_holdout_tail_10pct",
+                "challenger_holdout": {
+                    "first_event_time": "2025-10-24T00:00:00+00:00",
+                },
+                "validation": {
+                    "last_event_time": "2025-10-23T15:15:00+09:00",
+                },
+            },
+        }
+
+        self.assertEqual(
+            _training_run_holdout_status(valid_summary, split_metadata),
+            "independent_challenger_holdout",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(valid_summary, {"dataset_scope": "validation_tail_20pct_fallback"}),
+            "not_independent_validation_fallback",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(None, split_metadata),
+            "unknown_training_summary",
+        )
+        self.assertEqual(
+            _training_run_holdout_status({}, split_metadata),
+            "legacy_training_without_reserved_holdout",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(
+                {"challenger_holdout_split": {"dataset_scope": "validation_tail_20pct"}},
+                split_metadata,
+            ),
+            "training_reserved_holdout_missing",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(
+                {"challenger_holdout_split": {"dataset_scope": "challenger_holdout_tail_10pct"}},
+                split_metadata,
+            ),
+            "holdout_metadata_missing",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(
+                {
+                    "challenger_holdout_split": {
+                        "dataset_scope": "challenger_holdout_tail_10pct",
+                        "challenger_holdout": {"first_event_time": "2025-10-25T09:00:00+09:00"},
+                    }
+                },
+                split_metadata,
+            ),
+            "holdout_window_mismatch",
+        )
+        self.assertEqual(
+            _training_run_holdout_status(
+                {
+                    "challenger_holdout_split": {
+                        "dataset_scope": "challenger_holdout_tail_10pct",
+                        "challenger_holdout": {"first_event_time": "2025-10-24T09:00:00+09:00"},
+                        "validation": {"last_event_time": "2025-10-24T09:00:00+09:00"},
+                    }
+                },
+                split_metadata,
+            ),
+            "validation_overlaps_challenger_holdout",
+        )
+
     def test_sqlite_pipeline_builds_and_trains(self) -> None:
         root = Path(__file__).resolve().parents[1]
         kst = get_timezone("Asia/Seoul")
@@ -144,6 +254,14 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(
                 all("evaluation_independence_status" in candidate for candidate in challenger_payload["candidates"])
             )
+            if challenger_payload["dataset_scope"] == "challenger_holdout_tail_10pct":
+                holdout_first = datetime.fromisoformat(
+                    challenger_payload["evaluation_split"]["challenger_holdout"]["first_event_time"]
+                )
+                validation_last = datetime.fromisoformat(
+                    challenger_payload["evaluation_split"]["validation"]["last_event_time"]
+                )
+                self.assertLess(validation_last, holdout_first)
             self.assertGreaterEqual(len(challenger_result.candidates), 3)
             self.assertTrue(any(candidate.candidate_name == "latest_lightgbm" for candidate in challenger_result.candidates))
             self.assertIn(challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
