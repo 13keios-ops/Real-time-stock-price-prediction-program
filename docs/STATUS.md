@@ -24,6 +24,9 @@
   - posture: `source_drift_detected`.
   - Cybos historical row는 live 호가 feature 분포를 담지 못한다. 따라서 Cybos-only 후보의 성과는 실제 KIS live 성과의 직접 대리값으로 쓰지 않고, 구조 탐색/후보 축소용으로만 본다.
   - 다음 모델 개선은 KIS live 데이터가 충분히 누적될 때까지 Cybos threshold/grid 추가 튜닝보다 KIS live feature 품질, source drift, 비용 초과 기대값 검증을 우선한다.
+- 대시보드:
+  - `머신러닝 현황 > 현재 운용`에 `KIS-Cybos feature drift` 카드를 추가했다.
+  - 표시 항목: posture, 생성 시각, KIS 표본 날짜, KIS/Cybos rows·symbols·기간·h15 라벨 분포, mismatch 피처, 주요 drift, 결론.
 
 ## [2026-05-10 04:56] KIS live 데이터 품질 요약과 label 닫힘 보정
 

@@ -18,6 +18,8 @@
 - 판단:
   - posture: `source_drift_detected`.
   - Cybos historical 은 live 호가 feature 분포를 담지 못하므로, Cybos-only 연구 후보는 구조 탐색용으로만 보고 실제 KIS live 성능의 직접 대리값으로 승격 판단하지 않는다.
+- 대시보드:
+  - `머신러닝 현황 > 현재 운용`에 `KIS-Cybos feature drift` 카드를 추가해 위 진단 결과를 바로 확인할 수 있게 했다.
 
 ## [2026-05-10] Codex → KIS live 데이터 품질 요약과 label 닫힘 보정
 

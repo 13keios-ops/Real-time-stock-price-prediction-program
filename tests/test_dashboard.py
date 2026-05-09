@@ -146,6 +146,7 @@ class DashboardTests(unittest.TestCase):
     def _seed_dashboard_inputs(self, runtime_root: Path) -> None:
         reports_root = runtime_root / "reports"
         (reports_root / "kis-ws").mkdir(parents=True, exist_ok=True)
+        (reports_root / "data-quality").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "backlog").mkdir(parents=True, exist_ok=True)
 
@@ -159,6 +160,45 @@ class DashboardTests(unittest.TestCase):
                     "status_note": "weekend test",
                     "frames_received": 4,
                     "control_frames": 4,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (reports_root / "data-quality" / "latest-feature-source-drift.json").write_text(
+            json.dumps(
+                {
+                    "generated_at": "2026-05-10T07:17:34+09:00",
+                    "kis_date_selection": "post_cybos_overlap",
+                    "kis_trade_dates": ["2026-05-08"],
+                    "samples": {
+                        "kis_live": {
+                            "rows": 3790,
+                            "symbols": 10,
+                            "first_event_time": "2026-05-08T09:00:00+09:00",
+                            "last_event_time": "2026-05-08T15:19:00+09:00",
+                            "label_distribution_h15": {"down": 614, "flat": 2208, "up": 818},
+                        },
+                        "cybos_historical": {
+                            "rows": 100000,
+                            "symbols": 199,
+                            "first_event_time": "2026-04-06T13:15:00+09:00",
+                            "last_event_time": "2026-05-04T15:30:00+09:00",
+                            "label_distribution_h15": {"down": 14059, "flat": 67467, "up": 14497},
+                        },
+                    },
+                    "drift_findings": [
+                        {
+                            "feature": "spread_bps",
+                            "flags": ["orderbook_feature_source_mismatch"],
+                        }
+                    ],
+                    "assessment": {
+                        "posture": "source_drift_detected",
+                        "conclusion": "Cybos historical rows do not carry live orderbook feature distributions.",
+                        "orderbook_mismatch_features": ["spread_bps", "bid_ask_imbalance"],
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -401,6 +441,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("학습 및 평가", html)
         self.assertIn("챌린저 및 워크포워드", html)
         self.assertIn("게이트 기준 워크포워드", html)
+        self.assertIn("KIS-Cybos feature drift", html)
+        self.assertIn("source_drift_detected", html)
         self.assertIn("장후 자동 학습 상태", html)
         self.assertIn("스냅샷 DB", html)
         self.assertIn("stdout 로그", html)
