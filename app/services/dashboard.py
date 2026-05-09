@@ -1802,6 +1802,9 @@ def collect_dashboard_payload(
     latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
     latest_walk_forward_setup_status = _build_walk_forward_setup_status(latest_walk_forward_report)
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
+    latest_kis_live_data_quality = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "data-quality" / "latest-kis-live-data-quality.json"
+    )
     if isinstance(latest_kis_verification, dict):
         latest_kis_verification = dict(latest_kis_verification)
         latest_kis_verification.setdefault(
@@ -1957,6 +1960,7 @@ def collect_dashboard_payload(
         "latest_walk_forward_setup_status": latest_walk_forward_setup_status,
         "latest_challenger_report": latest_challenger_report,
         "latest_kis_verification": latest_kis_verification,
+        "latest_kis_live_data_quality": latest_kis_live_data_quality,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
@@ -2738,6 +2742,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_walk_forward_setup = payload.get("latest_walk_forward_setup_status", {}) or {}
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
+    latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
@@ -2996,6 +3001,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     ml_status_pills = [
         f"실운용 라벨: {learning_context.get('actual_runtime_labels', 0)}건",
         f"실운용 특징: {runtime.get('feature_rows', 0)}건",
+        f"KIS 품질: {(latest_kis_quality.get('assessment') or {}).get('status') or '-'}",
+        f"KIS 최신일: {latest_kis_quality.get('latest_trade_date') or '-'}",
         f"오늘 학습: {len(payload.get('today_training_runs', []))}건",
         f"오늘 평가: {len(payload.get('today_evaluations', []))}건",
         f"누적 학습: {len(payload.get('recent_training_runs', []))}건 표시 / 전체 {ml_state.get('recent_training_count', 0)}건",
@@ -3070,6 +3077,37 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["비용 차감 합계", _pct(latest_walk_forward_setup.get("estimated_cost_drag_pct"), 2)],
         ["수익률 집계 방식", latest_walk_forward_setup.get("return_aggregation") or "-"],
         ["판단 메모", latest_walk_forward_setup.get("note") or "-"],
+    ]
+    latest_kis_quality_recent = {}
+    if isinstance(latest_kis_quality.get("recent_days"), list) and latest_kis_quality.get("recent_days"):
+        latest_kis_quality_recent = latest_kis_quality["recent_days"][-1] or {}
+    latest_kis_quality_assessment = latest_kis_quality.get("assessment") or {}
+    latest_kis_quality_label_dist = latest_kis_quality_recent.get("label_distribution_h15") or {}
+    kis_quality_rows = [
+        ["상태", latest_kis_quality_assessment.get("status") or "-"],
+        ["생성 시각", latest_kis_quality.get("completed_at") or "-"],
+        [
+            "관측 기간",
+            f"{latest_kis_quality.get('first_trade_date') or '-'}..{latest_kis_quality.get('latest_trade_date') or '-'}",
+        ],
+        ["최근 거래일", latest_kis_quality_recent.get("trade_date") or latest_kis_quality.get("latest_trade_date") or "-"],
+        ["시장 체결 symbol-minute", (latest_kis_quality_recent.get("raw_market") or {}).get("symbol_minutes") or 0],
+        ["호가 symbol-minute", (latest_kis_quality_recent.get("raw_orderbook") or {}).get("symbol_minutes") or 0],
+        ["분봉 symbol-minute", (latest_kis_quality_recent.get("minute_bars") or {}).get("symbol_minutes") or 0],
+        ["특징 symbol-minute", (latest_kis_quality_recent.get("features") or {}).get("symbol_minutes") or 0],
+        ["15분 라벨 symbol-minute", (latest_kis_quality_recent.get("labels_h15") or {}).get("symbol_minutes") or 0],
+        ["60분 라벨 symbol-minute", (latest_kis_quality_recent.get("labels_h60") or {}).get("symbol_minutes") or 0],
+        ["특징/분봉 비율", latest_kis_quality_recent.get("feature_to_bar_symbol_minute_ratio") or "-"],
+        ["15분 라벨/특징 비율", latest_kis_quality_recent.get("label_h15_to_feature_symbol_minute_ratio") or "-"],
+        [
+            "15분 라벨 분포",
+            (
+                f"down {latest_kis_quality_label_dist.get('down', 0)} / "
+                f"flat {latest_kis_quality_label_dist.get('flat', 0)} / "
+                f"up {latest_kis_quality_label_dist.get('up', 0)}"
+            ),
+        ],
+        ["리포트", "runtime-data/reports/data-quality/latest-kis-live-data-quality.json"],
     ]
     runtime_rows = [
         ["원시 체결", runtime.get("raw_market_ticks", 0)],
@@ -3362,6 +3400,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                             f"{_esc(learning_context.get('active_status_note'))}<br>"
                             f"{_esc(ml_state.get('training_mode') or '-')}"
                         ),
+                    ),
+                    _section_card(
+                        "KIS live 데이터 품질",
+                        _table(["항목", "값"], kis_quality_rows, "표시할 KIS live 데이터 품질 리포트가 없습니다.", scroll_height=330),
+                        note="KIS 체결/호가가 feature와 15분/60분 label까지 닫혔는지 확인하는 진단 카드입니다.",
                     ),
                     _section_card(
                         "LightGBM 실제 현황",

@@ -26,6 +26,18 @@
   - 2026-05-07은 live runtime 늦은 재기동으로 인한 부분 수집일로 유지한다.
   - 월요일에는 장전/09:30 수집률 확인을 먼저 하고, 모델 튜닝은 그 이후 KIS 누적 품질을 보고 진행한다.
 
+## [2026-05-10] Codex → dashboard KIS live 데이터 품질 카드 추가
+
+- 목적:
+  - 월요일 장전/장중 점검 때 대시보드만 보고도 KIS live 데이터가 feature/label까지 닫혔는지 확인할 수 있게 했다.
+- 구현:
+  - `app/services/dashboard.py`가 `latest-kis-live-data-quality.json`을 dashboard payload에 포함한다.
+  - 머신러닝 현황의 현재 운용 탭에 `KIS live 데이터 품질` 카드를 추가했다.
+- 확인:
+  - `python -m app --build-runtime-report` 실행 완료.
+  - `python -m app --build-dashboard` 실행 완료: `generated_at=2026-05-10T06:05:14.388332+09:00`.
+  - HTML에서 `KIS 품질: ok`, `KIS 최신일: 2026-05-08`, h15 labels `3,640`, h60 labels `3,200` 표시 확인.
+
 ## [2026-05-10] Codex → Cybos 연구 suite 통합 요약
 
 - 목적:

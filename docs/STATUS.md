@@ -36,6 +36,19 @@
   - 2026-05-07은 market symbol-minutes `30`, orderbook symbol-minutes `130`으로 매우 작아, 이전에 확인한 live runtime 늦은 재기동일로 계속 취급한다.
   - 월요일에는 새 모델 튜닝보다 09:30 기준 live runtime/watchdog 자동 기동과 symbol-minute 증가 여부를 먼저 확인한다.
 
+## [2026-05-10 06:05] Dashboard KIS live 데이터 품질 카드 추가
+
+- 목적:
+  - 월요일 장전/장중 점검 때 별도 JSON 파일을 열지 않고도 대시보드 `머신러닝 현황`에서 KIS live 데이터 품질을 확인할 수 있게 했다.
+- 구현:
+  - `app/services/dashboard.py`가 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 dashboard payload에 포함한다.
+  - `머신러닝 현황 > 현재 운용`에 `KIS live 데이터 품질` 카드를 추가했다.
+  - 표시 항목: 상태, 생성 시각, 관측 기간, 최근 거래일, 시장 체결/호가 symbol-minute, 분봉/특징/h15/h60 label symbol-minute, feature/bar ratio, h15 label/feature ratio, h15 label 분포.
+- 확인:
+  - `python -m app --build-runtime-report`로 runtime report 갱신.
+  - `python -m app --build-dashboard` 재실행: `generated_at=2026-05-10T06:05:14.388332+09:00`.
+  - dashboard JSON/HTML에서 `KIS 품질=ok`, `KIS 최신일=2026-05-08`, h15 labels `3,640`, h60 labels `3,200` 표시 확인.
+
 ## [2026-05-10 02:00] 주말 연구 배치: EV 비용 sweep 과 dashboard 인덱스 최적화
 
 - 목적:
