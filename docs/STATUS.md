@@ -1,5 +1,33 @@
 # docs/STATUS.md
 
+## [2026-05-10 02:00] 주말 연구 배치: EV 비용 sweep 과 dashboard 인덱스 최적화
+
+- 목적:
+  - 주말/저부하 시간에 live runtime 보호 제약을 낮추고, 현재 모델 후보가 거래비용을 넘는지와 대시보드 병목이 재발하는지를 먼저 점검했다.
+- expected-value 안정성 확장:
+  - `scripts/summarize_expected_value_stability.py`에 기존 fold 선택을 재학습 없이 비용별로 재가격하는 `cost_sweep` 요약을 추가했다.
+  - 입력: `runtime-data/reports/backtests/latest-cybos-expected-value-bar-context-momentum-h15.json`.
+  - 출력: `runtime-data/reports/backtests/latest-cybos-expected-value-stability-bar-context-momentum-h15.{json,md}`.
+  - 비용 sweep: `0.10`, `0.108`, `0.13`, `0.16`, `0.20%`.
+  - 같은 fold 선택 기준 재가격 결과:
+    - `0.10%`: trade_sum_net `+26.718690%`, bootstrap 95% fold-sum CI `-135.441480..153.617988`, 결론 `positive headline is not stable`.
+    - `0.108%`: trade_sum_net `+5.926690%`, bootstrap 95% fold-sum CI `-151.338788..124.047470`, 결론 `positive headline is not stable`.
+    - `0.13%`: trade_sum_net `-51.251310%`, bootstrap 95% fold-sum CI `-200.593919..42.773342`, 결론 `negative`.
+    - `0.16%`: trade_sum_net `-129.221310%`, bootstrap 95% fold-sum CI `-298.346521..-3.665398`, 결론 `negative`.
+    - `0.20%`: trade_sum_net `-233.181310%`, bootstrap 95% fold-sum CI `-465.384772..-48.753643`, 결론 `negative`.
+  - 해석: headline 이 양수인 낮은 비용 구간도 CI가 0을 가로지른다. 현재 `bar_context_momentum` expected-value 후보는 비용 초과 알파가 안정적이라고 보기 어렵고 승격 보류가 맞다.
+- dashboard 성능:
+  - 사전 profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-014912/`, elapsed `0:26.51`, max RSS `459,980KB`.
+  - 병목: `runtime_scope.build_runtime_scope` 안의 raw source minute count SQL.
+  - 조치: `raw_market_ticks(source, symbol, event_time)`, `raw_orderbook_ticks(source, symbol, event_time)` 인덱스를 스키마에 추가하고 정본 DB에도 즉시 생성했다. source 조회는 `lower(source)` 계산 대신 `source IN (...)`로 인덱스를 타도록 바꿨다.
+  - 사후 profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-015234/`, elapsed `0:18.17`, max RSS `458,832KB`.
+  - 해석: 대시보드 전체 build 는 10분 자동 갱신 기준으로 충분히 안정권이며, 같은 장비 기준 직전 대비 약 `31%` 단축됐다.
+- 검증:
+  - `python -m py_compile app/storage/sqlite_store.py scripts/summarize_expected_value_stability.py` 통과.
+  - `python -m unittest tests.test_expected_value_stability tests.test_runtime_scope tests.test_dashboard`: 16개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 93개 통과.
+  - dashboard server `http://127.0.0.1:8765`는 PID `439371`, API responding 상태다.
+
 ## [2026-05-09 14:45] 대시보드 표기 점검과 ML 카드 정정
 
 - 점검:

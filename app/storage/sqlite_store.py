@@ -109,8 +109,16 @@ class SQLiteRuntimeStore:
             ON raw_market_ticks(symbol, event_time)
             """,
             """
+            CREATE INDEX IF NOT EXISTS idx_raw_market_ticks_source_symbol_time
+            ON raw_market_ticks(source, symbol, event_time)
+            """,
+            """
             CREATE INDEX IF NOT EXISTS idx_raw_orderbook_ticks_symbol_time
             ON raw_orderbook_ticks(symbol, event_time)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_raw_orderbook_ticks_source_symbol_time
+            ON raw_orderbook_ticks(source, symbol, event_time)
             """,
             """
             CREATE TABLE IF NOT EXISTS curated_minute_bars (
@@ -1129,18 +1137,18 @@ class SQLiteRuntimeStore:
         if sources:
             normalized_sources = tuple(str(source).lower() for source in sources)
             placeholders = ", ".join("?" for _ in normalized_sources)
-            where_clause = f"WHERE lower(source) IN ({placeholders})"
+            where_clause = f"WHERE source IN ({placeholders})"
             params = normalized_sources
         query = f"""
             SELECT
                 symbol,
                 substr(event_time, 1, 16) AS minute_key,
-                lower(source) AS source,
+                source,
                 MIN(event_time) AS sample_time,
                 COUNT(*) AS row_count
             FROM {table_name}
             {where_clause}
-            GROUP BY symbol, minute_key, lower(source)
+            GROUP BY symbol, minute_key, source
             ORDER BY symbol, minute_key
         """
         rows = self._run_safe_read_query(query, params, missing_tables=(table_name,))

@@ -101,6 +101,7 @@ python -m app --build-dashboard
 - 수동 갱신과 10분 자동 새로고침은 `/api/refresh` 로 스냅샷을 다시 만든 뒤 화면을 갱신한다.
 - 대시보드 서버 시작 시 기존 캐시 스냅샷이 있으면 무거운 스냅샷 재생성을 먼저 하지 않고 서버부터 열어 기동 지연을 줄인다.
 - 원시 체결/호가 행은 화면에 직접 표시하지 않고 분 단위 집계 카운트만 사용해 대시보드 재생성 부하를 낮춘다.
+- 원시 체결/호가의 actual source 분 단위 집계는 `source, symbol, event_time` 인덱스를 사용해 Cybos 5년치 데이터가 섞인 DB에서도 대시보드 재생성 시간을 낮춘다.
 - 기본 날짜 조회처럼 기간 필터가 있는 대시보드 생성은 대형 테이블 전체를 읽지 않고 SQL 시간 범위로 먼저 좁힌 뒤 실제 runtime 필터를 적용한다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.

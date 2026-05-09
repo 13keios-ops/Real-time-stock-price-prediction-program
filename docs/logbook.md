@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-10] Codex → 주말 연구 배치: EV 비용 sweep 과 dashboard raw-source 인덱스
+
+- 목적:
+  - 월요일 장전 전까지 주말/저부하 시간에 할 수 있는 모델 품질·운영 품질 작업을 진행했다.
+  - app/risk gate 는 건드리지 않고, 기존 리포트 재분석과 대시보드 병목 완화를 우선했다.
+- expected-value 안정성:
+  - `scripts/summarize_expected_value_stability.py`에 `--cost-sweep-pct` 옵션을 추가했다.
+  - 기존 expected-value fold 선택을 재학습 없이 비용별로 재가격해 fold 분포와 bootstrap CI를 함께 기록한다.
+  - 결과 리포트: `runtime-data/reports/backtests/latest-cybos-expected-value-stability-bar-context-momentum-h15.{json,md}`.
+  - 비용 `0.10%`, `0.108%`에서는 trade-sum headline 이 양수지만 CI가 0을 가로질러 안정성이 부족하다.
+  - 비용 `0.13%`, `0.16%`, `0.20%`에서는 비용 반영 trade-sum 이 음수다.
+  - 판단: 현재 `bar_context_momentum` expected-value 후보는 비용 초과 알파가 안정적이지 않으므로 승격 보류를 유지한다.
+- dashboard 성능:
+  - 사전 profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-014912/`, elapsed `0:26.51`, max RSS `459,980KB`.
+  - `raw_market_ticks(source, symbol, event_time)`, `raw_orderbook_ticks(source, symbol, event_time)` 인덱스를 스키마와 정본 DB에 반영했다.
+  - source count 조회는 `lower(source)` 계산을 피하고 `source IN (...)`로 인덱스를 사용하도록 바꿨다.
+  - 사후 profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-015234/`, elapsed `0:18.17`, max RSS `458,832KB`.
+  - 판단: dashboard build 는 10분 갱신 기준 안정권이며, 직전 profile 대비 약 `31%` 단축됐다.
+- 검증:
+  - `python -m py_compile app/storage/sqlite_store.py scripts/summarize_expected_value_stability.py` 통과.
+  - `python -m unittest tests.test_expected_value_stability tests.test_runtime_scope tests.test_dashboard`: 16개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 93개 통과.
+
 ## [2026-05-09] Codex → challenger 독립 holdout 보강
 
 - 목적:

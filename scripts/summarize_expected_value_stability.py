@@ -69,7 +69,98 @@ def _bootstrap_ci(values: list[float], *, samples: int, seed: int, aggregate: st
     }
 
 
-def summarize(payload: dict[str, Any], *, bootstrap_samples: int, seed: int) -> dict[str, Any]:
+def _fold_values_for_cost(folds: list[Any], trade_cost_pct: float) -> list[dict[str, float]]:
+    values: list[dict[str, float]] = []
+    for fold in folds:
+        if not isinstance(fold, dict):
+            continue
+        trades_taken = _int(fold.get("trades_taken"))
+        gross_return = _float(fold.get("cumulative_gross_return_pct"))
+        net_return = gross_return - (trades_taken * trade_cost_pct)
+        values.append(
+            {
+                "trades_taken": float(trades_taken),
+                "gross_return_pct": gross_return,
+                "net_return_pct": net_return,
+                "average_net_return_pct": net_return / trades_taken if trades_taken else 0.0,
+                "trade_hit_rate": _float(fold.get("trade_hit_rate")) if trades_taken else 0.0,
+            }
+        )
+    return values
+
+
+def _cost_sweep_summary(
+    *,
+    folds: list[Any],
+    trade_cost_pct: float,
+    bootstrap_samples: int,
+    seed: int,
+) -> dict[str, Any]:
+    fold_values = _fold_values_for_cost(folds, trade_cost_pct)
+    net_values = [item["net_return_pct"] for item in fold_values]
+    gross_values = [item["gross_return_pct"] for item in fold_values]
+    avg_net_values = [item["average_net_return_pct"] for item in fold_values]
+    trades = [int(item["trades_taken"]) for item in fold_values]
+    hit_rates = [item["trade_hit_rate"] for item in fold_values if item["trades_taken"] > 0]
+    positive = sum(1 for item in fold_values if item["trades_taken"] > 0 and item["net_return_pct"] > 0)
+    negative = sum(1 for item in fold_values if item["trades_taken"] > 0 and item["net_return_pct"] < 0)
+    no_trade = sum(1 for item in fold_values if item["trades_taken"] == 0)
+    flat = len(fold_values) - positive - negative - no_trade
+    ci_sum = _bootstrap_ci(net_values, samples=bootstrap_samples, seed=seed, aggregate="sum")
+    ci_mean = _bootstrap_ci(avg_net_values, samples=bootstrap_samples, seed=seed + 1, aggregate="mean")
+    total_trades = sum(trades)
+    total_gross = sum(gross_values)
+    total_net = sum(net_values)
+    flags: list[str] = []
+    if len(fold_values) < 20:
+        flags.append("low_fold_count")
+    if no_trade:
+        flags.append("contains_no_trade_folds")
+    if ci_sum["low"] <= 0 <= ci_sum["high"]:
+        flags.append("bootstrap_ci_crosses_zero")
+    overall_hit_rate = statistics.mean(hit_rates) if hit_rates else 0.0
+    if overall_hit_rate < 0.33:
+        flags.append("hit_rate_near_random_or_lower")
+    if total_net <= 0:
+        conclusion = "hold: cost-adjusted trade-sum return is negative."
+    elif ci_sum["low"] <= 0:
+        conclusion = "hold: positive headline is not stable at fold bootstrap level."
+    else:
+        conclusion = "candidate: fold bootstrap stayed positive; still requires out-of-sample review."
+    return {
+        "trade_cost_pct": trade_cost_pct,
+        "trades_taken": total_trades,
+        "trade_sum_gross_return_pct": total_gross,
+        "trade_sum_net_return_pct": total_net,
+        "average_net_return_pct": total_net / total_trades if total_trades else 0.0,
+        "fold_distribution": {
+            "folds": len(fold_values),
+            "positive_net_folds": positive,
+            "negative_net_folds": negative,
+            "flat_net_folds": flat,
+            "no_trade_folds": no_trade,
+            "trades": _basic_stats([float(item) for item in trades]),
+            "net_return_pct": _basic_stats(net_values),
+            "gross_return_pct": _basic_stats(gross_values),
+            "average_net_return_pct": _basic_stats(avg_net_values),
+            "trade_hit_rate": _basic_stats(hit_rates),
+        },
+        "bootstrap": {
+            "fold_sum_net_return_pct_ci95": ci_sum,
+            "fold_average_net_return_pct_ci95": ci_mean,
+        },
+        "reliability_flags": flags,
+        "conclusion": conclusion,
+    }
+
+
+def summarize(
+    payload: dict[str, Any],
+    *,
+    bootstrap_samples: int,
+    seed: int,
+    cost_sweep_pct: list[float] | None = None,
+) -> dict[str, Any]:
     walk_forward = payload.get("walk_forward") if isinstance(payload.get("walk_forward"), dict) else payload
     folds = walk_forward.get("fold_summaries", []) if isinstance(walk_forward, dict) else []
     if not isinstance(folds, list):
@@ -107,6 +198,18 @@ def summarize(payload: dict[str, Any], *, bootstrap_samples: int, seed: int) -> 
         reliability_flags.append("bootstrap_ci_crosses_zero")
     if _float(walk_forward.get("trade_hit_rate")) < 0.33:
         reliability_flags.append("hit_rate_near_random_or_lower")
+
+    source_cost = _float(walk_forward.get("trade_cost_pct"))
+    sweep_values = sorted({round(float(item), 6) for item in (cost_sweep_pct or [source_cost])})
+    cost_sweep = [
+        _cost_sweep_summary(
+            folds=folds,
+            trade_cost_pct=cost,
+            bootstrap_samples=bootstrap_samples,
+            seed=seed + index * 101,
+        )
+        for index, cost in enumerate(sweep_values)
+    ]
 
     if _float(walk_forward.get("trade_sum_net_return_pct")) <= 0:
         conclusion = "hold: cost-adjusted trade-sum return is negative."
@@ -152,6 +255,7 @@ def summarize(payload: dict[str, Any], *, bootstrap_samples: int, seed: int) -> 
             "fold_sum_net_return_pct_ci95": ci_sum,
             "fold_average_net_return_pct_ci95": ci_mean,
         },
+        "cost_sweep": cost_sweep,
         "reliability_flags": reliability_flags,
         "conclusion": conclusion,
     }
@@ -193,13 +297,36 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- fold_sum_net_return_pct_ci95: `{bootstrap['fold_sum_net_return_pct_ci95']['low']:.6f}..{bootstrap['fold_sum_net_return_pct_ci95']['high']:.6f}`",
         f"- fold_average_net_return_pct_ci95: `{bootstrap['fold_average_net_return_pct_ci95']['low']:.6f}..{bootstrap['fold_average_net_return_pct_ci95']['high']:.6f}`",
         "",
-        "## Reliability",
+        "## Cost Sweep",
         "",
-        f"- flags: `{', '.join(summary['reliability_flags']) or 'none'}`",
-        f"- conclusion: `{summary['conclusion']}`",
-        "",
-        "Note: portfolio_return_pct is a diagnostic proxy, not actual paper-account performance.",
+        "| cost_pct | trades | net_pct | positive_folds | negative_folds | no_trade_folds | ci95_sum_net_pct | conclusion |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
+    for item in summary.get("cost_sweep", []):
+        item_dist = item["fold_distribution"]
+        item_ci = item["bootstrap"]["fold_sum_net_return_pct_ci95"]
+        lines.append(
+            "| "
+            f"{_float(item.get('trade_cost_pct')):.6f} | "
+            f"{_int(item.get('trades_taken'))} | "
+            f"{_float(item.get('trade_sum_net_return_pct')):.6f} | "
+            f"{item_dist['positive_net_folds']} | "
+            f"{item_dist['negative_net_folds']} | "
+            f"{item_dist['no_trade_folds']} | "
+            f"{item_ci['low']:.6f}..{item_ci['high']:.6f} | "
+            f"{item.get('conclusion')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Reliability",
+            "",
+            f"- flags: `{', '.join(summary['reliability_flags']) or 'none'}`",
+            f"- conclusion: `{summary['conclusion']}`",
+            "",
+            "Note: portfolio_return_pct is a diagnostic proxy, not actual paper-account performance.",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -210,12 +337,27 @@ def main() -> int:
     parser.add_argument("--out-md", required=True, help="Output Markdown summary path.")
     parser.add_argument("--bootstrap-samples", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=20260508)
+    parser.add_argument(
+        "--cost-sweep-pct",
+        default="",
+        help="Optional comma-separated trade-cost percentages to reprice the same fold selections without retraining.",
+    )
     args = parser.parse_args()
 
     src = Path(args.src)
     payload = json.loads(src.read_text(encoding="utf-8"))
     payload["report_json_path"] = str(src)
-    summary = summarize(payload, bootstrap_samples=args.bootstrap_samples, seed=args.seed)
+    cost_sweep_pct = [
+        float(item.strip())
+        for item in args.cost_sweep_pct.split(",")
+        if item.strip()
+    ] or None
+    summary = summarize(
+        payload,
+        bootstrap_samples=args.bootstrap_samples,
+        seed=args.seed,
+        cost_sweep_pct=cost_sweep_pct,
+    )
     out_json = Path(args.out_json)
     out_md = Path(args.out_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)
