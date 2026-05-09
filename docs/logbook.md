@@ -20,6 +20,18 @@
   - 현재 Cybos 15분 과거봉 기반 후보는 자동 승격할 후보가 없다.
   - 다음 모델 방향은 신규 grid 튜닝보다 KIS 실시간 호가/체결 데이터 품질 누적, 비용 `0.13%` 이상에서 CI 하단 양수인 후보 탐색, regime/시장상태 피처 설계가 우선이다.
 
+## [2026-05-10] Codex → dashboard profile 재측정
+
+- 명령:
+  - `./scripts/profile_dashboard_build.sh`
+- 결과:
+  - profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-030930/`
+  - elapsed `0:25.65`, max RSS `459,068KB`.
+- 판단:
+  - 10분 자동 갱신 기준으로는 안정권이다.
+  - 주 병목은 raw KIS source minute 집계로 재확인됐다.
+  - 추가 expression index 는 dashboard 조회를 줄일 수 있으나 raw tick 쓰기 비용을 키울 수 있어, 월요일 장중 수집 안정성을 먼저 본 뒤 적용 여부를 판단한다.
+
 ## [2026-05-10] Codex → 주말 연구 배치: EV 비용 sweep 과 dashboard raw-source 인덱스
 
 - 목적:

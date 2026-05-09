@@ -57,6 +57,18 @@
   - 현재 Cybos 15분 과거봉 기반 ML/룰 후보는 자동 승격 후보가 없다.
   - 다음 모델 작업은 신규 threshold/grid 튜닝보다 KIS 실시간 호가/체결 데이터 누적 품질, 0.13% 이상 비용 기준 CI 하단 양수 여부, regime/시장상태 피처 설계 쪽을 우선한다.
 
+## [2026-05-10 03:10] Dashboard profile 재측정
+
+- 명령:
+  - `./scripts/profile_dashboard_build.sh`
+- 결과:
+  - profile: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/profiles/dashboard/dashboard-build-20260510-030930/`
+  - elapsed `0:25.65`, max RSS `459,068KB`.
+- 해석:
+  - 직전 best profile `0:18.17`보다 느리지만 10분 자동 갱신 기준으로는 여전히 안정권이다.
+  - cProfile 기준 주 병목은 계속 `runtime_scope.build_runtime_scope` 안의 raw KIS source minute 집계다.
+  - 추가 expression index 는 dashboard 조회를 더 줄일 수 있지만 raw tick 쓰기 비용을 늘릴 수 있어, 장중 수집 안정성 확인 전에는 적용하지 않는다.
+
 ## [2026-05-09 14:45] 대시보드 표기 점검과 ML 카드 정정
 
 - 점검:
