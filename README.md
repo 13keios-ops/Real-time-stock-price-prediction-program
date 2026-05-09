@@ -276,7 +276,7 @@ challenger 비교:
 python -m app --run-challengers --horizon-min 15
 ```
 
-이제 challenger는 학습 validation 구간을 다시 평가 구간으로 쓰지 않고 마지막 tail `10%`를 reserved holdout으로 분리해 평가한다. candidate별 `evaluation_independence_status`를 기록하고, 최신 walk-forward 결과도 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다. 재학습 뒤 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, 승격 검토는 재학습 직후 challenger를 이어서 실행한다.
+이제 challenger는 학습 validation 구간을 다시 평가 구간으로 쓰지 않고 마지막 tail `10%`를 reserved holdout으로 분리해 평가한다. candidate별 `evaluation_independence_status`를 기록하고, 최신 walk-forward 결과도 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다. LightGBM artifact에는 `training_run_id`와 holdout metadata를 저장하며, DB 최신 training row와 artifact의 run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다. 재학습 뒤 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, 승격 검토는 재학습 직후 challenger를 이어서 실행한다.
 
 active model을 안전하게 baseline으로 고정:
 

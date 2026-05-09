@@ -248,6 +248,8 @@ class ChallengerCandidateResult:
     rows_evaluated: int
     ranking_score: float
     evaluation_independence_status: str
+    artifact_training_status: str | None = None
+    artifact_training_run_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -266,6 +268,8 @@ class ChallengerCandidateResult:
             "rows_evaluated": self.rows_evaluated,
             "ranking_score": round(self.ranking_score, 6),
             "evaluation_independence_status": self.evaluation_independence_status,
+            "artifact_training_status": self.artifact_training_status,
+            "artifact_training_run_id": self.artifact_training_run_id,
         }
 
 
@@ -730,8 +734,7 @@ def _resolve_training_run_id(sqlite_store, model_version: str, horizon_min: int)
     return f"adhoc-{model_version}"
 
 
-def _resolve_training_run_summary(sqlite_store, model_version: str, horizon_min: int) -> dict[str, object] | None:
-    row = _resolve_latest_training_run_row(sqlite_store, model_version, horizon_min)
+def _training_run_summary_from_row(row) -> dict[str, object] | None:
     if row is None:
         return None
     try:
@@ -741,6 +744,22 @@ def _resolve_training_run_summary(sqlite_store, model_version: str, horizon_min:
     if isinstance(payload, dict):
         return payload
     return None
+
+
+def _resolve_training_run_summary(sqlite_store, model_version: str, horizon_min: int) -> dict[str, object] | None:
+    row = _resolve_latest_training_run_row(sqlite_store, model_version, horizon_min)
+    return _training_run_summary_from_row(row)
+
+
+def _lightgbm_artifact_training_status(artifact: LightGbmArtifact, training_run_row) -> str:
+    artifact_training_run_id = artifact.training_run_id
+    if not artifact_training_run_id:
+        return "artifact_missing_training_run_id"
+    if training_run_row is None:
+        return "unknown_training_summary"
+    if artifact_training_run_id != str(training_run_row["training_run_id"]):
+        return "artifact_training_run_mismatch"
+    return "artifact_training_run_match"
 
 
 def _metadata_datetime(value: object) -> datetime | None:
@@ -4624,6 +4643,17 @@ def train_lightgbm_from_sqlite(
     training_run_id = f"train-lightgbm-h{horizon_min}-{timestamp_token}"
     evaluation_id = f"eval-lightgbm-h{horizon_min}-{timestamp_token}"
 
+    challenger_holdout = split_payload["metadata"].get("challenger_holdout")
+    if isinstance(challenger_holdout, dict):
+        challenger_holdout_first = challenger_holdout.get("first_event_time")
+    else:
+        challenger_holdout_first = None
+    model.artifact.training_run_id = training_run_id
+    model.artifact.trained_at = completed_at.isoformat()
+    model.artifact.dataset_scope = str(split_payload["metadata"].get("dataset_scope"))
+    model.artifact.challenger_holdout_first_event_time = (
+        str(challenger_holdout_first) if challenger_holdout_first else None
+    )
     artifact_path = _write_lightgbm_artifact(runtime_root=settings.runtime_data_dir, model=model)
     if set_active:
         ModelRegistry(settings.runtime_data_dir).set_active_model(
@@ -5216,15 +5246,21 @@ def run_model_challenger_review_from_sqlite(
         latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
         latest_lightgbm_version = latest_lightgbm_model.artifact.model_version
         if latest_lightgbm_version != str(active_candidate["model_version"]):
-            lightgbm_training_summary = _resolve_training_run_summary(
-                sqlite_store,
-                latest_lightgbm_version,
-                horizon_min,
-            )
+            lightgbm_training_row = _resolve_latest_training_run_row(sqlite_store, latest_lightgbm_version, horizon_min)
+            lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
             lightgbm_independence_status = _training_run_holdout_status(
                 lightgbm_training_summary,
                 split_metadata,
             )
+            artifact_training_status = _lightgbm_artifact_training_status(
+                latest_lightgbm_model.artifact,
+                lightgbm_training_row,
+            )
+            if (
+                lightgbm_independence_status == "independent_challenger_holdout"
+                and artifact_training_status != "artifact_training_run_match"
+            ):
+                lightgbm_independence_status = artifact_training_status
             lightgbm_metrics = _evaluate_rows_with_model(
                 rows=evaluation_rows,
                 model=latest_lightgbm_model,
@@ -5237,9 +5273,15 @@ def run_model_challenger_review_from_sqlite(
                     "candidate_name": "latest_lightgbm",
                     "model_version": latest_lightgbm_version,
                     "model_kind": "lightgbm_artifact",
-                    "training_run_id": _resolve_training_run_id(sqlite_store, latest_lightgbm_version, horizon_min),
+                    "training_run_id": (
+                        str(lightgbm_training_row["training_run_id"])
+                        if lightgbm_training_row is not None
+                        else f"adhoc-{latest_lightgbm_version}"
+                    ),
                     "promotable": lightgbm_independence_status == "independent_challenger_holdout",
                     "evaluation_independence_status": lightgbm_independence_status,
+                    "artifact_training_status": artifact_training_status,
+                    "artifact_training_run_id": latest_lightgbm_model.artifact.training_run_id,
                     "promotion_entry": ModelRegistryEntry(
                         horizon_min=horizon_min,
                         model_version=latest_lightgbm_version,
@@ -5346,6 +5388,12 @@ def run_model_challenger_review_from_sqlite(
                 rows_evaluated=int(candidate["rows_evaluated"]),
                 ranking_score=_challenger_ranking_score(candidate),
                 evaluation_independence_status=str(candidate["evaluation_independence_status"]),
+                artifact_training_status=(
+                    str(candidate["artifact_training_status"]) if candidate.get("artifact_training_status") else None
+                ),
+                artifact_training_run_id=(
+                    str(candidate["artifact_training_run_id"]) if candidate.get("artifact_training_run_id") else None
+                ),
             )
         )
 
@@ -5453,12 +5501,17 @@ def run_model_challenger_review_from_sqlite(
         "",
     ]
     for candidate in candidate_results:
+        artifact_status = (
+            f" artifact_training={candidate.artifact_training_status}"
+            if candidate.artifact_training_status
+            else ""
+        )
         markdown_lines.append(
             f"- `rank {candidate.rank}` {candidate.candidate_name} "
             f"model={candidate.model_version} kind={candidate.model_kind} "
             f"trades={candidate.trades_taken} accuracy={candidate.overall_accuracy:.4f} "
             f"net={candidate.cumulative_net_return_pct:.4f} score={candidate.ranking_score:.4f} "
-            f"independence={candidate.evaluation_independence_status}"
+            f"independence={candidate.evaluation_independence_status}{artifact_status}"
         )
     markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

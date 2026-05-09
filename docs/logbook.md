@@ -26,10 +26,13 @@
   - challenger 평가 독립성은 개선됐지만, 독립 holdout 기준 비용 반영 성과가 음수라 모델 승격은 보류한다.
   - `0.92` validation 과열 자체는 이번 변경으로 직접 설명된 것이 아니며, 이번 변경은 해당 validation 구간을 challenger 승격 근거로 재사용하지 않게 한 조치다.
   - LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어 실행해야 한다. live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막힌다.
+  - cowork 리뷰의 남은 위험인 artifact/DB 불일치 복구 시나리오도 보강했다. 새 LightGBM artifact는 `training_run_id`, `trained_at`, `dataset_scope`, `challenger_holdout_first_event_time`를 payload에 저장하고, challenger는 DB 최신 training row와 artifact의 `training_run_id`가 다르면 승격 후보에서 제외한다.
+  - 정본 전체 `python -m app --train-lightgbm --horizon-min 15`와 `python -m app --run-challengers --horizon-min 15`는 각각 15분/10분 제한에서 완료되지 않고 메모리 95% 안팎까지 사용해 중단했다. 기존 artifact 시각은 `2026-05-09 03:09`로 partial overwrite는 확인되지 않았다.
+  - 판단: 전체 LightGBM/challenger는 quick 작업이 아니라 D드라이브 snapshot 기반 heavy research 또는 bounded 평가 경로로 분리해야 한다.
 - 검증:
-  - `python -m py_compile app/services/research.py` 통과.
-  - `python -m unittest tests.test_research_pipeline`: 5개 통과.
-  - `python -m unittest discover -s tests -p "test_*.py"`: 88개 통과.
+  - `python -m py_compile app/models/lightgbm_model.py app/services/research.py` 통과.
+  - `python -m unittest tests.test_research_pipeline`: 8개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 91개 통과.
 
 ## [2026-05-08] Codex → cowork 의견 반영: post-close quick 분리, dashboard 병목 제거, EV 안정성 진단
 

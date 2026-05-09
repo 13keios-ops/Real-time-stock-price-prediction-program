@@ -21,6 +21,10 @@ class LightGbmArtifact:
     horizon_min: int
     feature_names: list[str]
     class_labels: list[str]
+    training_run_id: str | None = None
+    trained_at: str | None = None
+    dataset_scope: str | None = None
+    challenger_holdout_first_event_time: str | None = None
 
 
 class LightGbmDirectionModel:
@@ -38,6 +42,10 @@ class LightGbmDirectionModel:
             horizon_min=int(artifact_payload["horizon_min"]),
             feature_names=list(artifact_payload["feature_names"]),
             class_labels=[str(label) for label in artifact_payload["class_labels"]],
+            training_run_id=artifact_payload.get("training_run_id"),
+            trained_at=artifact_payload.get("trained_at"),
+            dataset_scope=artifact_payload.get("dataset_scope"),
+            challenger_holdout_first_event_time=artifact_payload.get("challenger_holdout_first_event_time"),
         )
         return cls(model=payload["model"], artifact=artifact)
 
@@ -50,6 +58,10 @@ class LightGbmDirectionModel:
                 "horizon_min": self.artifact.horizon_min,
                 "feature_names": self.artifact.feature_names,
                 "class_labels": self.artifact.class_labels,
+                "training_run_id": self.artifact.training_run_id,
+                "trained_at": self.artifact.trained_at,
+                "dataset_scope": self.artifact.dataset_scope,
+                "challenger_holdout_first_event_time": self.artifact.challenger_holdout_first_event_time,
             },
             "model": self.model,
         }

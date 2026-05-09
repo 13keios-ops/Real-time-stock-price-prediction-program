@@ -8,9 +8,11 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel
 from app.config.settings import load_settings
 from app.services.research import (
     _load_labeled_feature_dataset,
+    _lightgbm_artifact_training_status,
     _resolve_feature_row_source,
     _split_dataset_with_challenger_holdout,
     _training_run_holdout_status,
@@ -139,6 +141,34 @@ class ResearchPipelineTests(unittest.TestCase):
             "validation_overlaps_challenger_holdout",
         )
 
+    def test_lightgbm_artifact_training_status_requires_matching_run_id(self) -> None:
+        artifact = LightGbmArtifact(
+            model_version="lightgbm-h15-v1",
+            feature_set_version="feature-set-v1",
+            horizon_min=15,
+            feature_names=["return_1m_pct"],
+            class_labels=["down", "flat", "up"],
+            training_run_id="train-lightgbm-h15-current",
+        )
+
+        self.assertEqual(
+            _lightgbm_artifact_training_status(artifact, {"training_run_id": "train-lightgbm-h15-current"}),
+            "artifact_training_run_match",
+        )
+        self.assertEqual(
+            _lightgbm_artifact_training_status(artifact, {"training_run_id": "train-lightgbm-h15-previous"}),
+            "artifact_training_run_mismatch",
+        )
+        self.assertEqual(
+            _lightgbm_artifact_training_status(artifact, None),
+            "unknown_training_summary",
+        )
+        artifact.training_run_id = None
+        self.assertEqual(
+            _lightgbm_artifact_training_status(artifact, {"training_run_id": "train-lightgbm-h15-current"}),
+            "artifact_missing_training_run_id",
+        )
+
     def test_sqlite_pipeline_builds_and_trains(self) -> None:
         root = Path(__file__).resolve().parents[1]
         kst = get_timezone("Asia/Seoul")
@@ -215,6 +245,10 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(training_result.validation_accuracy, 0.0)
             self.assertTrue(training_result.model_version.startswith("lightgbm-h15-"))
             self.assertFalse(training_result.activation_applied)
+            lightgbm_artifact = LightGbmDirectionModel.from_path(training_result.artifact_path).artifact
+            self.assertEqual(lightgbm_artifact.training_run_id, training_result.training_run_id)
+            self.assertEqual(lightgbm_artifact.dataset_scope, "challenger_holdout_tail_10pct")
+            self.assertIsNotNone(lightgbm_artifact.challenger_holdout_first_event_time)
             lightgbm_training_rows = [
                 row
                 for row in sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")
@@ -264,6 +298,12 @@ class ResearchPipelineTests(unittest.TestCase):
                 self.assertLess(validation_last, holdout_first)
             self.assertGreaterEqual(len(challenger_result.candidates), 3)
             self.assertTrue(any(candidate.candidate_name == "latest_lightgbm" for candidate in challenger_result.candidates))
+            latest_lightgbm_candidates = [
+                candidate for candidate in challenger_result.candidates if candidate.candidate_name == "latest_lightgbm"
+            ]
+            self.assertTrue(latest_lightgbm_candidates)
+            self.assertEqual(latest_lightgbm_candidates[0].artifact_training_status, "artifact_training_run_match")
+            self.assertEqual(latest_lightgbm_candidates[0].artifact_training_run_id, training_result.training_run_id)
             self.assertIn(challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
             self.assertIsNotNone(challenger_result.recommended_model_version)
             self.assertIn(challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})

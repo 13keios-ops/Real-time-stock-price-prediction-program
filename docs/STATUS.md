@@ -1,5 +1,28 @@
 # docs/STATUS.md
 
+## [2026-05-09 12:55] LightGBM artifact/DB 정합성 가드 보강
+
+- 목적:
+  - NAS 복구나 수동 파일 복사로 `runtime-data/ml/models/lightgbm-h15-v1.joblib` artifact와 `ml_training_runs`의 최신 학습 row가 서로 어긋나는 경우, DB 메타데이터만 보고 LightGBM을 승격 후보로 착각하지 않게 막는다.
+- 구현:
+  - LightGBM artifact payload에 `training_run_id`, `trained_at`, `dataset_scope`, `challenger_holdout_first_event_time`를 저장한다.
+  - challenger 평가는 최신 DB training row의 `training_run_id`와 artifact 내부 `training_run_id`가 일치할 때만 `artifact_training_run_match`로 본다.
+  - holdout 독립성이 통과하더라도 artifact가 metadata를 갖고 있지 않거나 DB 최신 row와 다르면 `artifact_missing_training_run_id` 또는 `artifact_training_run_mismatch`로 fail-safe 차단한다.
+- 테스트:
+  - artifact/run id 일치, 불일치, 누락, training summary 없음 분기를 단위 테스트로 고정했다.
+  - pipeline 테스트에서 새로 학습된 LightGBM artifact가 training run id와 challenger holdout metadata를 저장하는지 확인한다.
+- 실제 정본 재실행 시도:
+  - `python -m app --train-lightgbm --horizon-min 15`는 15분 제한에서 완료되지 않았고 CPU 약 `800%`, 메모리 약 `95%`까지 사용해 중단했다.
+  - `python -m app --run-challengers --horizon-min 15`도 10분 제한에서 완료되지 않았고 CPU 약 `740%`, 메모리 약 `96%`까지 사용해 중단했다.
+  - 기존 artifact 파일 시각은 `2026-05-09 03:09`로 남아 partial artifact overwrite는 확인되지 않았다.
+- 판단:
+  - 이번 코드는 fail-safe 보강이다. 새 metadata가 없는 기존 LightGBM artifact는 다음 challenger 평가에서 승격 불가 상태가 되는 것이 정상이다.
+  - 정본 전체 LightGBM 재학습/challenger는 장중 또는 일반 quick 작업으로 돌리지 않고, D드라이브 snapshot 기반 heavy research 또는 별도 bounded 평가 경로로 분리해야 한다.
+- 검증:
+  - `python -m py_compile app/models/lightgbm_model.py app/services/research.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline`: 8개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 91개 통과.
+
 ## [2026-05-09 04:05] cowork 리뷰 반영: holdout 가드 테스트와 문서 보강
 
 - 반영:
