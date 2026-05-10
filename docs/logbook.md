@@ -13,6 +13,7 @@
 - 기준은 watchlist 종목 수와 정규장 시작 이후 최신 raw minute 까지의 기대 symbol-minute 다.
 - 대시보드 `KIS live 데이터 품질` 카드에 기대 symbol-minute, 시장 체결/호가/분봉/특징 coverage 를 표시한다.
 - 현재 2026-05-08 기준 market `97.7%`, feature `96.9%`로 계산된다. orderbook 은 장전 호가 포함 때문에 `103.8%`로 1을 넘을 수 있다.
+- coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올리도록 보강했다.
 
 ## [2026-05-10] Codex → quick post-close 데이터 품질 진단 자동 갱신
 

@@ -31,6 +31,16 @@
 - 판단:
   - 월요일 장중에는 09:30 현재 latest raw minute 기준으로 market/feature coverage 가 낮게 나오면 live runtime 또는 feature build 지연을 먼저 본다.
 
+## [2026-05-10 12:31] KIS live coverage 기반 assessment 보강
+
+- 목적:
+  - 장중 부분 수집일이 feature/bar 비율만으로 `ok`처럼 보이지 않게 했다.
+- 변경:
+  - `scripts/summarize_kis_live_data_quality.py`의 assessment 가 `latest_intraday_coverage`를 함께 본다.
+  - 기대 symbol-minute 대비 market/orderbook/minute bar/feature coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 올린다.
+- 판단:
+  - 월요일 09:30 점검 때 live runtime 이 늦게 켜졌거나 특정 피처 생성이 밀리면 대시보드 `KIS live 데이터 품질` 카드의 상태가 바로 경고로 바뀐다.
+
 ## [2026-05-10 11:08] quick post-close 데이터 품질 진단 자동 갱신
 
 - 목적:

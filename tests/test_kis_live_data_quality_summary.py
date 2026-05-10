@@ -142,6 +142,10 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
         self.assertEqual(coverage["expected_symbol_minutes"], 20)
         self.assertEqual(coverage["raw_market_coverage_ratio"], 0.15)
         self.assertEqual(coverage["feature_coverage_ratio"], 0.15)
+        self.assertEqual(result["assessment"]["status"], "needs_attention")
+        self.assertTrue(
+            any("coverage is below 80%" in note for note in result["assessment"]["notes"])
+        )
 
 
 if __name__ == "__main__":

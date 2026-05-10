@@ -655,7 +655,39 @@ def _latest_symbol_summary(connection: sqlite3.Connection, trade_date: str) -> l
     return rows
 
 
-def _overall_assessment(recent_days: list[dict[str, Any]]) -> dict[str, Any]:
+def _coverage_assessment_notes(coverage: dict[str, Any] | None) -> tuple[str, list[str]]:
+    if not coverage or coverage.get("status") != "ok":
+        return "ok", []
+    expected_symbol_minutes = int(coverage.get("expected_symbol_minutes") or 0)
+    if expected_symbol_minutes <= 0:
+        return "ok", []
+
+    notes: list[str] = []
+    severity = "ok"
+    for key, label in (
+        ("raw_market_coverage_ratio", "market tick"),
+        ("raw_orderbook_coverage_ratio", "orderbook"),
+        ("minute_bar_coverage_ratio", "minute bar"),
+        ("feature_coverage_ratio", "feature"),
+    ):
+        ratio = coverage.get(key)
+        if ratio is None:
+            continue
+        ratio_value = float(ratio)
+        if ratio_value < 0.80:
+            notes.append(f"Latest date {label} coverage is below 80% of expected symbol-minutes.")
+            severity = "needs_attention"
+        elif ratio_value < 0.95 and severity != "needs_attention":
+            notes.append(f"Latest date {label} coverage is below 95% of expected symbol-minutes.")
+            severity = "watch"
+    return severity, notes
+
+
+def _overall_assessment(
+    recent_days: list[dict[str, Any]],
+    *,
+    latest_intraday_coverage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not recent_days:
         return {
             "status": "no_kis_live_data",
@@ -673,8 +705,12 @@ def _overall_assessment(recent_days: list[dict[str, Any]]) -> dict[str, Any]:
     label_ratio = latest.get("label_h15_to_feature_symbol_minute_ratio")
     if label_ratio is None or float(label_ratio) < 0.80:
         notes.append("Latest date h15 label coverage is still low; this is normal for fresh or partial sessions.")
+    coverage_severity, coverage_notes = _coverage_assessment_notes(latest_intraday_coverage)
+    notes.extend(coverage_notes)
     if not notes:
         status = "ok"
+    elif coverage_severity == "needs_attention":
+        status = "needs_attention"
     elif any("no KIS" in note or "no KIS" in note for note in notes):
         status = "needs_attention"
     else:
@@ -724,6 +760,11 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
     label_counter: Counter[str] = Counter()
     for day in day_rows:
         label_counter.update({key: int(value) for key, value in day.get("label_distribution_h15", {}).items()})
+    latest_intraday_coverage = _latest_intraday_coverage(
+        root=_repo_root(),
+        latest_day=day_rows[-1] if day_rows else None,
+        latest_symbol_summary=latest_symbols,
+    )
     return {
         "review": "kis_live_data_quality",
         "completed_at": datetime.now().astimezone().isoformat(),
@@ -737,12 +778,8 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
         "recent_days": day_rows,
         "recent_h15_label_distribution": dict(sorted(label_counter.items())),
         "latest_symbol_summary": latest_symbols,
-        "latest_intraday_coverage": _latest_intraday_coverage(
-            root=_repo_root(),
-            latest_day=day_rows[-1] if day_rows else None,
-            latest_symbol_summary=latest_symbols,
-        ),
-        "assessment": _overall_assessment(day_rows),
+        "latest_intraday_coverage": latest_intraday_coverage,
+        "assessment": _overall_assessment(day_rows, latest_intraday_coverage=latest_intraday_coverage),
         "next_actions": [
             "On the next market day, compare the 09:30 actual symbol-minute counts against watchdog/live-runtime status.",
             "If feature coverage stays below 95% after the session, inspect minute bar and feature build timing.",
