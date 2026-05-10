@@ -1,5 +1,21 @@
 # docs/STATUS.md
 
+## [2026-05-10 11:18] 월요일 장전 runtime readiness 점검
+
+- 실행:
+  - `./scripts/check_local_setup.sh`
+  - `./scripts/start_dashboard_background.sh`
+  - `./scripts/start_runtime_watchdog_background.sh`
+- 결과:
+  - 첫 점검은 dashboard/watchdog stale 로 `ok=false`였다.
+  - watchdog 재기동 뒤 dashboard 도 자동 재기동되어 최종 `check_local_setup`은 `ok=true`.
+  - dashboard: `running`, `http://127.0.0.1:8765` 응답 정상.
+  - runtime watchdog: `running`, `post_close_ml_mode=quick-live-report`.
+  - live runtime: `stopped`, session status `weekend`, `live_runtime_should_run=false`.
+- 판단:
+  - 현재는 주말이라 live runtime 정지는 정상이다.
+  - 월요일 장전에는 watchdog 이 pre-open warmup 기준으로 live runtime 을 켜는지 09:00~09:30 사이 수집률을 확인한다.
+
 ## [2026-05-10 11:08] quick post-close 데이터 품질 진단 자동 갱신
 
 - 목적:

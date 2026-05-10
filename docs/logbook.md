@@ -1,5 +1,12 @@
 # 작업 기록
 
+## [2026-05-10] Codex → 월요일 장전 runtime readiness 점검
+
+- `./scripts/check_local_setup.sh` 첫 실행에서 dashboard/watchdog stale 로 `ok=false`를 확인했다.
+- dashboard 와 runtime watchdog 을 재기동했고, watchdog 이 stale dashboard 를 다시 살려 최종 점검은 `ok=true`가 됐다.
+- 현재 dashboard 는 `running`, runtime watchdog 은 `running`, live runtime 은 주말 session status 때문에 `stopped`가 정상이다.
+- 월요일에는 09:00~09:30 사이 watchdog 이 live runtime 을 켜고 KIS symbol-minute 가 증가하는지 확인한다.
+
 ## [2026-05-10] Codex → quick post-close 데이터 품질 진단 자동 갱신
 
 - 목적:
