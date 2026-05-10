@@ -1808,6 +1808,9 @@ def collect_dashboard_payload(
     latest_feature_source_drift = _safe_load_json(
         settings.runtime_data_dir / "reports" / "data-quality" / "latest-feature-source-drift.json"
     )
+    latest_kis_live_feature_diagnostics = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "data-quality" / "latest-kis-live-feature-diagnostics.json"
+    )
     if isinstance(latest_kis_verification, dict):
         latest_kis_verification = dict(latest_kis_verification)
         latest_kis_verification.setdefault(
@@ -1965,6 +1968,7 @@ def collect_dashboard_payload(
         "latest_kis_verification": latest_kis_verification,
         "latest_kis_live_data_quality": latest_kis_live_data_quality,
         "latest_feature_source_drift": latest_feature_source_drift,
+        "latest_kis_live_feature_diagnostics": latest_kis_live_feature_diagnostics,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
@@ -2748,6 +2752,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_kis = payload.get("latest_kis_verification", {}) or {}
     latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
     latest_feature_source_drift = payload.get("latest_feature_source_drift", {}) or {}
+    latest_kis_feature_diagnostics = payload.get("latest_kis_live_feature_diagnostics", {}) or {}
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
@@ -3009,6 +3014,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"KIS 품질: {(latest_kis_quality.get('assessment') or {}).get('status') or '-'}",
         f"KIS 최신일: {latest_kis_quality.get('latest_trade_date') or '-'}",
         f"소스 drift: {(latest_feature_source_drift.get('assessment') or {}).get('posture') or '-'}",
+        f"KIS 피처 진단: {(latest_kis_feature_diagnostics.get('assessment') or {}).get('posture') or '-'}",
         f"오늘 학습: {len(payload.get('today_training_runs', []))}건",
         f"오늘 평가: {len(payload.get('today_evaluations', []))}건",
         f"누적 학습: {len(payload.get('recent_training_runs', []))}건 표시 / 전체 {ml_state.get('recent_training_count', 0)}건",
@@ -3058,6 +3064,47 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["주요 drift", " / ".join(feature_drift_key_findings) or "-"],
         ["결론", feature_drift_assessment.get("conclusion") or "-"],
         ["리포트", "runtime-data/reports/data-quality/latest-feature-source-drift.json"],
+    ]
+    kis_feature_assessment = latest_kis_feature_diagnostics.get("assessment") or {}
+    kis_feature_sample = latest_kis_feature_diagnostics.get("sample") or {}
+    kis_feature_diagnostics = latest_kis_feature_diagnostics.get("feature_diagnostics") or []
+    kis_feature_rank_rows = [
+        [
+            item.get("feature"),
+            item.get("rows") or 0,
+            item.get("pearson_future_return"),
+            item.get("top_bottom_future_return_delta_pct"),
+            item.get("top_bottom_up_ratio_delta"),
+        ]
+        for item in kis_feature_diagnostics[:6]
+    ]
+    kis_feature_diagnostic_rows = [
+        ["상태", kis_feature_assessment.get("posture") or "-"],
+        ["생성 시각", latest_kis_feature_diagnostics.get("generated_at") or "-"],
+        ["날짜 선택", latest_kis_feature_diagnostics.get("date_selection") or "-"],
+        ["거래일", ", ".join(latest_kis_feature_diagnostics.get("trade_dates") or []) or "-"],
+        ["rows/symbols", f"{kis_feature_sample.get('rows', 0)} / {kis_feature_sample.get('symbols', 0)}"],
+        ["label 닫힌 거래일", kis_feature_sample.get("trade_dates") or 0],
+        ["기간", f"{kis_feature_sample.get('first_event_time') or '-'}..{kis_feature_sample.get('last_event_time') or '-'}"],
+        [
+            "h15 label 분포",
+            (
+                f"down {(kis_feature_sample.get('label_distribution') or {}).get('down', 0)} / "
+                f"flat {(kis_feature_sample.get('label_distribution') or {}).get('flat', 0)} / "
+                f"up {(kis_feature_sample.get('label_distribution') or {}).get('up', 0)}"
+            ),
+        ],
+        ["평균 future return", kis_feature_sample.get("avg_future_return_pct") if kis_feature_sample.get("avg_future_return_pct") is not None else "-"],
+        ["strongest feature", kis_feature_assessment.get("strongest_feature") or "-"],
+        ["strongest Pearson", kis_feature_assessment.get("strongest_feature_pearson") if kis_feature_assessment.get("strongest_feature_pearson") is not None else "-"],
+        [
+            "strongest top-bottom delta",
+            kis_feature_assessment.get("strongest_feature_top_bottom_delta_pct")
+            if kis_feature_assessment.get("strongest_feature_top_bottom_delta_pct") is not None
+            else "-",
+        ],
+        ["결론", kis_feature_assessment.get("conclusion") or "-"],
+        ["리포트", "runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json"],
     ]
     post_close_maintenance = lightgbm_status.get("latest_post_close_maintenance") or {}
     post_close_rows = [
@@ -3455,6 +3502,17 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "KIS-Cybos feature drift",
                         _table(["항목", "값"], feature_source_drift_rows, "표시할 feature source drift 리포트가 없습니다.", scroll_height=330),
                         note="Cybos 5년치 연구 결과를 KIS live 성능 대리값으로 볼 수 있는지 확인하는 진단 카드입니다.",
+                    ),
+                    _section_card(
+                        "KIS live feature-label 진단",
+                        _table(["항목", "값"], kis_feature_diagnostic_rows, "표시할 KIS live feature 진단 리포트가 없습니다.", scroll_height=330)
+                        + _table(
+                            ["피처", "행", "Pearson", "상하위 미래수익 차이", "상하위 up 비율 차이"],
+                            kis_feature_rank_rows,
+                            "표시할 KIS live feature 순위가 없습니다.",
+                            scroll_height=260,
+                        ),
+                        note="KIS live 표본 안에서 단일 피처와 h15 future return/label 관계를 보는 피처 탐색 카드입니다. 모델 승격 근거로 쓰지 않습니다.",
                     ),
                     _section_card(
                         "LightGBM 실제 현황",

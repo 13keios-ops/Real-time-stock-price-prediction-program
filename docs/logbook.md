@@ -17,6 +17,8 @@
 - 판단:
   - posture: `sample_too_small`.
   - 현재 KIS live 데이터는 피처 후보를 관찰하는 정도로만 쓰고, 모델 승격 근거로 쓰지 않는다. 월요일 이후 더 쌓인 live 데이터로 같은 리포트를 재확인한다.
+- 대시보드:
+  - `머신러닝 현황 > 현재 운용`에 `KIS live feature-label 진단` 카드를 추가해 표본 크기, strongest feature, Pearson, 상하위 구간 차이를 바로 볼 수 있게 했다.
 
 ## [2026-05-10] Codex → KIS live vs Cybos historical feature source drift 진단
 

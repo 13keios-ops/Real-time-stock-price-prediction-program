@@ -27,6 +27,10 @@
   - posture: `sample_too_small`.
   - 현재 KIS live 표본은 feature triage 용으로는 쓸 수 있지만, 모델 승격이나 강한 피처 결론에는 부족하다.
   - 단일 피처 상관은 모두 약하다. `hl_range_pct`의 구간별 up-ratio 차이는 눈에 띄지만, 거래일 2일 표본이라 월요일 이후 누적 데이터로 재확인한다.
+- 대시보드:
+  - `머신러닝 현황 > 현재 운용`에 `KIS live feature-label 진단` 카드를 추가했다.
+  - 표시 항목: posture, KIS 표본 날짜와 기간, label 분포, strongest feature, Pearson, 상하위 미래수익률 차이, 피처별 순위표.
+  - 이 카드는 feature triage 용이며 모델 승격 근거로 쓰지 않는다고 명시했다.
 
 ## [2026-05-10 07:20] KIS live vs Cybos historical feature source drift 진단
 

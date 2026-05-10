@@ -205,6 +205,50 @@ class DashboardTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        (reports_root / "data-quality" / "latest-kis-live-feature-diagnostics.json").write_text(
+            json.dumps(
+                {
+                    "generated_at": "2026-05-10T08:30:57+09:00",
+                    "date_selection": "post_cybos_overlap",
+                    "trade_dates": ["2026-05-08"],
+                    "sample": {
+                        "rows": 3640,
+                        "symbols": 10,
+                        "trade_dates": 1,
+                        "first_event_time": "2026-05-08T09:00:00+09:00",
+                        "last_event_time": "2026-05-08T15:04:00+09:00",
+                        "label_distribution": {"down": 614, "flat": 2208, "up": 818},
+                        "avg_future_return_pct": 0.048176,
+                    },
+                    "feature_diagnostics": [
+                        {
+                            "feature": "return_1m_pct",
+                            "rows": 3640,
+                            "pearson_future_return": -0.039879,
+                            "top_bottom_future_return_delta_pct": -0.068962,
+                            "top_bottom_up_ratio_delta": -0.04595,
+                        },
+                        {
+                            "feature": "hl_range_pct",
+                            "rows": 3640,
+                            "pearson_future_return": 0.01536,
+                            "top_bottom_future_return_delta_pct": 0.048852,
+                            "top_bottom_up_ratio_delta": 0.21729,
+                        },
+                    ],
+                    "assessment": {
+                        "posture": "sample_too_small",
+                        "conclusion": "KIS live sample is still small; use diagnostics only as directional feature triage.",
+                        "strongest_feature": "return_1m_pct",
+                        "strongest_feature_pearson": -0.039879,
+                        "strongest_feature_top_bottom_delta_pct": -0.068962,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         (reports_root / "codex" / "automation" / "state" / "latest-progress.json").write_text(
             json.dumps(
                 {
@@ -443,6 +487,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("게이트 기준 워크포워드", html)
         self.assertIn("KIS-Cybos feature drift", html)
         self.assertIn("source_drift_detected", html)
+        self.assertIn("KIS live feature-label 진단", html)
+        self.assertIn("sample_too_small", html)
         self.assertIn("장후 자동 학습 상태", html)
         self.assertIn("스냅샷 DB", html)
         self.assertIn("stdout 로그", html)
