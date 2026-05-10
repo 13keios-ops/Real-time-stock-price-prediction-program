@@ -17,6 +17,8 @@
   - `python -m app --build-feature-dataset`, snapshot 기반 heavy research, active model 교체, `app/risk/` 변경은 포함하지 않았다.
 - 판단:
   - 월요일 이후 장후 quick maintenance 가 성공하면 대시보드의 KIS 품질/feature drift/feature-label 카드가 수동 재실행 없이 최신화된다.
+- 회귀 테스트:
+  - `tests/test_post_close_maintenance_script.py`를 추가해 quick 경로의 진단 3종 명령과 상태 파일 task 목록이 빠지지 않게 잠갔다.
 
 ## [2026-05-10 08:31] KIS live feature-label 진단
 

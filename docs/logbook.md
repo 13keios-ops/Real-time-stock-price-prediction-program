@@ -13,6 +13,8 @@
 - 안전 기준:
   - heavy research, feature dataset 전체 재생성, active model 교체, `app/risk/` 변경은 하지 않았다.
   - 진단 실패는 stderr warning 으로만 남기고 quick dashboard 갱신 흐름을 계속 진행한다.
+- 회귀 테스트:
+  - `tests/test_post_close_maintenance_script.py`를 추가해 quick 경로의 진단 명령과 상태 파일 task 목록을 확인한다.
 
 ## [2026-05-10] Codex → KIS live feature-label 진단
 
