@@ -1814,6 +1814,13 @@ def collect_dashboard_payload(
     latest_local_setup_check = _safe_load_json(
         settings.runtime_data_dir / "reports" / "recovery" / "latest-local-setup-check.json"
     )
+    latest_local_setup_freshness = _build_freshness_snapshot(
+        latest_local_setup_check.get("checked_at") if isinstance(latest_local_setup_check, dict) else None,
+        timezone_name=settings.timezone,
+        warning_after_minutes=30,
+        stale_after_minutes=180,
+        missing_label="장전 점검 기록 없음",
+    )
     if isinstance(latest_kis_verification, dict):
         latest_kis_verification = dict(latest_kis_verification)
         latest_kis_verification.setdefault(
@@ -1973,6 +1980,7 @@ def collect_dashboard_payload(
         "latest_feature_source_drift": latest_feature_source_drift,
         "latest_kis_live_feature_diagnostics": latest_kis_live_feature_diagnostics,
         "latest_local_setup_check": latest_local_setup_check,
+        "latest_local_setup_freshness": latest_local_setup_freshness,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
@@ -2125,6 +2133,27 @@ def _refresh_interval_text(refresh_seconds: int) -> str:
         minutes = max(refresh_seconds // 60, 1)
         return f"{minutes}분"
     return f"{max(refresh_seconds, 1)}초"
+
+
+def _duration_seconds_text(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        seconds = max(int(float(value)), 0)
+    except (TypeError, ValueError):
+        return _esc(value)
+    if seconds < 60:
+        return f"{seconds}초"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}분"
+    hours = minutes // 60
+    minutes = minutes % 60
+    if hours < 24:
+        return f"{hours}시간 {minutes}분" if minutes else f"{hours}시간"
+    days = hours // 24
+    hours = hours % 24
+    return f"{days}일 {hours}시간" if hours else f"{days}일"
 
 
 def _scroll_box(content: str, *, max_height: int = 380, css_class: str = "data-scroll") -> str:
@@ -2758,6 +2787,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_feature_source_drift = payload.get("latest_feature_source_drift", {}) or {}
     latest_kis_feature_diagnostics = payload.get("latest_kis_live_feature_diagnostics", {}) or {}
     latest_local_setup = payload.get("latest_local_setup_check", {}) or {}
+    latest_local_setup_freshness = payload.get("latest_local_setup_freshness", {}) or {}
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
@@ -2903,6 +2933,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     local_setup_rows = [
         ["전체 상태", "ok" if latest_local_setup.get("ok") else "점검 필요" if latest_local_setup else "-"],
         ["점검 시각", latest_local_setup.get("checked_at") or "-"],
+        [
+            "점검 신선도",
+            (
+                f"{latest_local_setup_freshness.get('label')} / {latest_local_setup_freshness.get('note')}"
+                if latest_local_setup_freshness.get("available")
+                else latest_local_setup_freshness.get("label") or "-"
+            ),
+        ],
         ["blockers", ", ".join(local_setup_blockers) if local_setup_blockers else "none"],
         ["대시보드", local_setup_dashboard.get("status") or "-"],
         ["대시보드 응답", "예" if local_setup_dashboard.get("dashboard_api_responding") else "아니오"],
@@ -2910,6 +2948,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["live runtime", local_setup_live_runtime.get("status") or "-"],
         ["장 상태", local_setup_watchdog.get("market_session_status") or local_setup_live_runtime.get("session_status") or "-"],
         ["live runtime 필요", "예" if local_setup_watchdog.get("live_runtime_should_run") else "아니오"],
+        ["KIS 시세 자격정보", "준비됨" if local_setup_live_runtime.get("credentials_ready_for_quotes") else "점검 필요"],
         ["startup launcher", "ok" if local_setup_startup.get("ok") else "점검 필요" if local_setup_startup else "-"],
         ["websockets", "예" if latest_local_setup.get("websockets_available") else "아니오"],
         ["lightgbm", "예" if latest_local_setup.get("lightgbm_available") else "아니오"],
@@ -3216,11 +3255,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["60분 라벨 symbol-minute", (latest_kis_quality_recent.get("labels_h60") or {}).get("symbol_minutes") or 0],
         ["특징/분봉 비율", latest_kis_quality_recent.get("feature_to_bar_symbol_minute_ratio") or "-"],
         ["15분 라벨/특징 비율", latest_kis_quality_recent.get("label_h15_to_feature_symbol_minute_ratio") or "-"],
+        ["최근 raw minute", latest_kis_quality_coverage.get("latest_raw_minute") or "-"],
+        ["최근 raw minute 지연", _duration_seconds_text(latest_kis_quality_coverage.get("latest_raw_minute_lag_seconds"))],
         ["장중 기대 symbol-minute", latest_kis_quality_coverage.get("expected_symbol_minutes") or "-"],
+        ["닫힌 분 기대 symbol-minute", latest_kis_quality_coverage.get("closed_expected_symbol_minutes") or "-"],
         ["시장 체결 coverage", _ratio_pct(latest_kis_quality_coverage.get("raw_market_coverage_ratio"), 1)],
         ["호가 coverage", _ratio_pct(latest_kis_quality_coverage.get("raw_orderbook_coverage_ratio"), 1)],
-        ["분봉 coverage", _ratio_pct(latest_kis_quality_coverage.get("minute_bar_coverage_ratio"), 1)],
-        ["특징 coverage", _ratio_pct(latest_kis_quality_coverage.get("feature_coverage_ratio"), 1)],
+        ["분봉 coverage(닫힌 분)", _ratio_pct(latest_kis_quality_coverage.get("minute_bar_closed_coverage_ratio"), 1)],
+        ["특징 coverage(닫힌 분)", _ratio_pct(latest_kis_quality_coverage.get("feature_closed_coverage_ratio"), 1)],
         [
             "15분 라벨 분포",
             (
@@ -3526,7 +3568,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     _section_card(
                         "KIS live 데이터 품질",
                         _table(["항목", "값"], kis_quality_rows, "표시할 KIS live 데이터 품질 리포트가 없습니다.", scroll_height=330),
-                        note="KIS 체결/호가가 feature와 15분/60분 label까지 닫혔는지 확인하는 진단 카드입니다.",
+                        note="KIS 체결/호가가 feature와 15분/60분 label까지 닫혔는지 확인합니다. 장전 호가나 REST snapshot 때문에 raw coverage는 100%를 넘을 수 있고, 분봉/특징 coverage 평가는 아직 닫히지 않은 마지막 1분을 제외한 기준입니다.",
                     ),
                     _section_card(
                         "KIS-Cybos feature drift",

@@ -154,14 +154,18 @@ def _latest_intraday_coverage(
             "watchlist_symbols": symbol_count,
         }
     latest_raw_time = min(_floor_minute(datetime.fromisoformat(max(last_times))), session_end)
+    now = datetime.now(latest_raw_time.tzinfo) if latest_raw_time.tzinfo else datetime.now()
+    latest_raw_minute_lag_seconds = max(int((now - latest_raw_time).total_seconds()), 0)
     if latest_raw_time < session_start:
         minute_slots = 0
     else:
         minute_slots = int((latest_raw_time - session_start).total_seconds() // 60) + 1
     expected_symbol_minutes = minute_slots * symbol_count
+    closed_minute_slots = max(minute_slots - 1, 0)
+    closed_expected_symbol_minutes = closed_minute_slots * symbol_count
 
-    def coverage(value: int) -> float | None:
-        return _round_ratio(value, expected_symbol_minutes)
+    def coverage(value: int, denominator: int = expected_symbol_minutes) -> float | None:
+        return _round_ratio(value, denominator)
 
     return {
         "status": "ok" if expected_symbol_minutes > 0 else "no_expected_minutes",
@@ -169,9 +173,12 @@ def _latest_intraday_coverage(
         "session_open": session_open_text,
         "session_close": session_close_text,
         "latest_raw_minute": latest_raw_time.isoformat(),
+        "latest_raw_minute_lag_seconds": latest_raw_minute_lag_seconds,
         "watchlist_symbols": symbol_count,
         "expected_minute_slots_per_symbol": minute_slots,
         "expected_symbol_minutes": expected_symbol_minutes,
+        "closed_expected_minute_slots_per_symbol": closed_minute_slots,
+        "closed_expected_symbol_minutes": closed_expected_symbol_minutes,
         "raw_market_symbol_minutes": int(raw_market.get("symbol_minutes") or 0),
         "raw_orderbook_symbol_minutes": int(raw_orderbook.get("symbol_minutes") or 0),
         "minute_bar_symbol_minutes": int((latest_day.get("minute_bars") or {}).get("symbol_minutes") or 0),
@@ -180,6 +187,14 @@ def _latest_intraday_coverage(
         "raw_orderbook_coverage_ratio": coverage(int(raw_orderbook.get("symbol_minutes") or 0)),
         "minute_bar_coverage_ratio": coverage(int((latest_day.get("minute_bars") or {}).get("symbol_minutes") or 0)),
         "feature_coverage_ratio": coverage(int((latest_day.get("features") or {}).get("symbol_minutes") or 0)),
+        "minute_bar_closed_coverage_ratio": coverage(
+            int((latest_day.get("minute_bars") or {}).get("symbol_minutes") or 0),
+            closed_expected_symbol_minutes,
+        ),
+        "feature_closed_coverage_ratio": coverage(
+            int((latest_day.get("features") or {}).get("symbol_minutes") or 0),
+            closed_expected_symbol_minutes,
+        ),
     }
 
 
@@ -667,8 +682,8 @@ def _coverage_assessment_notes(coverage: dict[str, Any] | None) -> tuple[str, li
     for key, label in (
         ("raw_market_coverage_ratio", "market tick"),
         ("raw_orderbook_coverage_ratio", "orderbook"),
-        ("minute_bar_coverage_ratio", "minute bar"),
-        ("feature_coverage_ratio", "feature"),
+        ("minute_bar_closed_coverage_ratio", "minute bar closed-minute"),
+        ("feature_closed_coverage_ratio", "feature closed-minute"),
     ):
         ratio = coverage.get(key)
         if ratio is None:
@@ -782,6 +797,7 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
         "assessment": _overall_assessment(day_rows, latest_intraday_coverage=latest_intraday_coverage),
         "next_actions": [
             "On the next market day, compare the 09:30 actual symbol-minute counts against watchdog/live-runtime status.",
+            "Minute bar and feature intraday coverage are assessed against closed minutes to avoid 09:30 false alarms.",
             "If feature coverage stays below 95% after the session, inspect minute bar and feature build timing.",
             "If orderbook symbol-minutes are sparse, prioritize KIS WebSocket orderbook stability before more model tuning.",
         ],
@@ -848,12 +864,17 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"- status: `{coverage.get('status')}`",
             f"- trade_date: `{coverage.get('trade_date')}`",
             f"- latest_raw_minute: `{coverage.get('latest_raw_minute')}`",
+            f"- latest_raw_minute_lag_seconds: `{coverage.get('latest_raw_minute_lag_seconds')}`",
             f"- watchlist_symbols: `{coverage.get('watchlist_symbols')}`",
             f"- expected_symbol_minutes: `{coverage.get('expected_symbol_minutes')}`",
+            f"- closed_expected_symbol_minutes: `{coverage.get('closed_expected_symbol_minutes')}`",
             f"- market_coverage: `{coverage.get('raw_market_coverage_ratio')}`",
             f"- orderbook_coverage: `{coverage.get('raw_orderbook_coverage_ratio')}`",
             f"- minute_bar_coverage: `{coverage.get('minute_bar_coverage_ratio')}`",
             f"- feature_coverage: `{coverage.get('feature_coverage_ratio')}`",
+            f"- minute_bar_closed_coverage: `{coverage.get('minute_bar_closed_coverage_ratio')}`",
+            f"- feature_closed_coverage: `{coverage.get('feature_closed_coverage_ratio')}`",
+            "- note: `Raw market/orderbook coverage may exceed 100% when pre-open orderbook rows or REST snapshots are present. Minute bar and feature assessment uses closed-minute coverage.`",
         ]
     )
 

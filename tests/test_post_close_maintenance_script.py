@@ -7,11 +7,13 @@ class PostCloseMaintenanceScriptTests(unittest.TestCase):
         script = Path("scripts/script_dispatch.sh").read_text(encoding="utf-8")
 
         expected_steps = [
+            "check_local_setup.sh",
             "summarize_kis_live_data_quality.py --recent-days 10",
             "summarize_feature_source_drift.py",
             "summarize_kis_live_feature_diagnostics.py",
         ]
         expected_tasks = [
+            "check-local-setup",
             "summarize-kis-live-data-quality",
             "summarize-feature-source-drift",
             "summarize-kis-live-feature-diagnostics",
@@ -24,6 +26,7 @@ class PostCloseMaintenanceScriptTests(unittest.TestCase):
             with self.subTest(task=task):
                 self.assertIn(f'"{task}"', script)
 
+        self.assertIn("warning: local setup readiness check failed", script)
         self.assertIn("warning: KIS live data quality summary failed", script)
         self.assertIn("warning: feature source drift summary failed", script)
         self.assertIn("warning: KIS live feature diagnostics summary failed", script)

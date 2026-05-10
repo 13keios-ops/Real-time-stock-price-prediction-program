@@ -468,6 +468,10 @@ post_close_ml_maintenance() {
     run_app --build-runtime-report >/dev/null
     (
       cd "$workspace"
+      "$SCRIPT_DIR/check_local_setup.sh" >/dev/null
+    ) || echo "warning: local setup readiness check failed during quick post-close maintenance" >&2
+    (
+      cd "$workspace"
       "$PYTHON_BIN" scripts/summarize_kis_live_data_quality.py --recent-days 10 >/dev/null
     ) || echo "warning: KIS live data quality summary failed during quick post-close maintenance" >&2
     (
@@ -517,6 +521,7 @@ if maintenance_mode == "quick":
     mode = "quick-live-report"
     tasks = [
         "build-runtime-report",
+        "check-local-setup",
         "summarize-kis-live-data-quality",
         "summarize-feature-source-drift",
         "summarize-kis-live-feature-diagnostics",

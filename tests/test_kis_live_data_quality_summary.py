@@ -140,8 +140,12 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
         self.assertEqual(coverage["watchlist_symbols"], 10)
         self.assertEqual(coverage["expected_minute_slots_per_symbol"], 2)
         self.assertEqual(coverage["expected_symbol_minutes"], 20)
+        self.assertEqual(coverage["closed_expected_minute_slots_per_symbol"], 1)
+        self.assertEqual(coverage["closed_expected_symbol_minutes"], 10)
+        self.assertIn("latest_raw_minute_lag_seconds", coverage)
         self.assertEqual(coverage["raw_market_coverage_ratio"], 0.15)
         self.assertEqual(coverage["feature_coverage_ratio"], 0.15)
+        self.assertEqual(coverage["feature_closed_coverage_ratio"], 0.3)
         self.assertEqual(result["assessment"]["status"], "needs_attention")
         self.assertTrue(
             any("coverage is below 80%" in note for note in result["assessment"]["notes"])

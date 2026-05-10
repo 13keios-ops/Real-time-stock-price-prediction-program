@@ -1,5 +1,27 @@
 # docs/STATUS.md
 
+## [2026-05-10 15:56] 월요일 09:30 점검 false alarm 보정
+
+- 목적:
+  - cowork 검토에서 지적한 장중 coverage false alarm 과 readiness stale 표시 위험을 월요일 장전 전에 줄였다.
+- 변경:
+  - `scripts/summarize_kis_live_data_quality.py`가 `latest_raw_minute_lag_seconds`를 출력한다.
+  - 분봉/특징 coverage assessment 는 아직 닫히지 않은 마지막 1분을 제외한 `closed_expected_symbol_minutes` 기준으로 판단한다.
+  - 대시보드 `KIS live 데이터 품질` 카드에 최근 raw minute, raw minute 지연, 닫힌 분 기준 분봉/특징 coverage 를 표시한다.
+  - 대시보드 note 에 장전 호가나 REST snapshot 때문에 raw coverage 가 100%를 넘을 수 있음을 명시했다.
+  - 대시보드 `장전 readiness` 카드에 점검 신선도와 KIS 시세 자격정보 준비 여부를 표시한다.
+  - quick post-close maintenance 가 `check_local_setup.sh`를 warning-only 로 실행해 readiness 카드 입력도 같이 갱신한다.
+- 현재 정본 리포트:
+  - latest raw minute: `2026-05-08T15:30:00+09:00`.
+  - expected symbol-minutes `3,910`, closed expected symbol-minutes `3,900`.
+  - market coverage `97.7%`, orderbook coverage `103.8%`, minute/feature closed coverage `97.2%`.
+  - assessment `ok`.
+- 검증:
+  - `./scripts/run_post_close_ml_maintenance.sh --quick` 실행 완료.
+  - tasks 에 `check-local-setup` 포함, `status=ok`, completed_at `2026-05-10 16:03:28 +0900`.
+- 판단:
+  - 월요일 09:30에는 `최근 raw minute 지연`과 `닫힌 분 기준 coverage`를 우선 보고, raw coverage 100% 초과는 장전 호가 또는 REST snapshot 포함 가능성으로 해석한다.
+
 ## [2026-05-10 15:34] runtime readiness 대시보드 표시
 
 - 실행:

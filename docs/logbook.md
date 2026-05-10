@@ -1,5 +1,15 @@
 # 작업 기록
 
+## [2026-05-10] Codex → 월요일 09:30 점검 false alarm 보정
+
+- cowork 검토를 반영해 KIS live coverage 와 readiness 카드의 장중 점검 오해 가능성을 줄였다.
+- `scripts/summarize_kis_live_data_quality.py`가 `latest_raw_minute_lag_seconds`와 닫힌 분 기준 `minute_bar_closed_coverage_ratio`, `feature_closed_coverage_ratio`를 출력한다.
+- 분봉/특징 coverage assessment 는 아직 닫히지 않은 마지막 1분을 제외해 09:30 직후 자연 지연이 false watch 로 보이지 않게 했다.
+- 대시보드 `KIS live 데이터 품질` 카드에 raw minute 지연, 닫힌 분 기준 coverage, raw coverage 100% 초과 caveat 를 표시한다.
+- 대시보드 `장전 readiness` 카드에 점검 신선도와 KIS 시세 자격정보 준비 여부를 추가했다.
+- quick post-close maintenance 는 `check_local_setup.sh`를 warning-only 로 실행해 readiness 입력도 갱신한다.
+- `./scripts/run_post_close_ml_maintenance.sh --quick` 검증 결과 tasks 에 `check-local-setup`이 포함되고 `status=ok`로 완료됐다.
+
 ## [2026-05-10] Codex → runtime readiness 대시보드 표시
 
 - `./scripts/check_local_setup.sh` 최신 결과는 `ok=true`, blockers 없음으로 확인했다.

@@ -11,7 +11,7 @@
 
 장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래이며, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
 
-장마감 후 자동 관리는 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh --quick`를 백그라운드 실행하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. live DB는 장중 수집 원장으로 남긴다. snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 명시 명령이나 별도 저부하 시간대에서만 실행하며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
+장마감 후 자동 관리는 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh --quick`를 백그라운드 실행하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, local setup readiness, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. live DB는 장중 수집 원장으로 남긴다. snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 명시 명령이나 별도 저부하 시간대에서만 실행하며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
 
 현재 기본 운영 자세는 아래와 같다.
 
@@ -106,10 +106,10 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
-- 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가가 포함되면 호가 coverage 는 100%를 넘을 수 있다.
+- 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
 - 머신러닝 현황 탭의 `KIS live feature-label 진단` 카드는 `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`을 읽어 KIS live 단일 피처와 h15 label/future return 의 약한 관계를 보여준다. 이 카드는 feature triage 용이며 모델 승격 근거가 아니다.
-- 상태 및 설정 탭의 `장전 readiness` 카드는 `runtime-data/reports/recovery/latest-local-setup-check.json`을 읽어 dashboard, runtime watchdog, live runtime, startup launcher, websockets, lightgbm 상태와 blockers 를 보여준다.
+- 상태 및 설정 탭의 `장전 readiness` 카드는 `runtime-data/reports/recovery/latest-local-setup-check.json`을 읽어 dashboard, runtime watchdog, live runtime, startup launcher, websockets, lightgbm 상태, KIS 시세 자격정보 준비 여부, 점검 신선도, blockers 를 보여준다.
 - 정본 gate reference 워크포워드는 `python -m app --run-gate-walk-forward --horizon-min 15` 또는 `./scripts/run_gate_walk_forward_backtest.sh`로 생성하며, `source=cybos-historical`, `parameter_profile=gate_reference_v1` provenance 를 리포트에 남긴다.
 - 스냅샷 파일 저장은 임시 파일 교체와 짧은 재시도를 사용해, 상태 점검이 같은 JSON 파일을 읽는 순간의 동시 읽기 충돌을 줄인다.
 - SQLite 잠금이 잠깐 발생하면 연결을 끊지 않고 `일시 점검` 응답을 내려준다.
