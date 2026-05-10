@@ -3175,6 +3175,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         latest_kis_quality_recent = latest_kis_quality["recent_days"][-1] or {}
     latest_kis_quality_assessment = latest_kis_quality.get("assessment") or {}
     latest_kis_quality_label_dist = latest_kis_quality_recent.get("label_distribution_h15") or {}
+    latest_kis_quality_coverage = latest_kis_quality.get("latest_intraday_coverage") or {}
     kis_quality_rows = [
         ["상태", latest_kis_quality_assessment.get("status") or "-"],
         ["생성 시각", latest_kis_quality.get("completed_at") or "-"],
@@ -3191,6 +3192,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["60분 라벨 symbol-minute", (latest_kis_quality_recent.get("labels_h60") or {}).get("symbol_minutes") or 0],
         ["특징/분봉 비율", latest_kis_quality_recent.get("feature_to_bar_symbol_minute_ratio") or "-"],
         ["15분 라벨/특징 비율", latest_kis_quality_recent.get("label_h15_to_feature_symbol_minute_ratio") or "-"],
+        ["장중 기대 symbol-minute", latest_kis_quality_coverage.get("expected_symbol_minutes") or "-"],
+        ["시장 체결 coverage", _ratio_pct(latest_kis_quality_coverage.get("raw_market_coverage_ratio"), 1)],
+        ["호가 coverage", _ratio_pct(latest_kis_quality_coverage.get("raw_orderbook_coverage_ratio"), 1)],
+        ["분봉 coverage", _ratio_pct(latest_kis_quality_coverage.get("minute_bar_coverage_ratio"), 1)],
+        ["특징 coverage", _ratio_pct(latest_kis_quality_coverage.get("feature_coverage_ratio"), 1)],
         [
             "15분 라벨 분포",
             (

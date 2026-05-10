@@ -7,6 +7,13 @@
 - 현재 dashboard 는 `running`, runtime watchdog 은 `running`, live runtime 은 주말 session status 때문에 `stopped`가 정상이다.
 - 월요일에는 09:00~09:30 사이 watchdog 이 live runtime 을 켜고 KIS symbol-minute 가 증가하는지 확인한다.
 
+## [2026-05-10] Codex → KIS live 장중 coverage 눈금 추가
+
+- `scripts/summarize_kis_live_data_quality.py`에 최신 거래일 기준 `latest_intraday_coverage`를 추가했다.
+- 기준은 watchlist 종목 수와 정규장 시작 이후 최신 raw minute 까지의 기대 symbol-minute 다.
+- 대시보드 `KIS live 데이터 품질` 카드에 기대 symbol-minute, 시장 체결/호가/분봉/특징 coverage 를 표시한다.
+- 현재 2026-05-08 기준 market `97.7%`, feature `96.9%`로 계산된다. orderbook 은 장전 호가 포함 때문에 `103.8%`로 1을 넘을 수 있다.
+
 ## [2026-05-10] Codex → quick post-close 데이터 품질 진단 자동 갱신
 
 - 목적:

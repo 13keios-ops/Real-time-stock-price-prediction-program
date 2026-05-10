@@ -16,6 +16,21 @@
   - 현재는 주말이라 live runtime 정지는 정상이다.
   - 월요일 장전에는 watchdog 이 pre-open warmup 기준으로 live runtime 을 켜는지 09:00~09:30 사이 수집률을 확인한다.
 
+## [2026-05-10 11:24] KIS live 장중 coverage 눈금 추가
+
+- 목적:
+  - 월요일 09:30 점검 때 단순 row 수가 아니라, watchlist 10종목 기준 기대 symbol-minute 대비 실제 수집률을 바로 확인하기 위함.
+- 변경:
+  - `scripts/summarize_kis_live_data_quality.py`가 최신 거래일의 `latest_intraday_coverage`를 계산한다.
+  - 계산 기준: `config/watchlist.txt` 종목 수 × `config/market_calendar.toml` 정규장 시작부터 최신 raw minute 까지의 minute slot.
+  - dashboard `KIS live 데이터 품질` 카드에 기대 symbol-minute, 시장 체결/호가/분봉/특징 coverage 를 표시한다.
+- 현재 2026-05-08 기준:
+  - expected_symbol_minutes `3,910`.
+  - market coverage `97.7%`, minute bar coverage `96.9%`, feature coverage `96.9%`.
+  - orderbook coverage 는 장전 08:30 호가가 포함되어 `103.8%`로 1을 넘는다.
+- 판단:
+  - 월요일 장중에는 09:30 현재 latest raw minute 기준으로 market/feature coverage 가 낮게 나오면 live runtime 또는 feature build 지연을 먼저 본다.
+
 ## [2026-05-10 11:08] quick post-close 데이터 품질 진단 자동 갱신
 
 - 목적:

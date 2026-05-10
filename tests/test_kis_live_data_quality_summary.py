@@ -134,6 +134,14 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
         self.assertEqual(latest["label_distribution_h15"], {"flat": 1, "up": 1})
         self.assertEqual(latest["feature_to_bar_symbol_minute_ratio"], 1.0)
         self.assertEqual(len(result["latest_symbol_summary"]), 2)
+        coverage = result["latest_intraday_coverage"]
+        self.assertEqual(coverage["status"], "ok")
+        self.assertEqual(coverage["trade_date"], "2026-05-08")
+        self.assertEqual(coverage["watchlist_symbols"], 10)
+        self.assertEqual(coverage["expected_minute_slots_per_symbol"], 2)
+        self.assertEqual(coverage["expected_symbol_minutes"], 20)
+        self.assertEqual(coverage["raw_market_coverage_ratio"], 0.15)
+        self.assertEqual(coverage["feature_coverage_ratio"], 0.15)
 
 
 if __name__ == "__main__":

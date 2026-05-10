@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import sqlite3
+import tomllib
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -81,6 +82,105 @@ def _date_bounds(trade_date: str) -> tuple[str, str]:
     start_date = date.fromisoformat(trade_date)
     end_date = start_date + timedelta(days=1)
     return start_date.isoformat(), end_date.isoformat()
+
+
+def _read_watchlist(root: Path) -> list[str]:
+    path = root / "config" / "watchlist.txt"
+    if not path.exists():
+        return []
+    symbols: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        symbols.append(line)
+    return symbols
+
+
+def _read_market_clock(root: Path) -> tuple[str, str, str]:
+    path = root / "config" / "market_calendar.toml"
+    if not path.exists():
+        return "Asia/Seoul", "09:00", "15:30"
+    with path.open("rb") as handle:
+        config = tomllib.load(handle)
+    market = config.get("market") if isinstance(config, dict) else {}
+    if not isinstance(market, dict):
+        market = {}
+    return (
+        str(market.get("timezone") or "Asia/Seoul"),
+        str(market.get("session_open") or "09:00"),
+        str(market.get("session_close") or "15:30"),
+    )
+
+
+def _floor_minute(value: datetime) -> datetime:
+    return value.replace(second=0, microsecond=0)
+
+
+def _latest_intraday_coverage(
+    *,
+    root: Path,
+    latest_day: dict[str, Any] | None,
+    latest_symbol_summary: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not latest_day:
+        return {"status": "no_latest_day"}
+    trade_date_text = str(latest_day.get("trade_date") or "")
+    if not trade_date_text:
+        return {"status": "no_latest_day"}
+
+    watchlist_symbols = _read_watchlist(root)
+    symbols = watchlist_symbols or [str(row.get("symbol")) for row in latest_symbol_summary if row.get("symbol")]
+    symbol_count = len(symbols)
+    if symbol_count <= 0:
+        return {"status": "no_symbols", "trade_date": trade_date_text}
+
+    timezone_name, session_open_text, session_close_text = _read_market_clock(root)
+    tz_suffix = "+09:00" if timezone_name in {"Asia/Seoul", "KST"} else ""
+    session_start = datetime.fromisoformat(f"{trade_date_text}T{session_open_text}:00{tz_suffix}")
+    session_end = datetime.fromisoformat(f"{trade_date_text}T{session_close_text}:00{tz_suffix}")
+
+    raw_market = latest_day.get("raw_market") or {}
+    raw_orderbook = latest_day.get("raw_orderbook") or {}
+    last_times = [
+        str(value)
+        for value in (raw_market.get("last_time"), raw_orderbook.get("last_time"))
+        if value
+    ]
+    if not last_times:
+        return {
+            "status": "no_raw_last_time",
+            "trade_date": trade_date_text,
+            "watchlist_symbols": symbol_count,
+        }
+    latest_raw_time = min(_floor_minute(datetime.fromisoformat(max(last_times))), session_end)
+    if latest_raw_time < session_start:
+        minute_slots = 0
+    else:
+        minute_slots = int((latest_raw_time - session_start).total_seconds() // 60) + 1
+    expected_symbol_minutes = minute_slots * symbol_count
+
+    def coverage(value: int) -> float | None:
+        return _round_ratio(value, expected_symbol_minutes)
+
+    return {
+        "status": "ok" if expected_symbol_minutes > 0 else "no_expected_minutes",
+        "trade_date": trade_date_text,
+        "session_open": session_open_text,
+        "session_close": session_close_text,
+        "latest_raw_minute": latest_raw_time.isoformat(),
+        "watchlist_symbols": symbol_count,
+        "expected_minute_slots_per_symbol": minute_slots,
+        "expected_symbol_minutes": expected_symbol_minutes,
+        "raw_market_symbol_minutes": int(raw_market.get("symbol_minutes") or 0),
+        "raw_orderbook_symbol_minutes": int(raw_orderbook.get("symbol_minutes") or 0),
+        "minute_bar_symbol_minutes": int((latest_day.get("minute_bars") or {}).get("symbol_minutes") or 0),
+        "feature_symbol_minutes": int((latest_day.get("features") or {}).get("symbol_minutes") or 0),
+        "raw_market_coverage_ratio": coverage(int(raw_market.get("symbol_minutes") or 0)),
+        "raw_orderbook_coverage_ratio": coverage(int(raw_orderbook.get("symbol_minutes") or 0)),
+        "minute_bar_coverage_ratio": coverage(int((latest_day.get("minute_bars") or {}).get("symbol_minutes") or 0)),
+        "feature_coverage_ratio": coverage(int((latest_day.get("features") or {}).get("symbol_minutes") or 0)),
+    }
 
 
 def _raw_minute_index(
@@ -637,6 +737,11 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
         "recent_days": day_rows,
         "recent_h15_label_distribution": dict(sorted(label_counter.items())),
         "latest_symbol_summary": latest_symbols,
+        "latest_intraday_coverage": _latest_intraday_coverage(
+            root=_repo_root(),
+            latest_day=day_rows[-1] if day_rows else None,
+            latest_symbol_summary=latest_symbols,
+        ),
         "assessment": _overall_assessment(day_rows),
         "next_actions": [
             "On the next market day, compare the 09:30 actual symbol-minute counts against watchdog/live-runtime status.",
@@ -696,6 +801,24 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"{row.get('feature_to_bar_symbol_minute_ratio')} | "
             f"{row.get('label_h15_to_feature_symbol_minute_ratio')} |"
         )
+
+    coverage = summary.get("latest_intraday_coverage") or {}
+    lines.extend(
+        [
+            "",
+            "## Latest Intraday Coverage",
+            "",
+            f"- status: `{coverage.get('status')}`",
+            f"- trade_date: `{coverage.get('trade_date')}`",
+            f"- latest_raw_minute: `{coverage.get('latest_raw_minute')}`",
+            f"- watchlist_symbols: `{coverage.get('watchlist_symbols')}`",
+            f"- expected_symbol_minutes: `{coverage.get('expected_symbol_minutes')}`",
+            f"- market_coverage: `{coverage.get('raw_market_coverage_ratio')}`",
+            f"- orderbook_coverage: `{coverage.get('raw_orderbook_coverage_ratio')}`",
+            f"- minute_bar_coverage: `{coverage.get('minute_bar_coverage_ratio')}`",
+            f"- feature_coverage: `{coverage.get('feature_coverage_ratio')}`",
+        ]
+    )
 
     assessment = summary.get("assessment") or {}
     lines.extend(["", "## Assessment", ""])
