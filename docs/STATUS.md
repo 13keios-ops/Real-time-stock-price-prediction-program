@@ -1,5 +1,20 @@
 # docs/STATUS.md
 
+## [2026-05-10 15:34] runtime readiness 대시보드 표시
+
+- 실행:
+  - `./scripts/check_local_setup.sh`
+- 결과:
+  - 최신 점검은 `ok=true`, blockers 없음.
+  - dashboard: `running`, API 응답 정상.
+  - runtime watchdog: `running`, session status `weekend`, `live_runtime_should_run=false`.
+  - live runtime: 주말이므로 `stopped`가 정상.
+- 변경:
+  - 대시보드 `상태 및 설정 > 현재 프로그램 상태`에 `장전 readiness` 카드를 추가했다.
+  - 이 카드는 `runtime-data/reports/recovery/latest-local-setup-check.json`을 읽어 dashboard/watchdog/live runtime/startup launcher/websockets/lightgbm 상태와 blockers 를 보여준다.
+- 판단:
+  - 월요일 09:00~09:30 점검 때 CLI 없이 대시보드에서 기본 기동 상태와 live runtime 필요 여부를 먼저 볼 수 있다.
+
 ## [2026-05-10 11:18] 월요일 장전 runtime readiness 점검
 
 - 실행:

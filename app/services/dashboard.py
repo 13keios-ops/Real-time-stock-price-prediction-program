@@ -1811,6 +1811,9 @@ def collect_dashboard_payload(
     latest_kis_live_feature_diagnostics = _safe_load_json(
         settings.runtime_data_dir / "reports" / "data-quality" / "latest-kis-live-feature-diagnostics.json"
     )
+    latest_local_setup_check = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "recovery" / "latest-local-setup-check.json"
+    )
     if isinstance(latest_kis_verification, dict):
         latest_kis_verification = dict(latest_kis_verification)
         latest_kis_verification.setdefault(
@@ -1969,6 +1972,7 @@ def collect_dashboard_payload(
         "latest_kis_live_data_quality": latest_kis_live_data_quality,
         "latest_feature_source_drift": latest_feature_source_drift,
         "latest_kis_live_feature_diagnostics": latest_kis_live_feature_diagnostics,
+        "latest_local_setup_check": latest_local_setup_check,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
@@ -2753,6 +2757,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
     latest_feature_source_drift = payload.get("latest_feature_source_drift", {}) or {}
     latest_kis_feature_diagnostics = payload.get("latest_kis_live_feature_diagnostics", {}) or {}
+    latest_local_setup = payload.get("latest_local_setup_check", {}) or {}
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
@@ -2889,6 +2894,25 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["대시보드 갱신", payload.get("generated_at")],
         ["대시보드 신선도", dashboard_freshness.get("label") or "미확인"],
         ["현재 범위", period_filter.get("label")],
+    ]
+    local_setup_dashboard = latest_local_setup.get("dashboard_status") or {}
+    local_setup_live_runtime = latest_local_setup.get("live_runtime_status") or {}
+    local_setup_watchdog = latest_local_setup.get("watchdog_status") or {}
+    local_setup_startup = latest_local_setup.get("runtime_startup_launcher_status") or {}
+    local_setup_blockers = latest_local_setup.get("blockers") or []
+    local_setup_rows = [
+        ["전체 상태", "ok" if latest_local_setup.get("ok") else "점검 필요" if latest_local_setup else "-"],
+        ["점검 시각", latest_local_setup.get("checked_at") or "-"],
+        ["blockers", ", ".join(local_setup_blockers) if local_setup_blockers else "none"],
+        ["대시보드", local_setup_dashboard.get("status") or "-"],
+        ["대시보드 응답", "예" if local_setup_dashboard.get("dashboard_api_responding") else "아니오"],
+        ["watchdog", local_setup_watchdog.get("status") or "-"],
+        ["live runtime", local_setup_live_runtime.get("status") or "-"],
+        ["장 상태", local_setup_watchdog.get("market_session_status") or local_setup_live_runtime.get("session_status") or "-"],
+        ["live runtime 필요", "예" if local_setup_watchdog.get("live_runtime_should_run") else "아니오"],
+        ["startup launcher", "ok" if local_setup_startup.get("ok") else "점검 필요" if local_setup_startup else "-"],
+        ["websockets", "예" if latest_local_setup.get("websockets_available") else "아니오"],
+        ["lightgbm", "예" if latest_local_setup.get("lightgbm_available") else "아니오"],
     ]
     setting_rows = [
         ["앱 이름", project.get("name")],
@@ -3605,7 +3629,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             (
                 "status-program",
                 "현재 프로그램 상태",
-                _section_card("현재 프로그램 상태", _table(["항목", "값"], status_rows, "상태 정보가 없습니다.", scroll_height=330), note=f"{_esc(system_status.get('operation_note'))}<br>{_esc(live_runtime.get('status_note'))}"),
+                _stack_cards(
+                    _section_card("현재 프로그램 상태", _table(["항목", "값"], status_rows, "상태 정보가 없습니다.", scroll_height=330), note=f"{_esc(system_status.get('operation_note'))}<br>{_esc(live_runtime.get('status_note'))}"),
+                    _section_card(
+                        "장전 readiness",
+                        _table(["항목", "값"], local_setup_rows, "장전 점검 결과가 없습니다.", scroll_height=280),
+                        note="check_local_setup.sh 최신 결과입니다.",
+                    ),
+                ),
             ),
             (
                 "status-kis-settings",

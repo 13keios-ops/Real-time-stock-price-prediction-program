@@ -147,9 +147,38 @@ class DashboardTests(unittest.TestCase):
         reports_root = runtime_root / "reports"
         (reports_root / "kis-ws").mkdir(parents=True, exist_ok=True)
         (reports_root / "data-quality").mkdir(parents=True, exist_ok=True)
+        (reports_root / "recovery").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "backlog").mkdir(parents=True, exist_ok=True)
 
+        (reports_root / "recovery" / "latest-local-setup-check.json").write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "checked_at": "2026-05-10 15:34:30 +0900",
+                    "blockers": [],
+                    "dashboard_status": {
+                        "status": "running",
+                        "dashboard_api_responding": True,
+                    },
+                    "live_runtime_status": {
+                        "status": "stopped",
+                        "session_status": "weekend",
+                    },
+                    "watchdog_status": {
+                        "status": "running",
+                        "market_session_status": "weekend",
+                        "live_runtime_should_run": False,
+                    },
+                    "runtime_startup_launcher_status": {"ok": True},
+                    "websockets_available": True,
+                    "lightgbm_available": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         (reports_root / "kis-ws" / "latest-verification.json").write_text(
             json.dumps(
                 {
@@ -489,6 +518,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("source_drift_detected", html)
         self.assertIn("KIS live feature-label 진단", html)
         self.assertIn("sample_too_small", html)
+        self.assertIn("장전 readiness", html)
+        self.assertIn("check_local_setup.sh 최신 결과입니다.", html)
         self.assertIn("장후 자동 학습 상태", html)
         self.assertIn("스냅샷 DB", html)
         self.assertIn("stdout 로그", html)

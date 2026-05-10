@@ -1,5 +1,12 @@
 # 작업 기록
 
+## [2026-05-10] Codex → runtime readiness 대시보드 표시
+
+- `./scripts/check_local_setup.sh` 최신 결과는 `ok=true`, blockers 없음으로 확인했다.
+- 대시보드 `상태 및 설정 > 현재 프로그램 상태`에 `장전 readiness` 카드를 추가했다.
+- 이 카드는 `runtime-data/reports/recovery/latest-local-setup-check.json`을 읽어 dashboard, watchdog, live runtime, startup launcher, websockets, lightgbm 상태를 보여준다.
+- 현재는 주말이라 live runtime 은 `stopped`, `live_runtime_should_run=false`가 정상이다.
+
 ## [2026-05-10] Codex → 월요일 장전 runtime readiness 점검
 
 - `./scripts/check_local_setup.sh` 첫 실행에서 dashboard/watchdog stale 로 `ok=false`를 확인했다.
