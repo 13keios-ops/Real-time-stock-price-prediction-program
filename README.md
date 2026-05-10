@@ -17,7 +17,7 @@
 
 연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. D드라이브가 없으면 `runtime-data/research-snapshots/`로 내려간다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
 
-장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report 와 dashboard snapshot 만 갱신한다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
+장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작한다. quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
 
 ## 핵심 문서
 

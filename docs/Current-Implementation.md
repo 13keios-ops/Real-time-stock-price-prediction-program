@@ -11,7 +11,7 @@
 
 장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래이며, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
 
-장마감 후 자동 관리는 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh --quick`를 백그라운드 실행하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report 와 dashboard snapshot 만 갱신한다. live DB는 장중 수집 원장으로 남긴다. snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 명시 명령이나 별도 저부하 시간대에서만 실행하며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
+장마감 후 자동 관리는 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh --quick`를 백그라운드 실행하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. live DB는 장중 수집 원장으로 남긴다. snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 명시 명령이나 별도 저부하 시간대에서만 실행하며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
 
 현재 기본 운영 자세는 아래와 같다.
 
@@ -227,7 +227,8 @@ KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식
 
 장후 관리는 장외에 실시간 수집기를 다시 켜지 않는다.
 이미 켜져 있으면 중지해 WebSocket 재연결 루프가 CPU를 계속 쓰지 않게 한다.
-기본 실행은 quick 경로이며 `runtime-data/dev.db`를 무겁게 재학습하지 않고 runtime report 와 dashboard snapshot 만 갱신한다.
+기본 실행은 quick 경로이며 `runtime-data/dev.db`를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다.
+quick 경로의 데이터 품질 진단은 warning-only 로 실행되어, 개별 진단 실패가 장후 상태 파일 전체 실패나 heavy research 자동 실행으로 이어지지 않는다.
 watchdog 은 장마감 후 기본 30분이 지나면 이 경로를 하루 한 번 백그라운드로 시작한다.
 같은 날짜의 post-close maintenance 상태 파일에 `starting`, `running`, `ok`, `failed` 등 status 값이 이미 있으면 watchdog 은 같은 작업을 반복 시작하지 않는다.
 snapshot DB와 격리된 research run runtime 을 쓰는 heavy research 는 아래처럼 명시적으로 실행한다.

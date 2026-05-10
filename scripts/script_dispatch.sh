@@ -466,6 +466,18 @@ post_close_ml_maintenance() {
   local snapshot_path="" snapshot_manifest="" snapshot_runtime="" database_url=""
   if [[ "$maintenance_mode" == "quick" ]]; then
     run_app --build-runtime-report >/dev/null
+    (
+      cd "$workspace"
+      "$PYTHON_BIN" scripts/summarize_kis_live_data_quality.py --recent-days 10 >/dev/null
+    ) || echo "warning: KIS live data quality summary failed during quick post-close maintenance" >&2
+    (
+      cd "$workspace"
+      "$PYTHON_BIN" scripts/summarize_feature_source_drift.py >/dev/null
+    ) || echo "warning: feature source drift summary failed during quick post-close maintenance" >&2
+    (
+      cd "$workspace"
+      "$PYTHON_BIN" scripts/summarize_kis_live_feature_diagnostics.py >/dev/null
+    ) || echo "warning: KIS live feature diagnostics summary failed during quick post-close maintenance" >&2
     run_app --build-dashboard >/dev/null
   elif [[ "$use_snapshot" == "true" ]]; then
     local data_root
@@ -503,7 +515,13 @@ from datetime import datetime
 path, root, runtime, horizon, maintenance_mode, use_snapshot, snapshot_path, snapshot_manifest, snapshot_runtime = sys.argv[1:10]
 if maintenance_mode == "quick":
     mode = "quick-live-report"
-    tasks = ["build-runtime-report", "build-dashboard"]
+    tasks = [
+        "build-runtime-report",
+        "summarize-kis-live-data-quality",
+        "summarize-feature-source-drift",
+        "summarize-kis-live-feature-diagnostics",
+        "build-dashboard",
+    ]
 elif use_snapshot == "true":
     mode = "heavy-snapshot"
     tasks = ["create-research-db-snapshot", "rebuild-actual-ml", "build-runtime-report", "build-dashboard"]

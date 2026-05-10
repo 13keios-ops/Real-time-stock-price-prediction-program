@@ -1,5 +1,19 @@
 # 작업 기록
 
+## [2026-05-10] Codex → quick post-close 데이터 품질 진단 자동 갱신
+
+- 목적:
+  - 장후 대시보드가 최신 KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단을 자동으로 반영하도록 quick maintenance 를 보강했다.
+- 변경:
+  - `scripts/script_dispatch.sh`의 quick post-close 경로에 아래 warning-only 진단을 추가했다.
+    - `scripts/summarize_kis_live_data_quality.py --recent-days 10`
+    - `scripts/summarize_feature_source_drift.py`
+    - `scripts/summarize_kis_live_feature_diagnostics.py`
+  - quick 상태 파일의 tasks 목록에 진단 3종을 포함하도록 했다.
+- 안전 기준:
+  - heavy research, feature dataset 전체 재생성, active model 교체, `app/risk/` 변경은 하지 않았다.
+  - 진단 실패는 stderr warning 으로만 남기고 quick dashboard 갱신 흐름을 계속 진행한다.
+
 ## [2026-05-10] Codex → KIS live feature-label 진단
 
 - 목적:

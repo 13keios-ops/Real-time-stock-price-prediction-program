@@ -1,5 +1,23 @@
 # docs/STATUS.md
 
+## [2026-05-10 11:08] quick post-close 데이터 품질 진단 자동 갱신
+
+- 목적:
+  - 장후 대시보드가 최신 KIS live 품질, KIS-Cybos source drift, KIS live feature-label 진단을 매일 보여주도록 quick maintenance 흐름에 가벼운 진단 갱신을 붙였다.
+- 변경:
+  - `scripts/script_dispatch.sh`의 `run_post_close_ml_maintenance.sh --quick` 경로가 아래 순서로 실행된다.
+    - runtime report 생성
+    - `scripts/summarize_kis_live_data_quality.py --recent-days 10`
+    - `scripts/summarize_feature_source_drift.py`
+    - `scripts/summarize_kis_live_feature_diagnostics.py`
+    - dashboard snapshot 생성
+  - quick 상태 파일의 task 목록에도 위 진단 3종을 기록한다.
+- 안전 기준:
+  - 진단 3종은 warning-only 로 실행한다. 개별 진단이 실패해도 heavy research 를 자동 시작하지 않고, dashboard 갱신 흐름을 최대한 유지한다.
+  - `python -m app --build-feature-dataset`, snapshot 기반 heavy research, active model 교체, `app/risk/` 변경은 포함하지 않았다.
+- 판단:
+  - 월요일 이후 장후 quick maintenance 가 성공하면 대시보드의 KIS 품질/feature drift/feature-label 카드가 수동 재실행 없이 최신화된다.
+
 ## [2026-05-10 08:31] KIS live feature-label 진단
 
 - 목적:
