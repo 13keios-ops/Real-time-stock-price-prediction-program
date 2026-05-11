@@ -1,5 +1,17 @@
 # 작업 기록
 
+## [2026-05-11] Codex → 재부팅 후 runtime 복구와 autoboot 장중 fast-start 보강
+
+- 12:56 KST 재부팅 후 점검에서 startup launcher 는 설치/정상 경로였지만 dashboard, watchdog, live runtime 프로세스가 stale/stopped 상태였다.
+- dashboard/watchdog 을 재기동했고 watchdog 이 live runtime 을 다시 올려 최종 `./scripts/check_local_setup.sh`는 `ok=true`, blockers 없음으로 회복됐다.
+- live runtime 은 KIS WebSocket 연결 후 `database is locked`로 몇 차례 종료됐고, 장중에 떠 있던 `python -m app --cleanup-runtime-test-data`가 DB 쓰기를 막는 원인으로 확인되어 종료했다.
+- 이후 latest raw minute 은 `2026-05-11T13:05:00+09:00`, lag `31s`로 회복됐다. 당일 전체 coverage watch 는 재부팅/잠금 구간 공백이 반영된 정상 주의 상태다.
+- `scripts/script_dispatch.sh`의 `runtime_autoboot`는 장전/장중(`pre-open`, `regular-session`)에는 account refresh, cleanup, dashboard build 를 건너뛰고 dashboard/live runtime/watchdog 기동을 우선하는 fast-start 로 보강했다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh`
+  - `timeout 30s ./scripts/start_runtime_autoboot.sh` → `live_window_fast_start=true`
+  - `./scripts/check_local_setup.sh` → `ok=true`
+
 ## [2026-05-10] Codex → 월요일 09:30 점검 false alarm 보정
 
 - cowork 검토를 반영해 KIS live coverage 와 readiness 카드의 장중 점검 오해 가능성을 줄였다.

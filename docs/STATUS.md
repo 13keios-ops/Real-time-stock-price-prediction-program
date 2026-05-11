@@ -1,5 +1,32 @@
 # docs/STATUS.md
 
+## [2026-05-11 13:09] 재부팅 후 runtime 상태 확인과 장중 autoboot 보강
+
+- 재부팅 직후 12:56 KST 점검:
+  - startup launcher: installed/ok.
+  - dashboard: stale.
+  - runtime watchdog: stale.
+  - live runtime: stopped.
+  - `check_local_setup`: `ok=false`, blockers `dashboard_not_running`, `watchdog_not_running`.
+- 복구:
+  - dashboard 와 runtime watchdog 을 재기동했다.
+  - watchdog 이 정규장 상태를 감지해 live runtime 을 다시 시작했다.
+  - 장중에 떠 있던 `python -m app --cleanup-runtime-test-data`가 DB 잠금을 잡고 있어 live runtime 이 `sqlite3.OperationalError: database is locked`로 몇 차례 종료됐고, 해당 cleanup 프로세스를 종료했다.
+- 최종 상태:
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+  - dashboard: running, `http://127.0.0.1:8765`, API 응답 정상.
+  - runtime watchdog: running, `market_session_status=regular-session`, `live_runtime_should_run=true`.
+  - live runtime: running, `credentials_ready_for_quotes=true`.
+  - KIS quality 최신 raw minute: `2026-05-11T13:05:00+09:00`, lag `31s`.
+  - 당일 coverage watch 는 재부팅/DB 잠금으로 생긴 중간 공백이 포함된 결과이며, 현재 수집 흐름은 회복됐다.
+- 변경:
+  - `scripts/script_dispatch.sh`의 `runtime_autoboot`는 `pre-open`/`regular-session`이면 `live_window_fast_start=true`로 동작한다.
+  - 이 fast-start 에서는 account refresh, runtime cleanup, dashboard build 를 건너뛰고 dashboard/live runtime/watchdog 기동을 우선한다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh`
+  - `timeout 30s ./scripts/start_runtime_autoboot.sh` → `live_window_fast_start=true`
+  - `./scripts/check_local_setup.sh` → `ok=true`
+
 ## [2026-05-10 15:56] 월요일 09:30 점검 false alarm 보정
 
 - 목적:

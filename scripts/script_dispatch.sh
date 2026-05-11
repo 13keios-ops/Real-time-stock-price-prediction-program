@@ -571,6 +571,14 @@ runtime_autoboot() {
       *) remaining+=("$1"); shift ;;
     esac
   done
+  local session live_window_fast_start="false"
+  session="$(market_session_status "$REPO_ROOT")"
+  if [[ "$session" == "regular-session" || "$session" == "pre-open" ]]; then
+    live_window_fast_start="true"
+    skip_account="true"
+    skip_cleanup="true"
+    skip_build="true"
+  fi
   [[ "$skip_cleanup" == "true" ]] || run_app --cleanup-runtime-test-data >/dev/null || true
   if [[ "$skip_account" != "true" ]]; then
     run_app --kis-account-balance >/dev/null || true
@@ -578,8 +586,6 @@ runtime_autoboot() {
     run_app --reconcile-paper-accounts >/dev/null || true
   fi
   [[ "$skip_dashboard" == "true" ]] || "$SCRIPT_DIR/start_dashboard_background.sh" "${remaining[@]}" $force_dashboard >/dev/null || true
-  local session
-  session="$(market_session_status "$REPO_ROOT")"
   if [[ "$skip_live" != "true" ]]; then
     if [[ "$session" == "regular-session" || "$session" == "pre-open" ]]; then
       "$SCRIPT_DIR/start_live_runtime_background.sh" $force_live >/dev/null || true
@@ -589,7 +595,7 @@ runtime_autoboot() {
   fi
   [[ "$skip_watchdog" == "true" ]] || "$SCRIPT_DIR/start_runtime_watchdog_background.sh" $force_watchdog >/dev/null || true
   [[ "$skip_build" == "true" ]] || { run_app --build-runtime-report >/dev/null; run_app --build-dashboard >/dev/null; }
-  printf '{\n  "ok": true,\n  "market_session_status": "%s",\n  "completed_at": "%s"\n}\n' "$session" "$(now_text)"
+  printf '{\n  "ok": true,\n  "market_session_status": "%s",\n  "live_window_fast_start": %s,\n  "completed_at": "%s"\n}\n' "$session" "$live_window_fast_start" "$(now_text)"
 }
 
 direct_sequence() {
