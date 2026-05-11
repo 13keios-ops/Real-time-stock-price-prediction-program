@@ -162,6 +162,7 @@
   - 대시보드의 비교 카드와 `최근 브로커 제출 주문` 표에서 현재 동기화 상태를 확인한다.
 - `로컬 시작 예수금 동기화`
   - 장 시작 전에는 `scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker` 로 KIS 모의계좌 예수금을 root `.env` 의 `PAPER_INITIAL_CASH` 에 맞추고, 브로커 기준 marker 정렬까지 갱신한다.
+  - 브로커 모의계좌에 이미 보유 종목이 있으면 현재 현금이 총 시작 예수금이 아니므로 `-SyncInitialCash`는 거부된다. 이때는 `scripts/verify_paper_dual_account_match.sh -AlignToBroker -AsJson` 으로 브로커 기준 marker 만 정렬한다.
   - 이후 수시 점검은 `scripts/verify_paper_dual_account_match.sh -AsJson` 으로 한다.
   - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.{md,json}` 에 남는다.
 - `paper-account reconciliation`

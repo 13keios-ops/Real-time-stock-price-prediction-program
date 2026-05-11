@@ -272,6 +272,12 @@ python -m app --align-local-paper-to-broker
 ./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -AsJson
 ```
 
+브로커 모의계좌에 이미 보유 종목이 있으면 현재 현금은 총 시작 예수금이 아니므로 `-SyncInitialCash`는 사용하지 않는다. 이 경우에는 브로커 기준 marker 만 정렬한다.
+
+```bash
+./scripts/verify_paper_dual_account_match.sh -AlignToBroker -AsJson
+```
+
 장중 또는 장후 상태 확인:
 
 ```bash

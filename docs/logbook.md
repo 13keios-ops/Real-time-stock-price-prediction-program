@@ -1,5 +1,29 @@
 # 작업 기록
 
+## [2026-05-11] Codex → 장후 quick maintenance, label rebuild, paper 정합성 복구
+
+- 장 종료 후 quick maintenance 를 실행했다.
+  - `./scripts/run_post_close_ml_maintenance.sh --quick`: `status=ok`, completed_at `2026-05-11 22:16:58 +0900`.
+  - runtime report, local setup check, KIS live 품질, source drift, KIS live feature diagnostics, dashboard rebuild 가 갱신됐다.
+- 오늘 Cybos/KIS 누적 DB 기준 feature/label 을 다시 닫았다.
+  - `python -m app --build-feature-dataset`: `features_written=6,393,762`, `labels_written=11,557,733`.
+  - 2026-05-11 KIS live: features `3,463`, h15 labels `3,313`, h60 labels `2,863`.
+  - h15 label distribution: down `595`, flat `2,191`, up `527`.
+  - assessment 는 재부팅/DB lock 공백이 누적되어 `watch` 유지지만, latest raw minute 은 `15:30`까지 도달했다.
+- feature 진단:
+  - KIS live feature diagnostics 는 `no_clear_single_feature_signal`.
+  - source drift 는 `source_drift_detected`; Cybos historical 은 live 호가 feature 직접 대리값으로 쓰지 않는다.
+- 모의계좌 정합성:
+  - WSL bash 포팅 과정에서 `verify_paper_dual_account_match.sh -AlignToBroker`가 실제 `python -m app --align-local-paper-to-broker`를 호출하지 않는 누락을 확인했다.
+  - `scripts/wsl_ops.py`를 수정해 `-AlignToBroker`는 실제 align 을 수행하고, 열린 브로커 포지션이 있으면 `-SyncInitialCash`는 거부하도록 legacy 동작을 복원했다.
+  - `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, mismatch/cash gap/total asset gap 모두 `0`.
+  - 현재 기준: 브로커/로컬 모두 `005930` 1주, cash `9,638,723`, total asset `9,924,223`.
+- 검증:
+  - `python -m py_compile scripts/wsl_ops.py tests/test_wsl_ops.py`
+  - `python -m unittest tests.test_wsl_ops tests.test_paper_alignment tests.test_paper_reconciliation tests.test_broker_paper_sync`: 14개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 101개 통과.
+  - `git diff --check`: 통과.
+
 ## [2026-05-11] Codex → 주말 자율 점검 마감
 
 - 14:13 KST 기준 주말 자율 연구/품질개선 follow-up 종료 시각에 도달했다.

@@ -165,6 +165,35 @@ def set_env_value(path: Path, key: str, value: str) -> None:
     path.write_text("\n".join(output) + "\n", encoding="utf-8")
 
 
+def number_or_none(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def format_env_number(value: float) -> str:
+    rounded = round(value)
+    if abs(value - rounded) < 1e-9:
+        return str(int(rounded))
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
+def account_position_count(account_snapshot: dict[str, Any]) -> int:
+    raw_count = account_snapshot.get("position_row_count")
+    if raw_count is not None:
+        try:
+            return int(raw_count)
+        except (TypeError, ValueError):
+            pass
+    positions = account_snapshot.get("positions")
+    if isinstance(positions, list):
+        return len(positions)
+    return 0
+
+
 def market_settings(root: Path) -> tuple[str, bool, bool]:
     open_text, close_text, holidays = market_schedule(root)
     now = dt.datetime.now()
@@ -1178,16 +1207,43 @@ def check_local_setup(args: argparse.Namespace) -> None:
 def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
     root = Path(args.workspace_root).expanduser().resolve()
     runtime = runtime_dir(root, args.runtime_data_dir)
-    if not (root / ".env").exists():
+    env_path = root / ".env"
+    if not env_path.exists():
         raise SystemExit("Missing root .env. Restore KIS paper credentials before comparing paper accounts.")
-    for app_args in (["--kis-account-balance"], ["--sync-broker-paper-orders"], ["--reconcile-paper-accounts"]):
+
+    env_before = parse_env(env_path)
+    initial_cash_before = env_before.get("PAPER_INITIAL_CASH", "")
+    subprocess.run([python_bin(), "-m", "app", "--kis-account-balance"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+    account = read_json(runtime / "reports/kis-account/latest-account-paper.json", {}) or read_json(runtime / "reports/kis-account/latest-account.json", {})
+    account_snapshot = account.get("account_snapshot") if isinstance(account, dict) else None
+    if not isinstance(account_snapshot, dict):
+        raise SystemExit("KIS paper account report was not created. Check paper account credentials and KIS connectivity.")
+
+    broker_cash_from_account = number_or_none(account_snapshot.get("cash_balance"))
+    broker_position_count_from_account = account_position_count(account_snapshot)
+    if args.sync_initial_cash:
+        if broker_position_count_from_account > 0:
+            raise SystemExit(
+                "Broker paper account has open positions, so PAPER_INITIAL_CASH should not be synchronized to current cash. "
+                "Run this only before the first submission or after closing/realigning positions."
+            )
+        if broker_cash_from_account is None or broker_cash_from_account <= 0:
+            raise SystemExit("Broker paper cash is unavailable, so PAPER_INITIAL_CASH cannot be synchronized.")
+        set_env_value(env_path, "PAPER_INITIAL_CASH", format_env_number(broker_cash_from_account))
+
+    if args.align_to_broker:
+        subprocess.run([python_bin(), "-m", "app", "--align-local-paper-to-broker"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+
+    for app_args in (["--sync-broker-paper-orders"], ["--reconcile-paper-accounts"]):
         subprocess.run([python_bin(), "-m", "app", *app_args], cwd=root, check=True, stdout=subprocess.DEVNULL)
     if args.refresh_dashboard:
         subprocess.run([python_bin(), "-m", "app", "--build-dashboard"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+
+    env_after = parse_env(env_path)
+    initial_cash_after = env_after.get("PAPER_INITIAL_CASH", "")
     report_dir = runtime / "reports/reconciliation"
     report_dir.mkdir(parents=True, exist_ok=True)
     reconciliation = read_json(report_dir / "latest-paper-account-sync.json", {})
-    account = read_json(runtime / "reports/kis-account/latest-account-paper.json", {}) or read_json(runtime / "reports/kis-account/latest-account.json", {})
     comp = reconciliation.get("comparison") or {}
     local = reconciliation.get("local_account") or {}
     broker = reconciliation.get("broker_account") or {}
@@ -1195,13 +1251,48 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
     cash_gap = float(comp.get("cash_gap") or 0)
     total_gap = float(comp.get("total_asset_gap") or 0)
     mirrored = int(comp.get("mirrored_order_count") or 0)
-    ok = bool(account.get("ok", True)) and bool(reconciliation.get("ok")) and bool(comp.get("order_mirroring_enabled")) and mismatch == 0 and abs(cash_gap) < 1 and abs(total_gap) < 1
-    status = "matched_waiting_first_submission" if ok and mirrored == 0 else ("matched" if ok else "needs_review")
+    local_positions = local.get("positions") if isinstance(local.get("positions"), list) else []
+    local_position_count = len(local_positions)
+    initial_cash_check_required = broker_position_count_from_account == 0 and local_position_count == 0
+    initial_cash_matches_broker = True
+    if initial_cash_check_required:
+        local_initial_cash = number_or_none(initial_cash_after)
+        initial_cash_matches_broker = (
+            local_initial_cash is not None
+            and broker_cash_from_account is not None
+            and abs(local_initial_cash - broker_cash_from_account) < 1
+        )
+    balance_match = bool(comp.get("balance_match")) if comp.get("balance_match") is not None else abs(cash_gap) < 1
+    total_asset_match = bool(comp.get("total_asset_match")) if comp.get("total_asset_match") is not None else abs(total_gap) < 1
+    accounts_match = bool(reconciliation.get("ok")) and mismatch == 0 and balance_match and total_asset_match
+    ok = (
+        bool(account.get("ok", True))
+        and bool(reconciliation.get("ok"))
+        and bool(comp.get("order_mirroring_enabled"))
+        and initial_cash_matches_broker
+        and accounts_match
+    )
+    if ok and mirrored == 0:
+        status = "matched_waiting_first_submission"
+    elif ok:
+        status = "matched"
+    elif initial_cash_check_required and not initial_cash_matches_broker:
+        status = "initial_cash_mismatch"
+    else:
+        status = "needs_review"
     payload = {
         "ok": ok,
         "checked_at": now_text(),
         "status": status,
         "actions": {"sync_initial_cash": args.sync_initial_cash, "align_to_broker": args.align_to_broker, "refresh_dashboard": args.refresh_dashboard},
+        "env": {
+            "paper_initial_cash_before": initial_cash_before,
+            "paper_initial_cash_after": initial_cash_after,
+            "initial_cash_check_required": initial_cash_check_required,
+            "initial_cash_matches_broker_cash": initial_cash_matches_broker,
+            "trading_mode": env_after.get("TRADING_MODE", ""),
+            "broker_paper_mirroring_enabled": bool(comp.get("order_mirroring_enabled")),
+        },
         "broker_account": broker,
         "local_account": local,
         "comparison": comp,
@@ -1214,6 +1305,9 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
         f"- checked at: {payload['checked_at']}\n"
         f"- ok: {payload['ok']}\n"
         f"- status: {payload['status']}\n"
+        f"- local initial cash before: {initial_cash_before}\n"
+        f"- local initial cash after: {initial_cash_after}\n"
+        f"- initial cash check required: {initial_cash_check_required}\n"
         f"- cash gap: {cash_gap}\n"
         f"- total asset gap: {total_gap}\n"
         f"- mismatch count: {mismatch}\n",

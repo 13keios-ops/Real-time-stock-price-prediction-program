@@ -1,5 +1,29 @@
 # docs/STATUS.md
 
+## [2026-05-11 22:34] 장후 quick maintenance, label rebuild, paper 정합성 복구
+
+- post-close quick maintenance:
+  - `./scripts/run_post_close_ml_maintenance.sh --quick`: `status=ok`, `maintenance_date=2026-05-11`, completed_at `2026-05-11 22:16:58 +0900`.
+  - 포함 작업: runtime report, local setup check, KIS live 품질, source drift, KIS live feature diagnostics, dashboard rebuild.
+- feature/label rebuild:
+  - `python -m app --build-feature-dataset`: `features_written=6,393,762`, `labels_written=11,557,733`, horizons `[15, 60]`.
+  - 2026-05-11 최신 KIS live 품질: minute bars/features `3,463`, h15 labels `3,313`, h60 labels `2,863`.
+  - h15 label distribution: down `595`, flat `2,191`, up `527`.
+  - assessment 는 `watch` 유지. 이유는 12:30~13:03 재부팅/DB lock 공백으로 market/minute/feature coverage 가 약 `88.8~89.1%`에 머문 영향이며, latest raw minute 은 `2026-05-11T15:30:00+09:00`까지 닫혔다.
+- feature diagnostics:
+  - KIS live 단일 피처 진단 posture: `no_clear_single_feature_signal`.
+  - strongest feature: `mid_price`, Pearson `0.035772`, top-bottom future return delta `0.044129%`.
+  - source drift posture: `source_drift_detected`. Cybos historical 은 `spread_bps`, `bid_ask_imbalance`의 live 호가 분포를 담지 못하므로 KIS live 성능의 직접 대리값으로 보지 않는다.
+- paper account:
+  - WSL 전환 후 `scripts/verify_paper_dual_account_match.sh -AlignToBroker`가 실제 align 명령을 호출하지 않던 누락을 수정했다.
+  - 열린 브로커 포지션이 있으면 `-SyncInitialCash`는 거부하고, `-AlignToBroker`만 허용하는 legacy 동작을 복원했다.
+  - 실행: `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson`.
+  - 결과: `ok=true`, `status=matched_waiting_first_submission`, mismatch `0`, cash gap `0`, total asset gap `0`.
+  - 현재 브로커/로컬 기준: `005930` 1주, cash `9,638,723`, total asset `9,924,223`.
+- 판단:
+  - 오늘 장중 수집은 재부팅 공백 때문에 완전한 학습일은 아니지만, 장후 feature/label 닫힘과 paper 정합성은 회복됐다.
+  - 모델 승격은 보류한다. 다음 거래일에는 09:30 수집률과 장후 KIS live 누적 품질을 먼저 본다.
+
 ## [2026-05-11 14:13] 주말 자율 점검 마감 상태
 
 - deadline:
