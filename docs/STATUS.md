@@ -1,5 +1,21 @@
 # docs/STATUS.md
 
+## [2026-05-11 22:50] broker paper align wrapper cowork 검토 후 테스트 보강
+
+- cowork read-only 검토 결과:
+  - `-AlignToBroker`가 실제 `python -m app --align-local-paper-to-broker`를 호출하는 구조는 맞다.
+  - 열린 브로커 포지션이 있을 때 `-SyncInitialCash`를 거부하는 정책은 운영상 안전하다.
+  - 핵심 회귀는 테스트로 막혔지만, 주변 fail-loud 분기 테스트가 부족했다.
+- 보강:
+  - `tests/test_wsl_ops.py`를 확장해 align 실패 전파, `.env` 누락, KIS account snapshot 누락, 현금 0/누락, `-FailOnMismatch`, PowerShell 스타일 argparse 별칭, sync/reconcile 호출 순서를 추가로 고정했다.
+  - 실제 KIS 호출, align 실행, DB/runtime 수정 없이 mock 기반으로만 검증했다.
+- 검증:
+  - `python -m py_compile scripts/wsl_ops.py tests/test_wsl_ops.py`
+  - `python -m unittest tests.test_wsl_ops`: 10개 통과.
+  - `python scripts/wsl_ops.py verify-paper-dual-account-match --help`: `-SyncInitialCash`, `-AlignToBroker`, `-RefreshDashboard`, `-FailOnMismatch`, `-AsJson` 확인.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 108개 통과.
+  - `git diff --check`: 통과.
+
 ## [2026-05-11 22:34] 장후 quick maintenance, label rebuild, paper 정합성 복구
 
 - post-close quick maintenance:

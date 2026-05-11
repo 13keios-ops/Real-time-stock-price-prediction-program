@@ -1,5 +1,21 @@
 # 작업 기록
 
+## [2026-05-11] Codex → broker paper align wrapper cowork 검토 후 테스트 보강
+
+- cowork read-only 검토를 반영해 `scripts/wsl_ops.py`의 `verify-paper-dual-account-match` 주변 회귀 테스트를 보강했다.
+- 추가로 잠근 분기:
+  - `-AlignToBroker` 실행 실패 시 `CalledProcessError`가 전파되고 sync/reconcile 로 넘어가지 않는다.
+  - root `.env` 누락 시 KIS 호출 전에 fail-loud 한다.
+  - KIS account snapshot 누락, `-SyncInitialCash` 현금 0/누락, `-FailOnMismatch` mismatch exit 을 확인한다.
+  - `-SyncInitialCash`, `-AlignToBroker`, `-RefreshDashboard`, `-FailOnMismatch`, `-AsJson` argparse 별칭이 유지되는지 확인한다.
+  - align → sync-broker-paper-orders → reconcile 순서를 확인한다.
+- 검증:
+  - `python -m py_compile scripts/wsl_ops.py tests/test_wsl_ops.py`
+  - `python -m unittest tests.test_wsl_ops`: 10개 통과.
+  - `python scripts/wsl_ops.py verify-paper-dual-account-match --help`: PowerShell 스타일 별칭 확인.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 108개 통과.
+  - `git diff --check`: 통과.
+
 ## [2026-05-11] Codex → 장후 quick maintenance, label rebuild, paper 정합성 복구
 
 - 장 종료 후 quick maintenance 를 실행했다.
