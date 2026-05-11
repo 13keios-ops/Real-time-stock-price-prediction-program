@@ -27,6 +27,7 @@ htmlcov/
 
 # Notebook and local editor noise
 .ipynb_checkpoints/
+.codex/
 .vscode/
 .idea/
 
