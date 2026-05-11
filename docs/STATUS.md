@@ -1,5 +1,20 @@
 # docs/STATUS.md
 
+## [2026-05-11 14:13] 주말 자율 점검 마감 상태
+
+- deadline:
+  - 사용자 요청 기준 `2026-05-11 14:00 Asia/Seoul` 이후라 새 장시간 작업은 시작하지 않고 최종 상태만 확인했다.
+- 최종 상태:
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+  - dashboard: running, API 응답 정상.
+  - runtime watchdog: running, `market_session_status=regular-session`, errors 없음.
+  - live runtime: running, `credentials_ready_for_quotes=true`.
+  - latest raw minute: `2026-05-11T14:13:00+09:00`, lag `67s`.
+- 판단:
+  - 현재 live 수집은 흐르고 있다.
+  - `assessment=watch`는 재부팅/DB 잠금 복구 과정의 중간 공백이 당일 coverage 에 누적된 결과다.
+  - 자율 follow-up 은 종료 대상으로 처리한다.
+
 ## [2026-05-11 13:09] 재부팅 후 runtime 상태 확인과 장중 autoboot 보강
 
 - 재부팅 직후 12:56 KST 점검:

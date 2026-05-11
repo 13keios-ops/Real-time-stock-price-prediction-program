@@ -1,5 +1,15 @@
 # 작업 기록
 
+## [2026-05-11] Codex → 주말 자율 점검 마감
+
+- 14:13 KST 기준 주말 자율 연구/품질개선 follow-up 종료 시각에 도달했다.
+- 최종 상태:
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+  - dashboard/watchdog/live runtime 모두 running.
+  - latest raw minute: `2026-05-11T14:13:00+09:00`, lag `67s`.
+  - 당일 coverage watch 는 12:30~13:03 재부팅/DB 잠금 공백이 누적된 결과이며, 현재 live 수집 흐름은 정상이다.
+- 후속 heartbeat 자동화는 종료 대상으로 처리한다.
+
 ## [2026-05-11] Codex → 재부팅 후 runtime 복구와 autoboot 장중 fast-start 보강
 
 - 12:56 KST 재부팅 후 점검에서 startup launcher 는 설치/정상 경로였지만 dashboard, watchdog, live runtime 프로세스가 stale/stopped 상태였다.
