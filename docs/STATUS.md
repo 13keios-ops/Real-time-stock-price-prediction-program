@@ -1,5 +1,40 @@
 # docs/STATUS.md
 
+## [2026-05-12 21:32] 장후 데이터 닫힘과 paper 정합성 복구
+
+- post-close quick maintenance:
+  - watchdog 이 `./scripts/run_post_close_ml_maintenance.sh --quick`를 이미 실행했고, `maintenance_date=2026-05-12`, completed_at `2026-05-12 16:03:54 +0900`, `status=ok`였다.
+  - 포함 작업: runtime report, local setup check, KIS live 품질, source drift, KIS live feature diagnostics, dashboard rebuild.
+- runtime 상태:
+  - live runtime 은 `15:30:45 +0900`에 post-close 로 정상 중지됐다.
+  - dashboard/watchdog 은 장후 점검 시 stale 로 확인되어 재기동했다.
+  - 최종 `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+  - dashboard: running, API 응답 정상.
+  - watchdog: running, `market_session_status=post-close`, `live_runtime_should_run=false`.
+- feature/label rebuild:
+  - quick 직후 2026-05-12 h15/h60 labels 가 `0`으로 남아 있어 장후 라벨 닫힘이 필요했다.
+  - `python -m app --build-feature-dataset`: `features_written=6,397,522`, `labels_written=11,564,503`, horizons `[15, 60]`.
+  - 2026-05-12 KIS live 품질: minute bars/features `3,760`, h15 labels `3,610`, h60 labels `3,160`.
+  - h15 label distribution: down `1,259`, flat `1,545`, up `806`.
+  - latest raw minute `2026-05-12T15:30:00+09:00`, closed feature coverage `96.41%`, assessment `ok`.
+- feature diagnostics:
+  - KIS live 단일 피처 진단 posture: `no_clear_single_feature_signal`.
+  - strongest feature: `avg_trade_size`, Pearson `0.045198`, top-bottom future return delta `0.071715%`.
+  - source drift posture: `source_drift_detected`. Cybos historical 은 live 호가 feature 분포를 담지 못하므로 KIS live 성능의 직접 대리값으로 보지 않는다.
+- dashboard:
+  - `python -m app --build-runtime-report` 실행 완료.
+  - `python -m app --build-dashboard`: generated_at `2026-05-12T21:27:54+09:00`.
+  - 오늘 dashboard summary 는 `feature_rows=3,753`, `labels=6,756`으로 라벨 닫힘을 반영한다.
+- paper account:
+  - 최초 정합성 점검에서 브로커에는 `105560` 4주만 있고, 로컬에는 `247540` 3주가 추가로 남아 `needs_review`였다.
+  - `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson`로 브로커 기준 marker 정렬을 수행했다.
+  - 최종 `ok=true`, `status=matched_waiting_first_submission`, mismatch `0`, cash gap `0`, total asset gap `0`.
+  - 현재 브로커/로컬 기준: `105560` 4주, effective cash `9,201,233`, total asset `9,815,633`.
+- 판단:
+  - 오늘 장후 데이터 닫힘과 모의계좌 기준선 정렬은 완료됐다.
+  - KIS live 표본은 늘었지만 단일 피처 신호가 아직 약해 모델 승격은 보류한다.
+  - 다음 우선순위는 다음 거래일 09:30 수집률 확인, 장후 label 닫힘 확인, KIS live 표본 누적 뒤 feature 조합 후보를 다시 평가하는 것이다.
+
 ## [2026-05-11 22:50] broker paper align wrapper cowork 검토 후 테스트 보강
 
 - cowork read-only 검토 결과:

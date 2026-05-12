@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-12] Codex → 장후 label rebuild, KIS 품질 갱신, paper 정합성 정렬
+
+- 장마감 후 상태:
+  - live runtime 은 `15:30:45 +0900`에 post-close 상태로 정상 중지됐다.
+  - dashboard/watchdog 은 stale 로 확인되어 재기동했고, 최종 `./scripts/check_local_setup.sh`는 `ok=true`, blockers 없음으로 회복됐다.
+  - post-close quick maintenance 는 watchdog 에 의해 이미 `2026-05-12 16:03:54 +0900`에 `status=ok`로 완료되어 있었다.
+- feature/label 닫힘:
+  - quick 완료 직후 대시보드는 오늘 `labels=0`으로 보였고, KIS 품질 리포트도 2026-05-12 h15/h60 labels `0`이었다.
+  - `python -m app --build-feature-dataset` 실행 후 `features_written=6,397,522`, `labels_written=11,564,503`, horizons `[15, 60]`.
+  - 갱신된 2026-05-12 KIS live 품질: minute bars/features `3,760`, h15 labels `3,610`, h60 labels `3,160`.
+  - h15 label distribution: down `1,259`, flat `1,545`, up `806`.
+  - latest raw minute 은 `2026-05-12T15:30:00+09:00`, closed feature coverage 는 `96.41%`, assessment 는 `ok`.
+- 장후 리포트와 대시보드:
+  - `python scripts/summarize_kis_live_data_quality.py --recent-days 10`: `assessment=ok`.
+  - `python scripts/summarize_feature_source_drift.py`: `source_drift_detected` 유지.
+  - `python scripts/summarize_kis_live_feature_diagnostics.py`: `no_clear_single_feature_signal`, strongest feature `avg_trade_size`, Pearson `0.045198`.
+  - `python -m app --build-runtime-report`와 `python -m app --build-dashboard` 실행 완료. dashboard generated_at `2026-05-12T21:27:54+09:00`.
+- paper 계좌 정합성:
+  - 최초 `./scripts/verify_paper_dual_account_match.sh -AsJson`에서 로컬에만 `247540` 3주가 남아 `needs_review`가 나왔다.
+  - 브로커 모의계좌를 기준으로 `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson` 실행.
+  - 최종 `ok=true`, `status=matched_waiting_first_submission`, mismatch `0`, cash gap `0`, total asset gap `0`.
+  - 현재 브로커/로컬 기준: `105560` 4주, effective cash `9,201,233`, total asset `9,815,633`.
+- 판단:
+  - 2026-05-12 장중 데이터는 라벨까지 닫힌 학습 가능 상태로 복구됐다.
+  - KIS live 단일 피처 신호는 아직 약하므로 모델 승격은 보류한다.
+  - 다음 거래일에는 장중 09:30 수집률과 장후 h15/h60 label 닫힘을 계속 확인한다.
+
 ## [2026-05-11] Codex → broker paper align wrapper cowork 검토 후 테스트 보강
 
 - cowork read-only 검토를 반영해 `scripts/wsl_ops.py`의 `verify-paper-dual-account-match` 주변 회귀 테스트를 보강했다.
