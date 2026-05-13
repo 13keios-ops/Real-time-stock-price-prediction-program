@@ -148,6 +148,7 @@ class DashboardTests(unittest.TestCase):
         (reports_root / "kis-ws").mkdir(parents=True, exist_ok=True)
         (reports_root / "data-quality").mkdir(parents=True, exist_ok=True)
         (reports_root / "recovery").mkdir(parents=True, exist_ok=True)
+        (reports_root / "ml-maintenance" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "backlog").mkdir(parents=True, exist_ok=True)
 
@@ -189,6 +190,46 @@ class DashboardTests(unittest.TestCase):
                     "status_note": "weekend test",
                     "frames_received": 4,
                     "control_frames": 4,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (reports_root / "ml-maintenance" / "state" / "latest-post-close-ml.json").write_text(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "maintenance_date": "2026-05-13",
+                    "completed_at": "2026-05-13 16:03:08 +0900",
+                    "mode": "quick-live-report",
+                    "horizon_min": 15,
+                    "snapshot_path": "",
+                    "snapshot_runtime_data_dir": "",
+                    "stdout_log_path": "",
+                    "stderr_log_path": "",
+                    "error": None,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (reports_root / "ml-maintenance" / "state" / "latest-post-close-label-refresh.json").write_text(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "maintenance_date": "2026-05-13",
+                    "completed_at": "2026-05-13 23:15:10 +0900",
+                    "mode": "post-close-label-refresh-live-db",
+                    "tasks": [
+                        "build-feature-dataset",
+                        "summarize-kis-live-data-quality",
+                        "build-dashboard",
+                    ],
+                    "recent_days": 10,
+                    "skipped_feature_label_build": False,
+                    "exit_code": 0,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -527,6 +568,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("장후 자동 학습 상태", html)
         self.assertIn("스냅샷 DB", html)
         self.assertIn("stdout 로그", html)
+        self.assertIn("장후 label refresh 상태", html)
+        self.assertIn("post-close-label-refresh-live-db", html)
+        self.assertIn("latest-post-close-label-refresh.json", html)
         self.assertIn("연결 및 설정", html)
         self.assertIn("집계 현황", html)
         self.assertIn("요약", html)

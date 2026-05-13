@@ -9,6 +9,8 @@
   - 검증: `bash -n scripts/script_dispatch.sh`, `bash -n scripts/run_post_close_label_refresh.sh`, dry-run 2종, `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script` 통과.
   - 실제 확인: `./scripts/run_post_close_label_refresh.sh --skip-build` 실행 완료, `status=ok`, dashboard generated_at `2026-05-13T23:15:10+09:00`.
   - 전체 검증: `python -m unittest discover -s tests -p "test_*.py"` 111개 통과, `git diff --check` 통과, `./scripts/check_local_setup.sh` `ok=true`.
+  - 대시보드 `머신러닝 현황` 탭에 `장후 label refresh 상태` 카드를 추가해 최신 label refresh 상태 파일을 화면에서 확인할 수 있게 했다.
+  - 대시보드 보강 검증: `python -m unittest tests.test_dashboard tests.test_post_close_label_refresh_script tests.test_post_close_maintenance_script` 17개 통과, `python -m app --build-dashboard` generated_at `2026-05-13T23:34:31+09:00`.
   - `paper_alignment` baseline snapshot 이 보유 종목 0개일 때만 raw cash 를 쓰던 조건을 수정했다.
   - 이제 보유 종목 유무와 관계없이 KIS `total_asset_amount - stock_evaluation_amount` 로 계산한 유효현금을 로컬 cash baseline 으로 쓴다.
   - 회귀 테스트 `test_align_local_paper_to_broker_uses_effective_cash_without_positions`를 추가했다.

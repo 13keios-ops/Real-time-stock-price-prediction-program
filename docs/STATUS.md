@@ -21,6 +21,10 @@
   - `python -m unittest discover -s tests -p "test_*.py"`: 111개 통과.
   - `git diff --check`: 통과.
   - `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+- 대시보드:
+  - 머신러닝 현황 탭에 `장후 label refresh 상태` 카드를 추가해 `latest-post-close-label-refresh.json`의 status, 완료 시각, 실행 모드, 작업 목록을 바로 확인할 수 있게 했다.
+  - `python -m unittest tests.test_dashboard tests.test_post_close_label_refresh_script tests.test_post_close_maintenance_script`: 17개 통과.
+  - `python -m app --build-dashboard`: generated_at `2026-05-13T23:34:31+09:00`, 카드 표시 확인.
 - 판단:
   - watchdog quick 경로는 그대로 가볍게 유지한다.
   - 장후 학습 가능 상태 보장은 새 label refresh 경로로 분리해 실행한다.

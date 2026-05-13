@@ -1793,9 +1793,13 @@ def collect_dashboard_payload(
     latest_post_close_ml_maintenance = _safe_load_json(
         settings.runtime_data_dir / "reports" / "ml-maintenance" / "state" / "latest-post-close-ml.json"
     )
+    latest_post_close_label_refresh = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "ml-maintenance" / "state" / "latest-post-close-label-refresh.json"
+    )
     ml_state["today_training_count"] = len(today_training_runs)
     ml_state["today_evaluation_count"] = len(today_evaluations)
     ml_state["latest_post_close_maintenance"] = latest_post_close_ml_maintenance
+    ml_state["latest_post_close_label_refresh"] = latest_post_close_label_refresh
 
     latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
     latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
@@ -1867,6 +1871,7 @@ def collect_dashboard_payload(
     lightgbm_status["recent_training_count"] = len(training_rows_all)
     lightgbm_status["recent_evaluation_count"] = len(evaluation_rows_all)
     lightgbm_status["latest_post_close_maintenance"] = latest_post_close_ml_maintenance
+    lightgbm_status["latest_post_close_label_refresh"] = latest_post_close_label_refresh
     account_views = {
         "virtual_paper": local_account_state,
         "paper_broker": paper_account_view,
@@ -3189,6 +3194,18 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["stderr 로그", post_close_maintenance.get("stderr_log_path") or "-"],
         ["오류", post_close_maintenance.get("error") or "-"],
     ]
+    post_close_label_refresh = lightgbm_status.get("latest_post_close_label_refresh") or {}
+    post_close_label_rows = [
+        ["상태", post_close_label_refresh.get("status") or "-"],
+        ["기준일", post_close_label_refresh.get("maintenance_date") or "-"],
+        ["완료 시각", post_close_label_refresh.get("completed_at") or "-"],
+        ["실행 모드", post_close_label_refresh.get("mode") or "-"],
+        ["recent days", post_close_label_refresh.get("recent_days") or "-"],
+        ["feature/label rebuild 생략", "예" if post_close_label_refresh.get("skipped_feature_label_build") else "아니오"],
+        ["작업", ", ".join(post_close_label_refresh.get("tasks") or []) or "-"],
+        ["exit code", post_close_label_refresh.get("exit_code") if post_close_label_refresh.get("exit_code") is not None else "-"],
+        ["상태 파일", "runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json"],
+    ]
     lightgbm_rows = [
         ["프레임워크", lightgbm_status.get("framework") or "-"],
         ["최신 모델 버전", lightgbm_status.get("latest_model_version") or "-"],
@@ -3600,6 +3617,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "장후 자동 학습 상태",
                         _table(["항목", "값"], post_close_rows, "표시할 장후 자동 학습 상태가 없습니다.", scroll_height=330),
                         note="장중 수집과 분리된 스냅샷 DB로 장마감 후 재학습을 수행합니다.",
+                    ),
+                    _section_card(
+                        "장후 label refresh 상태",
+                        _table(["항목", "값"], post_close_label_rows, "표시할 장후 label refresh 상태가 없습니다.", scroll_height=260),
+                        note="quick maintenance 뒤 h15/h60 라벨까지 닫아 학습 가능한 상태로 만드는 별도 live DB 경로입니다.",
                     ),
                     _section_card("모델별 상태", _table(["구분", "모델 버전", "종류", "상태", "평가 점수", "메모"], model_rows, "표시할 모델 상태가 없습니다.")),
                 ),
