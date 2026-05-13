@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-13] Codex → 장후 label rebuild, dashboard 갱신, paper cash 기준 점검
+
+- 장마감 후 상태:
+  - live runtime 은 `15:30:16 +0900`에 post-close 상태로 정상 중지됐다.
+  - dashboard 와 runtime watchdog 은 running 이며, 최종 `./scripts/check_local_setup.sh`는 `ok=true`, blockers 없음.
+  - post-close quick maintenance 는 `2026-05-13 16:03:08 +0900`에 `status=ok`로 완료되어 있었다.
+- feature/label 닫힘:
+  - quick 완료 직후 2026-05-13 h15/h60 labels 가 `0`으로 남아 있어 장후 label rebuild 를 실행했다.
+  - `python -m app --build-feature-dataset`: `features_written=6,401,292`, `labels_written=11,571,293`, horizons `[15, 60]`.
+  - 갱신된 2026-05-13 KIS live 품질: minute bars/features `3,770`, h15 labels `3,620`, h60 labels `3,170`.
+  - h15 label distribution: down `668`, flat `2,080`, up `872`.
+  - latest raw minute 은 `2026-05-13T15:30:00+09:00`, closed feature coverage 는 `96.67%`, assessment 는 `ok`.
+- 장후 리포트와 대시보드:
+  - `python scripts/summarize_kis_live_data_quality.py --recent-days 10`: `assessment=ok`.
+  - `python scripts/summarize_feature_source_drift.py`: `source_drift_detected` 유지.
+  - `python scripts/summarize_kis_live_feature_diagnostics.py`: `no_clear_single_feature_signal`, strongest feature `mid_price`, Pearson `0.046725`.
+  - `python -m app --build-runtime-report`와 `python -m app --build-dashboard` 실행 완료. dashboard generated_at `2026-05-13T20:54:44+09:00`.
+- paper 계좌 정합성:
+  - 최초 `./scripts/verify_paper_dual_account_match.sh -AsJson` 결과는 `initial_cash_mismatch`였다. 브로커/로컬 모두 보유 종목은 없었지만, root `.env`의 `PAPER_INITIAL_CASH=10000000`과 브로커 raw cash `9,201,233`이 달랐다.
+  - 열린 포지션이 없어서 `./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -RefreshDashboard -AsJson`를 실행했다.
+  - root `.env`의 `PAPER_INITIAL_CASH`는 `9,201,233`으로 갱신됐다.
+  - 최종 보유 수량과 total asset 은 일치하고 mismatch row 는 없지만, KIS 응답에서 `raw cash=9,201,233`, `effective cash/total asset=9,789,787`로 현금성 값이 갈라져 `balance_match=false`, status `waiting_first_submission`으로 남았다.
+- 판단:
+  - 2026-05-13 장중 데이터는 라벨까지 닫힌 학습 가능 상태다.
+  - KIS live 단일 피처 신호는 여전히 약해 모델 승격은 보류한다.
+  - 다음 작업 후보는 KIS 모의계좌의 raw cash 와 effective cash 차이 원인, 즉 미정산금/예수금 해석을 paper 정합성 리포트에서 더 명확히 표시하는 것이다.
+
 ## [2026-05-12] Codex → 장후 label rebuild, KIS 품질 갱신, paper 정합성 정렬
 
 - 장마감 후 상태:

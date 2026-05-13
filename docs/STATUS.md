@@ -1,5 +1,40 @@
 # docs/STATUS.md
 
+## [2026-05-13 20:58] 장후 데이터 닫힘과 paper cash 기준 점검
+
+- post-close quick maintenance:
+  - watchdog 이 `./scripts/run_post_close_ml_maintenance.sh --quick`를 실행했고, `maintenance_date=2026-05-13`, completed_at `2026-05-13 16:03:08 +0900`, `status=ok`였다.
+  - 포함 작업: runtime report, local setup check, KIS live 품질, source drift, KIS live feature diagnostics, dashboard rebuild.
+- runtime 상태:
+  - live runtime 은 `15:30:16 +0900`에 post-close 로 정상 중지됐다.
+  - 최종 `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+  - dashboard: running, API 응답 정상.
+  - watchdog: running, `market_session_status=post-close`, `live_runtime_should_run=false`.
+- feature/label rebuild:
+  - quick 직후 2026-05-13 h15/h60 labels 가 `0`으로 남아 있어 장후 라벨 닫힘이 필요했다.
+  - `python -m app --build-feature-dataset`: `features_written=6,401,292`, `labels_written=11,571,293`, horizons `[15, 60]`.
+  - 2026-05-13 KIS live 품질: minute bars/features `3,770`, h15 labels `3,620`, h60 labels `3,170`.
+  - h15 label distribution: down `668`, flat `2,080`, up `872`.
+  - latest raw minute `2026-05-13T15:30:00+09:00`, closed feature coverage `96.67%`, assessment `ok`.
+- feature diagnostics:
+  - KIS live 단일 피처 진단 posture: `no_clear_single_feature_signal`.
+  - strongest feature: `mid_price`, Pearson `0.046725`, top-bottom future return delta `0.096682%`.
+  - source drift posture: `source_drift_detected`. Cybos historical 은 live 호가 feature 분포를 담지 못하므로 KIS live 성능의 직접 대리값으로 보지 않는다.
+- dashboard:
+  - `python -m app --build-runtime-report` 실행 완료.
+  - `python -m app --build-dashboard`: generated_at `2026-05-13T20:54:44+09:00`.
+  - 오늘 dashboard summary 는 `feature_rows=3,754`, `labels=6,758`로 라벨 닫힘을 반영한다.
+- paper account:
+  - 최초 정합성 점검은 `initial_cash_mismatch`였다. 브로커/로컬 모두 보유 종목은 없었지만, root `.env`의 `PAPER_INITIAL_CASH=10000000`과 브로커 raw cash `9,201,233`이 달랐다.
+  - 열린 포지션이 없어 `./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -RefreshDashboard -AsJson`를 실행했다.
+  - root `.env`의 `PAPER_INITIAL_CASH`는 `9,201,233`으로 갱신됐다.
+  - 최종 보유 수량과 total asset 은 일치하고 mismatch row 는 없다.
+  - 단, KIS 응답에서 `raw cash=9,201,233`, `effective cash/total asset=9,789,787`로 현금성 값이 갈라져 `balance_match=false`, status `waiting_first_submission`으로 남았다.
+- 판단:
+  - 오늘 장후 데이터 닫힘은 완료됐다.
+  - paper 기준선은 브로커 raw cash 기준으로 맞췄지만, KIS raw cash 와 effective cash 의 차이는 정합성 리포트 해석 보강 대상으로 남긴다.
+  - KIS live 표본은 늘었지만 단일 피처 신호가 약해 모델 승격은 보류한다.
+
 ## [2026-05-12 21:32] 장후 데이터 닫힘과 paper 정합성 복구
 
 - post-close quick maintenance:
