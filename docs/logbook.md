@@ -2,6 +2,12 @@
 
 ## [2026-05-13] Codex → 장후 label rebuild, dashboard 갱신, paper cash 기준 점검
 
+- 후속 보강:
+  - `paper_alignment` baseline snapshot 이 보유 종목 0개일 때만 raw cash 를 쓰던 조건을 수정했다.
+  - 이제 보유 종목 유무와 관계없이 KIS `total_asset_amount - stock_evaluation_amount` 로 계산한 유효현금을 로컬 cash baseline 으로 쓴다.
+  - 회귀 테스트 `test_align_local_paper_to_broker_uses_effective_cash_without_positions`를 추가했다.
+  - 수정 후 `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson` 재실행 결과 `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`, `raw_cash_gap=588,554`가 됐다.
+  - 해석: KIS raw cash 와 total asset 기반 유효현금의 차이는 raw_cash_gap 으로만 남기고, 브로커 기준 로컬 paper baseline 은 유효현금 기준으로 일치한다.
 - 장마감 후 상태:
   - live runtime 은 `15:30:16 +0900`에 post-close 상태로 정상 중지됐다.
   - dashboard 와 runtime watchdog 은 running 이며, 최종 `./scripts/check_local_setup.sh`는 `ok=true`, blockers 없음.

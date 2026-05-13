@@ -210,13 +210,11 @@ def _build_baseline_position_row(aligned_at: datetime, position: dict[str, Any])
 
 def _build_baseline_snapshot(aligned_at: datetime, snapshot_dict: dict[str, Any], open_positions: int) -> dict[str, Any]:
     gross_market_value = float(snapshot_dict.get("stock_evaluation_amount", 0.0) or 0.0)
-    net_liquidation_value = float(
-        snapshot_dict.get("total_asset_amount", 0.0)
-        or snapshot_dict.get("total_evaluation_amount", 0.0)
-        or 0.0
-    )
+    total_asset_value = snapshot_dict.get("total_asset_amount")
+    total_evaluation_value = snapshot_dict.get("total_evaluation_amount")
+    net_liquidation_value = float(total_asset_value or total_evaluation_value or 0.0)
     cash_balance = float(snapshot_dict.get("cash_balance", 0.0) or 0.0)
-    if net_liquidation_value and gross_market_value:
+    if total_asset_value not in (None, "") or total_evaluation_value not in (None, ""):
         cash_balance = net_liquidation_value - gross_market_value
     return {
         "snapshot_id": f"portfolio-broker-aligned-{aligned_at.strftime('%Y%m%d%H%M%S')}",

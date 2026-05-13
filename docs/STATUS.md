@@ -2,6 +2,12 @@
 
 ## [2026-05-13 20:58] 장후 데이터 닫힘과 paper cash 기준 점검
 
+- 후속 보강:
+  - `paper_alignment`가 보유 종목 0개인 브로커 snapshot 을 정렬할 때 raw cash 를 로컬 cash 로 쓰던 조건을 수정했다.
+  - 이제 보유 종목 유무와 관계없이 `total_asset_amount - stock_evaluation_amount` 유효현금으로 로컬 baseline cash 를 만든다.
+  - 회귀 테스트를 추가해 보유 종목이 없고 `raw cash != total asset`인 KIS 응답에서도 로컬 `cash_balance == net_liquidation_value == total_asset_amount`가 되도록 고정했다.
+  - 실제 재정렬 결과: `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -RefreshDashboard -AsJson` → `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`, `raw_cash_gap=588,554`.
+  - 남는 raw cash 차이는 KIS 원시 현금과 유효현금의 해석 차이로만 기록한다.
 - post-close quick maintenance:
   - watchdog 이 `./scripts/run_post_close_ml_maintenance.sh --quick`를 실행했고, `maintenance_date=2026-05-13`, completed_at `2026-05-13 16:03:08 +0900`, `status=ok`였다.
   - 포함 작업: runtime report, local setup check, KIS live 품질, source drift, KIS live feature diagnostics, dashboard rebuild.
@@ -28,8 +34,8 @@
   - 최초 정합성 점검은 `initial_cash_mismatch`였다. 브로커/로컬 모두 보유 종목은 없었지만, root `.env`의 `PAPER_INITIAL_CASH=10000000`과 브로커 raw cash `9,201,233`이 달랐다.
   - 열린 포지션이 없어 `./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -RefreshDashboard -AsJson`를 실행했다.
   - root `.env`의 `PAPER_INITIAL_CASH`는 `9,201,233`으로 갱신됐다.
-  - 최종 보유 수량과 total asset 은 일치하고 mismatch row 는 없다.
-  - 단, KIS 응답에서 `raw cash=9,201,233`, `effective cash/total asset=9,789,787`로 현금성 값이 갈라져 `balance_match=false`, status `waiting_first_submission`으로 남았다.
+  - 위 후속 보강 전에는 KIS 응답에서 `raw cash=9,201,233`, `effective cash/total asset=9,789,787`로 현금성 값이 갈라져 `balance_match=false`, status `waiting_first_submission`으로 남았다.
+  - 보강 후에는 브로커 기준 유효현금으로 로컬 baseline 을 다시 정렬해 보유 수량, cash, total asset 모두 일치한다.
 - 판단:
   - 오늘 장후 데이터 닫힘은 완료됐다.
   - paper 기준선은 브로커 raw cash 기준으로 맞췄지만, KIS raw cash 와 effective cash 의 차이는 정합성 리포트 해석 보강 대상으로 남긴다.

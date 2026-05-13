@@ -148,6 +148,44 @@ class PaperAlignmentTests(unittest.TestCase):
         self.assertEqual(local_state["fills_total"], 0)
         self.assertEqual(local_state["broker_order_submissions"], 0)
 
+    def test_align_local_paper_to_broker_uses_effective_cash_without_positions(self) -> None:
+        root, env, runtime_root = self._prepare_runtime()
+        markdown_path = runtime_root / "reports" / "kis-account" / "latest-account-paper.md"
+        json_path = runtime_root / "reports" / "kis-account" / "latest-account-paper.json"
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        fake_report = KisAccountReportResult(
+            ok=True,
+            trading_mode="paper",
+            fetched_at="2026-05-13T20:56:00+09:00",
+            cache_used=False,
+            cache_age_seconds=0,
+            error=None,
+            source="kis-broker",
+            account_snapshot={
+                "cash_balance": 9_201_233.0,
+                "stock_evaluation_amount": 0.0,
+                "total_evaluation_amount": 9_789_787.0,
+                "total_purchase_amount": 0.0,
+                "total_profit_loss_amount": 0.0,
+                "total_asset_amount": 9_789_787.0,
+                "position_row_count": 0,
+                "positions": [],
+            },
+            report_markdown_path=markdown_path,
+            report_json_path=json_path,
+        )
+
+        with patch.dict(os.environ, env, clear=False):
+            with patch("app.services.paper_alignment.refresh_kis_account_report", return_value=fake_report):
+                align_local_paper_to_broker(project_root=root)
+            settings = load_settings(project_root=root)
+            local_state = load_local_paper_account_state(settings)
+
+        self.assertEqual(local_state["cash_balance"], 9_789_787.0)
+        self.assertEqual(local_state["gross_market_value"], 0.0)
+        self.assertEqual(local_state["net_liquidation_value"], 9_789_787.0)
+        self.assertEqual(local_state["positions"], [])
+
     def test_alignment_baseline_merges_post_alignment_position_updates_by_symbol(self) -> None:
         _, _, runtime_root = self._prepare_runtime()
         marker_dir = runtime_root / "reports" / "broker-paper"
