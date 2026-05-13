@@ -3,6 +3,12 @@
 ## [2026-05-13] Codex → 장후 label rebuild, dashboard 갱신, paper cash 기준 점검
 
 - 후속 보강:
+  - quick maintenance 성공 뒤 라벨이 아직 닫히지 않는 반복 문제를 줄이기 위해 `scripts/run_post_close_label_refresh.sh`를 추가했다.
+  - quick 경로는 계속 10분 목표의 가벼운 진단으로 두고, 새 label refresh 경로가 `python -m app --build-feature-dataset` 후 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신한다.
+  - 상태 파일은 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다.
+  - 검증: `bash -n scripts/script_dispatch.sh`, `bash -n scripts/run_post_close_label_refresh.sh`, dry-run 2종, `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script` 통과.
+  - 실제 확인: `./scripts/run_post_close_label_refresh.sh --skip-build` 실행 완료, `status=ok`, dashboard generated_at `2026-05-13T23:15:10+09:00`.
+  - 전체 검증: `python -m unittest discover -s tests -p "test_*.py"` 111개 통과, `git diff --check` 통과, `./scripts/check_local_setup.sh` `ok=true`.
   - `paper_alignment` baseline snapshot 이 보유 종목 0개일 때만 raw cash 를 쓰던 조건을 수정했다.
   - 이제 보유 종목 유무와 관계없이 KIS `total_asset_amount - stock_evaluation_amount` 로 계산한 유효현금을 로컬 cash baseline 으로 쓴다.
   - 회귀 테스트 `test_align_local_paper_to_broker_uses_effective_cash_without_positions`를 추가했다.

@@ -1,5 +1,30 @@
 # docs/STATUS.md
 
+## [2026-05-13 23:15] 장후 label refresh 경로 추가
+
+- 목적:
+  - `run_post_close_ml_maintenance.sh --quick`는 10분 목표를 위해 feature/label 전체 재생성을 포함하지 않는다.
+  - 2026-05-12, 2026-05-13처럼 quick 성공 후 h15/h60 labels 가 `0`으로 남는 경우가 반복되어, 장후 라벨 닫힘까지 수행하는 명시 스크립트를 추가했다.
+- 변경:
+  - `scripts/run_post_close_label_refresh.sh` 추가.
+  - `scripts/script_dispatch.sh`에 `post_close_label_refresh` 경로 추가.
+  - 기본 실행은 `python -m app --build-feature-dataset` 후 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신한다.
+  - 상태 파일은 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다.
+  - 이미 label rebuild 가 끝난 뒤 리포트만 다시 맞출 수 있도록 `--skip-build`, 검증용 `--dry-run`을 지원한다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh`
+  - `bash -n scripts/run_post_close_label_refresh.sh`
+  - `bash scripts/run_post_close_label_refresh.sh --dry-run`
+  - `bash scripts/run_post_close_label_refresh.sh --dry-run --skip-build`
+  - `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script`: 3개 통과.
+  - `./scripts/run_post_close_label_refresh.sh --skip-build`: `status=ok`, dashboard generated_at `2026-05-13T23:15:10+09:00`.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 111개 통과.
+  - `git diff --check`: 통과.
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers 없음.
+- 판단:
+  - watchdog quick 경로는 그대로 가볍게 유지한다.
+  - 장후 학습 가능 상태 보장은 새 label refresh 경로로 분리해 실행한다.
+
 ## [2026-05-13 20:58] 장후 데이터 닫힘과 paper cash 기준 점검
 
 - 후속 보강:

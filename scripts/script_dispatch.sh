@@ -553,6 +553,96 @@ print(json.dumps(payload, ensure_ascii=False, indent=2))
 PY
 }
 
+post_close_label_refresh() {
+  local workspace="$REPO_ROOT" runtime="" recent_days="10" skip_build="false" dry_run="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --workspace-root|-WorkspaceRoot) workspace="$2"; shift 2 ;;
+      --runtime-data-dir|-RuntimeDataDir) runtime="$2"; shift 2 ;;
+      --recent-days|-RecentDays) recent_days="$2"; shift 2 ;;
+      --skip-build|-SkipBuild) skip_build="true"; shift ;;
+      --dry-run|-DryRun) dry_run="true"; shift ;;
+      *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+  done
+  [[ -n "$runtime" ]] || runtime="$workspace/runtime-data"
+  local state_dir="$runtime/reports/ml-maintenance/state"
+  local state_path="$state_dir/latest-post-close-label-refresh.json"
+  mkdir -p "$state_dir"
+
+  local tasks=()
+  [[ "$skip_build" == "true" ]] || tasks+=("build-feature-dataset")
+  tasks+=(
+    "summarize-kis-live-data-quality"
+    "summarize-feature-source-drift"
+    "summarize-kis-live-feature-diagnostics"
+    "build-runtime-report"
+    "build-dashboard"
+  )
+
+  write_label_refresh_state() {
+    local status="$1" exit_code="${2:-0}"
+    "$PYTHON_BIN" - "$state_path" "$workspace" "$runtime" "$recent_days" "$skip_build" "$status" "$exit_code" "${tasks[@]}" <<'PY'
+import json
+import sys
+from datetime import datetime
+
+path, root, runtime, recent_days, skip_build, status, exit_code, *tasks = sys.argv[1:]
+payload = {
+    "status": status,
+    "maintenance_date": datetime.now().strftime("%Y-%m-%d"),
+    "completed_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z"),
+    "workspace_root": root,
+    "runtime_data_dir": runtime,
+    "mode": "post-close-label-refresh-live-db",
+    "tasks": tasks,
+    "recent_days": int(recent_days),
+    "skipped_feature_label_build": skip_build == "true",
+    "time_cap_target_minutes": None,
+    "exit_code": int(exit_code),
+}
+open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+print(json.dumps(payload, ensure_ascii=False, indent=2))
+PY
+  }
+
+  run_label_app_step() {
+    printf '+ python -m app'
+    printf ' %q' "$@"
+    printf '\n'
+    [[ "$dry_run" == "true" ]] || run_app "$@"
+  }
+
+  run_label_python_step() {
+    printf '+ python'
+    printf ' %q' "$@"
+    printf '\n'
+    [[ "$dry_run" == "true" ]] || (cd "$workspace" && "$PYTHON_BIN" "$@")
+  }
+
+  if [[ "$dry_run" == "true" ]]; then
+    [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset
+    run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
+    run_label_python_step scripts/summarize_feature_source_drift.py
+    run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py
+    run_label_app_step --build-runtime-report
+    run_label_app_step --build-dashboard
+    return 0
+  fi
+
+  write_label_refresh_state "running" 0 >/dev/null
+  trap 'code=$?; if [[ $code -ne 0 ]]; then write_label_refresh_state "failed" "$code" >/dev/null || true; fi' EXIT
+
+  [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset
+  run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
+  run_label_python_step scripts/summarize_feature_source_drift.py
+  run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py
+  run_label_app_step --build-runtime-report
+  run_label_app_step --build-dashboard
+  write_label_refresh_state "ok" 0
+  trap - EXIT
+}
+
 runtime_autoboot() {
   local skip_dashboard="false" skip_live="false" skip_account="false" skip_cleanup="false" skip_build="false" skip_watchdog="false"
   local force_dashboard="" force_live="" force_watchdog=""
@@ -670,6 +760,7 @@ case "$SCRIPT_NAME" in
   restore_kis_env_interactive.sh) restore_kis_env_interactive "$@" ;;
   connect_kis_paper_account_interactive.sh) connect_kis_paper_account_interactive "$@" ;;
   run_post_close_ml_maintenance.sh) post_close_ml_maintenance "$@" ;;
+  run_post_close_label_refresh.sh) post_close_label_refresh "$@" ;;
   start_runtime_autoboot.sh) runtime_autoboot "$@" ;;
   start_monday_runtime.sh) "$SCRIPT_DIR/run_ml_shadow_cycle.sh"; runtime_autoboot "$@" ;;
   common_process_helpers.sh) exit 0 ;;

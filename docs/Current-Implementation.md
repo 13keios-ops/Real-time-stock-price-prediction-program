@@ -225,6 +225,7 @@ KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식
 
 ```bash
 ./scripts/run_post_close_ml_maintenance.sh
+./scripts/run_post_close_label_refresh.sh
 ```
 
 장후 관리는 장외에 실시간 수집기를 다시 켜지 않는다.
@@ -233,6 +234,7 @@ KIS `주식일별분봉조회`는 과거 분봉 조회가 가능하지만 공식
 quick 경로의 데이터 품질 진단은 warning-only 로 실행되어, 개별 진단 실패가 장후 상태 파일 전체 실패나 heavy research 자동 실행으로 이어지지 않는다.
 watchdog 은 장마감 후 기본 30분이 지나면 이 경로를 하루 한 번 백그라운드로 시작한다.
 같은 날짜의 post-close maintenance 상태 파일에 `starting`, `running`, `ok`, `failed` 등 status 값이 이미 있으면 watchdog 은 같은 작업을 반복 시작하지 않는다.
+quick 경로는 10분 목표를 지키기 위해 전체 feature/label 재생성을 포함하지 않는다. 장후 라벨까지 닫아야 할 때는 `./scripts/run_post_close_label_refresh.sh`를 명시 실행한다. 이 경로는 live DB에서 `python -m app --build-feature-dataset`를 실행한 뒤 KIS live 품질, feature source drift, KIS live feature diagnostics, runtime report, dashboard 를 다시 만들고 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 상태를 남긴다. 이미 feature/label rebuild 가 끝난 뒤 리포트만 다시 맞출 때는 `--skip-build`를 사용할 수 있다.
 snapshot DB와 격리된 research run runtime 을 쓰는 heavy research 는 아래처럼 명시적으로 실행한다.
 
 ```bash
