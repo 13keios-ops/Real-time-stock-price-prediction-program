@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 import unittest
 import uuid
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.services.broker_paper_sync import BrokerPaperSyncResult
-from app.storage.contracts import BrokerOrderSubmission
+from app.storage.contracts import BrokerOrderSubmission, Fill
 from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
 from app.storage.runtime_writer import get_sqlite_store
 
@@ -252,6 +253,83 @@ class StreamingPipelineTests(unittest.TestCase):
 
         self.assertEqual(fake_sync.calls, 2)
         self.assertEqual(fake_sync.retry_delays_seen, [(), ()])
+
+    def test_broker_sync_exception_keeps_runtime_alive_and_enters_cooldown(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-broker-sync-timeout" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+
+        class FailingBrokerSync:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def sync_recent_orders(self, **kwargs):
+                self.calls += 1
+                raise TimeoutError("broker sync timed out")
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            processor = OnlinePipelineProcessor(settings)
+            fake_sync = FailingBrokerSync()
+            processor.broker_paper_sync = fake_sync
+
+            first_time = datetime.fromisoformat("2026-04-13T10:15:30+09:00")
+            processor._run_broker_sync(bar_time=first_time)
+            processor._run_broker_sync(bar_time=first_time.replace(minute=16))
+
+        self.assertEqual(fake_sync.calls, 1)
+        self.assertIsNotNone(processor._broker_sync_pause_until)
+
+    def test_pending_broker_order_blocks_repeated_close_submission(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-pending-close" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+
+        opened_at = datetime.fromisoformat("2026-04-13T10:00:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            processor = OnlinePipelineProcessor(settings, max_hold_minutes=1)
+            fill = Fill(
+                fill_id="fill-open-test",
+                order_id="paper-order-open-test",
+                event_time=opened_at,
+                fill_price=70000.0,
+                fill_qty=1,
+                commission=0.0,
+                tax=0.0,
+            )
+            processor.portfolio_book.apply_buy_fill("005930", fill=fill, fill_price=70000.0)
+            processor.pending_order_symbols.add("005930")
+
+            with patch("app.services.streaming.BrokerPaperMirror.submit_local_order") as submit_local_order:
+                reason = processor._maybe_close_position(
+                    "005930",
+                    mark_price=70100.0,
+                    event_time=opened_at + timedelta(minutes=5),
+                )
+
+        self.assertEqual(reason, "broker_order_pending")
+        submit_local_order.assert_not_called()
 
 
 if __name__ == "__main__":

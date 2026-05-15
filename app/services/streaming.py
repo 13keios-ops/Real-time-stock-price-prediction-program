@@ -239,9 +239,14 @@ class OnlinePipelineProcessor:
             return
         if not force and self._last_broker_sync_minute == sync_minute:
             return
-        result = self.broker_paper_sync.sync_recent_orders(
-            retry_delays_seconds=None if force else (),
-        )
+        try:
+            result = self.broker_paper_sync.sync_recent_orders(
+                retry_delays_seconds=None if force else (),
+            )
+        except Exception:
+            LOGGER.exception("Broker paper sync failed; keeping live runtime active.")
+            self._broker_sync_pause_until = sync_minute + timedelta(minutes=BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES)
+            return
         self.pending_order_symbols = set(result.pending_symbols)
         self.pending_buy_symbols = {
             symbol
@@ -442,6 +447,8 @@ class OnlinePipelineProcessor:
         state = self.portfolio_book.positions.get(symbol)
         if state is None or state.qty <= 0 or state.opened_at is None:
             return None
+        if symbol in self.pending_order_symbols:
+            return "broker_order_pending"
 
         hold_minutes = (event_time - state.opened_at).total_seconds() / 60
         is_forced_flat = event_time.timetz().replace(tzinfo=None) >= self.forced_flat_time
