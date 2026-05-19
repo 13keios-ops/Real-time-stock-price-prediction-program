@@ -103,6 +103,8 @@ $result = [ordered]@{
     managed_repo_count    = 0
     last_state_updated_at = ""
     last_known_results    = @{}
+    last_known_notifications = @{}
+    telegram_configured   = (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("TELEGRAM_BOT_TOKEN", "User"))) -and (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("TELEGRAM_CHAT_ID", "User")))
     healthy               = $false
 }
 
@@ -122,11 +124,14 @@ if ($result.state_exists) {
         $result.managed_repo_count = @($repoProperties).Count
 
         $lastResults = [ordered]@{}
+        $lastNotifications = [ordered]@{}
         foreach ($repoProperty in $repoProperties) {
             $lastResults[$repoProperty.Name] = "$($repoProperty.Value.last_result)"
+            $lastNotifications[$repoProperty.Name] = "$($repoProperty.Value.last_notified_at)"
         }
 
         $result.last_known_results = $lastResults
+        $result.last_known_notifications = $lastNotifications
     }
 
     $result.last_state_updated_at = "$($state.updated_at)"

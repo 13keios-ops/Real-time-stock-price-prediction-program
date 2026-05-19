@@ -8,6 +8,7 @@
     "commit_message":  "chore(release): v{version}",
     "commit_body_mode":  "staged-summary",
     "commit_body_header":  "Auto-generated change summary",
+    "notify_on_success":  true,
     "push_tag":  false,
     "tag_name":  "v{version}"
 }

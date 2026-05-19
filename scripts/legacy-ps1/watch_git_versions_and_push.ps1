@@ -18,7 +18,10 @@ param(
     [switch]$Once,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Recurse
+    [switch]$Recurse,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$DisableTelegramNotifications
 )
 
 $ErrorActionPreference = "Stop"
@@ -189,6 +192,8 @@ function Import-State {
                 last_pushed_version   = "$($repoState.last_pushed_version)"
                 last_commit           = "$($repoState.last_commit)"
                 last_result           = "$($repoState.last_result)"
+                last_notified_key     = "$($repoState.last_notified_key)"
+                last_notified_at      = "$($repoState.last_notified_at)"
                 updated_at            = "$($repoState.updated_at)"
             }
         }
@@ -226,6 +231,8 @@ function Export-State {
             last_pushed_version   = $State.repos[$repoPath].last_pushed_version
             last_commit           = $State.repos[$repoPath].last_commit
             last_result           = $State.repos[$repoPath].last_result
+            last_notified_key     = $State.repos[$repoPath].last_notified_key
+            last_notified_at      = $State.repos[$repoPath].last_notified_at
             updated_at            = $State.repos[$repoPath].updated_at
         }
     }
@@ -291,6 +298,7 @@ function Import-ProjectConfig {
         commit_message     = if ([string]::IsNullOrWhiteSpace($raw.commit_message)) { "chore(release): v{version}" } else { "$($raw.commit_message)" }
         commit_body_mode   = if ([string]::IsNullOrWhiteSpace($raw.commit_body_mode)) { "staged-summary" } else { "$($raw.commit_body_mode)" }
         commit_body_header = if ([string]::IsNullOrWhiteSpace($raw.commit_body_header)) { "Auto-generated change summary" } else { "$($raw.commit_body_header)" }
+        notify_on_success  = if ($null -eq $raw.notify_on_success) { $true } else { [bool]$raw.notify_on_success }
         push_tag           = if ($null -eq $raw.push_tag) { $false } else { [bool]$raw.push_tag }
         tag_name           = if ([string]::IsNullOrWhiteSpace($raw.tag_name)) { "v{version}" } else { "$($raw.tag_name)" }
     }
@@ -514,6 +522,141 @@ function Update-RepoState {
     $State.repos[$RepoPath].updated_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
 }
 
+function Get-ConfiguredSecret {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $value = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if (-not $value) {
+        $value = [Environment]::GetEnvironmentVariable($Name, "User")
+    }
+    if (-not $value) {
+        $value = [Environment]::GetEnvironmentVariable($Name, "Machine")
+    }
+
+    if ($value) {
+        return $value.Trim()
+    }
+
+    return ""
+}
+
+function Get-ErrorResponseBody {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $response = $ErrorRecord.Exception.Response
+    if (-not $response) {
+        return $null
+    }
+
+    $stream = $response.GetResponseStream()
+    if (-not $stream) {
+        return $null
+    }
+
+    $reader = New-Object System.IO.StreamReader($stream)
+    return $reader.ReadToEnd()
+}
+
+function Send-TelegramMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    if ($DisableTelegramNotifications) {
+        return "disabled"
+    }
+
+    $botToken = Get-ConfiguredSecret -Name "TELEGRAM_BOT_TOKEN"
+    $chatId = Get-ConfiguredSecret -Name "TELEGRAM_CHAT_ID"
+
+    if ([string]::IsNullOrWhiteSpace($botToken) -or [string]::IsNullOrWhiteSpace($chatId)) {
+        return "missing-env"
+    }
+
+    try {
+        $sendResult = Invoke-RestMethod `
+            -Method Post `
+            -Uri "https://api.telegram.org/bot$botToken/sendMessage" `
+            -ContentType "application/x-www-form-urlencoded;charset=utf-8" `
+            -Body @{
+                chat_id = $chatId
+                text = $Text
+                disable_notification = $false
+                disable_web_page_preview = $true
+            }
+
+        if ($sendResult.ok) {
+            return "sent"
+        }
+
+        return "failed"
+    }
+    catch {
+        $responseBody = Get-ErrorResponseBody -ErrorRecord $_
+        if ($responseBody) {
+            return "failed: $responseBody"
+        }
+
+        return "failed: $($_.Exception.Message)"
+    }
+}
+
+function Send-RepoCompletionNotification {
+    param(
+        [hashtable]$State,
+        [string]$RepoPath,
+        [hashtable]$Config,
+        [string]$RepoName,
+        [string]$Version,
+        [string]$CommitHash,
+        [string]$Result
+    )
+
+    if (-not $Config.notify_on_success) {
+        return
+    }
+
+    if (-not $State.repos.ContainsKey($RepoPath)) {
+        return
+    }
+
+    $shortHash = if ($CommitHash.Length -ge 7) { $CommitHash.Substring(0, 7) } else { $CommitHash }
+    $notificationKey = "$Result|$Version|$CommitHash"
+    $previousNotificationKey = if ($State.repos[$RepoPath].ContainsKey("last_notified_key")) { "$($State.repos[$RepoPath].last_notified_key)" } else { "" }
+
+    if ($previousNotificationKey -eq $notificationKey) {
+        return
+    }
+
+    $messageLines = @(
+        "Codex 저장소 작업 완료",
+        "저장소: $RepoName",
+        "결과: $Result",
+        "버전: $Version",
+        "브랜치: $($Config.branch)",
+        "커밋: $shortHash"
+    )
+
+    $sendStatus = Send-TelegramMessage -Text ($messageLines -join [Environment]::NewLine)
+
+    if ($sendStatus -eq "sent") {
+        $State.repos[$RepoPath].last_notified_key = $notificationKey
+        $State.repos[$RepoPath].last_notified_at = (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+        Write-Log "[$RepoName] Telegram completion notification sent for version '$Version'"
+    } elseif ($sendStatus -eq "missing-env") {
+        Write-Log "[$RepoName] Telegram completion notification skipped because TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
+    } elseif ($sendStatus -ne "disabled") {
+        Write-Log "[$RepoName] Telegram completion notification $sendStatus"
+    }
+}
+
 function Remove-StaleRepoState {
     param(
         [hashtable]$State,
@@ -615,6 +758,7 @@ function Process-Repository {
             $commitHash = (Invoke-Git -RepoPath $RepoPath -Arguments @("rev-parse", "HEAD")).Output
             Update-RepoState -State $State -RepoPath $RepoPath -ObservedVersion $currentVersion -PushedVersion $currentVersion -CommitHash $commitHash -Result "pushed-existing-version-commit"
             Write-Log "[$repoName] pushed existing HEAD for version '$currentVersion' without creating a new commit"
+            Send-RepoCompletionNotification -State $State -RepoPath $RepoPath -Config $config -RepoName $repoName -Version $currentVersion -CommitHash $commitHash -Result "pushed-existing-version-commit"
             return
         }
 
@@ -631,6 +775,7 @@ function Process-Repository {
             $commitHash = (Invoke-Git -RepoPath $RepoPath -Arguments @("rev-parse", "HEAD")).Output
             Update-RepoState -State $State -RepoPath $RepoPath -ObservedVersion $currentVersion -PushedVersion $currentVersion -CommitHash $commitHash -Result "pushed-clean-head"
             Write-Log "[$repoName] pushed existing clean commit for version '$currentVersion'"
+            Send-RepoCompletionNotification -State $State -RepoPath $RepoPath -Config $config -RepoName $repoName -Version $currentVersion -CommitHash $commitHash -Result "pushed-clean-head"
             return
         }
 
@@ -665,6 +810,7 @@ function Process-Repository {
     $newCommitHash = (Invoke-Git -RepoPath $RepoPath -Arguments @("rev-parse", "HEAD")).Output
     Update-RepoState -State $State -RepoPath $RepoPath -ObservedVersion $currentVersion -PushedVersion $currentVersion -CommitHash $newCommitHash -Result "committed-and-pushed"
     Write-Log "[$repoName] committed and pushed version '$currentVersion' on branch '$($config.branch)'"
+    Send-RepoCompletionNotification -State $State -RepoPath $RepoPath -Config $config -RepoName $repoName -Version $currentVersion -CommitHash $newCommitHash -Result "committed-and-pushed"
 }
 
 $script:GitExecutable = Resolve-GitExecutable

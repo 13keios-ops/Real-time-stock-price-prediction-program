@@ -1279,6 +1279,142 @@
   - `docs/STATUS.md`
   - `docs/logbook.md`
 - 변경 내용:
+  - DB의 `feature_model_inputs`, `feature_labels`, raw tick/source 현황을 확인해 데이터 기간, row 수, 종목 목록, 실제 KIS 수집일과 synthetic/sample 혼입일을 정리.
+  - walk-forward `max_train_rows`를 40, 120, 500, 2000으로 바꿔 각각 실행하고 folds, accuracy, cumulative_net_return_pct, trades_taken을 `docs/STATUS.md` 상단에 기록.
+  - 현재 코드 기준 과거 시세 일괄 backfill 명령과 pykrx/KIS 과거 시세 REST 수집 구현이 없음을 확인.
+  - 주의: 직전 중단된 C-3의 LightGBM 수동 `class_weight` 변경은 작업트리에 남아 있다. 이번 walk-forward는 centroid 기반이라 해당 변경이 수치에 영향을 주지 않지만, 다음 LightGBM 학습 전 유지/철회 판단이 필요하다.
+- 실행 요청 명령:
+  ```powershell
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 120
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 500
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 2000
+  ```
+- 확인할 수치:
+  - feature rows: 첫 row `2026-04-11T09:15:00+09:00`, 마지막 row `2026-05-06T13:14:00+09:00`, 전체 `14258`, 종목 10개.
+  - 15분 라벨 결합 row: `13246`, 마지막 row `2026-05-06T11:53:00+09:00`.
+  - max_train_rows 40/120/500/2000 결과: accuracy `0.420303 / 0.366970 / 0.331667 / 0.279697`, 수익률 `-60.569747% / -310.370998% / -454.176316% / -487.896584%`.
+- 예상 결과 (성공 기준):
+  - 데이터가 아직 실제 KIS 기준 5일치뿐이어서 60거래일 학습창 가정과 맞지 않는다.
+  - 현재 `max_train_rows=40`은 4~5거래일이 아니라 10종목 합산 row 기준 약 0.02거래일에 불과하다.
+  - 과거 데이터 backfill이 없으므로 학습 데이터 확장은 장중 WebSocket 축적 또는 별도 과거 시세 수집 기능 추가가 필요하다.
+
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
+  - `app/services/research.py`
+  - `tests/test_research_pipeline.py`
+  - `config/strategy.toml`
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
+  - `_split_dataset()`에 horizon purge를 적용해 train 라벨 horizon이 validation 시작 구간과 겹치지 않도록 수정.
+  - purge 동작을 확인하는 단위 테스트를 추가.
+  - 실험 C-1은 LightGBM `class_weight="balanced"`만 적용해 실행 후, C-2 독립성을 위해 해당 코드는 되돌림. 결과는 `docs/STATUS.md`에 기록.
+  - 실험 C-2는 `label_threshold_15=0.25`만 적용. `mid_price`와 walk-forward gate 기준은 수정하지 않음.
+  - 현재 실행 환경에서 threshold override 가능성이 있어 C-2 실행 명령에는 `LABEL_THRESHOLD_15=0.25`를 명시.
+- 실행 요청 명령:
+  ```powershell
+  python -m unittest discover -s tests -p "test_*.py"
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --build-feature-dataset
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --train-lightgbm --horizon-min 15
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-challengers --horizon-min 15
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-challengers --horizon-min 15
+  ```
+- 확인할 수치:
+  - 검증: `python -m unittest discover -s tests -p "test_*.py"` → `Ran 86 tests in 31.500s`, `OK`. `git diff -- app/risk` 결과 없음.
+  - C-1(class_weight only): validation_accuracy=0.508569, predicted labels `flat=1163, up=321, down=850`, trades_taken=56, LightGBM cumulative_net_return_pct=81.654830%, walk-forward overall_accuracy=0.437866, walk-forward cumulative_net_return_pct=21.594597%.
+  - C-2(threshold only): 전체 라벨 분포 `flat=8151, up=2511, down=2584`, validation_accuracy=0.573962, predicted labels `flat=2330, up=73, down=247`, trades_taken=18, LightGBM cumulative_net_return_pct=67.457440%, walk-forward overall_accuracy=0.420303, walk-forward cumulative_net_return_pct=-60.569747%.
+- 예상 결과 (성공 기준):
+  - C-1은 `trades_taken > 50`을 만족하고 up 예측 비율도 개선됐지만 validation accuracy가 크게 하락.
+  - C-2는 라벨 분포를 60:20:20에 가깝게 조정했지만 LightGBM 거래 수는 18건으로 성공 기준 미달.
+  - 다음 우선순위는 운영자 판단 필요. 단독 실험 기준으로는 C-1이 거래 수 회복에 더 직접적이며, C-2는 라벨 기반 정상화 효과가 있으나 단독으로는 flat 예측 편향 해소가 부족하다.
+
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
+  - `docs/logbook.md`
+- 변경 내용:
+  - `docs/STATUS.md`의 Phase 1 수치를 기준으로 Phase 2 원인 분석을 수행.
+  - 데이터 누수 점검: `mid_price`는 `app/features/minute_bars.py`에서 현재 시점 호가의 bid/ask 평균으로 생성되고, 라벨은 `app/services/research.py`에서 현재 bar 이후 horizon의 future bar close로 별도 계산된다. 따라서 `mid_price` 자체가 미래 가격을 직접 참조하는 lookahead는 아니다.
+  - 단, 현재 검증 구조에는 누수/과대평가 위험이 있다. `_split_dataset()`은 단순 80/20 시간 분할이며 horizon purge가 없어 train 마지막 row의 라벨 계산 구간이 validation 시작 시각과 겹친다. 현재 DB 기준 train 끝과 validation 시작이 모두 `2026-05-04T11:35:00+09:00`이고, train row 155건의 라벨 horizon이 validation 시작 이후와 겹친다.
+  - `mid_price`는 절대 가격 수준이라 종목 식별 대리변수로 작동할 수 있다. 종목별 가격대와 라벨 분포가 함께 학습되면 실시간 예측 일반화보다 종목/구간 암기가 쉬워지므로 Phase 3에서 제거 또는 정규화 실험이 필요하다.
+  - LightGBM 거래 3건 원인: 거래 판정은 `app/services/research.py::_evaluate_rows_with_model()`에서 `predicted_label == "up"`이고 `probability_up >= settings.strategy.min_signal_confidence`일 때만 카운트한다. 기본 임계값은 `config/strategy.toml`의 `min_signal_confidence = 0.58`이며 `.env`의 `MIN_SIGNAL_CONFIDENCE`로 override 가능하다.
+  - Phase 1 LightGBM 검증은 실제 라벨이 `flat=1889, up=240, down=174`이고 예측은 `flat=2260, up=11, down=32`였다. accuracy 0.816761은 대부분 `flat` 다수 클래스 적중에서 온 값이며, up 예측 11건 중 0.58 신뢰도 통과가 3건뿐이라 거래가 3건으로 줄었다. 임계값만 낮춰도 최대 up 예측 후보가 11건 수준이므로 핵심 원인은 임계값보다 라벨 불균형/flat 편향이다.
+  - walk-forward gate 검토: gate는 `app/services/research.py::_build_walk_forward_gate()`의 하드코딩 기준 `overall_accuracy < 0.55`와 `cumulative_net_return_pct <= 0.0`로 판단한다. Phase 1 walk-forward는 `overall_accuracy=0.438710`, `cumulative_net_return_pct=-14.115270%`라 gate 실패가 정상이다.
+  - 다만 현재 walk-forward 명령은 `LightGBM`이 아니라 `walk-forward-centroid-h15-v1`을 매 fold 학습한다. 이 gate를 LightGBM 승격 판단에 그대로 쓰면 "LightGBM의 walk-forward 성능"이 아니라 centroid 참조 성능으로 막는 구조가 된다.
+  - 0.55 accuracy 기준은 주가 방향 예측에서 단독 절대 기준으로 쓰기엔 거칠다. 현재 라벨은 flat 다수 클래스가 70~80%대라, overall accuracy는 majority-flat baseline과 trade 수익성/거래 커버리지보다 덜 유용하다.
+- 실행 요청 명령:
+  ```powershell
+  python -m unittest discover -s tests -p "test_*.py"
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  ```
+- 확인할 수치:
+  - Phase 1 STATUS: LightGBM `validation_accuracy=0.816761`, `trades_taken=3`, predicted labels `flat=2260, up=11, down=32`, actual labels `flat=1889, up=240, down=174`.
+  - Phase 1 walk-forward: `overall_accuracy=0.438710`, `trades_taken=3126`, `cumulative_net_return_pct=-14.115270%`, `max_train_rows=40`.
+  - 현재 코드 gate: `overall_accuracy < 0.55`이면 `needs_review`.
+- 예상 결과 (성공 기준):
+  - Phase 3 첫 실험은 **실험 C: 라벨 기준 재정의**를 우선 권장한다. `label_threshold_15=0.35`로 인해 flat 편향이 강하므로 threshold 조정 또는 class_weight/balanced 학습을 한 가지씩만 적용해 up/down 커버리지를 먼저 회복한다.
+  - 두 번째 후보는 `mid_price` 제거 또는 `bar.close` 대비 상대값/수익률형 피처로 정규화하는 **피처 축소 실험 B**다.
+  - gate 개선은 이후 실험으로 분리한다. LightGBM 전용 walk-forward를 만들거나, hard 0.55 accuracy보다 baseline 대비 초과수익, trade_hit_rate, 거래 수 최소치, majority-class 대비 개선폭을 함께 보는 기준으로 바꾸는 것이 타당하다.
+
+## [2026-05-06] Cowork — SQLite fix 2차 검증 실패 (1c1aa04 적용 후)
+
+- 트리거: Codex 커밋 `1c1aa04 fix(storage): add sqlite journal memory fallback [sprint-01]` pull 후 사용자 지시("SQLite fix 검증") 수행.
+- 환경: Cowork Linux 샌드박스(Ubuntu 22.04, Python 3.10.12). 저장소는 `fuse`/virtiofs 마운트.
+- 사전 조치:
+  - 작업트리의 일부 파일이 또 FUSE 동기화 중 절단되어 도착(`app/storage/sqlite_store.py`가 1006줄로 잘려 있고 HEAD blob은 974줄). `git show HEAD:` 로 `app/storage/sqlite_store.py`, `tests/test_sqlite_store.py`, `docs/logbook.md`, `AGENTS.md` 정본을 추출해 `cp` 로 작업트리 복원(코드 수정 아님, 정본 복원).
+  - `SQLITE_JOURNAL_MODE_FALLBACKS = ('WAL', 'DELETE', 'MEMORY')` 확인 — Codex 의도대로 도입됨.
+  - `select_sqlite_journal_mode(Path('runtime-data/dev.db').resolve())` → `WAL` (FUSE 경로인데도 WAL 선호로 후퇴 — 1차 패치의 FUSE→DELETE 감지가 사라진 듯)
+- 단위 테스트: `python -m unittest discover -s tests -p "test_*.py"` (PYTHONPYCACHEPREFIX=/tmp/pyc)
+  - `Ran 85 tests in 2.861s` — 테스트 개수 일치
+  - `FAILED (errors=39)` — 39건 모두 `sqlite3.OperationalError: disk I/O error` (스택은 `_initialize_schema_with_journal_mode → CREATE TABLE`)
+  - 재현 단일 케이스(test_synthetic_seed):
+    ```
+    WARNING ... SQLite startup journal_mode=WAL failed for database=.../test.db error=disk I/O error; falling back to DELETE
+    WARNING ... SQLite startup journal_mode=DELETE failed for database=.../test.db error=disk I/O error; falling back to MEMORY
+    ERROR   ... SQLite startup failed with all journal modes for database=.../test.db last_mode=MEMORY error=disk I/O error
+    ```
+  - **MEMORY까지 fallback이 진행됐음에도 최종 실패**.
+- ⚠️ 중단 조건(단위 테스트 1개 이상 실패) 발동으로 Synthetic 미실행.
+- 원인 좁힘 — 핵심 진단:
+  - WAL → DELETE 시도 단계에서 SQLite가 `<dbname>-journal` 사이드카 파일을 만든다.
+  - virtiofs FUSE에서 이 사이드카는 한 번 만들어지면 `unlink`이 `Operation not permitted` 으로 거부된다(파일 자체는 존재).
+  - 결과적으로 마지막 단계인 MEMORY 시도 시에도 SQLite가 기존 `-journal` 을 발견해 rollback/recovery 시도 → disk I/O error.
+  - 직접 재현 결과:
+    | 시나리오 | 결과 |
+    |---|---|
+    | 신선한 경로에 `MEMORY` 단독 | OK |
+    | 신선한 경로에 `WAL→DELETE→MEMORY` 체인 | FAIL at MEMORY (disk I/O error) |
+    | 신선한 경로에 `DELETE→MEMORY` | FAIL at MEMORY |
+    | DELETE 실패 후 `.db` 삭제 + `-journal` 삭제 시도 | `-journal` 삭제 실패 (Operation not permitted) |
+    | DELETE 실패 후 `.db` 만 삭제 + MEMORY 재시도 | FAIL (남은 `-journal`이 방해) |
+- 결론: 이 환경에서 `WAL`이나 `DELETE`를 한 번이라도 **시도하면** journal 사이드카가 영구적으로 남아 모든 후속 시도를 막는다. **사이드카가 만들어지지 않게** 하는 것이 유일한 해법.
+- Codex 권장 후속 조치(Cowork 의견):
+  1. `select_sqlite_journal_mode` 가 마운트된 Windows 폴더(virtiofs/fuse)에 대해 **`MEMORY` 를 preferred 로 직접 반환**하게 수정. WAL/DELETE를 아예 시도하지 않도록 fallback 체인을 `(MEMORY,)` 로 단축.
+  2. 또는 `select_sqlite_journal_mode` 가 FUSE를 감지하면 fallback 체인을 `(MEMORY, OFF)` 로 시작.
+  3. Codex 1차 패치(`eb3949f`) 의 FUSE→DELETE 감지 로직이 이번 2차 패치(`1c1aa04`)에 누락된 것으로 보이므로, 그 감지 로직을 살리되 결과를 `MEMORY` 로 매핑하도록 결합.
+- 추가 환경 메모(반복 보고):
+  - 프로젝트 `requires-python = ">=3.12"` 이지만 Cowork 샌드박스 Python은 3.10.12. `tomli` → `tomllib` shim 적용 중.
+  - `pip install --break-system-packages lightgbm scikit-learn websockets joblib tomli scipy threadpoolctl` 적용 중.
+  - `PYTHONPYCACHEPREFIX=/tmp/pyc` 로 stale `.pyc` 우회 중.
+  - 작업트리 파일이 FUSE 동기화 중 잘려 도착하는 일이 반복됨 — Codex 커밋 후 첫 Cowork 세션에서 `git show HEAD:` 로 정본 강제 동기화가 매번 필요할 수 있음.
+
+## 🔴 [2026-05-06] 운영자 판단 필요 — SQLite fix 검증 실패 (단위 테스트 단계)
+
+- 상황: SQLite fix 검증 실패 — 단위 테스트 단계에서 39/85 disk I/O error. WAL→DELETE→MEMORY 체인이 들어왔지만, 실패한 시도에서 남는 `-journal` 사이드카를 FUSE에서 삭제할 수 없어 MEMORY 단계까지 오염됨.
+- 가져갈 파일: `docs/logbook.md` (위 "Cowork — SQLite fix 2차 검증 실패" 섹션, pragma 시나리오 표 포함)
+- 질문: 추가 조치 방향 결정 필요. Codex 권장안 ① `select_sqlite_journal_mode` 가 FUSE 경로에 대해 처음부터 `MEMORY` 를 반환하도록 수정 / ② Phase 1 Windows 결과로 갈음하고 Cowork 환경 검증 자체 보류 / ③ 다른 방향 지정.
+
+## [2026-05-06] Codex → Cowork
+
+- 변경 파일:
+  - `docs/STATUS.md`
+  - `docs/logbook.md`
+- 변경 내용:
   - Windows 로컬 환경에서 Phase 1 명령을 직접 실행하고 결과를 `docs/STATUS.md` 상단에 기록.
   - 전체 단위 테스트 85개 통과 후 walk-forward, LightGBM 학습, challenger 비교를 순서대로 실행.
   - LightGBM 피처 중요도 상위 5개와 baseline 대비 핵심 판단을 함께 기록.

@@ -1755,6 +1755,97 @@ python -m app --collect-kis-historical --start 2025-05-06 --end 2026-05-06
   3. 실제 KIS 데이터만으로 짧은 기간 검증을 할 때와 proxy 장기 데이터 검증을 분리해 평가 리포트를 따로 낸다.
 - 현재 상태에서 LightGBM 중요도 상위에 `mid_price`, `spread_bps`, `bid_ask_imbalance`가 들어간 것은 proxy/actual 분포 차이 또는 가격수준 의존 가능성을 함께 의심해야 한다.
 
+## [2026-05-06 13:19] 데이터 상태 확인 결과
+
+### 데이터 기간
+- 첫 row: `2026-04-11T09:15:00+09:00`
+- 마지막 row: `2026-05-06T13:14:00+09:00`
+- 전체 기간: 캘린더 기준 2026-04-11 09:15 ~ 2026-05-06 13:14. 피처 날짜는 6개이며, 원시 source 기준 실제 KIS 수집일은 2026-04-28, 2026-04-29, 2026-04-30, 2026-05-04, 2026-05-06의 5개 날짜다. 2026-04-11은 `sample`/`synthetic` source가 섞인 개발 데이터다.
+- 전체 row 수: `feature_model_inputs=14258`, 15분 라벨 결합 학습 row `13246`.
+- 종목: 복수 10종목. `000660`, `005380`, `005930`, `035420`, `068270`, `086520`, `105560`, `207940`, `247540`, `373220`.
+- 참고: 15분 라벨 결합 row의 마지막 시각은 `2026-05-06T11:53:00+09:00`이다. walk-forward는 이 라벨 결합 row 기준으로 실행된다.
+- 15분 라벨 결합 row의 날짜별 row 수: 2026-04-11=75, 2026-04-28=3576, 2026-04-29=376, 2026-04-30=3750, 2026-05-04=3738, 2026-05-06=1731.
+
+### walk-forward 윈도우별 비교
+
+거래일 환산은 15분 라벨 결합 row 평균 `2207.7 rows/day` 기준이다. 완성된 10종목 정규장 날짜만 보면 하루 약 3600~3800 row라 실제 거래일 환산은 표보다 더 짧다.
+
+| max-train-rows | 거래일 환산 | folds | accuracy | 수익률 | trades |
+|---|---:|---:|---:|---:|---:|
+| 40 (현재) | 0.02일 | 1320 | 0.420303 | -60.569747% | 3997 |
+| 120 | 0.05일 | 1320 | 0.366970 | -310.370998% | 4280 |
+| 500 | 0.23일 | 1320 | 0.331667 | -454.176316% | 4586 |
+| 2000 | 0.91일 | 1320 | 0.279697 | -487.896584% | 4317 |
+
+판정: 현재 walk-forward는 `walk-forward-centroid-h15-v1` 기준이며, 학습창을 40에서 120/500/2000으로 늘릴수록 accuracy와 누적 수익률이 모두 악화됐다. 또한 `max-train-rows=40`은 4~5거래일이 아니라 10종목 합산 row 기준 약 0.02거래일에 불과하다.
+
+### 과거 데이터 수집 가능 여부
+- 수집 방식: 실제 데이터는 KIS WebSocket 수신(`--kis-ws-listen`)으로 `raw_market_ticks`/`raw_orderbook_ticks`에 `kis-ws` source로 쌓이고, KIS REST snapshot/poll(`--kis-watchlist-snapshot`, `--kis-watchlist-poll`, `--run-kis-dev-cycle`)은 현재가/호가 스냅샷을 반복 저장한다. `--build-minute-bars`, `--build-feature-dataset`, `--rebuild-actual-ml`은 이미 저장된 raw/minute 데이터에서 분봉·피처·라벨·학습 산출물을 재생성한다.
+- 과거 데이터 명령 존재 여부: 현재 코드 기준 pykrx, FinanceDataReader, yfinance, KIS 과거 시세 REST backfill 명령은 없다. KIS REST 구현은 현재가, 호가, 계좌/주문/체결 조회 중심이며 과거 분봉/일봉을 한 번에 가져오는 코드가 없다.
+
+## [2026-05-06 12:11] Codex 실험 C-2 — label_threshold_15=0.25
+
+- 실험 변수: `config/strategy.toml`의 `label_threshold_15`를 `0.35`에서 `0.25`로 낮춤. LightGBM `class_weight`는 C-1 후 되돌려 미적용.
+- 실행 주의: 현재 실행 환경에서 threshold override 가능성이 있어 C-2 명령은 `LABEL_THRESHOLD_15=0.25`를 프로세스 환경값으로 명시해 실행.
+- 라벨 재생성 명령:
+  ```powershell
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --build-feature-dataset
+  ```
+- 실행 명령:
+  ```powershell
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --train-lightgbm --horizon-min 15
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-challengers --horizon-min 15
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  $env:LABEL_THRESHOLD_15='0.25'; python -m app --run-challengers --horizon-min 15
+  ```
+
+| 항목 | C-2 결과 |
+|---|---:|
+| 전체 라벨 분포 | flat=8151, up=2511, down=2584 |
+| 전체 라벨 비율 | flat=61.6%, up=19.0%, down=19.5% |
+| train_rows | 10437 |
+| validation_rows | 2650 |
+| validation_accuracy | 0.573962 |
+| 검증 실제 라벨 분포 | flat=1518, up=645, down=487 |
+| 검증 예측 라벨 분포 | flat=2330, up=73, down=247 |
+| LightGBM trades_taken | 18 |
+| LightGBM cumulative_net_return_pct | 67.457440% |
+| LightGBM trade_hit_rate | 0.722222 |
+| walk-forward overall_accuracy | 0.420303 |
+| walk-forward trades_taken | 3997 |
+| walk-forward cumulative_net_return_pct | -60.569747% |
+| baseline 대비 판정 | LightGBM은 baseline보다 validation 수익률은 우수하나 trades_taken=18로 성공 기준 50 미달. challenger 판단도 `review_required`이며 사유는 walk-forward accuracy 0.4203 미달. |
+
+판정: C-2는 라벨 분포 목표에는 도달했지만 LightGBM의 flat 예측 편향을 충분히 해소하지 못했다. 단독 효과만 보면 C-1이 거래 수 회복에는 더 낫고, C-2는 라벨 데이터 기반을 정상화하는 효과가 크다.
+
+## [2026-05-06 12:06] Codex 실험 C-1 — LightGBM class_weight=balanced
+
+- 실험 변수: LightGBM `class_weight="balanced"` 적용. `label_threshold_15`는 `0.35` 유지.
+- 추가 공통 패치: train/validation split에 15분 horizon purge 적용. train 라벨 horizon이 validation 시작 구간과 겹치지 않도록 경계 row 제거.
+- 실행 명령:
+  ```powershell
+  python -m app --train-lightgbm --horizon-min 15
+  python -m app --run-challengers --horizon-min 15
+  python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10 --walk-forward-gap-rows 15 --walk-forward-max-train-rows 40
+  ```
+
+| 항목 | C-1 결과 |
+|---|---:|
+| train_rows | 9177 |
+| validation_rows | 2334 |
+| validation_accuracy | 0.508569 |
+| 예측 라벨 분포 | flat=1163, up=321, down=850 |
+| 실제 라벨 분포 | flat=1846, up=301, down=187 |
+| LightGBM trades_taken | 56 |
+| LightGBM cumulative_net_return_pct | 81.654830% |
+| LightGBM trade_hit_rate | 0.500000 |
+| walk-forward overall_accuracy | 0.437866 |
+| walk-forward trades_taken | 3189 |
+| walk-forward cumulative_net_return_pct | 21.594597% |
+| baseline 대비 판정 | LightGBM은 baseline보다 validation 수익률/거래 수는 개선, accuracy는 0.816761 → 0.508569로 하락. `trades_taken > 50` 성공, flat 편향 완화 성공, accuracy 안정성은 추가 검토 필요. |
+
+판정: C-1은 up 예측과 거래 수를 회복했으나 down 과대 예측으로 정확도가 크게 하락했다. 단독 채택보다는 C-2 threshold 조정 실험 결과와 비교한다.
+
 ## 🔴 [2026-05-06 05:22] 운영자 판단 필요 — Phase 1 Windows 직접 실행 완료
 
 - 상황: Windows 로컬 환경에서 작업 1 단위 테스트 통과 후 Phase 1 명령 3개를 순서대로 직접 실행 완료. LightGBM은 validation 정확도와 누적 손실 폭에서는 baseline보다 좋아 보이나, 실제 매수 신호가 3건뿐이라 challenger 판단은 `keep_active`이며 walk-forward gate도 `needs_review`.

@@ -196,7 +196,7 @@ Invoke-Git -RepoPath $repoExistingHead -Arguments @("add", "-A") | Out-Null
 Invoke-Git -RepoPath $repoExistingHead -Arguments @("commit", "-m", "chore: prepare release 1.0.1") | Out-Null
 Set-TextFile -Path (Join-Path $repoExistingHead "scratch.txt") -Content "Leave this untracked"
 
-& $watcherPath -ScanRoot $scanRoot -Once -StatePath $statePath -LogPath $logPath
+& $watcherPath -ScanRoot $scanRoot -Once -StatePath $statePath -LogPath $logPath -DisableTelegramNotifications
 
 $managedVersionRemote = (& $script:GitExecutable --git-dir $remoteManaged show main:VERSION).Trim()
 $optOutVersionRemote = (& $script:GitExecutable --git-dir $remoteOptOut show main:VERSION).Trim()
