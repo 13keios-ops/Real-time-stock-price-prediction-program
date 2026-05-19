@@ -1,4 +1,4 @@
-# 실시간 주가 예측 프로그램
+﻿# 실시간 주가 예측 프로그램
 
 국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
 현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
@@ -613,24 +613,24 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 현재 사실 기준은 기준 문서에 남기고, 상세 설계와 배경 설명은 참고 문서에 둔다.
 
 <!-- NAS_BACKUP_START -->
-## NAS 백업
+## NAS Backup
 
-- NAS 공유 루트: \\192.168.0.2\backup
-- 저장소 백업 경로: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
-- 백업은 전체 백업만 사용하고, 최신 3개 패키지를 보관한다.
-- 백업 스냅샷은 root `.env*`, KIS 토큰 캐시(`runtime-data/cache/kis`), runtime 로그(`runtime-data/logs`), private key 계열 파일을 제외한다.
-- 정기 백업 주기는 주 1회다.
-- 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
+- NAS share root: \\192.168.0.2\backup
+- Repository backup path: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
+- Full backups only, with the latest 3 packages retained.
+- Regular backup cadence: weekly.
+- Forced backups are used for important periods and risky changes.
 
-주간 백업:
-```bash
-./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
+Weekly backup:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_weekly_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup"
 ```
 
-강제 백업:
-```bash
-./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
+Forced backup:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_forced_nas_backup.ps1 -BackupShareRoot "\\192.168.0.2\backup" -Reason "before-release"
 ```
 
-전체 복구 범위는 [RECOVERY.md](./RECOVERY.md)를 기준으로 한다.
+See [RECOVERY.md](./RECOVERY.md) for the full recovery scope.
 <!-- NAS_BACKUP_END -->
+

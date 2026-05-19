@@ -1,4 +1,4 @@
-# 작업 지침
+﻿# 작업 지침
 
 > 이 파일은 이 저장소에서 Codex가 따라야 할 로컬 실행 지침이다.
 > `D:/GitHub/ref_AGENTS.md`는 공통 설계 기준서일 뿐이며, 이 파일에는 현재 저장소에 실제로 존재하는 경로와 명령만 둔다.
@@ -225,23 +225,12 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 불필요한 백그라운드 프로세스를 남기지 않는다.
 
 <!-- NAS_BACKUP_START -->
-## NAS 백업 운영
+## NAS Backup Operations
 
-- 이 저장소는 NAS 전체 백업 복구 패키지를 사용한다.
-- 기본 정책은 비밀값 제외 전체 백업, 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
-- 백업 패키지는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다.
-- 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
-- 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh을 함께 맞춘다.
-
-주간 백업:
-
-```bash
-./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
-```
-
-강제 백업:
-
-```bash
-./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
-```
+- This repository uses NAS full-backup recovery packages.
+- Baseline policy: full backups, latest 3 retained, weekly regular runs, forced backups for important periods.
+- Current NAS share-root baseline: \\192.168.0.2\backup
+- Keep RECOVERY.md plus scripts/run_weekly_nas_backup.ps1 and scripts/run_forced_nas_backup.ps1 aligned with any policy changes.
+- If the backup policy changes, update RECOVERY.md, README.md, AGENTS.md, and the backup scripts together.
 <!-- NAS_BACKUP_END -->
+
