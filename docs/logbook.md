@@ -1,5 +1,33 @@
 # 작업 기록
 
+## [2026-05-23] Codex -> 휴장일 Phase 1 readiness 리허설
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`, `errors=[]`.
+  - 최신 cowork 리뷰는 `docs/cowork-reports/2026-05-22-production-architecture-implementation-blueprint-review_ver_15.md`이며, 관련 P1 보강은 `work_ver_16`에 반영된 상태로 확인했다.
+- 실행:
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`: `status=ok`, dry-run, DB read-only smoke 통과, dashboard reachable, disk space ok.
+  - `./scripts/probe_kis_token_refresh.sh --mode paper`: `passed=true`, auth-only, token 원문 미저장.
+  - `./scripts/probe_kis_account_snapshot.sh --mode paper --timeout-seconds 10`: `passed=true`, `shape_status=ok`, `position_row_count=1`, `summary_row_count=1`, 계좌번호/raw response 미저장.
+  - `./scripts/probe_kis_ws_recovery.sh`: `passed=true`, `evidence_type=synthetic_fault_injection`, `network_called=false`.
+  - `./scripts/probe_kis_clock_reference.sh --mode paper --timeout-seconds 10`: `passed=true`, `skew_seconds=0.708244`, HTTP `Date` 초 단위 정밀도 note 포함.
+  - `./scripts/build_live_readiness_fixture_snapshot.sh --output-path runtime-data/reports/live-readiness/local-fixture-snapshot.json` 실행.
+  - `./scripts/run_live_readiness_dry_run.sh --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json --report-path runtime-data/reports/live-readiness/latest-readiness.json` 실행.
+- 결과:
+  - `runtime-data/reports/live-readiness/latest-readiness.json`: `status=blocked`, `phase=phase1_readonly`, `trading_day=2026-05-23`.
+  - 통과 항목: `token_refresh`, `ws_recovery`, `account_snapshot`, `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`.
+  - 차단 항목: `market_status=false`, `kill_switch=false`.
+  - 차단 사유: `market_status_not_verified_by_fault_dry_run`, `kill_switch_fault_dry_run_failed`.
+  - 오늘은 토요일 휴장일이라 Phase 1 통과 증거가 아니라 휴장 리허설과 fail-closed 확인으로만 본다.
+  - `python -m app --build-dashboard`는 shell timeout 이후 프로세스가 종료됐고, `runtime-data/reports/dashboard/latest-dashboard.html`, `latest-dashboard.json`의 갱신 시각이 `2026-05-23 13:37:22 +0900`로 확인됐다. dashboard server는 계속 정상 응답 중이다.
+- 다음 연결점:
+  - 다음 거래일 장전에는 수동 `market_status` snapshot 생성, Phase 1 당일 kill switch OFF 승인 파일 생성, fresh paper/read-only probe 재실행이 필요하다.
+  - Phase 1 live read-only 통과 증거에는 오늘 휴장일 증거를 그대로 사용하지 않는다.
+- 주의:
+  - live account 조회, live order submit/cancel, runtime restart, 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-23] Codex -> 커밋 전 최종 검증과 NAS export 제외 보강
 
 - 상태:
