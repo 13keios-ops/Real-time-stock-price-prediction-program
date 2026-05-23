@@ -201,6 +201,7 @@ class KisRestQuoteClient:
         self.profile = profile
         self.token_manager = token_manager
         self.timeout_seconds = timeout_seconds
+        self._last_response_headers: dict[str, str] = {}
 
     def describe(self) -> dict[str, str]:
         return {
@@ -208,6 +209,11 @@ class KisRestQuoteClient:
             "base_url": self.profile.rest_url,
             "status": "active",
         }
+
+    @property
+    def last_response_headers(self) -> dict[str, str]:
+        """Return a copy of the last successful response headers for read-only diagnostics."""
+        return dict(self._last_response_headers)
 
     def _request_response(
         self,
@@ -218,6 +224,7 @@ class KisRestQuoteClient:
         extra_headers: dict[str, str] | None = None,
         allow_retry: bool = True,
     ) -> tuple[dict, dict[str, str]]:
+        self._last_response_headers = {}
         token = self.token_manager.get_access_token()
         encoded_query = urlencode(query_params)
         headers = {
@@ -257,6 +264,7 @@ class KisRestQuoteClient:
         if rt_cd and rt_cd != "0":
             message = payload.get("msg1") or payload.get("msg_cd") or payload
             raise KisApiError(f"KIS REST quote error: {message}")
+        self._last_response_headers = response_headers
         return payload, response_headers
 
     def _post_response(
@@ -268,6 +276,7 @@ class KisRestQuoteClient:
         include_hashkey: bool = False,
         allow_retry: bool = True,
     ) -> tuple[dict, dict[str, str]]:
+        self._last_response_headers = {}
         token = self.token_manager.get_access_token()
         headers = {
             "authorization": token.authorization_header,
@@ -308,6 +317,7 @@ class KisRestQuoteClient:
         if rt_cd and rt_cd != "0":
             message = payload.get("msg1") or payload.get("msg_cd") or payload
             raise KisApiError(f"KIS REST quote error: {message}")
+        self._last_response_headers = response_headers
         return payload, response_headers
 
     def _request(self, path: str, tr_id: str, query_params: dict[str, str], *, extra_headers: dict[str, str] | None = None) -> dict:

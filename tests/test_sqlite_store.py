@@ -117,6 +117,25 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertTrue(created_path.exists())
         self.assertEqual(backup_store.count_rows("paper_orders"), 1)
 
+    def test_backup_database_uses_consistent_sqlite_snapshot_with_wal(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        tmp_root = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4())
+        database_path = tmp_root / "dev.db"
+        backup_path = tmp_root / "backups" / "dev-backup.sqlite3"
+
+        store = SQLiteRuntimeStore(database_path)
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("CREATE TABLE wal_marker (id TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            connection.execute("INSERT INTO wal_marker(id, value) VALUES ('committed', 'yes')")
+            connection.commit()
+
+        created_path = store.backup_database(backup_path)
+        with sqlite3.connect(created_path) as backup_connection:
+            row = backup_connection.execute("SELECT value FROM wal_marker WHERE id = 'committed'").fetchone()
+
+        self.assertEqual(row, ("yes",))
+
 
 if __name__ == "__main__":
     unittest.main()

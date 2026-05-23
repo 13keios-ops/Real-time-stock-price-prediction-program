@@ -31,6 +31,11 @@
 - `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최신 검증 결과
 - `docs/Current-Implementation.md`: 실제 구현 범위와 운영 기준
 - `docs/Versioning.md`: `VERSION`, watcher, 자동 commit/push 기준
+- `docs/Production-Architecture.md`: 실제 자금 자동매매 전환 목표 구조와 안전 기준
+- `docs/Production-Implementation-Blueprint.md`: 실전 전환 구현 순서, 상태머신, schema 초안
+- `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
+- `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
+- `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `RECOVERY.md`: GitHub + NAS 복구 기준
 - `runtime-data/`: 실행 로그, 리포트, 캐시, 모델 산출물
 
@@ -40,15 +45,25 @@
 ## 4. 기본 작업 흐름
 
 1. 현재 상태를 대화 맥락이 아니라 파일, 로그, 상태 명령으로 확인한다.
-2. 변경 범위를 작게 잡고, 실제 저장소 구조와 맞지 않는 공통 문구는 넣지 않는다.
-3. 코드 변경이 있으면 관련 문서도 같은 작업 안에서 갱신한다.
-4. 검증 명령을 실제로 실행하고 결과를 확인한다.
-5. 산출물 경로, 삭제한 임시 자산, 다음 연결점이 있으면 `docs/logbook.md`에 남긴다.
-6. 변경 파일이 있으면 가능한 한 같은 턴에서 commit과 push까지 마친다.
-7. 사용자가 직접 해야 하는 작업은 Cybos Plus 로그인처럼 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내하고, 그 외 구현·검증·문서화·커밋·푸시는 Codex가 자율적으로 처리한다.
+2. 작업 시작 전 장 진행 상태와 실행 중인 수집기를 먼저 확인한다. 기본 확인 명령은 `./scripts/get_live_runtime_status.sh`와 `./scripts/get_runtime_watchdog_status.sh`다.
+3. 같은 주제의 cowork ping-pong이 진행 중이면 `docs/cowork-reports/`에서 최신 `review_ver_*` 파일을 먼저 확인하고, 이미 반영한 리뷰인지 최신 `work_ver_*`와 비교한다.
+4. 변경 범위를 작게 잡고, 실제 저장소 구조와 맞지 않는 공통 문구는 넣지 않는다.
+5. 코드 변경이 있으면 관련 문서도 같은 작업 안에서 갱신한다.
+6. 검증 명령을 실제로 실행하고 결과를 확인한다.
+7. 산출물 경로, 삭제한 임시 자산, 다음 연결점이 있으면 `docs/logbook.md`에 남긴다.
+8. 변경 파일이 있으면 가능한 한 같은 턴에서 commit과 push까지 마친다.
+9. 사용자가 직접 해야 하는 작업은 Cybos Plus 로그인처럼 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내하고, 그 외 구현·검증·문서화·커밋·푸시는 Codex가 자율적으로 처리한다.
+
+장중 수집 보호:
+
+- `get_live_runtime_status` 또는 `get_runtime_watchdog_status`에서 `regular-session`, 실제 장전 워밍업 구간인 `pre-open`, `live_runtime_should_run=true`, live runtime 실행 중 상태가 확인되면 장중 수집 보호 모드로 본다. `overnight`는 장전 워밍업 전 야간 대기 상태이며, live runtime 실행 중 또는 `live_runtime_should_run=true`가 아니면 장중 수집 보호 모드로 보지 않는다.
+- 장중 수집 보호 모드에서는 사용자 명시 승인 없이 루트 코드 파일 변경, 전체 테스트, `python -m app ...`, dashboard/runtime 재생성, `runtime-data/dev.db` 접근 가능성이 있는 명령을 실행하지 않는다.
+- 장중에도 가능한 작업은 읽기 전용 상태 확인, 문서/리포트 정리, `git diff --check`, `bash -n`, 그리고 `.tmp-tests/` 아래로 완전히 격리된 좁은 단위 테스트로 제한한다.
+- 코드 구현이 필요하면 격리 작업공간이나 별도 worktree에서 초안을 준비하고, 장 종료 후 또는 사용자 승인 후 루트 저장소에 적용한다.
 
 답변은 쉬운 한국어를 먼저 쓴다.
 영어 개발 용어와 약어는 필요할 때만 쓰고, 처음에는 풀어서 설명한다.
+사용자에게는 존댓말을 기본으로 사용한다.
 최종 답변 전에는 `현재 작업 모드`, `답변 접두어`, `활성 체크리스트 갱신 여부`, `기준 문서 반영 여부`를 한 줄 체크포인트로 확인한다.
 
 ## 5. 저장소 구조와 배치 기준
@@ -195,6 +210,11 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 임시 테스트 산출물은 `.tmp-tests/` 아래에 둘 수 있고, 검증 뒤 삭제 가능하다.
 - 모델 산출물은 `runtime-data/ml/` 아래에 둔다.
 - 대시보드와 실행 리포트는 `runtime-data/reports/` 아래에 둔다.
+- Codex 운영 자동화 report는 `runtime-data/reports/codex/ops/` 아래에 둔다. Codex 장중 incident patch 초안은 `.tmp-tests/codex-ops/` 아래에만 두고, 이 경로는 자동 cleanup 대상에서 제외한다.
+- `scripts/run_codex_ops_job.sh --job-type premarket-readiness`는 dry-run 전용 readiness report wrapper다. 이 wrapper는 Codex CLI를 호출하지 않고 상태 파일을 읽어 JSON report만 생성한다.
+- `scripts/run_live_readiness_dry_run.sh`는 실제 장애를 만들지 않는 fixture 기반 readiness wrapper다. fixture가 없는 항목은 `not_verified`로 남기고 Phase readiness를 통과시키지 않는다. 현재 fixture check key는 `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `system_clock`, `kill_switch`, `database`, `disk_space`, `dashboard`, `storage_migration_state`다. 기본은 JSON only이며, SQLite 저장은 `--record --database-path <repo 내부 경로>`를 명시한 경우에만 시도한다. `database` check는 premarket report에서 SQLite read-only smoke(`SELECT 1`, `sqlite_master`, `schema_version`, `journal_mode`)로 확인하고, `storage_migration_state`는 schema 적용 상태와 분리해서 본다. `token_refresh` check는 `scripts/probe_kis_token_refresh.sh`가 token 원문 없이 생성한 sanitized JSON을 사용한다. `account_snapshot` check는 `scripts/probe_kis_account_snapshot.sh`가 계좌번호 없이 생성한 sanitized JSON을 사용한다. `ws_recovery` check는 `scripts/probe_kis_ws_recovery.sh`가 실제 WebSocket 네트워크를 열지 않는 synthetic fault injection 결과를 만든 경우에만 통과 후보가 된다. 실제 KIS WebSocket 복구 관측은 Phase 1 read-only 진입 뒤 별도로 수집한다. `market_status` check는 `scripts/probe_market_status_snapshot.sh`가 repo 내부 수동 snapshot에서 생성한 sanitized JSON을 사용한다. KIS/거래소 자동 원천은 아직 연결하지 않는다. `system_clock` check는 fixture/dry-run 결과 또는 `scripts/probe_kis_clock_reference.sh`가 read-only 현재가 조회 1회로 생성한 sanitized check JSON을 `--system-clock-check-path`로 넘긴 경우에만 통과 후보가 된다. `scripts/build_live_readiness_fixture_snapshot.sh`는 premarket report, token refresh check, account snapshot check, synthetic WS recovery check, market status check, system clock check, kill switch 상태 파일을 읽어 로컬로 증명 가능한 항목만 fixture로 묶고, market status check 파일이 없으면 자동으로 통과시키지 않는다.
+- `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `system_clock`의 timestamped readiness 증거는 `app/services/live_phase_readiness.py`에서 key별 freshness 기준 초과 시 `stale_evidence`로 차단한다. 현재 기준은 `system_clock/ws_recovery=30분`, `account_snapshot/market_status=1시간`, `token_refresh=4시간`이다. Phase 2/3 readiness와 live submit guard는 synthetic `ws_recovery`를 실전 제출 증거로 인정하지 않고, `app/services/ws_recovery_evidence.py`의 real evidence type이 없으면 broker 호출 전에 차단한다. Dashboard live readiness 카드는 `ws_recovery` evidence type, 실제 증거 여부, freshness, stable frame, reconnect storm 여부를 read-only로 표시한다. HTTP `Date` 기반 `system_clock` skew는 초 단위 header 한계 때문에 밀리초 정밀도가 아니라 대략 1초 이내 여부를 보는 증거다. `scripts/probe_kis_clock_reference.sh --compare-paper-live`는 주문 메서드 없는 read-only quote로 paper/live HTTP `Date` reference를 비교하는 sanitized 진단 JSON을 만든다.
+- `account_snapshot` check는 `position_row_count`, `summary_row_count`, `cash_balance`, `stock_evaluation_amount`, `total_asset_amount` shape와 값 타입이 모두 맞아야 통과 후보가 된다. 누락되거나 타입이 바뀌면 계좌번호/raw response 없이 shape drift로 차단한다.
 - git으로 추적할 가치는 작고 재현에 필요한 문서, 설정 예시, 메타데이터에 한정한다.
 
 ## 9. 검증 기준
@@ -214,6 +234,8 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 감시기 상태와 로그는 `runtime-data/autopush/` 아래에 있다.
 - 버전은 작업 마지막에 바꾸고, 감시기 또는 수동 commit/push 흐름과 충돌하지 않게 한다.
 - 매시간 저장소 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 남기고 git 추적 파일을 직접 수정하지 않는다.
+- Codex 운영 job 산출물은 `runtime-data/reports/codex/ops/` 아래에 남긴다. 장중 운영 job은 `app/services/codex_ops.py`의 manifest/권한 모델을 통과해야 하며, root 코드 적용, 운영 DB schema apply, runtime restart, 실전 주문 관련 flag 변경은 자동 실행하지 않는다. 현재 구현된 wrapper는 `scripts/run_codex_ops_job.sh --job-type premarket-readiness` dry-run report 생성, `scripts/run_live_readiness_dry_run.sh` fixture 기반 10개 check readiness report 생성, `scripts/probe_kis_clock_reference.sh` read-only KIS quote 기반 system_clock check 및 `--compare-paper-live` paper/live reference 비교 생성, `scripts/probe_kis_token_refresh.sh` KIS auth-only token_refresh check 생성, `scripts/probe_kis_account_snapshot.sh` KIS read-only account_snapshot check 생성, `scripts/probe_kis_ws_recovery.sh` synthetic WS recovery check 생성, `scripts/probe_market_status_snapshot.sh` repo-local manual market_status check 생성, `scripts/build_live_readiness_fixture_snapshot.sh` 로컬 증적 fixture snapshot 생성까지다. readiness DB 기록은 기본값이 아니며 `--record`와 repo 내부 `--database-path`가 함께 있어야 한다. `scripts/set_live_kill_switch.sh`는 기본 dry-run/status이고, 실제 kill switch ON/OFF 파일 기록은 `--apply`가 있을 때만 수행한다. OFF 해제는 `--disable --apply --confirm-disable` 조합을 요구한다.
+- Phase 2/3 live submit caller는 `LiveOrderGuard.assert_can_submit()` 또는 `LiveOrderManager.submit_intent()`에 실제 WS 복구 관측 evidence type을 넘겨야 한다. 넘기지 않거나 synthetic 값이면 `ws_recovery_real_evidence_required`로 차단한다.
 
 ## 11. 완료 기준
 
@@ -225,12 +247,25 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 불필요한 백그라운드 프로세스를 남기지 않는다.
 
 <!-- NAS_BACKUP_START -->
-## NAS Backup Operations
+## NAS 백업 운영
 
-- This repository uses NAS full-backup recovery packages.
-- Baseline policy: full backups, latest 3 retained, weekly regular runs, forced backups for important periods.
-- Current NAS share-root baseline: \\192.168.0.2\backup
-- Keep RECOVERY.md plus scripts/run_weekly_nas_backup.ps1 and scripts/run_forced_nas_backup.ps1 aligned with any policy changes.
-- If the backup policy changes, update RECOVERY.md, README.md, AGENTS.md, and the backup scripts together.
+- 이 저장소의 NAS 백업은 두 종류로 구분한다.
+- 재난 복구용 NAS 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이며, 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있다. 이 백업은 cowork 전달, 감사 증적 공유, 실전 전환 readiness 통과 증거로 직접 쓰지 않는다.
+- 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다. `tests/test_wsl_ops.py`와 저장소 export wrapper가 잠그는 포함/제외 정책은 이 sanitized export 기준이다.
+- 기본 보관 정책은 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
+- 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
+- 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
+
+주간 백업:
+
+```bash
+./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
+```
+
+강제 백업:
+
+```bash
+./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
+```
 <!-- NAS_BACKUP_END -->
 

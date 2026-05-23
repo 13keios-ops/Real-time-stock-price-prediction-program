@@ -83,6 +83,8 @@ def _market_session_context(settings, timestamp) -> tuple[str, bool, str]:
         return "holiday", False, "Configured market holiday. Live market data is not expected."
     if session_status == "pre-open":
         return "pre-open", False, "Before the regular session open. Market data flow may not be active yet."
+    if session_status == "overnight":
+        return "overnight", False, "Outside the pre-open warmup window. Live market data is not expected."
     if session_status == "post-close":
         return "post-close", False, "After the regular session close. Control frames only can be normal."
     return "regular-session", True, "Regular session window. Trade or orderbook events should normally appear."

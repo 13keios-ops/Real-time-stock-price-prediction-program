@@ -22,6 +22,7 @@
 - LightGBM: 장후 재학습과 challenger 비교에 사용하되, 검증 통과 전 자동 승격하지 않음
 - 대시보드 주소: 실행 시 `http://127.0.0.1:8765`
 - runtime 데이터 루트: `runtime-data/`
+- 장 상태 라벨: 일반 거래일의 정규장 시작 60분 전부터 `pre-open` warmup 으로 보고, 그보다 이른 새벽/야간 시간은 `overnight`로 구분한다. `overnight`에서는 live runtime 이 꺼져 있어도 정상일 수 있다.
 
 ## 구현 완료 범위
 
@@ -52,6 +53,9 @@
 - KIS 호출 제한 재시도와 안전 실패 처리
 - pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
 - Cybos 실제 15분봉 기반 bar-only LightGBM 연구 실험 경로
+- 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper
+- live 주문/체결/포지션/감사/승인/readiness 초기 원장과 순수 helper
+- 실전 전환 readiness dry-run, kill switch dry-run/status helper, KIS paper fixture redaction/export helper
 
 ## 데이터 흐름
 
@@ -177,11 +181,14 @@ python scripts/summarize_feature_source_drift.py
 python scripts/summarize_kis_live_feature_diagnostics.py
 ```
 
+- `--train-lightgbm`와 `--run-challengers`는 기본적으로 최근 labeled feature row `250,000`건만 읽는다. 전체 이력으로 실행해야 할 때만 각각 `--train-lightgbm-max-rows 0`, `--challenger-max-rows 0`을 명시한다.
+
 현재 ML 기준은 아래와 같다.
 
 - 운영 학습창: 최근 60거래일 + 오늘 데이터
 - 장중: 추론 중심
-- 장후: 특징 / 라벨 재생성, LightGBM 재학습, 백테스트, 워크포워드, 도전자 모델 비교
+- 장후 quick: runtime report, 품질 진단, 제한 LightGBM 재학습, challenger 평가, dashboard snapshot 갱신
+- 장후 heavy research: snapshot DB에서 특징 / 라벨 재생성, 백테스트, 워크포워드, 도전자 모델 비교
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 `challenger_holdout_tail_10pct`를 기본으로 쓰며, candidate별 `evaluation_independence_status`를 리포트에 남긴다. LightGBM artifact에는 `training_run_id`와 holdout metadata를 저장하고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다. 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행한다.

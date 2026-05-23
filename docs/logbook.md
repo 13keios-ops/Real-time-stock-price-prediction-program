@@ -1,5 +1,2006 @@
 # 작업 기록
 
+## [2026-05-23] Codex -> 커밋 전 최종 검증과 NAS export 제외 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`, `errors=[]`.
+- 변경:
+  - `scripts/wsl_ops.py`의 `export-recovery`가 문서 정책과 맞게 루트 `.env*`, KIS token cache, runtime logs, private key 계열을 recovery export에서 제외하도록 보강했다.
+  - `tests/test_wsl_ops.py`에 `.env.local`, `.env.example`, `id_ed25519` 제외 검증을 추가했다.
+  - Phase 2 submit 성공 fixture인 `tests/test_live_execution_sync.py`에 실제 KIS WS recovery evidence type을 명시해 최신 live submit guard 정책과 테스트를 맞췄다.
+- 검증:
+  - `python -m unittest tests.test_wsl_ops`: 13개 통과.
+  - `python -m unittest tests.test_live_execution_sync`: 12개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 351개 통과.
+  - `bash -n scripts/*.sh`: 통과.
+  - `python -m app --build-dashboard`: 통과, `runtime-data/reports/dashboard/latest-dashboard.html`, `latest-dashboard.json` 생성.
+  - `./scripts/run_live_readiness_dry_run.sh`: fixture 미제공 상태에서 `status=blocked`; 모든 필수 evidence를 `not_verified`로 차단하는 fail-closed 동작 확인.
+  - `git diff --check`: 통과. CRLF/LF 안내 warning만 있고 whitespace error 없음.
+  - `git status --short -- app/risk config VERSION`: 출력 없음.
+- 주의:
+  - live account 조회, live order submit/cancel, runtime restart, gate 기준값 변경, `ALLOW_LIVE_ORDERS` 변경 없음.
+  - 실제 NAS package는 커밋/푸시 후 `/mnt/backup` 대상 강제 백업으로 별도 실행 예정이다.
+
+## [2026-05-23] Codex -> work_ver_16: review_ver_15 P1 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`, `errors=[]`.
+  - 주말 상태라 코드/문서 보강과 read-only 검증만 진행했다.
+- 변경:
+  - `app/services/ws_recovery_evidence.py`를 추가해 실제 KIS WS recovery evidence enum과 설명을 단일 소스로 분리했다.
+  - `app/services/live_phase_readiness.py`, `app/services/live_order_guard.py`가 새 evidence enum helper를 import하도록 바꿨다.
+  - readiness evidence freshness를 key별 기준으로 바꿨다. 현재 기준은 `system_clock/ws_recovery=30분`, `account_snapshot/market_status=1시간`, `token_refresh=4시간`이다.
+  - `app/services/market_status_probe.py`에 `compute_symbol_set_hash()`를 추가하고, manual snapshot `symbol_set_hash`가 sorted symbols hash와 맞지 않으면 차단하도록 했다.
+  - `scripts/probe_market_status_snapshot.py`에 `--print-symbol-set-hash`를 추가했다.
+  - `system_clock` check details에 HTTP `Date` 초 단위 정밀도 note를 추가했다.
+  - dashboard live readiness 카드가 WS recovery evidence type, 실제 증거 여부, freshness, stable frame, reconnect storm 여부를 표시하도록 보강했다.
+  - `scripts/probe_kis_clock_reference.sh --compare-paper-live`로 paper/live HTTP `Date` reference delta를 raw header 없이 비교할 수 있게 했다. 이번 작업에서는 live account 조회를 실행하지 않았다.
+  - `app/services/kis_account_probe.py`가 account snapshot 필수 attribute 존재뿐 아니라 row count와 금액 계열 값 타입 drift를 원문 값 없이 차단하도록 보강했다.
+  - `docs/Manual-Market-Status-Runbook.md`에 symbol hash 계산과 stale 회복 절차를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Transition-Progress.md`에 Phase 2 모델 성능 선행 게이트를 명시했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`를 추가하고 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_order_guard tests.test_live_order_manager tests.test_market_status_probe tests.test_kis_clock_reference_probe` 통과, 61개.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_order_guard tests.test_live_order_manager tests.test_market_status_probe tests.test_kis_clock_reference_probe tests.test_live_readiness_dry_run_script` 통과, 72개.
+  - `python -m py_compile app/services/ws_recovery_evidence.py app/services/live_phase_readiness.py app/services/live_order_guard.py app/services/market_status_probe.py scripts/probe_market_status_snapshot.py tests/test_live_phase_readiness.py tests/test_market_status_probe.py tests/test_kis_clock_reference_probe.py tests/test_live_readiness_dry_run_script.py` 통과.
+  - `bash -n scripts/probe_market_status_snapshot.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `python -m unittest tests.test_kis_clock_reference_probe tests.test_dashboard` 통과, 24개.
+  - `python -m py_compile app/services/system_clock_probe.py scripts/probe_kis_clock_reference.py app/services/dashboard.py tests/test_kis_clock_reference_probe.py tests/test_dashboard.py` 통과.
+  - `python -m unittest tests.test_market_status_probe tests.test_market_status tests.test_kis_ws_recovery_probe tests.test_kis_ws_reconnect_metrics tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_kis_account_probe tests.test_kis_token_probe tests.test_kis_clock_reference_probe tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_live_readonly_guard tests.test_system_clock tests.test_live_client_isolation tests.test_kis_http_clients tests.test_live_order_guard tests.test_live_order_manager tests.test_kis_live_order_adapter tests.test_dashboard` 통과, 166개.
+  - `python -m app --build-dashboard` 통과. `runtime-data/reports/dashboard/latest-dashboard.html`에 WS recovery 상세 row가 표시되는 것을 확인했다.
+  - `python -m unittest tests.test_kis_account_probe tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_live_phase_readiness` 통과, 35개.
+  - `python -m py_compile app/services/kis_account_probe.py tests/test_kis_account_probe.py` 통과.
+  - account snapshot 타입 검증 반영 후 관련 전체 묶음 재실행 통과, 167개.
+  - 최종 `py_compile`와 readiness 관련 `bash -n` 통과.
+  - `git diff --check` 통과. CRLF/LF 안내 warning만 있었고 whitespace error는 없었다.
+  - `git diff --name-only -- app/risk config VERSION`, `git status --short -- app/risk config VERSION` 출력 없음.
+- 최신 readiness:
+  - `./scripts/run_live_readiness_dry_run.sh --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json --report-path runtime-data/reports/live-readiness/latest-readiness.json` 실행.
+  - 주말에 어제 증거를 재사용했으므로 `ws_recovery`, `account_snapshot`, `system_clock`은 key별 freshness 기준에 따라 stale 차단됐다. `token_refresh`는 4시간 기준 안이라 통과했다.
+  - 전체 status는 `blocked`이며, 이는 Phase 1 장전마다 fresh probe를 다시 만들어야 한다는 fail-closed 동작이다.
+- 주의:
+  - NAS 실제 package/drill, live account 조회, live order submit/cancel, runtime restart, 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-23] Codex -> NAS 백업 정책 구분 반영
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`.
+- 확인:
+  - Windows 경로 `\\192.168.0.2\backup` 접근 가능.
+  - 기존 repo 백업 경로 `\\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports`와 2026-05-20 백업 폴더 확인.
+  - 사용자 WSL 터미널에서 `/mnt/backup` 마운트 성공.
+  - Codex 세션에서는 처음에 마운트가 보이지 않아 `wsl.exe -d Ubuntu -u root`로 같은 공유를 `/mnt/backup`에 다시 마운트했다.
+  - Codex 세션 기준 `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports` 확인 완료.
+  - `./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason phase1-readonly-drill-check --dry-run` 통과. 실제 package 생성 없음.
+  - 기존 NAS 백업은 재난 복구용 전체 백업으로 유지하는 운영 의도를 확인했다.
+- 변경:
+  - `RECOVERY.md`, `README.md`, `AGENTS.md`에서 NAS 백업을 재난 복구용 전체 백업과 실전 전환 검증용 sanitized recovery export로 분리했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/Production-Transition-Progress.md`, `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`에 같은 구분을 반영했다.
+- 주의:
+  - 기존 NAS 전체 백업은 cowork 전달/Phase readiness 증거로 직접 쓰지 않는다.
+  - Phase 1 전 복구 drill은 `recovery-drills/phase1-readonly` 같은 별도 폴더에서 비밀값 제외 sanitized export 표본으로 확인하는 것을 권장한다.
+
+## [2026-05-22] Codex -> work_ver_15: review_ver_14 P0 guard 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 review_ver_14 반영 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/live_phase_readiness.py`가 Phase 2/3 readiness에서 synthetic `ws_recovery` 증거를 `invalid_evidence`로 차단하도록 했다.
+  - `app/services/live_order_guard.py`, `app/services/live_order_manager.py`가 Phase 2/3 live submit 시 실제 KIS WS recovery evidence type을 기본 요구하도록 했다. 없거나 synthetic이면 broker 호출 전에 `ws_recovery_real_evidence_required`로 차단한다.
+  - `app/services/kis_account_probe.py`가 account snapshot 필수 shape(`position_row_count`, `summary_row_count`, `cash_balance`, `stock_evaluation_amount`, `total_asset_amount`) 누락을 shape drift로 차단하도록 했다.
+  - `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `system_clock` timestamped readiness 증거는 기본 1시간 초과 시 `stale_evidence`로 차단하도록 했다.
+  - `docs/Manual-Market-Status-Runbook.md`를 추가하고 `app/services/market_status_probe.py`가 수동 snapshot source를 `manual_operator_snapshot`, `manual_krx_snapshot`, `manual_kis_snapshot`으로 제한하도록 했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/Production-Transition-Progress.md`, `README.md`, `AGENTS.md`에 보강 상태를 반영했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-22-production-architecture-implementation-blueprint-work_ver_15.md`를 추가하고 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_order_guard tests.test_live_order_manager tests.test_live_phase_readiness tests.test_kis_account_probe` 통과, 52개.
+  - `python -m unittest tests.test_market_status_probe tests.test_market_status tests.test_kis_ws_recovery_probe tests.test_kis_ws_reconnect_metrics tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_kis_account_probe tests.test_kis_token_probe tests.test_kis_clock_reference_probe tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_live_readonly_guard tests.test_system_clock tests.test_live_client_isolation tests.test_kis_http_clients tests.test_live_order_guard tests.test_live_order_manager tests.test_kis_live_order_adapter` 통과, 143개.
+  - `python -m py_compile app/services/live_order_guard.py app/services/live_order_manager.py app/services/live_phase_readiness.py app/services/kis_account_probe.py tests/test_live_order_guard.py tests/test_live_order_manager.py tests/test_live_phase_readiness.py tests/test_kis_account_probe.py` 통과.
+  - 관련 Python 파일과 probe wrapper `py_compile` 통과.
+  - `bash -n scripts/probe_market_status_snapshot.sh scripts/probe_kis_account_snapshot.sh scripts/probe_kis_ws_recovery.sh scripts/probe_kis_token_refresh.sh scripts/probe_kis_clock_reference.sh scripts/build_live_readiness_fixture_snapshot.sh scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있고 whitespace error는 없다.
+  - `git diff -- app/risk config VERSION` 출력 없음.
+- 최신 readiness:
+  - paper/read-only probe 재실행 후 `runtime-data/reports/live-readiness/latest-readiness.json` 생성.
+  - `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=false`, `kill_switch=false`, 전체 `blocked`.
+  - blocking reasons는 `market_status_not_verified_by_fault_dry_run`, `kill_switch_fault_dry_run_failed` 두 개다.
+- 주의:
+  - NAS 실제 package/drill은 실행하지 않았다. 운영자 승인 필요 항목으로 유지한다.
+  - live account 조회, live order submit/cancel, runtime restart, 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-22] 장전/장후 자동화 확인과 paper 계좌 재정렬
+
+- 상태 확인:
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PreOpenCheck`: `2026-05-22 08:20:20` 실행, `LastTaskResult=0`, 다음 실행 `2026-05-25 08:20:20`.
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PostCloseOps`: `2026-05-22 16:40:40` 실행, `LastTaskResult=0`, 다음 실행 `2026-05-25 16:40:40`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `stopped_at=2026-05-22 15:30:04 +0900`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `errors=[]`, `ml_maintenance_action=already_ok`.
+  - `./scripts/get_dashboard_status.sh`: `status=running`, `dashboard_api_responding=true`.
+- 장후 자동화 결과:
+  - `latest-post-close-ml.json`: `status=ok`, `mode=quick-live-train`, `completed_at=2026-05-22 16:09:02 +0900`, `train-lightgbm-bounded`, `run-challengers-bounded` 포함.
+  - `latest-post-close-label-refresh.json`: `status=ok`, `completed_at=2026-05-22 17:00:00 +0900`.
+  - 오늘 학습 run: `train-lightgbm-h15-20260522160627281658`, `train_rows=174704`, `validation_rows=53808`, validation accuracy `0.6218406185`.
+  - 최신 challenger: `recommended_action=keep_active`, `decision_reason=The top challenger does not have enough trades.`, active model `baseline-h15-v1` 유지.
+- 데이터 품질:
+  - `latest-kis-live-data-quality.json`: `assessment.status=ok`, `trade_date=2026-05-22`, `raw_market_coverage_ratio=0.973146`, `minute_bar_closed_coverage_ratio=0.973077`, `feature_closed_coverage_ratio=0.973077`.
+- 조치:
+  - 장후 재대조에서 `latest-paper-dual-account-match.json`가 `needs_review`였고, 수량은 일치하지만 로컬 paper 장부 스냅샷이 오래되어 현금/총자산 차이가 있었다.
+  - `./scripts/sync_broker_paper_orders.sh`는 KIS `EGW00201` rate limit으로 주문/체결 상세 동기화는 실패했지만, 포지션 비교에는 영향이 없었다.
+  - `./scripts/align_local_paper_to_broker.sh`로 로컬 paper 장부를 KIS 모의계좌 기준으로 정렬했다. backup: `runtime-data/backups/paper-alignment/260522_1744_marker-only.sqlite3`.
+  - `./scripts/reconcile_paper_accounts.sh`: `status=aligned_waiting_first_submission`, `positions_match=true`, `balance_match=true`, `total_asset_match=true`, `cash_gap=0`, `total_asset_gap=0`.
+  - `python -m app --build-dashboard`: `generated_at=2026-05-22T17:45:23.650020+09:00`.
+- 남은 확인:
+  - KIS 주문/체결 상세 동기화는 rate limit 이후 재시도 간격을 두는 편이 안전하다. 다음 장전/장후 자동화에서 `broker-paper/latest-sync.json`의 `status`가 회복되는지 확인한다.
+
+## [2026-05-21] Codex -> work_ver_14-6: work_ver_14 시리즈 cowork 전달용 통합본 작성
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 문서/리포트만 갱신했다.
+- 변경:
+  - `work_ver_14`, `14-1`, `14-2`, `14-3`, `14-4`, `14-5`를 cowork 전달용 한 파일로 압축한 `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_14-6.md`를 추가했다.
+  - `docs/Production-Transition-Progress.md`의 최신 통합 리포트를 `work_ver_14-6`으로 갱신했다.
+  - `docs/cowork-reports/README.md` 색인을 갱신했다.
+- 전달 기준:
+  - cowork에는 `work_ver_14-6` 하나만 전달하면 된다.
+  - 현재 readiness blocker는 `market_status_not_verified_by_fault_dry_run`, `kill_switch_fault_dry_run_failed` 두 개다.
+- 주의:
+  - 코드 변경 없음.
+  - KIS API 신규 호출 없음.
+  - live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14-5: manual market_status snapshot readiness probe 구현
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/market_status_probe.py`를 추가해 repo 내부 수동 market status snapshot을 `app/services/market_status.py`의 순수 판정 로직으로 평가하고 `market_status` readiness check를 만든다.
+  - `scripts/probe_market_status_snapshot.py`, `scripts/probe_market_status_snapshot.sh`, `scripts/script_dispatch.sh`를 추가/연결했다.
+  - `app/services/live_readiness_fixture.py`와 `scripts/build_live_readiness_fixture_snapshot.py`가 `market-status-check.json`을 local fixture snapshot에 포함할 수 있게 했다.
+  - KIS/거래소 자동 market status 원천은 연결하지 않았다. 실제 snapshot 파일이 없으면 readiness는 계속 `market_status_not_verified_by_fault_dry_run`으로 blocked 된다.
+  - local fixture snapshot 기반 readiness dry-run 결과는 여전히 `market_status=not_verified`, `kill_switch=failed`라 전체 readiness는 `blocked`다.
+- 검증:
+  - `python -m unittest tests.test_market_status_probe tests.test_market_status tests.test_kis_ws_recovery_probe tests.test_kis_ws_reconnect_metrics tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_kis_account_probe tests.test_kis_token_probe tests.test_kis_clock_reference_probe tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_live_readonly_guard tests.test_system_clock tests.test_live_client_isolation tests.test_kis_http_clients tests.test_live_order_manager` 통과, 119개.
+  - `python -m py_compile app/services/market_status_probe.py app/services/live_readiness_fixture.py scripts/probe_market_status_snapshot.py scripts/build_live_readiness_fixture_snapshot.py tests/test_market_status_probe.py tests/test_live_readiness_fixture_snapshot.py` 통과.
+  - `bash -n scripts/probe_market_status_snapshot.sh scripts/probe_kis_account_snapshot.sh scripts/probe_kis_ws_recovery.sh scripts/probe_kis_token_refresh.sh scripts/probe_kis_clock_reference.sh scripts/build_live_readiness_fixture_snapshot.sh scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+- 남은 P0:
+  - 실제 거래일 market status snapshot 증적 생성. 권장안은 Phase 1 전 수동 snapshot으로 시작하고, KIS/한국거래소 자동 원천은 별도 slice로 분리하는 것이다.
+  - kill switch `OFF` 상태 파일 생성 시점 결정. 현재 missing은 fail-closed로 정상 차단이다.
+  - Phase 1 승인 뒤 live account read-only header/account shape 확인.
+- 주의:
+  - KIS API 신규 호출 없음.
+  - live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14-4: account snapshot + synthetic WS recovery readiness probe 구현
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/kis_account_probe.py`를 추가해 KIS 계좌 snapshot 조회 결과를 계좌번호 없이 `account_snapshot` readiness check로 만든다.
+  - `scripts/probe_kis_account_snapshot.py`, `scripts/probe_kis_account_snapshot.sh`, `scripts/script_dispatch.sh`를 추가/연결했다.
+  - `app/services/kis_ws_recovery_probe.py`와 `scripts/probe_kis_ws_recovery.py`, `scripts/probe_kis_ws_recovery.sh`를 추가해 실제 WebSocket 네트워크를 열지 않는 synthetic fault injection 기반 `ws_recovery` check를 만든다.
+  - `app/services/live_readiness_fixture.py`와 `scripts/build_live_readiness_fixture_snapshot.py`가 `account-snapshot-check.json`, `ws-recovery-check.json`을 local fixture snapshot에 포함할 수 있게 했다.
+  - KIS 모의투자 paper 계좌 snapshot read-only 조회 1회를 실행해 `runtime-data/reports/live-readiness/account-snapshot-check.json`을 생성했다. 결과는 `account_snapshot=true`이고 계좌번호/raw response는 저장하지 않는다.
+  - synthetic WS recovery check를 실행해 `runtime-data/reports/live-readiness/ws-recovery-check.json`을 생성했다. 결과는 `ws_recovery=true`, `network_called=false`다.
+  - local fixture snapshot 기반 readiness dry-run 결과 `token_refresh`, `ws_recovery`, `account_snapshot`, `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`는 true, `market_status`는 not_verified, `kill_switch`는 missing으로 failed라 전체 readiness는 `blocked`로 남았다.
+- 검증:
+  - `python -m unittest tests.test_kis_ws_recovery_probe tests.test_kis_ws_reconnect_metrics tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_kis_account_probe tests.test_kis_token_probe tests.test_kis_clock_reference_probe tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_live_readonly_guard tests.test_system_clock tests.test_live_client_isolation tests.test_kis_http_clients tests.test_live_order_manager` 통과, 107개.
+  - `python -m py_compile app/services/kis_account_probe.py app/services/kis_ws_recovery_probe.py app/services/kis_token_probe.py app/services/system_clock_probe.py app/services/live_readiness_fixture.py scripts/probe_kis_account_snapshot.py scripts/probe_kis_ws_recovery.py scripts/probe_kis_token_refresh.py scripts/probe_kis_clock_reference.py scripts/build_live_readiness_fixture_snapshot.py tests/test_kis_account_probe.py tests/test_kis_ws_recovery_probe.py tests/test_live_readiness_fixture_snapshot.py` 통과.
+  - `bash -n scripts/probe_kis_account_snapshot.sh scripts/probe_kis_ws_recovery.sh scripts/probe_kis_token_refresh.sh scripts/probe_kis_clock_reference.sh scripts/build_live_readiness_fixture_snapshot.sh scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있고 whitespace error는 없다.
+  - `git diff -- app/risk config VERSION` 출력 없음.
+- 남은 P0:
+  - `market_status` 증적 확보. 권장안은 KIS/거래소 상태 원천이 정해지기 전까지 수동 snapshot 또는 fixture로 자동 통과시키지 않는 것이다.
+  - kill switch `OFF` 상태 파일 생성 시점 결정. 현재 missing은 fail-closed로 정상 차단이다.
+  - Phase 1 승인 뒤 live account read-only header/account shape 확인.
+- 주의:
+  - 실제 KIS 호출은 모의투자 paper 계좌 snapshot read-only 조회 1회만 추가 수행했다.
+  - WS recovery는 실제 KIS WebSocket 연결이 아니라 synthetic/offline check다.
+  - live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14-3: token refresh readiness probe 구현
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/kis_token_probe.py`를 추가해 token 원문 없이 `token_refresh` readiness check를 만든다.
+  - `scripts/probe_kis_token_refresh.py`, `scripts/probe_kis_token_refresh.sh`, `scripts/script_dispatch.sh`를 추가/연결했다.
+  - `app/services/live_readiness_fixture.py`와 `scripts/build_live_readiness_fixture_snapshot.py`가 `token-refresh-check.json`을 읽어 local fixture snapshot에 포함할 수 있게 했다.
+  - `tests/test_kis_token_probe.py`, `tests/test_live_readiness_fixture_snapshot.py`를 추가/보강했다.
+  - KIS 모의투자 paper token refresh를 1회 실행해 `runtime-data/reports/live-readiness/token-refresh-check.json`을 생성했다. 결과는 `token_refresh=true`, token 원문 미저장이다.
+  - local fixture snapshot 기반 readiness dry-run 결과 `token_refresh`, `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`는 true, `kill_switch`는 missing으로 failed, `ws_recovery`, `account_snapshot`, `market_status`는 not_verified라 전체 readiness는 `blocked`로 남았다.
+- 검증:
+  - `python -m unittest tests.test_kis_token_probe tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_kis_clock_reference_probe` 통과, 38개.
+  - `python -m py_compile app/services/kis_token_probe.py app/services/live_readiness_fixture.py scripts/probe_kis_token_refresh.py scripts/build_live_readiness_fixture_snapshot.py tests/test_kis_token_probe.py tests/test_live_readiness_fixture_snapshot.py` 통과.
+  - `bash -n scripts/probe_kis_token_refresh.sh scripts/build_live_readiness_fixture_snapshot.sh scripts/script_dispatch.sh` 통과.
+- 남은 P0:
+  - kill switch 상태 파일을 언제 `OFF`로 생성할지 결정. 현재 missing은 fail-closed로 정상 차단이다.
+  - WS recovery, account snapshot, market status 증적 확보.
+  - Phase 1 승인 뒤 live account read-only header/token shape 확인.
+- 주의:
+  - 실제 KIS 호출은 모의투자 paper token refresh 1회만 수행했다.
+  - live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14-2: local readiness fixture snapshot 구현
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/live_readiness_fixture.py`를 추가해 premarket report, system clock check, kill switch 상태에서 로컬로 증명 가능한 readiness fixture만 만든다.
+  - `scripts/build_live_readiness_fixture_snapshot.py`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/script_dispatch.sh`를 추가/연결했다.
+  - token refresh, WS recovery, account snapshot, market status는 별도 증거가 없으면 fixture에 넣지 않아 `not_verified`로 남긴다.
+  - `tests/test_live_readiness_fixture_snapshot.py`를 추가했다.
+  - fresh `premarket-readiness` dry-run report를 생성하고, `runtime-data/reports/live-readiness/local-fixture-snapshot.json`을 생성했다.
+  - fixture snapshot 기반 `run_live_readiness_dry_run.sh` 실행 결과 `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`는 true, `kill_switch`는 missing으로 failed, token/WS/account/market은 not_verified라 전체 readiness는 `blocked`로 남았다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/Production-Transition-Progress.md`, `README.md`, `AGENTS.md`에 반영했다.
+- 검증:
+  - `python -m unittest tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_live_phase_readiness tests.test_live_kill_switch tests.test_kis_clock_reference_probe` 통과, 35개.
+  - `python -m py_compile app/services/live_readiness_fixture.py scripts/build_live_readiness_fixture_snapshot.py tests/test_live_readiness_fixture_snapshot.py` 통과.
+  - `bash -n scripts/build_live_readiness_fixture_snapshot.sh scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+- 남은 P0:
+  - kill switch 상태 파일을 언제 `OFF`로 생성할지 결정. 현재 missing은 fail-closed로 정상 차단이다.
+  - token refresh, WS recovery, account snapshot, market status 증적 확보.
+  - Phase 1 승인 뒤 live account read-only header shape 확인.
+- 주의:
+  - live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14-1: read-only system_clock probe wrapper 구현
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/brokers/kis_readonly.py`에 generic `get_kis_readonly_client()`와 `last_response_headers` copy 노출을 추가했다. 기존 `get_kis_live_readonly_client()`는 live 전용 제약을 유지한다.
+  - `app/services/system_clock_probe.py`를 추가해 read-only 현재가 조회 1회 뒤 HTTP `Date` header를 sanitized `system_clock` readiness check로 변환한다. raw header 원문과 예외 메시지는 저장하지 않는다.
+  - `scripts/probe_kis_clock_reference.py`, `scripts/probe_kis_clock_reference.sh`, `scripts/script_dispatch.sh`를 추가/연결해 repo 내부 JSON으로 `system_clock` check를 저장할 수 있게 했다.
+  - KIS 모의투자 paper 현재가 read-only probe를 1회 실행해 `runtime-data/reports/live-readiness/system-clock-check.json`을 생성했다. 결과는 `system_clock=true`, skew 약 0.167초였다.
+  - `scripts/run_live_readiness_dry_run.sh --system-clock-check-path runtime-data/reports/live-readiness/system-clock-check.json` 실행으로 `system_clock`만 통과 병합되는 것을 확인했다. 나머지 fixture가 없어서 전체 readiness는 안전하게 `blocked`로 남았다.
+  - `tests/test_kis_clock_reference_probe.py`, `tests/test_live_readonly_guard.py`를 추가/보강했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/Production-Transition-Progress.md`, `README.md`, `AGENTS.md`에 wrapper 구현 상태와 남은 증적 확보 작업을 반영했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_14-1.md`를 추가하고 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_readonly_guard tests.test_kis_clock_reference_probe tests.test_system_clock tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_live_client_isolation tests.test_kis_http_clients tests.test_live_order_manager` 통과, 84개.
+  - `python -m py_compile app/brokers/kis_readonly.py app/services/system_clock_probe.py scripts/probe_kis_clock_reference.py tests/test_kis_clock_reference_probe.py tests/test_live_readonly_guard.py` 통과.
+  - `bash -n scripts/probe_kis_clock_reference.sh scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+- 남은 P0:
+  - 실제 KIS paper probe 1회 실행 증적.
+  - Phase 1 승인 뒤 live account read-only header shape 확인.
+  - NAS 실제 package/복구 drill.
+- 주의:
+  - 실제 KIS 호출은 모의투자 paper 현재가 read-only 1회만 수행했다.
+  - KIS live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_14: review_ver_13 P0 후속 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/services/system_clock.py`에서 HTTP `Date` header parser가 timezone 없는 값이나 알 수 없는 timezone을 naive datetime으로 허용하지 않고 `ValueError`로 차단하도록 보강했다.
+  - `tests/test_system_clock.py`에 timezone 누락, 알 수 없는 `KST`, 숫자 offset normalization 테스트를 추가했다.
+  - `scripts/script_dispatch.sh`의 `run_live_readiness_dry_run.sh` dispatch에 `--system-clock-check-path` 옵션을 추가했다.
+  - 이 옵션은 repo 내부 sanitized `system_clock` check JSON을 fixture의 `system_clock`보다 우선 병합한다.
+  - `tests/test_live_readiness_dry_run_script.py`에 check path override와 repo 내부 경로 제한 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/Production-Transition-Progress.md`에 현재 상태와 남은 P0를 갱신했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_14.md`를 추가하고 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_system_clock tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 36개.
+  - `bash -n scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `python -m py_compile app/services/system_clock.py app/services/live_phase_readiness.py tests/test_system_clock.py tests/test_live_readiness_dry_run_script.py` 통과.
+- 남은 P0:
+  - fresh KIS read-only 조회 직후 sanitized `system_clock` check를 자동 생성하는 probe/caller 연결.
+  - live account read-only header shape 확인.
+  - NAS 실제 package/복구 drill.
+- 주의:
+  - KIS API 신규 호출, live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> 실전 전환 진행상태 문서 추가
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=running`, `session_status=regular-session`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=regular-session`, `live_runtime_should_run=true`, `errors=[]`.
+  - 장중 수집 보호 모드라 코드, runtime, 운영 DB, 전체 테스트는 건드리지 않고 문서만 갱신했다.
+- 변경:
+  - `docs/Production-Transition-Progress.md`를 추가해 실전 전환 phase별 목표, P0 진행 보드, 통과 기준 초안, 열린 결정 항목, 작업 종료 체크리스트를 한곳에 정리했다.
+  - `README.md` 핵심 문서 목록과 `AGENTS.md` 문서 역할에 새 진행상태 문서를 추가했다.
+- 운영 규칙:
+  - 앞으로 실전 전환 관련 작업을 끝낼 때마다 `docs/Production-Transition-Progress.md`를 갱신하고 최종 보고에 링크를 출력한다.
+- 주의:
+  - KIS API 신규 호출, live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_13 통합본 작성
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=overnight`, `live_runtime_should_run=false`, `errors=[]`.
+- 확인:
+  - Anthropic 공식 문서 기준 Claude 5시간 사용량은 메시지/첨부/대화 길이/모델/도구/수용량에 따라 달라지고 정확한 token quota는 고정 공개값이 아님을 확인했다.
+  - `work_ver_13*` 원문 9개 합계는 41,736 bytes, 30,412 characters, 4,465 whitespace words였다.
+  - 원문 전체 전달은 대략 input 12K~18K tokens, 통합본 전달은 input 4K~7K tokens 수준으로 추정했다.
+- 변경:
+  - cowork 전달용 통합본 `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_13.md`를 추가했다.
+  - 통합본은 `work_ver_13`, `work_ver_13-1`~`13-8`의 핵심 변경, 남은 P0, 검증, cowork 질문 4개만 압축했다.
+  - `docs/cowork-reports/README.md` 색인을 갱신했다.
+- 주의:
+  - 문서/리포트만 변경했다.
+  - KIS API 신규 호출, live order submit/cancel, 운영 DB schema apply, runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-21] Codex -> work_ver_13-8: overnight / pre-open 상태 라벨 분리
+
+- 상태:
+  - 작업 시작 시 `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=pre-open`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=false`, `errors=[]`.
+  - 실제 시각은 01시대라 장전 워밍업이 아니었고, 기존 helper가 정규장 시작 전 모든 시간을 `pre-open`으로 표시하는 문제로 확인했다.
+- 변경:
+  - `app/utils/time.py`, `scripts/wsl_ops.py`, `scripts/common_process_helpers.sh`에서 일반 거래일 정규장 시작 60분 전부터만 `pre-open`으로 표시하고, 그보다 이른 시간은 `overnight`로 표시하도록 수정했다.
+  - `app/services/kis_verification.py`가 `overnight`를 시장 데이터 기대 없음으로 처리하게 했다.
+  - `app/services/dashboard.py`가 `overnight`를 장외 안내 상태로 처리하게 했다.
+  - `AGENTS.md`, `README.md`, `docs/Current-Implementation.md`에 `overnight`/`pre-open` 경계를 반영했다.
+  - 새 회귀 테스트 `tests/test_time_utils.py`를 추가하고, `tests/test_codex_ops.py`, `tests/test_kis_ws_verification.py`, `tests/test_wsl_ops.py`를 보강했다.
+  - 수정 전 코드를 메모리에 들고 있던 runtime watchdog만 재시작했다. live runtime 은 계속 `stopped` 상태로 유지했다.
+- 검증:
+  - `python -m unittest tests.test_time_utils tests.test_codex_ops tests.test_kis_ws_verification tests.test_wsl_ops` 통과, 35개.
+  - `python -m py_compile app/utils/time.py app/services/kis_verification.py app/services/dashboard.py scripts/wsl_ops.py tests/test_time_utils.py tests/test_codex_ops.py tests/test_kis_ws_verification.py tests/test_wsl_ops.py` 통과.
+  - `bash -n scripts/common_process_helpers.sh scripts/script_dispatch.sh scripts/get_live_runtime_status.sh scripts/get_runtime_watchdog_status.sh` 통과.
+  - 수정 후 `./scripts/get_live_runtime_status.sh`: `session_status=overnight`, `status=stopped`.
+  - watchdog 재시작 후 `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=overnight`, `live_runtime_should_run=false`, `live_runtime_action=off_session_hold_overnight`.
+- 주의:
+  - KIS API 신규 호출, live order submit/cancel, 운영 DB schema apply, live runtime restart, 자동 commit/push 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
+## [2026-05-21] Codex -> work_ver_13-7: pre-open 보호 모드 next slice 설계
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=pre-open`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=false`, `errors=[]`.
+  - `pre-open`은 장중 수집 보호 모드라 루트 코드 파일 변경, 운영 DB 접근 가능성이 있는 명령, runtime restart, 전체 테스트는 하지 않았다.
+- 확인:
+  - 최신 cowork review는 `review_ver_12`이고 새 review 파일은 없었다.
+  - `work_ver_13-6` 이후 남은 P0는 runtime caller/readiness runner가 fresh KIS read-only 조회 직후 system clock decision/check를 자동 생성해 주입하는 연결이다.
+- 변경:
+  - 코드 변경 없이 `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_13-7.md`를 추가했다.
+  - 리포트에는 다음 코드 slice 권장 순서로 `KIS clock reference probe wrapper -> live readiness dry-run merge -> Phase 2 submit guard 자동 주입`을 적었다.
+  - `docs/cowork-reports/README.md` 색인을 갱신했다.
+- 보류:
+  - KIS live account read-only 조회.
+  - 새 코드 파일 생성 또는 루트 코드 수정.
+  - runtime restart, dashboard 재생성, 운영 DB schema apply, 전체 테스트.
+- 주의:
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-6: sanitized system_clock readiness check helper
+
+- 상태:
+  - `work_ver_13-5` 이후 cowork 리뷰 없이 이어서 진행했다.
+  - KIS API 신규 호출, 실전 주문, runtime restart, 운영 DB schema apply는 하지 않았다.
+- 변경:
+  - `app/services/live_phase_readiness.py`에 `build_system_clock_check_from_http_date_headers()`를 추가했다.
+  - 이 helper는 HTTP `Date` header와 local time으로 `system_clock` readiness check result를 만들되, raw header 원문은 저장하지 않고 source, skew, local/reference time, blocking reasons만 남긴다.
+  - `tests/test_live_phase_readiness.py`에 sanitized check result가 readiness report에 들어가 통과하고 raw HTTP date 문자열이 check JSON에 남지 않는 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 sanitized readiness check helper 상태를 반영했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-6.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_system_clock tests.test_live_readiness_dry_run_script` 통과, 31개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_order_guard tests.test_system_clock tests.test_kis_http_clients tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_kis_ws_reconnect_metrics tests.test_wsl_ops` 통과, 89개.
+  - `python -m py_compile app/brokers/kis_quote_rest.py app/services/system_clock.py app/services/live_order_manager.py app/services/live_order_guard.py app/services/live_phase_readiness.py tests/test_kis_http_clients.py tests/test_system_clock.py tests/test_live_order_manager.py tests/test_live_order_guard.py tests/test_live_phase_readiness.py tests/test_live_readiness_dry_run_script.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - runtime caller/readiness runner가 KIS read-only 조회 직후 helper를 호출해 decision/check를 자동 주입하는 연결.
+  - live account read-only API response header 확인 여부 결정.
+- 주의:
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-5: 실제 KIS paper HTTP Date header 확인
+
+- 상태:
+  - `work_ver_13-4` 이후 cowork 리뷰 없이 이어서 진행했다.
+  - 기존 runtime report에 KIS REST response header/date 증거가 있는지 read-only로 먼저 확인했지만, 기존 산출물에는 header 증거가 없었다.
+- 확인:
+  - KIS REST 현재가 read-only 조회 1회를 `paper` mode로 실행했다.
+  - 대상 symbol은 `005930`이다.
+  - 실제 response header key에 `date`가 있음을 확인했다.
+  - `app/services/system_clock.py`의 parser가 `kis_rest_http_date` source로 reference time을 파싱했다.
+  - 출력에는 계좌번호, token, app key/secret을 남기지 않았다.
+- 변경:
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, 운영자 결정 템플릿에 실제 KIS paper `date` header 확인 사실을 반영했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-5.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_order_manager tests.test_live_order_guard tests.test_system_clock tests.test_kis_http_clients tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_kis_ws_reconnect_metrics tests.test_wsl_ops` 통과, 88개.
+  - `python -m py_compile app/brokers/kis_quote_rest.py app/services/system_clock.py app/services/live_order_manager.py app/services/live_order_guard.py app/services/live_phase_readiness.py tests/test_kis_http_clients.py tests/test_system_clock.py tests/test_live_order_manager.py tests/test_live_order_guard.py tests/test_live_phase_readiness.py tests/test_live_readiness_dry_run_script.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - KIS live account read-only 응답에서도 `date` header를 추가 확인할지 결정.
+  - runtime caller/readiness runner가 fresh read-only 조회 직후 `last_response_headers`에서 decision을 만들고 submit guard/readiness에 주입하도록 연결.
+- 주의:
+  - KIS 실전 주문 없음.
+  - live order submit/cancel 없음.
+  - runtime restart 없음.
+  - 운영 DB schema apply 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-4: HTTP Date readiness wrapper 검증
+
+- 상태:
+  - `work_ver_13-3` 이후 cowork 리뷰 없이 이어서 진행했다.
+  - KIS API 신규 호출, 실전 주문, runtime restart, 운영 DB schema apply는 하지 않았다.
+- 변경:
+  - `tests/test_live_readiness_dry_run_script.py`에 HTTP `Date` 기반 `system_clock` fixture가 `scripts/run_live_readiness_dry_run.sh` wrapper를 통과하는 테스트를 추가했다.
+  - fixture shape는 `{local_time, http_date, reference_source}`이고, output의 `fixture_checks`에서 `source=kis_rest_http_date`, `skew_seconds=1.0`을 확인한다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-4.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_readiness_dry_run_script tests.test_live_phase_readiness tests.test_system_clock` 통과, 30개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_order_guard tests.test_system_clock tests.test_kis_http_clients tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_kis_ws_reconnect_metrics tests.test_wsl_ops` 통과, 88개.
+  - `python -m py_compile app/brokers/kis_quote_rest.py app/services/system_clock.py app/services/live_order_manager.py app/services/live_order_guard.py app/services/live_phase_readiness.py tests/test_kis_http_clients.py tests/test_system_clock.py tests/test_live_order_manager.py tests/test_live_order_guard.py tests/test_live_phase_readiness.py tests/test_live_readiness_dry_run_script.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - 실제 KIS response header fixture 확인.
+  - runtime caller/readiness runner가 KIS read-only 조회 직후 decision을 자동 생성해 주입하는 연결.
+- 주의:
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-3: HTTP Date clock decision submit guard 연결 테스트
+
+- 상태:
+  - `work_ver_13-2` 이후 cowork 리뷰 없이 이어서 진행했다.
+  - KIS API 신규 호출, 실전 주문, runtime restart, 운영 DB schema apply는 하지 않았다.
+- 변경:
+  - `tests/test_live_order_manager.py`에 HTTP `Date` header에서 만든 clock decision이 `require_clock_skew_check=True` submit을 통과시키는 테스트를 추가했다.
+  - 같은 파일에 stale HTTP `Date` header decision이 broker 호출 전 `blocked`로 차단되는 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, 운영자 결정 템플릿에 live order manager submit guard가 HTTP `Date` 기반 decision을 받을 수 있는 상태와 runtime caller/readiness 자동 주입 전 상태를 분리해 반영했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-3.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_order_manager tests.test_system_clock tests.test_kis_http_clients` 통과, 41개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_order_guard tests.test_system_clock tests.test_kis_http_clients tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_kis_ws_reconnect_metrics tests.test_wsl_ops` 통과, 87개.
+  - `python -m py_compile app/brokers/kis_quote_rest.py app/services/system_clock.py app/services/live_order_manager.py app/services/live_order_guard.py app/services/live_phase_readiness.py tests/test_kis_http_clients.py tests/test_system_clock.py tests/test_live_order_manager.py tests/test_live_order_guard.py tests/test_live_phase_readiness.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - 실제 KIS response header fixture로 `Date` header 존재 여부 확인.
+  - runtime caller/readiness runner가 KIS header에서 `system_clock` decision을 자동 생성해 주입하는 연결.
+- 주의:
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-2: KIS REST header clock 연결점
+
+- 상태:
+  - `work_ver_13-1` 이후 cowork 리뷰 없이 이어서 진행했다.
+  - KIS API 신규 호출, 실전 주문, runtime restart, 운영 DB schema apply는 하지 않았다.
+- 변경:
+  - `app/brokers/kis_quote_rest.py`의 `KisRestQuoteClient`에 `last_response_headers` read-only copy 속성을 추가했다.
+  - 이 속성은 마지막 성공 KIS REST 응답 header를 메모리에서만 확인하기 위한 진단 연결점이며, 기존 public method 반환값은 바꾸지 않는다. 실패 요청 뒤 이전 header가 clock reference로 오용되지 않도록 요청 시작 시 stale header를 비운다.
+  - `app/services/system_clock.py`에 HTTP `Date` header에서 바로 clock skew decision을 만드는 `evaluate_clock_skew_from_http_date_header()` 순수 helper를 추가했다.
+  - `tests/test_kis_http_clients.py`에 KIS REST mock 응답의 HTTP `Date` header를 `last_response_headers`로 읽고 `reference_time_from_http_date_header()`로 파싱하는 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, 운영자 결정 템플릿에 KIS REST header 노출 완료와 runtime guard/readiness 연결 전 상태를 분리해 반영했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-2.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_kis_http_clients tests.test_system_clock` 통과, 18개.
+  - helper 추가 후 `python -m unittest tests.test_system_clock tests.test_kis_http_clients` 통과, 20개.
+  - stale header clear 보강 후 `python -m unittest tests.test_kis_http_clients tests.test_system_clock` 통과, 21개.
+  - `python -m unittest tests.test_kis_http_clients tests.test_system_clock tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_kis_ws_reconnect_metrics tests.test_wsl_ops` 통과, 56개.
+  - `python -m py_compile app/brokers/kis_quote_rest.py app/services/system_clock.py app/services/live_phase_readiness.py tests/test_kis_http_clients.py tests/test_system_clock.py tests/test_live_phase_readiness.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - 실제 KIS response header fixture로 `Date` header 존재 여부 확인.
+  - runtime submit guard/readiness runner가 `last_response_headers`와 `system_clock` decision을 연결하도록 구현.
+- 주의:
+  - response header는 report/audit에 저장하지 않는다. 저장이 필요하면 별도 redaction 검토 전 금지한다.
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13-1: Phase 1 P0 후속 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강과 read-only recovery dry-run 확인을 진행했다.
+- 변경/확인:
+  - `./scripts/export_recovery_snapshot.sh --dry-run --destination-root .tmp-tests/recovery-dry-run --package-prefix codex-recovery-dry-run` 실행을 완료했다.
+  - dry-run 출력 후보는 `.tmp-tests/recovery-dry-run/codex-recovery-dry-run-20260520-220625.tar.gz`였고, 실제 tar package는 생성하지 않았다.
+  - 저장소는 약 56GB, `runtime-data`는 약 45GB라 실제 local package 생성 또는 NAS 강제 백업은 별도 승인 없이는 진행하지 않는다.
+  - `app/services/system_clock.py`에 HTTP `Date` header를 reference timestamp로 파싱하는 순수 helper를 추가했다.
+  - `app/services/live_phase_readiness.py`의 `system_clock` fixture가 `local_time`과 `reference_time` 또는 HTTP `Date` header로 skew를 평가할 수 있게 했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, 운영자 결정 템플릿에 현재 구현/후속 경계를 갱신했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13-1.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_system_clock tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 27개.
+  - `python -m unittest tests.test_kis_ws_reconnect_metrics tests.test_kis_ws_parser tests.test_kis_ws_verification tests.test_system_clock tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_wsl_ops` 통과, 51개.
+  - `python -m py_compile app/services/system_clock.py app/services/live_phase_readiness.py tests/test_system_clock.py tests/test_live_phase_readiness.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+  - `git diff -- app/risk config VERSION` 결과는 비어 있었다.
+- 남은 P0:
+  - reference clock 원천 결정과 실제 KIS response header runtime 연결.
+  - 실제 recovery package 표본 확인 또는 NAS 강제 백업 drill.
+- 주의:
+  - KIS API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-20] Codex -> work_ver_13: review_ver_12 후속 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 코드/문서 보강을 진행했다.
+- 변경:
+  - `app/brokers/kis_quote_ws.py`의 `KisWebSocketReconnectSnapshot`에 `observed_at`, `last_reconnect_at`, `last_stable_at`, `storm_active_since`를 추가했다.
+  - dashboard/readiness JSON 연결을 대비해 `KisWebSocketReconnectSnapshot.to_dict()`를 추가했다.
+  - `metrics_callback`은 동기 호출이므로 DB/file/network I/O 대신 in-memory update나 worker queue를 쓰라는 docstring을 `listen()`에 추가했다.
+  - `tests/test_kis_ws_reconnect_metrics.py`에 timestamp, storm duration, JSON 직렬화 회귀 테스트를 추가했다.
+  - `docs/Production-Implementation-Blueprint.md`에 Phase 1 진입 전 P0 4개 진행표를 추가했다.
+  - `docs/Production-Architecture.md`에 Phase 2 기본 `max_order_qty=1`과 override 방법을 반영했다.
+  - `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-operator-decision-template.md`에 reference clock 원천과 NAS recovery 실제 dry-run 결정 항목을 추가했다.
+  - `docs/cowork-reports/2026-05-20-production-architecture-implementation-blueprint-work_ver_13.md`를 추가하고 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_kis_ws_reconnect_metrics tests.test_kis_ws_parser tests.test_kis_ws_verification` 통과, 13개.
+  - `python -m py_compile app/brokers/kis_quote_ws.py tests/test_kis_ws_reconnect_metrics.py` 통과.
+  - review_ver_12 후속 전체 관련 묶음 `python -m unittest tests.test_kis_ws_reconnect_metrics tests.test_kis_ws_parser tests.test_kis_ws_verification tests.test_live_order_manager tests.test_kis_http_clients tests.test_live_execution_sync tests.test_wsl_ops` 통과, 62개.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+- 남은 P0:
+  - NAS recovery 실제 dry-run 1회 완료.
+  - reference clock 원천 결정과 `system_clock` 연결.
+- 주의:
+  - KIS API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-19] Codex -> work_ver_12-3: NAS recovery self-test 상태 확인
+
+- 상태:
+  - 실제 NAS 공유 쓰기/대용량 백업은 실행하지 않았다.
+  - 저장소 내부 recovery export self-test와 기존 runtime report 존재 여부만 확인했다.
+- 확인:
+  - `tests.test_wsl_ops`는 `runtime-data/reports/alerts/`, `runtime-data/reports/live-risk/`, `runtime-data/reports/live-approvals/`, `runtime-data/ops/`, `runtime-data/ml/registry-backups/` 포함을 검증한다.
+  - 같은 테스트가 root `.env`, `runtime-data/cache/kis`, `runtime-data/logs`, `*.pem`, `*.key`, `id_rsa*` 제외를 검증한다.
+  - `runtime-data/reports` 아래 기존 `backup`/`recovery`/`nas` report 파일은 확인되지 않았다.
+- 검증:
+  - `python -m unittest tests.test_wsl_ops` 통과, 11개.
+- 미검증:
+  - `./scripts/export_recovery_snapshot.sh --dry-run --destination-root .tmp-tests/recovery-dry-run --package-prefix codex-recovery-dry-run`은 WSL sandbox approval review timeout으로 실행 완료 확인을 하지 못했다. repository 문제로 단정하지 않고 `not_verified`로 남긴다.
+- 주의:
+  - 실제 NAS 공유 접근 없음.
+  - KIS API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - runtime restart 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-19] Codex -> work_ver_12-2: KIS fixture mapper 검증
+
+- 상태:
+  - 장후 `post-close` 상태에서 진행했다.
+  - KIS API를 새로 호출하지 않고 `runtime-data/dev.db`를 read-only로 읽는 fixture export만 실행했다.
+- 변경:
+  - `scripts/export_kis_paper_fixture_candidates.py --fail-on-redaction-findings`로 redacted KIS paper fixture 후보를 갱신했다.
+  - `broker_paper_order_status_snapshots` richest candidate에 KIS 원 필드 `ord_dt`, `ord_gno_brno`, `odno`, `pdno`, `sll_buy_dvsn_cd`, `ord_qty`, `tot_ccld_qty`, `rmn_qty`, `avg_prvs`, `cncl_yn` 등이 있음을 확인했다.
+  - `tests/test_kis_http_clients.py`에 redacted runtime fixture shape 기반 `get_daily_order_fills()` 정규화 테스트를 추가했다.
+  - `tests/test_live_execution_sync.py`에 정규화 record가 `snapshot_from_kis_daily_order_fill()`에서 `sell`/`filled` snapshot으로 변환되는 테스트를 추가했다.
+  - Phase 2 기본 `max_order_qty=1` 때문에 기존 execution sync helper 주문이 막히는 것을 확인했고, execution sync 테스트 목적에 맞게 helper 정책에 `max_order_qty=10`을 명시했다. 운영 기본값은 바꾸지 않았다.
+  - `docs/cowork-reports/2026-05-19-production-architecture-implementation-blueprint-work_ver_12-2.md`를 추가하고, `docs/Production-Implementation-Blueprint.md`와 cowork report 색인을 갱신했다.
+- 검증:
+  - `python scripts/export_kis_paper_fixture_candidates.py --fail-on-redaction-findings`: `status=ok`, `redaction_ok=true`.
+  - `python -m unittest tests.test_kis_http_clients tests.test_live_execution_sync tests.test_live_order_manager` 통과, 38개.
+  - `python -m py_compile tests/test_kis_http_clients.py tests/test_live_execution_sync.py` 통과.
+  - 오늘 변경 범위 전체 관련 묶음 `python -m unittest tests.test_kis_ws_reconnect_metrics tests.test_kis_ws_parser tests.test_kis_ws_verification tests.test_live_order_manager tests.test_live_order_guard tests.test_kis_http_clients tests.test_live_execution_sync` 통과, 59개.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+- 주의:
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-19] Codex -> work_ver_12-1: WS reconnect metric과 Phase 2 1주 제한
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장후 상태라 루트 코드 보강과 좁은 테스트를 진행했다.
+- 변경:
+  - `app/brokers/kis_quote_ws.py`에 `KisWebSocketReconnectMetrics`와 snapshot을 추가했다.
+  - WebSocket reconnect 관측값은 누적 reconnect, 연속 reconnect, 안정 frame 수신 후 reset, reconnect storm 판정, optional `metrics_callback`을 포함한다.
+  - 관측 callback 예외는 warning으로 흡수해, dashboard/readiness 연결 실패가 WebSocket 수집 자체를 끊지 않게 했다.
+  - 기존 `max_reconnects` 동작은 누적 reconnect 기준 그대로 유지했다.
+  - `app/services/live_order_manager.py`에 Phase 2 기본 부모 주문 수량 제한 `max_order_qty=1`을 추가했다.
+  - Phase 2 부모 주문 수량이 기본 1주를 넘으면 broker 호출 전에 `phase2_order_qty_limit_exceeded`로 `blocked` 처리하고 `{current, limit}` context를 남긴다.
+  - `docs/cowork-reports/2026-05-19-production-architecture-implementation-blueprint-work_ver_12-1.md`를 추가하고, `docs/Production-Implementation-Blueprint.md`와 cowork report 색인을 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_kis_ws_reconnect_metrics tests.test_kis_ws_parser tests.test_kis_ws_verification tests.test_live_order_manager tests.test_live_order_guard` 통과, 39개.
+  - `python -m py_compile app/brokers/kis_quote_ws.py app/services/live_order_manager.py tests/test_kis_ws_reconnect_metrics.py tests/test_live_order_manager.py` 통과.
+  - `git diff --check` 통과. CRLF/LF warning만 있었고 whitespace error는 없었다.
+- 주의:
+  - KIS API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - runtime restart 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-19] 장후 자동화 중복 실행 방지 가드
+
+- 확인:
+  - Codex 앱 cron `automation-2`는 17:30 KST 상태 관찰용이며, 직접 WSL 명령을 실행하지 않는 설정이다.
+  - 실제 장후 실행은 Windows 작업 스케줄러 `RealTimeStockRuntime_PostCloseOps`가 16:40 KST에 `run_post_close_ml_maintenance.sh --quick`, `run_post_close_label_refresh.sh --recent-days 10`, paper 계좌 확인, dashboard build를 실행하는 구조다.
+  - 오늘은 16:40 자동 실행 이후 수동으로 장후 ML 유지보수를 다시 실행해 16시 이후 bounded LightGBM training/challenger 그룹이 3개까지 늘었다.
+  - 중복 이력은 DB의 과거 training/evaluation row를 늘렸지만, active registry는 `baseline-h15-v1` 유지이고 최신 challenger는 가장 최근 run만 reference 하므로 모델 승격/주문 실행에는 영향이 없었다.
+- 조치:
+  - `scripts/script_dispatch.sh`의 `post_close_ml_maintenance`에 같은 날짜, 같은 horizon, 같은 maintenance scope가 이미 `status=ok`이면 즉시 skip하는 daily guard를 추가했다.
+  - `scripts/script_dispatch.sh`의 `post_close_label_refresh`에도 같은 날짜, 같은 recent-days, 같은 skip-build 옵션이 이미 `status=ok`이면 즉시 skip하는 daily guard를 추가했다.
+  - 두 경로 모두 `--force`/`-Force`를 주면 의도적으로 재실행할 수 있다.
+  - `--dry-run`은 실행 계획 확인 용도라 label refresh daily guard를 우회하도록 했다.
+  - `tests/test_post_close_maintenance_script.py`와 `tests/test_post_close_label_refresh_script.py`에 daily guard 회귀 테스트를 추가했다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh` 통과.
+  - `./scripts/run_post_close_ml_maintenance.sh --quick --horizon-min 15` 재실행 시 `post-close ML maintenance already ok for today; skipping` 출력 후 종료.
+  - `./scripts/run_post_close_label_refresh.sh --recent-days 10` 재실행 시 `post-close label refresh already ok for today; skipping` 출력 후 종료.
+  - skip 검증 전후 2026-05-19 16시 이후 `ml_training_runs` 개수와 challenger 그룹 수는 각각 3개로 변동 없음.
+  - `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script` 통과.
+  - runtime watchdog은 `ml_maintenance_action=already_ok`, errors 없음.
+
+## [2026-05-19] 장후 유지보수와 전체 상태 점검
+
+- 실행:
+  - `./scripts/run_post_close_label_refresh.sh --recent-days 10 --skip-build`를 실행했다.
+  - `./scripts/refresh_kis_account.sh`로 KIS paper 계좌 스냅샷을 갱신했다.
+  - `./scripts/run_post_close_ml_maintenance.sh --quick --horizon-min 15`를 실행했다.
+- 결과:
+  - post-close ML state: `status=ok`, `mode=quick-live-train`, completed_at `2026-05-19 17:14:49 +0900`.
+  - latest dashboard generated_at: `2026-05-19T17:15:21+09:00`.
+  - KIS live data quality: `status=ok`.
+  - feature source drift: Cybos historical에는 live orderbook feature 분포가 없어 KIS live 성능 proxy로 직접 취급하면 안 된다는 기존 경고 유지.
+  - KIS live feature diagnostics: 단일 feature의 독립 신호는 아직 약하므로 live data 누적 필요.
+  - 최신 bounded LightGBM training: `train-lightgbm-h15-20260519171203590318`, train 171,941 / validation 56,643, validation accuracy 0.621401.
+  - 최신 challenger holdout: latest LightGBM accuracy 0.489914, trade_hit_rate 0.285714, cumulative_net_return_pct -30.532644. 추천은 `keep_active`로 baseline 유지.
+  - paper account reconciliation: `aligned_waiting_first_submission`, 현금/총자산/수량 gap 0.
+  - 새 `OnlinePipelineProcessor` 초기화 기준 pending 주문 set은 비어 있다.
+- 운영 상태:
+  - live runtime은 장마감 상태로 중지.
+  - runtime watchdog과 dashboard는 정상 실행 중이고 errors 없음.
+- 주의:
+  - 다른 스레드의 실전운용 설계 변경 파일은 건드리지 않았다.
+
+## [2026-05-19] 장후 paper 주문 pending 차단 해소
+
+- 계기:
+  - 대시보드 오늘 요약에서 예측 7,600건, 신호 3,800건대가 있었지만 주문/체결은 0으로 표시됐다.
+  - DB 확인 결과 오늘 신호 중 허용 신호가 있었으나, 과거 미해결 paper 주문이 `broker_order_pending`과 `max_open_positions_reached`를 유발해 신규 주문 직전에서 차단됐다.
+- 원인:
+  - 2026-05-15 이전 `pending_lookup`/`submitted`/`open` 주문들이 남아 있었다.
+  - `OnlinePipelineProcessor._restore_pending_order_state`가 paper alignment cutoff를 적용하지 않아, alignment 이전 주문까지 다음 런타임의 pending set으로 되살렸다.
+- 조치:
+  - `app/services/streaming.py`에서 pending 주문 복원 시 `filter_rows_after_alignment(..., time_fields=("event_time",))`를 적용하도록 수정했다.
+  - `tests/test_streaming_pipeline.py`에 alignment 이전 pending 주문은 복원하지 않고, alignment 이후 pending 주문만 복원하는 회귀 테스트를 추가했다.
+  - `./scripts/align_local_paper_to_broker.sh`를 실행해 현재 KIS 모의계좌 기준으로 로컬 paper baseline을 재정렬했다.
+  - `./scripts/sync_broker_paper_orders.sh` 재실행 결과 `status=no_submissions`, `open_order_count=0`, `pending_symbols=[]`를 확인했다.
+  - `./scripts/reconcile_paper_accounts.sh`와 `./scripts/verify_paper_dual_account_match.sh -AsJson` 결과 현금/총자산/수량 gap이 모두 0이고, 상태가 `matched_waiting_first_submission`으로 바뀌었다.
+  - 대시보드 스냅샷을 2026-05-19T16:54:11+09:00 기준으로 재생성했다.
+- 현재 상태:
+  - 새 `OnlinePipelineProcessor` 초기화 확인: `pending_order_symbols=[]`, `pending_buy_symbols=[]`.
+  - 로컬/브로커 paper 포지션은 005380 1주로 일치한다.
+- 검증:
+  - `python -m py_compile app/services/streaming.py tests/test_streaming_pipeline.py` 통과.
+  - `python -m unittest tests.test_streaming_pipeline` 통과.
+
+## [2026-05-19] Codex -> work_ver_12: review_ver_11 반영 계획
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=running`, `trading_mode=paper`, `session_status=regular-session`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=regular-session`, `live_runtime_should_run=true`, `errors=[]`.
+  - 장중 수집 보호 모드라 루트 코드 변경은 하지 않았다.
+- 확인:
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-review_ver_11.md`를 확인했다.
+  - cowork는 `work_ver_11` 시리즈를 그대로 사용 가능하다고 평가했고, Phase 1 전 P0로 NAS 복구 drill, KIS 실제 응답 fixture 검증, WS keepalive/reconnect metric을 제안했다.
+  - 작성 당시 코드 검색상 Phase 2 `max_order_qty=1` 정책과 WS 누적/연속 reconnect metric은 아직 구현되지 않았다.
+- 변경:
+  - `docs/cowork-reports/2026-05-19-production-architecture-implementation-blueprint-work_ver_12.md`를 추가했다.
+  - `docs/cowork-reports/README.md`에 새 report를 등록했다.
+- 다음:
+  - 장 종료 후 WS reconnect metric, Phase 2 `max_order_qty=1`, KIS fixture mapper 검증, NAS 복구 drill 절차 순으로 진행하기로 했다.
+- 주의:
+  - 코드 변경 없음.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] LightGBM 안전 학습 제한과 대시보드 ML 표시 최신화
+
+- 계기:
+  - 기본 `python -m app --train-lightgbm --horizon-min 15`가 전체 labeled feature dataset을 메모리에 올려 20분 이상 14GB RAM을 사용했다.
+  - 대시보드의 최근 학습/평가가 2026-05-09에 머무른 원인은 실제 DB에 새 학습/평가 row가 없었기 때문이다.
+- 변경:
+  - `fetch_feature_rows`에 `max_rows` 제한을 추가했다.
+  - `--train-lightgbm`와 `--run-challengers` 기본 로드 범위를 최근 labeled row 250,000건으로 제한하고, `--train-lightgbm-max-rows 0` / `--challenger-max-rows 0`으로 전체 이력을 명시 실행할 수 있게 했다.
+  - 학습 요약과 챌린저 리포트에 `dataset_load` 메타데이터를 기록하도록 했다.
+  - 대시보드의 walk-forward 표기를 `워크포워드 설정`과 `게이트 성능 판단`으로 분리해, 설정은 정상이어도 성능 gate가 미달이면 `점검 필요`로 보이게 했다.
+  - `run_post_close_ml_maintenance.sh --quick` 경로에 제한 LightGBM 학습과 challenger 평가를 붙이고, state mode를 `quick-live-train`으로 바꿨다.
+  - post-close ML state를 쓴 뒤 dashboard를 한 번 더 빌드해 대시보드가 새 `quick-live-train` state를 같은 실행 안에서 보게 했다.
+  - runtime watchdog/status의 quick post-close mode 표시도 `quick-live-train`으로 맞췄다.
+- 실행 결과:
+  - 제한 LightGBM 학습 완료: `train-lightgbm-h15-20260518223024221721`, train 175,600 / validation 53,330, validation accuracy 0.622351, elapsed 2:33, max RSS 약 862MB.
+  - 제한 챌린저 평가 완료: `challenger-h15-20260518223134766216`, 최신 LightGBM holdout accuracy 0.517655, trade_hit_rate 0.285714, net -13.599472%, 추천은 baseline 유지.
+  - 대시보드 재생성: 2026-05-18T22:40:47+09:00.
+  - 대시보드 서버 재시작: pid 112813, `http://127.0.0.1:8765`.
+- 확인:
+  - 머신러닝 탭에 오늘 학습 1건, 오늘 평가 5건, 최신 학습 run `train-lightgbm-h15-20260518223024221721` 표시 확인.
+  - 장후 ML 유지보수 카드는 `quick-live-train`이 제한 학습/평가를 수행하고, legacy `quick-live-report`는 학습/평가 row를 만들지 않는다고 표시한다.
+  - 게이트 기준 워크포워드 카드는 설정 상태 `정상`, 게이트 성능 판단 `점검 필요`로 분리 표시한다.
+- 검증:
+  - `python -m unittest tests.test_research_pipeline` 통과.
+  - `python -m unittest tests.test_dashboard` 통과.
+
+## [2026-05-18] 대시보드 ML 최신 시각/장후 상태 불일치 점검
+
+- 원인:
+  - 정본 DB의 최신 `ml_training_runs`/`ml_model_evaluations`는 2026-05-09 기록이 맞다.
+  - 2026-05-18 장후 `run_post_close_ml_maintenance.sh --quick`는 학습/평가 row를 만들지 않고 리포트, 품질 진단, 대시보드만 갱신한다.
+  - `run_post_close_label_refresh.sh --skip-build`는 state를 `ok`로 쓰기 전에 dashboard를 먼저 빌드해 대시보드가 직전 `running` 상태를 물고 있을 수 있었다.
+- 조치:
+  - `scripts/script_dispatch.sh`에서 label refresh state를 `ok`로 기록한 뒤 dashboard를 빌드하도록 순서를 수정했다.
+  - `app/services/dashboard.py`의 장후 카드를 `장후 ML 유지보수 상태`로 바꾸고, quick-live-report가 학습/평가 row를 만들지 않는다는 설명과 `학습/평가 수행` 행을 추가했다.
+  - `tests/test_dashboard.py` 기대 문구를 새 의미에 맞게 갱신했다.
+  - `./scripts/run_post_close_label_refresh.sh --recent-days 10 --skip-build`와 `python -m app --build-dashboard`를 실행해 latest dashboard에 label refresh `ok`를 반영했다.
+- 확인:
+  - dashboard generated_at: 2026-05-18T22:14:12+09:00.
+  - label refresh state: `ok`, completed_at 2026-05-18 22:13:03 +0900.
+  - 최신 학습/평가 시각은 실제 DB 기준 2026-05-09로 유지된다.
+  - full `python -m app --train-lightgbm --horizon-min 15`는 20분 이상 14GB RAM을 사용해 시스템 안정성을 위해 중단했다. 현재 CLI는 row 제한 없이 전체 labeled feature dataset을 메모리에 올린다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh` 통과.
+  - `python -m unittest tests.test_dashboard` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 274개.
+  - `git diff --check -- app/services/dashboard.py scripts/script_dispatch.sh tests/test_dashboard.py` 통과.
+- 주의:
+  - 다른 스레드의 실전 운영 준비 변경이 작업트리에 많아 commit/push는 하지 않았다.
+  - 후속 권장 작업은 LightGBM 학습 CLI에 `max_rows` 또는 최근 거래일 제한을 추가해 장후 자동 학습을 안전하게 만드는 것이다.
+
+## [2026-05-18] Codex -> work_ver_11-20: work_ver_11 전체 통합 handoff
+
+- 목적:
+  - cowork에 11번대 작업본이 아직 전달되지 않은 상태라 `work_ver_11`부터 `work_ver_11-19`까지를 하나의 토큰 절약형 handoff로 통합했다.
+- 변경:
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-20.md`를 추가했다.
+  - `docs/cowork-reports/README.md`에 새 통합본을 등록했다.
+- 전달 권장:
+  - cowork에는 우선 `work_ver_11-20` 하나만 전달한다.
+  - 리뷰 파일명은 `2026-05-18-production-architecture-implementation-blueprint-review_ver_11.md`를 권장한다.
+  - 세부 확인이 필요할 때만 개별 `work_ver_11-*` 파일을 추가로 열어본다.
+- 주의:
+  - 코드 변경 없음.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-19: market data freshness submit guard hook
+
+- 계기:
+  - 장중 KIS WebSocket 반복 재연결 관찰 후, 실전 구조에서도 `runtime running` 또는 `WS connected`만으로 주문을 허용하면 같은 문제가 발생할 수 있음을 확인했다.
+  - post-close 상태에서 live runtime이 정지되어 좁은 코드 보강을 진행했다.
+- 변경:
+  - `app/services/market_data_freshness.py`를 추가해 최신 체결 tick, 호가 tick, 1분봉, 예측 timestamp의 age를 순수 함수로 판정한다.
+  - `app/services/live_order_guard.py`의 `assert_can_submit()`에 선택적 `market_data_freshness_decision`과 `require_market_data_freshness_check` hook을 추가했다.
+  - `tests/test_market_data_freshness.py`를 추가하고, `tests/test_live_order_guard.py`에 stale freshness 차단/필수 check 누락 차단 테스트를 추가했다.
+  - `docs/Production-Implementation-Blueprint.md`와 `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-19.md`에 변경 범위를 기록했다.
+- 검증:
+  - `python -m unittest tests.test_market_data_freshness tests.test_live_order_guard` 통과, 15개.
+  - `git diff --check` 통과. 기존 `docs/Current-Implementation.md`, `docs/logbook.md` CRLF 경고만 확인.
+- 주의:
+  - 이 helper는 아직 storage/dashboard/runtime 최신 row 조회와 자동 연결하지 않았다. 다음 단계는 runtime/report freshness snapshot을 guard 입력으로 넘기는 연결이다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] 장중 runtime 점검: KIS WebSocket 반복 재연결 관찰
+
+- 계기:
+  - 장전/장중 runtime check에서 이슈 가능성이 보여 read-only로 확인했다.
+- 확인:
+  - `./scripts/get_live_runtime_status.sh`: live runtime `running`, `trading_mode=paper`, `session_status=regular-session`.
+  - `./scripts/get_runtime_watchdog_status.sh`: watchdog `running`, `live_runtime_should_run=true`, heartbeat stale 아님.
+  - `./scripts/get_dashboard_status.sh`: dashboard/API 응답 정상.
+  - `runtime-data/logs/app/live-runtime.stderr.log`: 2026-05-18 08:02~10:04 사이 KIS WebSocket disconnect/reconnect 반복, 마지막 확인 기준 attempt 26.
+  - `runtime-data/dev.db` read-only 최신 row 확인:
+    - `raw_market_ticks`: 2026-05-18T10:38:00+09:00, 005930.
+    - `raw_orderbook_ticks`: 2026-05-18T10:38:00+09:00, 247540.
+    - `curated_minute_bars`: 2026-05-18T10:37:00+09:00, 207940.
+    - `serving_predictions`: 2026-05-18T10:37:00+09:00, 207940, 60분.
+    - `serving_trade_signals`: 2026-05-18T10:37:00+09:00, 207940, `allowed=0`.
+- 조치:
+  - 데이터 유입은 최신 상태라 장중 runtime restart는 하지 않았다.
+  - 현재 조치는 `관찰 지속`이다. 같은 disconnect가 재개되면서 최신 tick/bar가 밀리면 장중 수집 보호 원칙에 따라 재시작 여부를 별도 판단한다.
+- 1차 원인 분석:
+  - 확정 원인은 아니다. KIS 서버 close code, 서버 로그, 공지 확인이 없으므로 KIS 측 강제 종료인지 로컬 keepalive/구독 처리 문제인지 단정하지 않는다.
+  - 로컬 구현상 `app/brokers/kis_quote_ws.py`의 `_connection_kwargs()`는 `ping_interval=None`, `ping_timeout=None`으로 WebSocket ping keepalive를 끈다.
+  - 같은 파일의 `listen()`은 disconnect 후 재연결하지만 `reconnect_attempt`를 성공 연결 뒤 0으로 리셋하지 않는다. 현재 `attempt 26/999999`는 연속 실패 횟수라기보다 실행 이후 누적 재연결 횟수에 가깝다.
+  - `frame_timeout_seconds=30` 안에 frame이 없으면 `KisApiError`로 재연결한다. 이번 로그의 주된 메시지는 timeout 문구가 아니라 `no close frame received or sent`라서, 로컬 timeout보다 상대 peer 또는 네트워크 계층에서 close frame 없이 연결이 끊긴 상황으로 보인다.
+  - 현재 runtime은 최신 tick/bar/prediction/signal을 계속 쓰고 있으므로, 이번 시점에는 `수집 중단`이 아니라 `반복 재연결을 동반한 수집 지속`으로 분류한다.
+- 실전 구조 반영 필요:
+  - 실전 전환 구조에서도 같은 문제가 날 수 있다. WebSocket 연결은 브로커/네트워크/장 구간 특성에 의해 끊길 수 있다고 가정해야 한다.
+  - production 구조에서는 disconnect count보다 `최신 market tick age`, `최신 orderbook age`, `bar/prediction stale`, `연속 실패 시간`, `reconnect storm`를 별도 지표로 봐야 한다.
+  - reconnect attempt는 누적 횟수와 연속 실패 횟수를 분리하고, 성공 연결 또는 일정 시간 데이터 유입 후 연속 실패 카운터를 리셋하는 설계가 필요하다.
+  - 실전 주문 전에는 WS가 살아 있어도 market data freshness가 stale이면 신규 주문을 차단해야 한다.
+  - 코드 변경은 장중 보호 모드라 수행하지 않았다. 후속 권장 작업은 `KisWebSocketQuoteClient`에 keepalive/reconnect metric hook과 테스트를 추가하고, readiness/dashboard에 stale data gate를 연결하는 것이다.
+- 주의:
+  - KIS API 신규 호출 없음.
+  - 실전 주문 없음.
+  - runtime DB 쓰기 없음. DB 확인은 read-only connection으로 수행했다.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-18: cowork 전달용 통합 handoff
+
+- 목적:
+  - cowork 토큰 사용량을 줄이기 위해 `work_ver_11-10`부터 `work_ver_11-17`까지의 핵심 변경, 검증, 검토 질문을 하나로 묶었다.
+- 변경:
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-18.md`를 추가했다.
+  - `docs/cowork-reports/README.md`에 새 handoff 파일을 등록했다.
+- 검증:
+  - 새 handoff는 기존 개별 report를 대체하지 않고 요약만 제공한다.
+- 주의:
+  - 코드 변경 없음.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-17: system clock submit guard hook
+
+- 목적:
+  - 시스템 시계 오차 check가 readiness에만 머물지 않고 주문 submit guard에서 사용할 수 있는 연결 지점을 만들었다.
+  - 기준 시각 원천은 아직 정하지 않았으므로 기본 submit 동작은 clock check를 강제하지 않는다.
+- 변경:
+  - `app/services/live_order_guard.py`의 `assert_can_submit()`에 선택적 `clock_skew_decision`과 `require_clock_skew_check` hook을 추가했다.
+  - `app/services/live_order_manager.py`의 `submit_intent()`가 해당 hook을 guard에 전달할 수 있게 했다.
+  - clock decision이 차단이면 `system_clock_skew_exceeded`, 필수 check인데 누락이면 `system_clock_check_missing`으로 broker 호출 전 차단된다.
+  - `tests/test_live_order_guard.py`, `tests/test_live_order_manager.py`에 clock hook 차단 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 system clock guard hook 범위를 반영하고, market status가 이미 live submit guard 입력으로 연결된 사실을 문서화했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-17.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_order_guard.py app/services/live_order_manager.py tests/test_live_order_guard.py tests/test_live_order_manager.py app/services/system_clock.py` 통과.
+  - `python -m unittest tests.test_live_order_guard tests.test_live_order_manager tests.test_system_clock` 통과, 30개.
+  - `python -m unittest tests.test_system_clock tests.test_market_status tests.test_live_order_guard tests.test_live_order_manager tests.test_live_execution_sync tests.test_live_alerting tests.test_live_audit tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_reporting tests.test_dashboard` 통과, 100개.
+- 주의:
+  - 기준 시각 원천과 기본 강제 여부는 아직 후속 결정 대상이다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-16: live execution sync raw output redaction
+
+- 목적:
+  - 체결 sync가 order/fill/event detail에 broker raw output을 저장할 때 비밀값이 남을 위험을 줄였다.
+  - 실제 KIS REST 조회나 체결 sync 호출은 추가하지 않았다.
+- 변경:
+  - `app/services/live_execution_sync.py`에서 order detail, fill detail, order event detail에 raw broker output을 저장하기 전 redaction한다.
+  - `tests/test_live_execution_sync.py`에 `account_number`, `app_secret` redaction과 안전 예외 key `pdno` 유지 검증을 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 execution sync raw output redaction을 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-16.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_execution_sync.py tests/test_live_execution_sync.py app/brokers/kis_response_redaction.py` 통과.
+  - `python -m unittest tests.test_live_execution_sync tests.test_kis_response_redaction` 통과, 14개.
+- 주의:
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-15: live order manager raw response redaction
+
+- 목적:
+  - 주문 manager가 `live_orders.detail_json`과 `live_order_events.detail_json`에 broker raw response를 저장할 때 비밀값이 남을 위험을 줄였다.
+  - 실제 broker 호출이나 외부 발송은 추가하지 않았다.
+- 변경:
+  - `app/services/live_order_manager.py`에서 raw broker response를 저장하거나 `LiveOrderManagerResult.raw_response`로 반환하기 전 `app/brokers/kis_response_redaction.py` helper로 redaction한다.
+  - `tests/test_live_order_manager.py`에 `account_number`, `app_secret` redaction과 안전 예외 key `pdno` 유지 검증을 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 주문 manager raw response redaction을 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-15.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_order_manager.py tests/test_live_order_manager.py app/brokers/kis_response_redaction.py` 통과.
+  - `python -m unittest tests.test_live_order_manager tests.test_kis_response_redaction` 통과, 19개.
+  - `python -m unittest tests.test_live_order_manager` 통과, 16개.
+- 주의:
+  - `app/services/live_execution_sync.py`의 raw output redaction은 아직 후속 점검 필요.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-14: live order intent 입력 검증
+
+- 목적:
+  - 잘못된 실전 주문 intent가 broker 호출 전이라도 운영 원장에 남는 위험을 줄였다.
+  - 실제 KIS live adapter 연결이나 주문 전송은 추가하지 않았다.
+- 변경:
+  - `app/services/live_order_manager.py`의 `create_intent()` 시작 지점에서 필수 trace field, side, qty, limit price를 검증한다.
+  - 빈 `prediction_id` 등 필수 field, 0 이하 qty, 0 이하 limit 주문 가격은 DB write 전에 `ValueError`로 거부된다.
+  - `tests/test_live_order_manager.py`에 invalid intent가 `live_orders`와 `live_order_events`를 쓰지 않는 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 intent 입력 검증을 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-14.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_order_manager.py tests/test_live_order_manager.py` 통과.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_order_guard` 통과, 22개.
+- 주의:
+  - 실제 KIS live adapter 연결 없음.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-13: audit trace 필수 필드 검증
+
+- 목적:
+  - 실전 주문 감사 이벤트가 `prediction_id`, `signal_id`, `gate_decision_id` 같은 핵심 trace field 없이 생성되는 위험을 줄였다.
+  - 감사 해시 체인 검증 범위는 유지하고, 주문 경로 자동 연결은 아직 추가하지 않았다.
+- 변경:
+  - `app/services/live_audit.py`의 `build_live_audit_event()`에서 필수 trace field 빈 값을 거부한다.
+  - `previous_hash`는 64자리 hex 문자열이어야 한다.
+  - `tests/test_live_audit.py`에 `prediction_id` 누락과 invalid `previous_hash` 거부 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 감사 필수 필드 검증을 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-13.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_audit.py tests/test_live_audit.py` 통과.
+  - `python -m unittest tests.test_live_audit` 통과, 6개.
+- 주의:
+  - 모든 주문 decision을 audit chain에 자동 append하는 연결은 아직 후속이다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-12: live position invalid side 기록
+
+- 목적:
+  - `live_fills`에 buy/sell로 해석되지 않는 side가 들어왔을 때 포지션 계산에서 조용히 묻히는 위험을 줄였다.
+  - 실제 포지션 저장, 브로커 조회, runtime DB 쓰기는 추가하지 않았다.
+- 변경:
+  - `app/services/live_position_accounting.py`에서 알 수 없는 fill side를 `invalid_side_count`로 기록한다.
+  - `LivePositionAccountingResult`와 `LivePosition.detail_json["accounting"]`에 `invalid_side_count`를 남긴다.
+  - `tests/test_live_position_accounting.py`에 invalid side가 포지션 수량을 바꾸지 않고 카운트되는 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 invalid fill side 카운트 보강을 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-12.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_position_accounting.py tests/test_live_position_accounting.py` 통과.
+  - `python -m unittest tests.test_live_position_accounting` 통과, 5개.
+- 주의:
+  - invalid side가 있으면 자동으로 live position 저장을 막는 guard는 아직 없다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-11: alert outbox detail redaction
+
+- 목적:
+  - 로컬/텔레그램/이메일 outbox JSONL에 계좌, 토큰, app secret 계열 key가 포함될 위험을 낮췄다.
+  - 실제 외부 발송기나 네트워크 호출은 추가하지 않았다.
+- 변경:
+  - `app/services/live_alerting.py`에서 outbox 저장 직전 `detail_json`을 `app/brokers/kis_response_redaction.py` helper로 redaction한다.
+  - `tests/test_live_alerting.py`에 outbox 기록의 `account_number`, `app_secret` redaction과 안전 예외 key `pdno` 유지 검증을 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 outbox `detail_json` redaction과 남은 자유 텍스트 redaction 과제를 반영했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-11.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_alerting.py tests/test_live_alerting.py app/brokers/kis_response_redaction.py` 통과.
+  - `python -m unittest tests.test_live_alerting tests.test_kis_response_redaction` 통과, 14개.
+- 주의:
+  - `title`, `message` 같은 자유 텍스트 redaction은 아직 후속 과제다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-10: system_clock readiness dry-run 연결
+
+- 목적:
+  - 이미 분리한 `app/services/system_clock.py` 순수 helper를 Phase readiness dry-run의 필수 check 슬롯으로 연결했다.
+  - 실제 NTP, KIS API, runtime DB에는 접근하지 않고 fixture가 명시될 때만 통과하는 보수 정책을 유지했다.
+- 변경:
+  - `app/services/live_phase_readiness.py`의 readiness check key에 `system_clock`을 추가했다.
+  - premarket report adapter에서는 `system_clock`을 기본 `not_verified`로 두고, 명시 override나 fault fixture가 없으면 readiness를 차단한다.
+  - `tests/test_live_phase_readiness.py`, `tests/test_live_readiness_dry_run_script.py`에 `system_clock` fixture 통과/누락 차단 검증을 추가했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`의 readiness check 수를 10개로 맞췄다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-10.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_phase_readiness.py app/services/system_clock.py tests/test_live_phase_readiness.py tests/test_live_readiness_dry_run_script.py tests/test_system_clock.py` 통과.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_system_clock` 통과, 20개.
+- 주의:
+  - `system_clock` check는 아직 실제 기준 시각 원천과 연결하지 않았다.
+  - 운영 DB schema apply 없음. 새 check는 기존 `checks_json`에만 저장된다.
+  - KIS live/paper API 신규 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-9: system clock skew 순수 helper
+
+- 목적:
+  - KIS 주문/취소 timestamp 검증과 운영 정합성에 필요한 시스템 시계 오차 후보를 코드로 검증 가능한 순수 helper로 분리했다.
+  - 외부 NTP, KIS API, runtime DB에는 접근하지 않는다.
+- 변경:
+  - `app/services/system_clock.py`를 추가했다. local timestamp와 reference timestamp 차이가 기본 후보 `±2초` 이내인지 판정한다.
+  - `tests/test_system_clock.py`를 추가했다.
+  - `README.md`, `docs/Current-Implementation.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-9.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/system_clock.py tests/test_system_clock.py` 통과.
+  - `python -m unittest tests.test_system_clock` 통과, 4개.
+- 주의:
+  - `±2초`는 helper 기본 후보이며, reference timestamp 원천과 runtime 연결은 후속 결정 대상이다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-8: live alert attention grace hook
+
+- 목적:
+  - dashboard 외 알림에서 막 생긴 `unknown/stuck` 주문 상태가 짧은 시간 안에 정상화될 경우 false alarm이 되는 것을 줄일 수 있게 grace hook을 추가했다.
+  - 기본값은 0분이므로 기존 runtime report/outbox 동작은 바뀌지 않고, payload가 `attention_grace_minutes`를 명시한 경우에만 적용된다.
+- 변경:
+  - `app/services/live_alerting.py`에서 `live_order_attention` payload의 `max_attention_age_minutes < attention_grace_minutes`이면 attention alert를 만들지 않도록 했다.
+  - `tests/test_live_alerting.py`에 grace window 안 억제와 grace 이후 발송 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 갱신했다.
+- 검증:
+  - `python -m py_compile app/services/live_alerting.py tests/test_live_alerting.py` 통과.
+  - `python -m unittest tests.test_live_alerting` 통과, 10개.
+- 주의:
+  - live fill mismatch, kill switch, DB/disk 장애 같은 확정 사고는 grace로 억제하지 않는다.
+  - 실제 외부 텔레그램/이메일 발송기는 연결하지 않았다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-7: KIS live order adapter 이중 잠금 골격
+
+- 목적:
+  - P0-B live enable guard의 두 번째 방어선인 KIS 어댑터 직전 재검증 골격을 추가했다.
+  - raw `KisRestQuoteClient.submit_cash_order`/`cancel_order`를 허용 경계 밖에서 직접 쓰는 회귀를 정적 테스트로 막는다.
+- 변경:
+  - `app/brokers/kis_live_order.py`를 추가했다. 이미 생성된 KIS client를 감싸고 `submit_cash_order` 위임 직전에 `TRADING_MODE=live`, `ALLOW_LIVE_ORDERS=true`, live profile을 다시 확인한다. `cancel_order`는 보호성 cancel-only 정책과 맞추기 위해 `TRADING_MODE=live`와 live profile만 확인한다.
+  - `tests/test_kis_live_order_adapter.py`를 추가했다.
+  - `tests/test_live_client_isolation.py`에 주문/취소 함수 surface가 `app/brokers/kis_quote_rest.py`, `app/brokers/kis_live_order.py`, `app/services/broker_paper.py`, `app/services/live_order_manager.py` 안에만 남는지 확인하는 정적 테스트를 추가했다.
+  - `README.md`, `docs/Current-Implementation.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 갱신했다.
+- 검증:
+  - `python -m py_compile app/brokers/kis_live_order.py tests/test_kis_live_order_adapter.py tests/test_live_client_isolation.py` 통과.
+  - `python -m unittest tests.test_kis_live_order_adapter tests.test_live_client_isolation tests.test_live_readonly_guard` 통과, 16개.
+- 주의:
+  - wrapper import/생성은 KIS 네트워크를 호출하지 않는다.
+  - streaming runtime 실제 주문 경로 연결은 하지 않았다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-18] Codex -> work_ver_11-6: KIS fixture redaction audit 보강
+
+- 목적:
+  - cowork 전달 전 fixture 후보에 민감 key가 redaction 뒤에도 남아 있는지 기계적으로 확인하는 장치를 추가했다.
+  - 장중 수집 보호 모드이므로 KIS API, runtime DB write, dashboard 재생성, 실전 주문 경로는 건드리지 않았다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=pre-open`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=false`.
+- 변경:
+  - `app/brokers/kis_response_redaction.py`에 `find_unredacted_sensitive_paths()`를 추가했다. redaction 이후에도 민감 key 값이 `<REDACTED>`가 아니면 JSON path를 반환한다.
+  - `scripts/export_kis_paper_fixture_candidates.py`의 각 후보와 summary에 `redaction_ok`, `redaction_findings`, `redaction_findings_count`를 추가했다.
+  - `scripts/export_kis_paper_fixture_candidates.py`에 `--fail-on-redaction-findings` 옵션을 추가했다. 정상 redaction이면 기존처럼 성공하고, findings가 생기면 CI/전달 전 확인에서 non-zero exit로 쓸 수 있다.
+  - `tests/test_kis_response_redaction.py`, `tests/test_kis_paper_fixture_export_script.py`를 보강했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-18-production-architecture-implementation-blueprint-work_ver_11-6.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/brokers/kis_response_redaction.py scripts/export_kis_paper_fixture_candidates.py` 통과.
+  - `python -m unittest tests.test_kis_response_redaction tests.test_kis_paper_fixture_export_script` 통과, 6개.
+  - `python scripts/export_kis_paper_fixture_candidates.py --fail-on-redaction-findings` 통과. 실제 DB 기준 summary `status=ok`, `redaction_ok=true`.
+- 주의:
+  - 주문번호와 종목코드는 mapper 검증을 위해 보존한다.
+  - KIS live/paper API 신규 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> work_ver_11-5: Phase 2 주문금액 한도와 KIS paper fixture 후보 export
+
+- 목적:
+  - 계좌 소유자/실전 운용 승인권자 승인에 따라 Phase 2 부모 주문 금액 한도를 Codex 권장안으로 적용했다.
+  - 현재 `runtime-data/dev.db`와 broker paper 기록에 KIS 모의투자 raw 응답이 남아 있는지 read-only로 확인하고, redacted fixture 후보를 생성했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`.
+- 변경:
+  - `app/services/live_order_manager.py`의 Phase 2 pre-submit 정책에 부모 주문 금액 한도를 추가했다. 기본값은 `min(100,000원, 운용 배정금의 10%)`이고, 운용 배정금이 없으면 100,000원을 쓴다.
+  - `order_policy.max_order_notional`, `allocation_amount` 또는 `phase2_allocation_amount`, `max_order_allocation_pct` 또는 `max_order_allocation_ratio`로 한도를 조정할 수 있게 했다.
+  - `tests/test_live_order_manager.py`에 기본 한도 초과 차단, 한도 완화, 배정금 비율에 의한 한도 축소 테스트를 추가했다.
+  - `app/brokers/kis_response_redaction.py`의 민감 key 후보에 `empno`, `ip_addr`, `tlno`를 추가했고, `tests/test_kis_response_redaction.py`를 보강했다.
+  - `scripts/export_kis_paper_fixture_candidates.py`를 추가했다. 이 스크립트는 `runtime-data/dev.db`를 SQLite read-only URI로 열고 broker paper 주문 제출/상태 snapshot의 최신 후보와 가장 풍부한 detail 후보를 redaction 후 JSON으로 저장한다.
+  - `tests/test_kis_paper_fixture_export_script.py`를 추가했다.
+  - `runtime-data/reports/codex/ops/kis-fixture-candidates/latest-kis-paper-fixture-candidates.json`를 생성했다. 현재 DB 기준 `broker_paper_order_submissions` 530건, `broker_paper_order_status_snapshots` 164,508건이 확인됐다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11-5.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile scripts/export_kis_paper_fixture_candidates.py app/services/live_order_manager.py app/brokers/kis_response_redaction.py` 통과.
+  - `python scripts/export_kis_paper_fixture_candidates.py` 통과. KIS live/paper API 신규 호출 없음.
+  - `python -m unittest tests.test_kis_paper_fixture_export_script tests.test_kis_response_redaction` 통과, 4개.
+  - `python -m unittest tests.test_live_order_manager` 통과, 13개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_live_order_manager` 1차 실패 후, 체결 sync 테스트 fixture가 Phase 2 기본 주문금액 한도를 초과하는 문제를 확인했다. 해당 테스트는 이미 제출된 주문 sync 검증 목적이므로 `order_policy.max_order_notional`을 테스트 fixture에 명시해 보정했다.
+  - 보정 후 `python -m unittest tests.test_live_execution_sync tests.test_live_order_manager` 통과, 23개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 242개.
+  - `git diff --check` 통과. 단, `docs/logbook.md` CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - fixture 후보는 민감 key를 redaction하지만 mapper 검증을 위해 주문번호와 종목코드는 보존한다. cowork 외부 전달 전에는 사람이 한 번 더 확인한다.
+  - 실제 KIS live 주문/취소/조회 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> work_ver_11-4: KIS 실제 응답 fixture redaction helper
+
+- 목적:
+  - 다음 1순위인 KIS 실제 주문/체결 응답 fixture 확대를 준비하기 위해, sample 제공 전 민감정보 제거 helper를 추가했다.
+  - 실제 KIS 호출 없이 로컬 JSON payload만 대상으로 동작한다.
+- 변경:
+  - `app/brokers/kis_response_redaction.py`를 추가했다.
+  - `redact_kis_payload()`와 `redact_kis_json_text()`는 token, app key/secret, authorization, 계좌번호, 계좌상품코드, 고객 식별값으로 보이는 key를 `<REDACTED>`로 바꾼다.
+  - 주문번호, 종목코드, 수량/가격 필드는 mapper 검증에 필요하므로 유지한다.
+  - `tests/test_kis_response_redaction.py`를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11-4.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/brokers/kis_response_redaction.py app/services/live_alerting.py app/services/reporting.py app/services/live_order_manager.py app/services/live_order_monitoring.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_kis_response_redaction tests.test_live_alerting tests.test_reporting tests.test_live_order_manager tests.test_dashboard` 통과, 38개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 237개.
+  - `git diff --check` 통과. 단, `docs/logbook.md` CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 KIS live 조회/주문/취소 호출 없음.
+  - 실제 응답 sample 저장 없음.
+  - 계좌번호, token, app key/secret 기록 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> work_ver_11-3: Phase 2 부모 주문 한도 카운터와 pre-submit context
+
+- 목적:
+  - cowork `review_ver_10`의 낮은 우선순위 권고였던 Phase 2 부모 주문 카운터와 차단 사유 세부 정보를, KIS 실제 응답 sample 없이 가능한 범위에서 보강했다.
+  - Phase 2 canary 이름을 쓰는 경로도 1거래일 1개 부모 주문서 기본 정책 대상이 되도록 맞췄다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`.
+- 변경:
+  - `app/services/live_order_manager.py`에서 Phase 2 pre-submit 기본 정책 대상에 `phase2_canary`를 추가했다.
+  - 차단 사유 문자열은 기존과 호환되게 유지하고, order detail의 `pre_submit_policy_context`에 부모 주문 현재 수/한도, 잔여 수, 같은 종목 pending 수, live fill mismatch 수를 기록한다.
+  - `app/services/live_order_monitoring.py`에 Phase 2 부모 주문 한도 read-only summary helper를 추가했다.
+  - `app/services/dashboard.py`의 `실 운용계좌` 탭에 `Phase 2 부모 주문 한도`, `Phase 2 부모 주문 상세` 카드를 추가했다.
+  - `app/services/reporting.py`의 runtime report JSON/Markdown에도 Phase 2 부모 주문 한도 요약을 추가했다.
+  - `app/services/live_alerting.py`에서 live monitoring alert id를 state fingerprint 기반으로 만들고, 같은 날짜 outbox에 동일 alert가 중복 append되지 않게 했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11-3.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_order_manager.py app/services/live_order_monitoring.py app/services/dashboard.py` 통과.
+  - `python -m unittest tests.test_live_order_manager tests.test_dashboard` 통과, 27개.
+  - `python -m py_compile app/services/live_order_manager.py app/services/live_order_monitoring.py app/services/dashboard.py app/services/reporting.py` 통과.
+  - `python -m unittest tests.test_live_order_manager tests.test_dashboard tests.test_reporting` 통과, 28개.
+  - `python -m py_compile app/services/live_alerting.py app/services/reporting.py` 통과.
+  - `python -m unittest tests.test_live_alerting tests.test_reporting tests.test_live_order_manager tests.test_dashboard` 통과, 36개.
+  - KIS redaction helper 추가 뒤 `python -m unittest tests.test_kis_response_redaction tests.test_live_alerting tests.test_reporting tests.test_live_order_manager tests.test_dashboard` 통과, 38개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 237개.
+  - `git diff --check` 통과. 단, `docs/logbook.md` CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 KIS live 주문/취소/조회 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> work_ver_11-2: recovery export self-test와 tar 제외 정책 보강
+
+- 목적:
+  - 실전 audit/alert/live-risk 경로가 recovery export에 포함되는지 self-test로 잠갔다.
+  - 실제 NAS 접근 없이 임시 저장소를 tar archive로 만들고 포함/제외 경로를 검사했다.
+- 발견:
+  - 첫 테스트에서 `runtime-data/logs/app/app.log`와 `runtime-data/cache/kis/token.json`이 archive에 포함되는 문제가 드러났다.
+  - 원인은 `tar.add(path, arcname=rel)`가 디렉터리를 추가할 때 하위 파일을 재귀적으로 함께 넣어 파일별 제외 정책을 우회할 수 있다는 점이었다.
+- 변경:
+  - `scripts/wsl_ops.py`의 recovery export에서 `tar.add(..., recursive=False)`를 사용해 디렉터리 재귀 추가를 막았다.
+  - `tests/test_wsl_ops.py`에 recovery export self-test를 추가했다.
+  - 포함 확인 경로: `runtime-data/reports/alerts/`, `runtime-data/reports/live-risk/`, `runtime-data/reports/live-approvals/`, `runtime-data/ops/`, `runtime-data/ml/registry-backups/`.
+  - 제외 확인 경로: root `.env`, `runtime-data/cache/kis`, `runtime-data/logs`, key 파일.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11-2.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m unittest tests.test_wsl_ops` 1차 실패로 기존 제외 정책 우회 문제 확인.
+  - 수정 후 `python -m unittest tests.test_wsl_ops` 통과, 11개.
+- 주의:
+  - 실제 NAS 공유 접근 없음.
+  - 실제 backup 실행 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> work_ver_11-1: live audit hash chain helper와 runtime report integrity
+
+- 목적:
+  - cowork 토큰 회복 전까지 외부 sample 없이 진행 가능한 감사 원장 무결성 축을 보강했다.
+  - 외부 anchor와 보관 기간은 계좌 소유자/실전 운용 승인권자 결정으로 남기되, 내부 hash chain 생성/검증 helper와 runtime report read-only 요약을 먼저 추가했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`.
+- 변경:
+  - `app/services/live_audit.py`를 추가했다. `LiveAuditLog.append()`, `compute_live_audit_hash()`, `verify_live_audit_chain()`으로 `ops_live_audit_events` append-only hash chain을 생성/검증한다.
+  - `app/storage/sqlite_store.py`에 `fetch_live_audit_events(trading_day=None)`를 추가했다.
+  - `app/services/reporting.py`가 runtime report에 `Live Audit Integrity` 절과 JSON payload를 기록하게 했다.
+  - `tests/test_live_audit.py`를 추가하고 `tests/test_reporting.py`를 보강했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11-1.md`에 cowork 검토용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_audit.py app/services/reporting.py app/storage/sqlite_store.py` 통과.
+  - `python -m unittest tests.test_live_audit tests.test_live_storage tests.test_sqlite_store` 1차 실패 후 fixture를 기존 `LiveAuditEvent` 계약(`reason/source/gate_decision`)에 맞춰 수정.
+  - `python -m unittest tests.test_live_audit tests.test_live_storage tests.test_sqlite_store` 통과, 19개.
+  - `python -m unittest tests.test_live_audit tests.test_reporting tests.test_live_storage tests.test_sqlite_store` 통과, 20개.
+- 주의:
+  - 실제 KIS live 주문/취소/조회 호출 없음.
+  - 운영 DB schema apply 없음.
+  - 외부 anchor 구현 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-17] Codex -> review_ver_10 반영: Phase 2 결정 3건과 alert outbox
+
+- 목적:
+  - cowork `review_ver_10`의 후속 권고와 계좌 소유자/실전 운용 승인권자 결정 3건을 반영했다.
+  - Phase 2 부분 체결 잔량 자동 취소 금지, `live_positions` 실제 저장 시점 지연, dashboard 외 알림 채널(텔레그램 + 중요 이슈 이메일)을 기준 문서에 반영했다.
+  - 실제 외부 발송 없이 로컬/텔레그램/이메일 outbox를 만들 수 있는 alerting 경계를 추가했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 주말 대기.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-review_ver_10.md` 확인.
+- 변경:
+  - `app/services/live_alerting.py`를 추가했다. `warning`/`critical`은 텔레그램 outbox 대상, `critical` 또는 중요 event type은 이메일 outbox 대상이다.
+  - `app/services/reporting.py`가 live fill mismatch와 `unknown`/`stuck` 미해결 주문을 alert로 변환해 `runtime-data/reports/alerts/{local,telegram,email}/alerts-YYYY-MM-DD.jsonl`에 `delivery_mode=outbox_only` record를 남기도록 했다.
+  - `tests/test_live_alerting.py`와 `tests/test_reporting.py`에 alert routing/outbox 검증을 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 Phase 2 부분 체결 잔량 정책, `live_positions` 저장 시점, 텔레그램/이메일 outbox 정책을 반영했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-operator-decision.md`에 운영자 결정 3건을 기록했다.
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11.md`에 cowork 전달용 요약을 남겼다.
+- 검증:
+  - `python -m py_compile app/services/live_alerting.py app/services/reporting.py` 통과.
+  - `python -m unittest tests.test_live_alerting tests.test_reporting` 통과, 7개.
+  - `python -m unittest tests.test_live_alerting tests.test_live_order_manager tests.test_live_execution_sync tests.test_live_position_accounting tests.test_dashboard tests.test_reporting` 통과, 46개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 226개.
+  - `git diff --check` 통과. 단, `docs/logbook.md` CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 텔레그램/이메일 발송 없음. 현재는 outbox 기록만 한다.
+  - 실제 KIS live 주문/취소 API 호출 없음.
+  - 실제 KIS REST 조회 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+- cowork 전달:
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_11.md`.
+
+## [2026-05-17] Codex -> review_ver_9 반영: live_fills delta 멱등성과 Phase 2 pre-submit 정책
+
+- 목적:
+  - cowork `review_ver_9`의 다음 단계 권장인 Slice 5-3 `live_fills` delta idempotency를 구현했다.
+  - 같은 라운드에서 Phase 2의 1거래일 1개 부모 주문서 제한과 같은 종목 pending 차단을 `LiveOrderManager` 내부 pre-submit 정책으로 잠갔다.
+  - cowork token 회복 전까지 `unknown`/`stuck` 미해결 실전 주문을 read-only dashboard/runtime report로 노출하는 운영 가시성 보강을 추가했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`, live runtime 실행 없음.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-16-production-architecture-implementation-blueprint-review_ver_9.md` 확인.
+- 변경:
+  - `app/services/live_execution_sync.py`에 `LiveFillApplyResult`, `LiveFillConsistency`, `apply_order_snapshot_and_fill_delta()`, `validate_live_order_fill_qty()`를 추가했다.
+  - `apply_order_snapshot_and_fill_delta()`는 기존 `live_fills` 합계와 브로커 누적 체결수량을 비교해 미기록 delta만 deterministic `fill_id`로 기록한다. 포지션/포트폴리오/세금 정산은 아직 반영하지 않는다.
+  - unmatched broker snapshot은 `unknown`으로만 전이하고 수량/체결 원장에는 반영하지 않도록 보수화했다.
+  - `scan_live_order_fill_consistency(trading_day)`와 `build_live_order_fill_consistency_summary(trading_day)`로 거래일 단위 fill/order mismatch를 조회/요약할 수 있게 했다. 아직 gate 차단이나 dashboard에는 연결하지 않았다.
+  - `tests/test_kis_http_clients.py`에 KIS 일별 주문/체결 응답의 대체 필드명 fixture를 추가했다.
+  - `app/storage/sqlite_store.py`에 `insert_live_fill_if_absent()`, `fetch_live_fill()`, `fetch_live_fill_totals()`, `sum_live_fill_qty()`, `fetch_live_orders_for_trading_day()`를 추가했다.
+  - `app/storage/runtime_writer.py`에 `write_live_fill_if_absent()`를 추가했다.
+  - `app/services/live_order_manager.py`에 `blocked` terminal 재시도 정책 docstring과 Phase 2 pre-submit 정책을 추가했다. 위반 시 broker 호출 없이 `pre_submit_policy_blocked` 이벤트와 함께 `blocked`로 남긴다.
+  - Phase 2 pre-submit 정책에 live fill mismatch 신규 intent 차단을 추가했다. 같은 거래일의 `live_orders.filled_qty`와 `live_fills` 합계가 어긋나면 새 intent는 broker 호출 전 `blocked`가 된다.
+  - `tests/test_live_execution_sync.py`, `tests/test_live_order_manager.py`를 보강했다.
+  - `app/services/dashboard.py`에 `live_orders.filled_qty`와 `SUM(live_fills.fill_qty)` 정합성 read-only 카드(`실전 fill 정합성`, `실전 fill 불일치 상세`)와 mismatch status alert를 추가했다. 포지션/회계/주문 전송에는 연결하지 않는다.
+  - `app/services/live_order_monitoring.py`를 추가해 거래일 단위 `unknown`/`stuck` 미해결 주문 수, 열린 주문 수, 최장 경과 시간을 read-only로 요약한다.
+  - `app/services/dashboard.py`에 `실전 미해결 주문`, `실전 미해결 주문 상세` 카드와 `실전 주문 상태 확인 필요` status alert를 추가했다.
+  - `tests/test_dashboard.py`에 live fill mismatch가 dashboard payload와 HTML에 표시되는지 검증하는 fixture를 추가했다.
+  - `app/services/reporting.py`가 같은 live fill 정합성과 미해결 주문 요약을 `latest-runtime-report.json`과 `latest-runtime-report.md`에 기록하도록 보강했다.
+  - `tests/test_reporting.py`에 runtime report가 live fill mismatch와 `unknown` 미해결 주문을 JSON/Markdown에 표시하는지 검증하는 fixture를 추가했다.
+  - `tests/test_kis_http_clients.py`에 KIS 일별 주문/체결 조회 연속 조회(`tr_cont=M`) fixture를 추가해 여러 페이지의 주문/체결 응답을 이어 붙이는 동작을 잠갔다.
+  - `app/services/live_position_accounting.py`를 추가해 기록된 `live_fills`에서 long-only 평균단가 position을 순수 계산한다. 자동 position 저장, portfolio snapshot, 세금/결제 정산에는 아직 연결하지 않았다.
+  - `SQLiteRuntimeStore.fetch_live_fills_for_trading_day()`를 추가해 position 계산 helper가 거래일별 fill을 read-only로 가져올 수 있게 했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_execution_sync` 통과, 9개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_kis_http_clients` 통과, 16개.
+  - `python -m unittest tests.test_sqlite_store` 통과, 9개.
+  - `python -m unittest tests.test_live_order_manager` 통과, 8개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_dashboard` 통과, 25개.
+  - `python -m unittest tests.test_reporting tests.test_dashboard tests.test_live_execution_sync` 통과, 26개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_execution_sync tests.test_reporting tests.test_dashboard` 통과, 35개.
+  - `python -m unittest tests.test_dashboard tests.test_live_order_manager tests.test_reporting` 통과, 25개.
+  - `python -m py_compile app/services/live_order_monitoring.py app/services/dashboard.py app/services/reporting.py` 통과.
+  - `python -m unittest tests.test_dashboard tests.test_reporting` 통과, 17개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_execution_sync tests.test_kis_http_clients tests.test_dashboard tests.test_reporting` 통과, 42개.
+  - `python -m unittest tests.test_kis_http_clients` 통과, 7개.
+  - `python -m py_compile app/services/live_position_accounting.py app/storage/sqlite_store.py` 통과.
+  - `python -m unittest tests.test_live_position_accounting tests.test_live_storage tests.test_live_execution_sync` 통과, 20개.
+  - `python -m unittest tests.test_live_storage tests.test_live_order_guard tests.test_live_phase_readiness` 통과, 21개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 220개.
+  - `python -m app --build-runtime-report` 통과. 최신 runtime report 생성: `runtime-data/reports/runtime/latest-runtime-report.md`, `runtime-data/reports/runtime/latest-runtime-report.json` (`live_fill_mismatches=0`).
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json` (`generated_at=2026-05-17T01:39:36.806128+09:00`).
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 KIS live 주문 API 호출 없음.
+  - 실제 KIS REST 조회 호출 없음.
+  - 운영 DB schema apply 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+- cowork 전달:
+  - `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-work_ver_10.md`에 `review_ver_9` 반영 요약과 다음 리뷰 질문을 남겼다.
+
+## [2026-05-16] Codex -> Slice 5-2 live execution sync mapper/status apply 구현
+
+- 목적:
+  - cowork 회복 전까지 Slice 5에서 독립적으로 진행 가능한 live execution sync의 순수 parser/mapper를 먼저 구현했다.
+  - 실제 KIS REST 호출 없이 KIS daily order/fill record를 live 상태와 delta fill로 해석하고, `live_orders` 상태/수량과 event만 반영하는 단위를 테스트로 잠갔다.
+- 변경:
+  - `app/services/live_execution_sync.py`를 추가했다.
+  - `snapshot_from_kis_daily_order_fill(record)`는 `KisDailyOrderFillRecord` 또는 같은 attribute/key를 가진 입력을 `LiveBrokerOrderSnapshot`으로 정규화한다.
+  - `derive_live_order_status(snapshot)`는 `accepted`, `open`, `partially_filled`, `filled`, `cancelled`, `cancelled_partial`, `expired`, `rejected`, `unknown`을 계산한다.
+  - live unmatched 상태는 paper sync의 `pending_lookup` 대신 fail-closed 성격의 `unknown`으로 둔다.
+  - `build_live_order_sync_decision(snapshot, previous_applied_fill_qty)`는 이전 적용 수량 이후의 delta fill만 계산하고 음수 delta는 0으로 고정한다.
+  - `LiveExecutionSync.apply_order_snapshot()`은 `live_orders` status/filled/remaining/avg_fill과 `live_order_events`만 반영한다.
+  - `SQLiteRuntimeStore.update_live_order_transition()`은 선택적으로 filled/remaining/avg fill을 함께 업데이트할 수 있게 확장했다.
+  - `tests/test_live_execution_sync.py`를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_execution_sync` 통과, 4개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_broker_paper_sync tests.test_live_order_manager tests.test_live_storage` 통과, 20개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_live_order_manager tests.test_live_storage` 통과, 18개.
+  - `python -m unittest tests.test_live_execution_sync tests.test_broker_paper_sync tests.test_live_order_manager tests.test_live_storage tests.test_live_kill_switch_cli_script tests.test_codex_ops_job_script` 통과, 30개.
+  - `bash -n scripts/script_dispatch.sh scripts/set_live_kill_switch.sh scripts/run_codex_ops_job.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 205개.
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json`.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 KIS live 주문 API 호출 없음.
+  - 실제 KIS REST 조회 호출 없음.
+  - 운영 DB write/apply 없음. DB 반영 검증은 `.tmp-tests/` 아래 SQLite에서만 수행.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+- cowork 전달:
+  - `docs/cowork-reports/2026-05-16-production-architecture-implementation-blueprint-work_ver_9-2.md`에 `work_ver_9`와 `work_ver_9-1`을 합친 토큰 절약용 통합본을 남겼다.
+
+## [2026-05-16] Codex -> review_ver_8 반영: Slice 5 live order manager 1차 구현
+
+- 목적:
+  - cowork `review_ver_8`의 결론인 Slice 5 live order manager 진입 권고를 반영했다.
+  - live 주문 intent, idempotency, 상태 전이, guard 호출, broker 주입형 제출/취소, 재시작 복구의 1차 골격을 만들었다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-16-production-architecture-implementation-blueprint-review_ver_8.md` 확인.
+- 변경:
+  - `scripts/run_codex_ops_job.sh --job-type premarket-readiness`에 `--database-timeout-seconds` 옵션을 추가했다. 기본값은 2초다.
+  - SQLite read-only smoke에서 `locked`/`busy`는 실제 손상과 구분해 `unknown`으로 분류한다.
+  - `app/services/live_phase_readiness.py` docstring에 새 3개 readiness check는 `checks_json`에 보관하고 SQL column 승격은 별도 schema migration으로 남긴다는 결정을 명시했다.
+  - `scripts/set_live_kill_switch.sh`를 추가했다. 기본은 status/dry-run이고 실제 ON/OFF 파일 기록은 `--apply`가 있을 때만 한다. OFF 해제는 `--confirm-disable`이 필요하다.
+  - `app/services/live_order_manager.py`를 추가했다. 실제 KIS client를 생성하지 않고 broker protocol을 외부에서 주입받는다.
+  - `LiveOrderManager.create_intent()`는 deterministic idempotency key를 생성하고 중복 intent를 재사용한다.
+  - `LiveOrderManager.submit_intent()`는 `LiveOrderGuard`를 통과한 뒤 broker를 호출한다. guard 차단 시 broker 호출 없이 `blocked`, broker 예외 또는 불명확 응답은 `unknown`으로 기록한다.
+  - `LiveOrderManager.request_cancel()`은 cancel-only guard를 통과한 뒤 `cancel_requested`로 전이한다.
+  - `LiveOrderManager.recover_open_orders()`는 재시작 시 open 계열 주문을 `unknown`으로 잠그고 broker reconcile을 요구한다.
+  - `SQLiteRuntimeStore`에 `fetch_live_order`, `fetch_live_order_by_idempotency_key`, `update_live_order_transition`을 추가하고 `cancel_requested`를 open 계열 상태에 포함했다.
+  - `tests/test_live_order_manager.py`, `tests/test_live_kill_switch_cli_script.py`를 추가하고 관련 테스트를 보강했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 갱신했다.
+- 실행 산출물:
+  - `./scripts/set_live_kill_switch.sh --enable --reason dry_run_validation --actor test` 실행: `status=dry_run`, `applied=false`, 실제 kill switch 파일 기록 없음.
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness --database-timeout-seconds 2.0` 실행: `status=ok`, `database=status ok`, `timeout_seconds=2.0`.
+  - `./scripts/run_live_readiness_dry_run.sh` 실행: fixture가 없으므로 `status=blocked`, 9개 check 모두 `not_verified`.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh scripts/set_live_kill_switch.sh scripts/run_codex_ops_job.sh` 통과.
+  - `python -m unittest tests.test_codex_ops_job_script tests.test_live_kill_switch_cli_script tests.test_live_kill_switch` 통과, 13개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_storage tests.test_live_order_guard tests.test_live_kill_switch_cli_script tests.test_codex_ops_job_script` 통과, 27개.
+  - `python -m unittest tests.test_live_order_manager tests.test_live_storage tests.test_live_order_guard tests.test_live_kill_switch tests.test_live_kill_switch_cli_script tests.test_codex_ops_job_script tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 48개.
+  - `bash -n scripts/script_dispatch.sh scripts/set_live_kill_switch.sh scripts/run_codex_ops_job.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 199개.
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json`.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실제 KIS live 주문 API 호출 없음.
+  - 실제 KIS live client 생성 없음.
+  - kill switch CLI 검증은 dry-run으로만 실행.
+  - 운영 DB schema apply 없음.
+  - readiness DB `--record` 실행 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> review_ver_7 반영: database read-only smoke 분리
+
+- 목적:
+  - cowork `review_ver_7`의 최우선 권고인 `database` check와 `storage_migration_state` 의미 분리를 반영했다.
+  - 운영 DB에 write 없이 SQLite 연결성만 확인하는 read-only smoke를 premarket-readiness report에 추가했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-16-production-architecture-implementation-blueprint-review_ver_7.md` 확인.
+- 변경:
+  - `app/services/codex_ops.py`의 `PREMARKET_READINESS_CHECK_KEYS`에 `database`를 추가하고, `build_premarket_readiness_report()`가 `database_smoke`를 별도 check로 받게 했다.
+  - `scripts/run_codex_ops_job.sh --job-type premarket-readiness` 경로에서 SQLite를 `mode=ro` URI로 열어 `SELECT 1`, `sqlite_master`, `PRAGMA schema_version`, `PRAGMA journal_mode`만 확인한다.
+  - 처음에는 `PRAGMA quick_check`를 넣었으나 실제 `runtime-data/dev.db`에서 60초 timeout 위험이 확인되어 제거했다. 장중 안전 기준에 맞춰 가벼운 read-only smoke만 남겼다.
+  - `app/services/live_phase_readiness.py`의 premarket adapter는 이제 `database`를 `storage_migration_state`가 아니라 premarket report의 `database` check에서 가져온다.
+  - `LiveReadinessRun`의 전용 SQL column은 기존 6개만 유지하고, `disk_space`, `dashboard`, `storage_migration_state`는 `checks_json`에 보관한다는 주석을 추가했다. SQL column 승격은 별도 schema migration 결정으로 남긴다.
+  - `tests/test_codex_ops.py`, `tests/test_codex_ops_job_script.py`, `tests/test_live_phase_readiness.py`, `tests/test_live_readiness_dry_run_script.py`를 보강했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 database/storage 분리 기준을 반영했다.
+- 실행 산출물:
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness` 실행: `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json` 재생성, `database=status ok`, blockers/warnings 없음.
+  - `./scripts/run_live_readiness_dry_run.sh` 실행: fixture가 없으므로 `status=blocked`, 9개 check 모두 `not_verified`.
+- 검증:
+  - `python -m unittest tests.test_codex_ops tests.test_codex_ops_job_script tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 33개.
+  - `bash -n scripts/script_dispatch.sh scripts/run_codex_ops_job.sh` 통과.
+  - `python -m unittest tests.test_codex_ops tests.test_codex_ops_job_script tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_dashboard` 통과, 47개.
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json`.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 188개.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - SQLite smoke는 read-only 연결만 수행한다.
+  - 운영 DB insert/apply 없음.
+  - 실제 장애 주입 없음.
+  - Codex CLI 실제 호출 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> live readiness 명시 DB 기록 옵션 추가
+
+- 목적:
+  - readiness dry-run의 기본 동작은 JSON only로 유지하면서, 필요할 때만 `live_readiness_runs` 테이블에 명시 기록할 수 있는 좁은 연결부를 추가했다.
+- 변경:
+  - `scripts/run_live_readiness_dry_run.sh`에 `--record`와 `--database-path` 옵션을 추가했다.
+  - `--record`는 `--database-path`가 없으면 실패한다.
+  - `database_path`는 저장소 내부 경로만 허용한다.
+  - `--record` 대상 DB 파일은 이미 존재해야 하며, wrapper가 새 SQLite 파일을 조용히 만들지 않는다.
+  - DB 기록은 이미 schema가 준비된 SQLite DB에만 insert를 시도하며, script 기본 실행은 계속 `runtime-data/reports/live-readiness/latest-readiness.json` 생성만 수행한다.
+  - dashboard `실전 전환 readiness dry-run` 카드에 DB 기록 여부와 DB 경로 표시를 추가했다.
+  - `tests/test_live_readiness_dry_run_script.py`에 명시 DB 기록, DB 경로 제한, `--record` 단독 실행 차단 검증을 추가했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 기본 JSON only / 명시 DB 기록 분리 기준을 반영했다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh` 통과.
+  - `python -m unittest tests.test_live_readiness_dry_run_script tests.test_live_phase_readiness` 통과, 16개.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_dashboard tests.test_codex_ops tests.test_codex_ops_job_script` 통과, 46개.
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json`.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 187개.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 이번 검증은 `.tmp-tests/` 아래 임시 DB만 사용했다.
+  - 운영 DB insert/apply 실행 없음.
+  - 실제 장애 주입 없음.
+  - Codex CLI 실제 호출 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> live readiness dry-run 점검 키 확장
+
+- 목적:
+  - cowork `review_ver_6`의 추가 후보였던 disk space, dashboard, storage migration state를 Phase readiness dry-run의 명시 check로 승격했다.
+  - fixture가 없는 항목을 통과로 보지 않는 보수 정책을 9개 check 전체로 확장했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰는 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_6.md`이고, 이후 새 review는 없었다.
+- 변경:
+  - `app/services/live_phase_readiness.py`의 readiness check key를 `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `kill_switch`, `database`, `disk_space`, `dashboard`, `storage_migration_state` 9개로 확장했다.
+  - `create_readiness_run_from_premarket_report()`는 premarket report에서 확인 가능한 dashboard/disk/storage 상태를 check에 반영하되, WebSocket 복구/계좌 snapshot/market status/kill switch는 계속 별도 fixture 또는 override가 있어야 통과시킨다.
+  - `build_fault_injection_dry_run_report()`와 `scripts/run_live_readiness_dry_run.sh`는 9개 check 모두 fixture가 명시되지 않으면 `not_verified`로 차단한다.
+  - dashboard의 `실전 전환 readiness dry-run` 카드에 disk space, dashboard, storage migration 표시를 추가했다.
+  - `tests/test_live_phase_readiness.py`, `tests/test_live_readiness_dry_run_script.py`, `tests/test_dashboard.py`를 보강했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 9개 check 기준을 반영했다.
+- 실행 산출물:
+  - `./scripts/run_live_readiness_dry_run.sh` 실행: `runtime-data/reports/live-readiness/latest-readiness.json` 재생성.
+  - fixture를 주지 않았으므로 결과는 의도대로 `status=blocked`, 9개 check 모두 `not_verified`.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_dashboard` 통과, 26개.
+- 주의:
+  - 실제 장애 주입 없음.
+  - Codex CLI 실제 호출 없음.
+  - 운영 DB insert/apply 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> dashboard readiness dry-run 카드 추가
+
+- 목적:
+  - `premarket-readiness`와 `live-readiness` dry-run 산출물을 운영자가 dashboard에서 바로 볼 수 있게 했다.
+- 변경:
+  - `app/services/dashboard.py`가 `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`과 `runtime-data/reports/live-readiness/latest-readiness.json`을 읽도록 추가했다.
+  - `상태 및 설정 > 현재 프로그램 상태` 하위에 `실전 전환 readiness dry-run` 카드를 추가했다.
+  - 이 카드는 JSON read-only이며 운영 DB insert, schema apply, 실전 주문, Codex CLI 호출을 하지 않는다.
+  - `tests/test_dashboard.py` fixture와 assertion을 보강했다.
+- 검증:
+  - `python -m unittest tests.test_dashboard tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 26개.
+  - `python -m unittest tests.test_dashboard tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script tests.test_codex_ops tests.test_codex_ops_job_script` 통과, 42개.
+  - `bash -n scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh scripts/run_codex_ops_job.sh` 통과.
+  - `python -m app --build-dashboard` 통과. 최신 dashboard snapshot 생성: `runtime-data/reports/dashboard/latest-dashboard.html`, `runtime-data/reports/dashboard/latest-dashboard.json`.
+- 주의:
+  - 실제 장애 주입 없음.
+  - Codex CLI 실제 호출 없음.
+  - 운영 DB insert/apply 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> fixture 기반 live readiness dry-run 구현
+
+- 목적:
+  - cowork 토큰 대기 중 추가로 진행 가능한 안전 slice를 구현했다.
+  - 실제 장애를 만들지 않고 fixture 결과만으로 Phase readiness record를 생성하는 dry-run runner를 추가했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰는 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_6.md`이고, 이후 새 review는 없었다.
+- 변경:
+  - `app/services/live_phase_readiness.py`에 `build_fault_injection_dry_run_report()`를 추가했다.
+  - `scripts/run_live_readiness_dry_run.sh`를 추가하고 `scripts/script_dispatch.sh`에 dry-run 전용 runner를 연결했다.
+  - fixture가 `ok/passed/healthy/ready`를 명시한 항목만 readiness check 통과로 본다.
+  - fixture가 없는 항목은 `not_verified`로 남기며 Phase readiness를 통과시키지 않는다.
+  - `tests/test_live_readiness_dry_run_script.py`를 추가하고 `tests/test_live_phase_readiness.py`를 보강했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 현재 구현 상태를 반영했다.
+- 실행 산출물:
+  - `./scripts/run_live_readiness_dry_run.sh` 실행: `runtime-data/reports/live-readiness/latest-readiness.json` 생성.
+  - 실제 fixture를 주지 않았으므로 결과는 의도대로 `status=blocked`, 모든 readiness check는 `not_verified`.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 12개.
+  - `bash -n scripts/script_dispatch.sh scripts/run_live_readiness_dry_run.sh scripts/run_codex_ops_job.sh` 통과.
+- 주의:
+  - 실제 장애 주입 없음.
+  - Codex CLI 실제 호출 없음.
+  - 운영 DB insert/apply 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-16] Codex -> premarket-readiness dry-run wrapper 구현
+
+- 목적:
+  - cowork 토큰 여유가 부족한 상태에서 `review_ver_6` 이후 다음 안전 슬라이스를 자율 진행했다.
+  - Codex CLI를 실제 호출하기 전에 `premarket-readiness` job의 JSON report schema와 dry-run wrapper를 코드와 테스트로 먼저 잠갔다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰는 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_6.md`이고, 이후 새 review는 없었다.
+- 변경:
+  - `app/services/codex_ops.py`에 `PREMARKET_READINESS_CHECK_KEYS`와 `build_premarket_readiness_report()`를 추가했다.
+  - readiness check는 live runtime, runtime watchdog, dashboard, KIS quote credential, storage migration state, disk space, manifest policy를 본다.
+  - `scripts/run_codex_ops_job.sh`를 추가하고 `scripts/script_dispatch.sh`에 dry-run 전용 `premarket-readiness` job을 연결했다.
+  - wrapper는 Codex CLI를 호출하지 않고 상태 파일과 status script 결과를 읽어 `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`만 생성한다.
+  - `scripts/run_storage_migration_dry_run.sh`의 필수 table/index 점검을 Slice 2b 전체 live 원장 기준으로 맞췄다.
+  - `app/services/live_phase_readiness.py`에 `create_readiness_run_from_premarket_report()` adapter를 추가했다. 이 adapter는 premarket report만으로 readiness를 통과시키지 않고, WebSocket 복구/계좌 snapshot/market status/kill switch는 별도 override가 있어야 통과시킨다.
+  - `tests/test_codex_ops.py`, `tests/test_codex_ops_job_script.py`, `tests/test_storage_migration_dry_run_script.py`를 보강했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 wrapper 구현 상태를 반영했다.
+- 실행 산출물:
+  - `./scripts/apply_storage_migration.sh` plan 모드 실행: `status=planned`, `apply=false`, 운영 DB 변경 없음.
+  - `./scripts/run_storage_migration_dry_run.sh` 실행: 임시 DB 대상 `status=ok`.
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness` 실행: `status=ok`, blockers/warnings 없음.
+- 검증:
+  - `python -m unittest tests.test_codex_ops tests.test_codex_ops_job_script` 통과, 16개.
+  - `python -m unittest tests.test_codex_ops tests.test_codex_ops_job_script tests.test_storage_migration_dry_run_script tests.test_storage_migration_apply_script` 통과, 22개.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_codex_ops tests.test_codex_ops_job_script` 통과, 22개.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_codex_ops tests.test_codex_ops_job_script tests.test_storage_migration_dry_run_script tests.test_storage_migration_apply_script` 통과, 28개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 177개.
+  - `bash -n scripts/script_dispatch.sh scripts/run_codex_ops_job.sh scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh` 통과.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 최종 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+- 주의:
+  - Codex CLI 실제 호출 없음.
+  - 운영 DB schema apply 없음. `apply_storage_migration.sh`는 plan 모드만 실행했다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> review_ver_6 반영과 codex_ops manifest 구현
+
+- 목적:
+  - cowork `review_ver_6` 권고에 따라 Codex CLI 운영 자동화 실행 wrapper 전에 job manifest와 장 상태별 권한 모델을 순수 함수로 먼저 잠갔다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=post-close`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_6.md` 확인.
+- 변경:
+  - `app/services/codex_ops.py`를 추가해 premarket-readiness, postclose-research, intraday-incident-triage, postclose-maintenance-review, cowork-handoff job manifest를 정의했다.
+  - 장중 보호 상태에서는 heavy action, root patch 적용, runtime restart, 운영 DB schema apply, 실전 주문 관련 flag 변경, gate 기준값 변경, 실전 주문 전송을 자동 차단한다.
+  - `runtime-data/reports/codex/ops/` report root, `.tmp-tests/codex-ops/` patch draft root, patch draft cleanup 보호, backup include/exclude 정책을 코드로 판정하게 했다.
+  - `tests/test_codex_ops.py`를 추가해 protected session 판정, job별 허용/차단 action, path 제한, backup/cleanup 정책, unknown action 차단을 검증했다.
+  - `AGENTS.md`, `README.md`, `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`에 Codex ops 산출물과 manifest 구현 상태를 반영했다.
+- 검증:
+  - `python -m unittest tests.test_codex_ops` 통과, 10개.
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_order_guard` 통과, 10개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 168개.
+  - `bash -n scripts/script_dispatch.sh scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh` 통과.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+- 최종 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=weekend`, `live_runtime_should_run=false`, watchdog 실행 중.
+- 주의:
+  - `scripts/run_codex_ops_job.sh` wrapper는 아직 구현하지 않았다.
+  - Codex CLI 실제 호출 없음.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> Codex CLI 운영 자동화 통합 리포트 작성
+
+- 목적:
+  - 장전 준비, 장후 학습, 장중 incident triage에서 Codex CLI를 운영 보조로 호출할 수 있는 구조를 기존 실전 전환 리포트와 통합했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=post-close`, `live_runtime_should_run=false`, watchdog 실행 중.
+- 변경:
+  - cowork 전달용 통합 리포트 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-work_ver_6-3.md`를 추가했다.
+  - 리포트에는 `work_ver_6`, `work_ver_6-1`, `work_ver_6-2` 구현 요약과 Codex CLI 운영 자동화 설계를 함께 정리했다.
+  - `docs/cowork-reports/README.md`에 `work_ver_6-3` 참조를 추가했다.
+- 설계 요약:
+  - Codex CLI는 자동매매 판단자나 주문 실행자가 아니라 운영 보조 에이전트로 격리한다.
+  - 장전 `premarket-readiness`, 장후 `postclose-research`, 장중 `intraday-incident-triage` job을 제안한다.
+  - 장중에는 읽기 전용 분석과 격리 patch 초안만 허용하고, root 코드 수정/DB migration/runtime restart/실전 주문 관련 flag 변경은 금지한다.
+- 검증:
+  - 문서/리포트만 추가했으며 최종 `git diff --check` 대상이다.
+- 주의:
+  - Codex CLI wrapper 구현은 아직 하지 않았다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> phase approval/readiness record service 구현
+
+- 목적:
+  - Phase 1/2 승인과 readiness 결과를 수동 메모가 아니라 해시가 있는 record로 남길 수 있게 했다.
+- 변경:
+  - `app/services/live_phase_readiness.py`를 추가해 `LivePhaseApproval`과 `LiveReadinessRun` 생성 helper를 구현했다.
+  - approval hash와 readiness hash는 정렬된 JSON payload의 SHA-256으로 계산한다.
+  - `app/storage/sqlite_store.py`에 active live phase approval 조회 메서드를 추가했다.
+  - `tests/test_live_phase_readiness.py`를 추가해 approval hash 안정성, active/expired approval 조회, readiness blocked 상태, 필수 check key 검증을 잠갔다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 phase approval/readiness record 구현 상태로 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_storage tests.test_storage_migration_apply_script` 통과, 13개.
+  - `python -m unittest tests.test_live_order_guard tests.test_live_kill_switch tests.test_market_status` 통과, 20개.
+  - `bash -n scripts/script_dispatch.sh scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 158개.
+- 주의:
+  - fault injection 실행기, dashboard 연결, 운영 승인 CLI/UI는 아직 구현하지 않았다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> Slice 2b live 체결/포지션/감사 원장 구현
+
+- 목적:
+  - 실전 주문 전송 없이, 향후 live execution sync와 order manager가 사용할 체결/포지션/감사/승인/readiness 저장 원장을 먼저 추가했다.
+- 시작 전 상태:
+  - review_ver_5 반영 보강 직후 이어서 진행했다.
+  - 운영 DB `runtime-data/dev.db`에는 migration apply를 실행하지 않았다.
+- 변경:
+  - `app/storage/contracts.py`에 `LiveFill`, `LivePosition`, `LivePortfolioSnapshot`, `LiveAuditEvent`, `LivePhaseApproval`, `LiveReadinessRun` dataclass를 추가했다.
+  - `app/storage/sqlite_store.py`에 `live_fills`, `live_positions`, `live_portfolio_snapshots`, `ops_live_audit_events`, `live_phase_approvals`, `live_readiness_runs` 테이블과 index를 추가했다.
+  - `app/storage/runtime_writer.py`에 live fill/position/portfolio/audit/approval/readiness write 메서드를 추가했다.
+  - `scripts/script_dispatch.sh`의 storage migration apply 필수 table/index와 sample insert/read/delete smoke check를 Slice 2b 테이블까지 확장했다.
+  - `tests/test_live_storage.py`, `tests/test_storage_migration_apply_script.py`를 Slice 2b schema/writer/smoke 기준으로 보강했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 Slice 2b 구현 상태로 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_live_storage tests.test_storage_migration_apply_script tests.test_storage_migration_dry_run_script tests.test_sqlite_store` 통과, 21개.
+  - `bash -n scripts/script_dispatch.sh scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 155개.
+- 주의:
+  - 아직 live execution sync, order manager, dashboard에는 연결하지 않았다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> review_ver_5 반영과 마이그레이션 안전 보강
+
+- 목적:
+  - cowork `review_ver_5`의 즉시 보강 권고를 반영해 운영 DB schema 적용과 live order guard의 silent bypass 위험을 줄였다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=post-close`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_5.md` 확인.
+- 변경:
+  - `app/storage/sqlite_store.py`의 `backup_database()`를 `shutil.copy2` 기반 파일 복사에서 SQLite native backup API로 바꿔 committed WAL page까지 일관된 snapshot으로 백업하게 했다.
+  - `scripts/script_dispatch.sh`의 `storage_migration_apply()` 서비스 정지 확인에 runtime watchdog을 추가했다.
+  - `storage_migration_apply()` smoke check를 table/index 존재 확인에서 sample insert/read/delete까지 확장하고, 실패 시 복구도 SQLite native restore로 맞췄다.
+  - `app/services/live_order_guard.py`에 phase 정규화와 known phase 검증을 추가해 오타나 미등록 phase를 `phase_unknown`으로 차단했다.
+  - `app/services/live_kill_switch.py`에 `stale_after` 미지정 시 24시간 기본값이라는 docstring을 추가했다.
+  - `tests/test_sqlite_store.py`, `tests/test_storage_migration_apply_script.py`, `tests/test_live_order_guard.py`에 회귀 테스트를 추가했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`를 현재 구현 상태와 `ALLOW_LIVE_ORDERS=false` cancel-only 권장 의미에 맞게 갱신했다.
+- 검증:
+  - `python -m unittest tests.test_sqlite_store tests.test_storage_migration_apply_script tests.test_live_order_guard tests.test_live_kill_switch` 통과, 25개.
+  - `bash -n scripts/script_dispatch.sh scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 154개.
+- 주의:
+  - 운영 DB `runtime-data/dev.db`에 apply는 실행하지 않았다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> storage migration apply wrapper 보강
+
+- 목적:
+  - cowork `review_ver_4` 이후 추가 리뷰 왕복 없이, Slice 2b 진입 전 운영 DB 적용 안전 절차를 스크립트와 테스트로 먼저 잠갔다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=post-close`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 새 `review_ver_5`는 없어서 이번 전달 리포트는 `work_ver_5-1`로 작성한다.
+- 변경:
+  - `scripts/apply_storage_migration.sh`를 추가했다.
+  - `scripts/script_dispatch.sh`에 `storage_migration_apply()`를 추가했다.
+  - wrapper는 기본 plan 모드에서는 DB를 바꾸지 않고, `--apply`가 있을 때만 schema 적용을 수행한다.
+  - 기본 `runtime-data/dev.db`에는 `--skip-service-check`를 허용하지 않는다.
+  - 실제 apply 경로는 live runtime/dashboard 상태 확인, backup 생성, schema 초기화, 필수 live table/index smoke query, 실패 시 backup restore 절차를 포함한다.
+  - `tests/test_storage_migration_apply_script.py`를 추가해 plan mode 비변경, 임시 DB apply/backup/smoke, 저장소 밖 DB 경로 거부, runtime DB service check skip 거부를 검증했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 현재 구현 상태와 다음 권장 순서에 맞게 갱신했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-work_ver_5-1.md`를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_storage_migration_apply_script tests.test_storage_migration_dry_run_script` 통과, 6개.
+  - `bash -n scripts/apply_storage_migration.sh scripts/run_storage_migration_dry_run.sh scripts/script_dispatch.sh` 통과.
+  - `python -m unittest tests.test_storage_migration_apply_script tests.test_storage_migration_dry_run_script tests.test_live_kill_switch tests.test_live_order_guard` 통과, 17개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 152개.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 운영 DB `runtime-data/dev.db`에 apply는 실행하지 않았다.
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> review_ver_4 반영과 Slice 4 live order guard 구현
+
+- 목적:
+  - 장 종료 후 live runtime이 멈춘 상태에서 cowork `review_ver_4`의 운영 안전 권고를 반영하고, 실전 주문 호출 직전 이중 안전장치의 순수 로직을 구현했다.
+- 시작 전 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `market_session_status=post-close`, `live_runtime_should_run=false`, watchdog 실행 중.
+  - 최신 cowork 리뷰 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-review_ver_4.md` 확인.
+- 변경:
+  - `app/storage/contracts.py`에서 `LiveOrderEvent.actor` 후보의 `codex`를 제거하고 `test`를 추가했다.
+  - `LiveOrder.__post_init__`에서 `order_id`, `trading_day`, `phase`, `symbol`, `side`, `order_type`, `status`, prediction/signal/target/gate/market/model/rule id 같은 필수 문자열의 빈 값을 거부하도록 보강했다.
+  - `tests/test_live_storage.py`에 `codex` actor 거부, `test` actor 허용, 필수 문자열 빈 값 거부 테스트를 추가했다.
+  - `app/services/live_kill_switch.py`를 추가해 `runtime-data/reports/live-risk/kill-switch.json` 후보 파일을 fail-closed로 읽고 atomic write로 저장하게 했다.
+  - `app/services/live_order_guard.py`를 추가해 read-only, submit, cancel-only guard를 분리했다. submit은 live mode, `ALLOW_LIVE_ORDERS=true`, live profile, phase approval, 지정가 주문, kill switch off, market status allowed를 모두 요구한다.
+  - `tests/test_live_kill_switch.py`, `tests/test_live_order_guard.py`를 추가했다.
+  - `app/services/market_status.py`의 boolean flag 판정을 `True`뿐 아니라 `1`, `true`, `yes`, `on` 문자열도 처리하도록 보강했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 Slice 4 구현 상태로 갱신했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-work_ver_5.md`를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_live_kill_switch tests.test_live_order_guard tests.test_live_storage tests.test_market_status` 통과, 24개.
+  - `python -m unittest tests.test_live_kill_switch tests.test_live_order_guard tests.test_live_storage tests.test_market_status tests.test_storage_migration_dry_run_script` 통과, 26개.
+  - `bash -n scripts/run_storage_migration_dry_run.sh scripts/script_dispatch.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 146개.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+  - `git diff -- app/risk VERSION config` 출력 없음.
+- 주의:
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - `live_order_guard`는 아직 브로커 주문 경로에 연결하지 않은 순수 가드다.
+  - 자동 commit/push 없음.
+
+## [2026-05-15] Codex -> review_ver_3 반영과 Slice 3 market status 구현
+
+- 목적:
+  - cowork `review_ver_3`에서 권장한 Slice 1/2a 보강을 반영하고, Phase 1/2 실전 전환 전 필요한 market status 순수 판정 로직과 storage migration dry-run wrapper를 구현했다.
+- 변경:
+  - `app/brokers/kis_readonly.py`의 `_client`가 private delegate이며 주문 메서드 우회 용도가 아니라는 설명을 보강했다.
+  - `tests/test_live_readonly_guard.py`에 `describe()` signature/delegate 검증과 `get_kis_live_readonly_client()` call-time network side effect 0건 검증을 추가했다.
+  - `app/storage/contracts.py`에서 live storage JSON sub-field type, 빈 `idempotency_key`, `LiveOrderEvent.actor` 의미를 더 엄격하게 검증했다.
+  - `tests/test_live_storage.py`에 잘못된 JSON 타입과 빈 idempotency key 회귀 테스트를 추가했다.
+  - `app/services/market_status.py`와 `tests/test_market_status.py`를 추가해 stale snapshot, 장 구간, 거래정지/관리/투자유의, 가격제한, VI, 단일가, 기업행위 차단 사유를 외부 API 없이 판정하게 했다.
+  - `scripts/run_storage_migration_dry_run.sh`와 `tests/test_storage_migration_dry_run_script.py`를 추가해 운영 DB 사본 또는 빈 임시 DB에서 live table/index 초기화 여부를 확인할 수 있게 했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/README.md`를 현재 구현 상태와 다음 권장 순서에 맞게 갱신했다.
+  - cowork 전달용 `docs/cowork-reports/2026-05-15-production-architecture-implementation-blueprint-work_ver_4.md`를 추가했다.
+  - `AGENTS.md`에 작업 시작 전 장 진행 상태와 최신 cowork review 확인, 장중 수집 보호 모드, 사용자 존댓말 기본 응답 규칙을 추가했다.
+- 검증:
+  - `python -m unittest tests.test_storage_migration_dry_run_script` 통과, 2개.
+  - `python -m unittest tests.test_market_status tests.test_live_storage tests.test_live_readonly_guard tests.test_storage_migration_dry_run_script` 통과, 21개.
+  - `bash -n scripts/run_storage_migration_dry_run.sh scripts/script_dispatch.sh` 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 134개.
+  - `git diff --check` 통과. 단, `docs/logbook.md`의 CRLF/LF 정규화 경고가 함께 표시됐다.
+- 주의:
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> Slice 2a live storage 원장 구현
+
+- 목적:
+  - 실전 주문을 전송하지 않고도 Phase 2 준비에 필요한 market status, live order, live order event 초기 원장을 SQLite/JSONL에 기록할 수 있게 했다.
+- 변경:
+  - `app/storage/contracts.py`에 `MarketStatusSnapshot`, `LiveOrder`, `LiveOrderEvent` dataclass를 추가했다.
+  - `MarketStatusSnapshot.status_json`, `LiveOrder.detail_json`, `LiveOrderEvent.detail_json`의 최소 JSON key를 생성 시점에 검증한다.
+  - `LiveOrderEvent.actor`는 `system`, `account_owner`, `recovery`, `kill_switch`, `codex` 후보만 허용한다.
+  - `app/storage/sqlite_store.py`에 `market_status_snapshots`, `live_orders`, `live_order_events` 테이블과 관련 index를 추가했다.
+  - `live_orders.idempotency_key`는 `UNIQUE`로 두고, duplicate insert가 실패하도록 `INSERT`를 사용한다.
+  - `fetch_open_live_orders()`를 추가해 open 계열 상태 조회를 준비했다.
+  - `app/storage/runtime_writer.py`에 `write_market_status_snapshot`, `write_live_order`, `write_live_order_event`를 추가했다.
+  - `tests/test_live_storage.py`를 추가해 dataclass 직렬화, JSON 최소 key, actor 표준값, schema/index, dataclass-schema 정합성, idempotency unique, open order 조회, JSONL/SQLite fan-out을 검증했다.
+  - `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, cowork 히스토리 파일을 Slice 2a 구현 상태로 갱신했다.
+  - cowork 히스토리 파일 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-work_ver_3-2.md`를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_live_storage` 통과, 5개.
+  - `python -m unittest tests.test_live_storage tests.test_sqlite_store tests.test_broker_paper_sync tests.test_paper_reconciliation` 통과, 21개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 124개.
+- 주의:
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION`, `config/` 변경 없음.
+  - live 체결/포지션/감사 원장은 Slice 2b로 남겼다.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> Slice 1 live read-only client 구현
+
+- 목적:
+  - Phase 1 실전 계좌 read-only 연결 전제인 구조적 주문 차단을 첫 코드 slice로 구현했다.
+- 변경:
+  - `app/brokers/kis_readonly.py`를 추가해 `KisRestQuoteClient`를 composition으로 감싸는 `KisReadOnlyClient`를 만들었다.
+  - read-only wrapper는 `get_current_price`, `get_orderbook`, `get_intraday_minute_chart`, `get_account_balance`, `get_daily_order_fills`만 노출하고 `submit_cash_order`, `cancel_order`는 노출하지 않는다.
+  - `get_kis_live_readonly_client(settings, mode="live")` factory는 `live` 모드만 허용하고 `paper` 등 다른 모드는 `ValueError`로 거부한다.
+  - `tests/test_live_readonly_guard.py`를 추가해 주문 메서드 미노출, 조회 메서드 signature 동등성, delegate 호출, live-only factory, import-time network side effect 없음을 검증했다.
+  - `tests/test_live_client_isolation.py`를 추가해 기존 `KisRestQuoteClient(` 직접 생성 경로 allowlist와 paper mirroring의 paper profile 사용을 잠갔다.
+  - `docs/Production-Implementation-Blueprint.md`와 계좌 소유자/실전 운용 승인권자 결정 기록에 Slice 1 구현 결과를 반영했다.
+  - `docs/Production-Architecture.md` 상단에 `운영자` 의미를 계좌 소유자 또는 실전 운용 승인권자로 고정하고, Phase 2 손실/슬리피지/VI/주문타입 결정과 Slice 1 구현 상태를 반영했다.
+  - cowork 히스토리 파일 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-work_ver_3-1.md`를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_live_readonly_guard tests.test_live_client_isolation tests.test_kis_http_clients tests.test_settings` 통과, 19개.
+  - `python -m unittest discover -s tests -p "test_*.py"` 통과, 119개.
+- 주의:
+  - 실전 주문 API 호출 없음.
+  - `ALLOW_LIVE_ORDERS`, gate 기준값, `app/risk/`, `VERSION` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> 실전 전환 구현 청사진 구체화
+
+- 목적:
+  - claude cowork 토큰 제약으로 추가 왕복이 어려운 상태에서, 2026-05-14 08:00 KST 전까지 코드 작업이 가능한 수준으로 실전 전환 구조를 더 구체화한다.
+- 변경:
+  - `docs/Production-Implementation-Blueprint.md`를 추가해 Phase 1 read-only, live enable guard, market status/VI, live order state machine, idempotency, SQLite schema 초안, service interface, dashboard/report, 테스트, 구현 slice를 정리했다.
+  - 다음 코드 작업의 첫 순서로 Slice 1 read-only client, Slice 2 storage schema, Slice 3 market status, Slice 4 live order guard 체크리스트를 추가했다.
+  - Claude cowork 전달 이력 관리를 위해 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-report.md`와 폴더 `README.md`를 추가했다.
+  - cowork 리뷰 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-cowork-review.md`를 반영해 Slice 2를 2a/2b로 분할하고, kill switch schema, live client 우회 검사, `expired` 상태, Phase 2 정정 금지, live schema 누락 필드, migration/report-slice 매핑을 보강했다.
+  - `docs/cowork-reports/README.md`에 report/review/followup/decision 파일 명명 규칙을 추가했다.
+  - 반영 이력 파일 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-codex-followup.md`를 추가했다.
+  - 계좌 소유자/실전 운용 승인권자 결정 기록 템플릿 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-operator-decision-template.md`를 추가했다.
+  - cowork 추가 왕복 없이 Slice 1 read-only wrapper 공개 메서드, allowlist 기반 isolation 기준, Slice 1 acceptance criteria, Slice 2a dataclass 필드, Slice 2a acceptance criteria/smoke query, Slice 1 go/no-go 기준을 보강했다.
+  - cowork에게 전달할 통합 리포트 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-work_ver_2.md`를 추가했다.
+  - `docs/cowork-reports/README.md`의 명명 규칙을 `work_ver_N` / `review_ver_N` / `work_ver_N-M` 형식으로 갱신했다.
+  - cowork `review_ver_2`를 확인하고 `docs/Production-Implementation-Blueprint.md`에 signature 동등성/factory negative/import-time side effect 테스트 후보, `KisRestQuoteClient(` allowlist 6개 경로 분석, nullable schema 조정, JSON 최소 키, actor 표준값, migration dry-run 자동화 후보, Slice 1 go/no-go 보강을 반영했다.
+  - 반영 리포트 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-work_ver_3.md`를 추가했다.
+  - 계좌 소유자/실전 운용 승인권자 결정 기록 `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-operator-decision.md`를 추가했다. Slice 1 시작 승인, Phase 2 보수/기본 손실 한도, tick-aware 슬리피지 budget, 비상 청산 시장가 예외 권장안, VI open 주문 처리 권장안을 기록했다.
+  - `README.md`와 `AGENTS.md`에 `docs/cowork-reports/` 역할을 추가했다.
+  - `README.md` 핵심 문서 목록과 `AGENTS.md` 문서 역할에 새 청사진 문서를 추가했다.
+  - `docs/Production-Architecture.md`에서 구현 청사진 문서를 실제 작업 순서 기준으로 참조하도록 연결했다.
+- 문서 기준:
+  - 새 청사진은 코드 변경 없이 제안 신규 모듈과 테이블을 명시한다.
+  - 코드 변경 제안은 변경 전 / 변경 후 / 영향 범위 / 회귀 위험 형식으로 정리했다.
+  - `app/risk/` 변경과 gate 기준값 확정은 운영자 승인 전 보류로 남겼다.
+- 검증:
+  - `git diff --check` 통과.
+  - 금지된 코드 경로, `app/risk/`, gate 기준값, `VERSION` 변경이 없음을 확인했다.
+  - 새 문서 참조와 기존 경로 존재 여부를 self-review 했다.
+- 주의:
+  - 이번 작업은 문서만 변경했다.
+  - `VERSION` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> Production Architecture cowork v2 보강
+
+- 목적:
+  - claude cowork v2 리뷰에서 남은 실전 운용 안전 누락과 단정조 위험을 추가 반영했다.
+- 변경:
+  - `docs/Production-Architecture.md` 4장 제목을 `안전 invariants와 정책 슬롯`으로 바꾸고, 현재 확인 사실 / invariant 후보 / 수치 정책 슬롯을 분리했다.
+  - Phase 1 P0 기준은 별도 read-only client 또는 주문 메서드 hard fail 같은 구조적 차단을 기본 후보로 명시했다.
+  - VI(변동성완화장치), 지정가/시장가 주문 타입 정책, 단주 잔량, fault injection 기준, 다양한 장 상황 후보를 추가했다.
+  - 장애 시나리오 표를 `신규 주문 자동 동작`과 `진행 중 주문 운명`으로 나눠, 취소 시도/조회 보류/유지/보호성 청산 후보를 구분했다.
+  - Phase 0 누적 정합성 자동 집계와 shadow/canary 모드 표현을 현재 구현 단정이 아니라 제안/운영 정책 단계로 약화했다.
+- 검증:
+  - `git diff --check` 통과.
+  - 새 문서의 목차와 각 절 `관련 문서/코드 경로` 줄을 확인했다.
+  - 금지된 코드, `app/risk/`, gate 기준값, `VERSION` 변경이 없음을 확인했다.
+  - 문서에 단정적으로 쓴 기존 경로가 실제 저장소에 존재하는지 self-review 했다.
+  - cowork v2 핵심 반영 항목인 VI, 지정가/시장가 정책, read-only client, fault injection, 진행 중 주문 운명 칼럼을 확인했다.
+- 주의:
+  - 이번 작업은 문서와 cowork 전달용 runtime report만 변경한다.
+  - `VERSION` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> Production Architecture cowork 리뷰 반영
+
+- 목적:
+  - cowork 리뷰에서 지적된 실전 운용 안전 누락, 과장 표현, 위험한 가정을 `docs/Production-Architecture.md`에 반영했다.
+- 변경:
+  - 실전 enable 플래그 시행 지점을 현재 확인된 코드 사실과 목표 구조로 분리했다.
+  - `ALLOW_LIVE_ORDERS`는 현재 `app/config/settings.py`의 설정 일관성 검증까지만 확인되며, `app/brokers/kis_quote_rest.py` 주문 함수 직전 차단은 아직 없다는 점을 명시했다.
+  - 값이 비어 있던 손실/노출/슬리피지 hard limit을 invariant가 아니라 운영자 결정 대기 슬롯으로 낮춰 적었다.
+  - 상한가/하한가, 거래정지, 관리/투자유의, 동시호가, T+2, 기업행위, 부분 체결, kill switch 청산과 슬리피지 충돌, 운영자 단일 장애점, 승인 기록 무결성, paper-vs-live metric을 보강했다.
+- 검증:
+  - `git diff --check` 통과.
+  - 새로 추가된 `docs/Production-Architecture.md`의 trailing whitespace 별도 확인.
+  - 새 문서가 `README.md`, `AGENTS.md`, `docs/logbook.md`에서 일관되게 참조되는지 확인했다.
+  - 문서에 단정적으로 쓴 기존 경로가 실제 저장소에 존재하는지 self-review 했다.
+- 주의:
+  - 이번 작업은 문서만 변경했다.
+  - `VERSION` 변경 없음.
+  - 자동 commit/push 없음.
+
+## [2026-05-14] Codex -> 실전 운용 아키텍처 설계 문서 작성
+
+- 목적:
+  - 학습/연구 단계 이후 실제 자금 자동매매로 넘어갈 때 필요한 목표 구조, 안전 invariant, 단계적 전환, 장애 대응, 감사 로그, 검증 기준을 코드 변경 없이 문서화했다.
+- 변경:
+  - `docs/Production-Architecture.md`를 새 기준 문서로 추가했다.
+  - `README.md` 핵심 문서 목록에 `docs/Production-Architecture.md` 참조를 추가했다.
+  - `AGENTS.md` 문서 역할 섹션에 `docs/Production-Architecture.md` 참조를 추가했다.
+- 문서 기준:
+  - 현재 구현은 `paper`와 KIS 모의계좌 mirroring 중심이며, 실전 주문은 기본 비활성 상태로 정리했다.
+  - 실전 주문 lifecycle, idempotency, 일일 손실/최대 낙폭 kill switch, 노출 한도, 슬리피지 추적, 알림 채널, 감사 로그 연결, active model 교체 안전성은 실전 전환 전 보강 대상으로 분리했다.
+  - 현재 코드에 없는 제안 경로는 `제안 신규` 또는 `확인 필요`로 표시했다.
+- 검증:
+  - `git diff --check` 통과.
+  - `README.md`, `AGENTS.md`에서 새 문서 참조 확인.
+  - 새 문서에서 단정조로 참조한 주요 기존 경로 존재 확인.
+- 주의:
+  - 이번 작업은 문서만 변경했다.
+  - `VERSION` 변경 없음.
+  - 자동 commit/push 없음.
+
 ## [2026-05-13] Codex → 장후 label rebuild, dashboard 갱신, paper cash 기준 점검
 
 - 후속 보강:

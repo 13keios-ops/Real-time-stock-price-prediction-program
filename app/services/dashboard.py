@@ -21,6 +21,14 @@ from app.models.lightgbm_model import LightGbmDirectionModel, find_latest_lightg
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.services.kis_account import refresh_kis_account_report
+from app.services.live_execution_sync import build_live_order_fill_consistency_summary_from_store
+from app.services.live_order_monitoring import (
+    build_live_order_attention_summary_from_store,
+    build_live_phase2_parent_order_limit_summary_from_store,
+    live_order_attention_summary_to_dict,
+    live_phase2_parent_order_limit_summary_to_dict,
+)
+from app.services.ws_recovery_evidence import is_real_ws_recovery_evidence_type
 from app.services.paper_alignment import apply_alignment_baseline, filter_rows_after_alignment
 from app.services.paper_reconciliation import build_paper_account_reconciliation_payload, load_local_paper_account_state
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
@@ -174,6 +182,72 @@ def _raw_count_from_scope(scope, table_name: str, period_filter: DashboardPeriod
         if period_filter.start_at <= minute_time < period_filter.end_at:
             total += int(count)
     return total
+
+
+def _build_live_fill_consistency_view(sqlite_store, *, trading_day: str) -> dict[str, Any]:
+    try:
+        summary = build_live_order_fill_consistency_summary_from_store(sqlite_store, trading_day=trading_day)
+    except Exception as exc:  # pragma: no cover - dashboard must stay available on partial live schema.
+        return {
+            "status": "unknown",
+            "trading_day": trading_day,
+            "checked_order_count": 0,
+            "mismatch_count": 0,
+            "mismatches": [],
+            "error": str(exc),
+        }
+    status = "empty" if summary.checked_order_count == 0 else "ok" if summary.ok else "mismatch"
+    return {
+        "status": status,
+        "trading_day": summary.trading_day,
+        "checked_order_count": summary.checked_order_count,
+        "mismatch_count": summary.mismatch_count,
+        "mismatches": [
+            {
+                "order_id": item.order_id,
+                "order_filled_qty": item.order_filled_qty,
+                "live_fill_qty_sum": item.live_fill_qty_sum,
+            }
+            for item in summary.mismatches
+        ],
+        "error": None,
+    }
+
+
+def _build_live_order_attention_view(sqlite_store, *, trading_day: str, now: datetime) -> dict[str, Any]:
+    try:
+        summary = build_live_order_attention_summary_from_store(sqlite_store, trading_day=trading_day, now=now)
+    except Exception as exc:  # pragma: no cover - dashboard must stay available on partial live schema.
+        return {
+            "status": "unknown",
+            "trading_day": trading_day,
+            "checked_order_count": 0,
+            "open_order_count": 0,
+            "attention_count": 0,
+            "max_attention_age_minutes": None,
+            "attention_orders": [],
+            "error": str(exc),
+        }
+    return live_order_attention_summary_to_dict(summary)
+
+
+def _build_live_phase2_parent_order_limit_view(sqlite_store, *, trading_day: str) -> dict[str, Any]:
+    try:
+        summary = build_live_phase2_parent_order_limit_summary_from_store(sqlite_store, trading_day=trading_day)
+    except Exception as exc:  # pragma: no cover - dashboard must stay available on partial live schema.
+        return {
+            "status": "unknown",
+            "trading_day": trading_day,
+            "max_parent_orders_per_day": 1,
+            "checked_order_count": 0,
+            "parent_order_count": 0,
+            "blocked_parent_order_count": 0,
+            "remaining_parent_orders": 0,
+            "blocked_by_limit": False,
+            "parent_orders": [],
+            "error": str(exc),
+        }
+    return live_phase2_parent_order_limit_summary_to_dict(summary)
 
 
 def _read_version(project_root: Path) -> str:
@@ -721,7 +795,7 @@ def _build_status_alerts(
                 "message": f"{kis_failure_message}",
             }
         )
-    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "pre-open", "post-close"}:
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "overnight", "pre-open", "post-close"}:
         alerts.append(
             {
                 "level": "info",
@@ -824,7 +898,7 @@ def _build_status_alerts(
                 "message": f"{kis_failure_message}",
             }
         )
-    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "pre-open", "post-close"}:
+    elif latest_kis and latest_kis.get("ok") is False and session_status in {"weekend", "holiday", "overnight", "pre-open", "post-close"}:
         alerts.append(
             {
                 "level": "info",
@@ -1531,6 +1605,20 @@ def collect_dashboard_payload(
         range_key="day",
         selected_date_text=now_local(settings.timezone).date().isoformat(),
     )
+    dashboard_now = datetime.now().astimezone()
+    live_fill_consistency = _build_live_fill_consistency_view(
+        sqlite_store,
+        trading_day=period_filter.selected_date,
+    )
+    live_order_attention = _build_live_order_attention_view(
+        sqlite_store,
+        trading_day=period_filter.selected_date,
+        now=dashboard_now,
+    )
+    live_phase2_parent_order_limit = _build_live_phase2_parent_order_limit_view(
+        sqlite_store,
+        trading_day=period_filter.selected_date,
+    )
 
     minute_bar_rows = _filtered_rows(sqlite_store, "curated_minute_bars", "bar_time", scope, period_filter)
     feature_rows = _filtered_rows(sqlite_store, "feature_model_inputs", "event_time", scope, period_filter)
@@ -1709,6 +1797,8 @@ def collect_dashboard_payload(
     )
     if current_session_status == "holiday":
         operation_note = "오늘은 설정된 휴장일입니다. 실시간 수집기와 예측기는 꺼두는 것이 정상입니다."
+    elif current_session_status == "overnight":
+        operation_note = "현재는 장전 워밍업 전 야간 대기 시간입니다. live runtime 이 꺼져 있어도 정상일 수 있습니다."
     elif live_runtime_state.get("status") == "running":
         operation_note = "실시간 수집기와 예측기가 현재 실행 중입니다. 새 분이 닫힐 때마다 15분·60분 예측이 기록되고, 15분 기준으로만 신호를 생성합니다."
     else:
@@ -1818,6 +1908,17 @@ def collect_dashboard_payload(
     latest_local_setup_check = _safe_load_json(
         settings.runtime_data_dir / "reports" / "recovery" / "latest-local-setup-check.json"
     )
+    latest_codex_premarket_readiness = _safe_load_json(
+        settings.runtime_data_dir
+        / "reports"
+        / "codex"
+        / "ops"
+        / "premarket-readiness"
+        / "latest-premarket-readiness.json"
+    )
+    latest_live_readiness = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "live-readiness" / "latest-readiness.json"
+    )
     latest_local_setup_freshness = _build_freshness_snapshot(
         latest_local_setup_check.get("checked_at") if isinstance(latest_local_setup_check, dict) else None,
         timezone_name=settings.timezone,
@@ -1843,6 +1944,34 @@ def collect_dashboard_payload(
         latest_training=latest_training if isinstance(latest_training, dict) else None,
         latest_evaluation=latest_evaluation if isinstance(latest_evaluation, dict) else None,
     )
+    if int(live_fill_consistency.get("mismatch_count") or 0) > 0:
+        status_alerts.insert(
+            0,
+            {
+                "level": "warning",
+                "title": "실전 fill 정합성 불일치",
+                "message": (
+                    f"{live_fill_consistency.get('trading_day') or '-'} 기준 "
+                    f"{live_fill_consistency.get('mismatch_count')}건의 live order/fill 수량 불일치가 있습니다. "
+                    "신규 실전 주문 intent는 차단되어야 합니다."
+                ),
+            },
+        )
+        status_alerts = status_alerts[:4]
+    if int(live_order_attention.get("attention_count") or 0) > 0:
+        status_alerts.insert(
+            0,
+            {
+                "level": "warning",
+                "title": "실전 주문 상태 확인 필요",
+                "message": (
+                    f"{live_order_attention.get('trading_day') or '-'} 기준 "
+                    f"unknown/stuck 실전 주문 {live_order_attention.get('attention_count')}건이 있습니다. "
+                    "브로커 조회로 상태를 확정하기 전 신규 실전 주문 intent는 보수적으로 차단해야 합니다."
+                ),
+            },
+        )
+        status_alerts = status_alerts[:4]
 
     paper_account_view = _build_account_view("모의계좌(실제)", paper_account_report)
     live_account_view = _build_account_view("실 운용계좌", live_account_report)
@@ -1986,6 +2115,11 @@ def collect_dashboard_payload(
         "latest_kis_live_feature_diagnostics": latest_kis_live_feature_diagnostics,
         "latest_local_setup_check": latest_local_setup_check,
         "latest_local_setup_freshness": latest_local_setup_freshness,
+        "latest_codex_premarket_readiness": latest_codex_premarket_readiness,
+        "latest_live_readiness": latest_live_readiness,
+        "live_fill_consistency": live_fill_consistency,
+        "live_order_attention": live_order_attention,
+        "live_phase2_parent_order_limit": live_phase2_parent_order_limit,
         "latest_post_close_ml_maintenance": latest_post_close_ml_maintenance,
         "latest_portfolio_snapshot": latest_portfolio_snapshot,
         "positions": positions,
@@ -2076,11 +2210,25 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_walk_forward_setup_status(report: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(report, dict) or not report:
         return {
             "status": "missing",
             "status_label": "없음",
+            "setup_status": "missing",
+            "setup_status_label": "없음",
+            "gate_status": "missing",
+            "gate_status_label": "없음",
+            "gate_reason": "정본 walk-forward 보고서가 아직 없습니다.",
             "note": "정본 walk-forward 보고서가 아직 없습니다.",
             "reasons": [],
         }
@@ -2102,11 +2250,49 @@ def _build_walk_forward_setup_status(report: dict[str, Any] | None) -> dict[str,
     if folds is not None and folds > 5000:
         reasons.append(f"folds={folds}로 너무 잘게 쪼개진 평가입니다.")
 
-    status = "needs_review" if reasons else "ok"
+    setup_status = "needs_review" if reasons else "ok"
     note = " ".join(reasons) if reasons else "게이트 기준 walk-forward 설정이 기본 점검을 통과했습니다."
+
+    overall_accuracy = _optional_float(report.get("overall_accuracy"))
+    cumulative_net = _optional_float(report.get("cumulative_net_return_pct"))
+    fold_summaries = report.get("fold_summaries")
+    weakest_fold_accuracy = None
+    if isinstance(fold_summaries, list) and fold_summaries:
+        fold_accuracies: list[float] = []
+        for fold in fold_summaries:
+            if not isinstance(fold, dict):
+                continue
+            accuracy = _optional_float(fold.get("overall_accuracy"))
+            if accuracy is not None:
+                fold_accuracies.append(accuracy)
+        if fold_accuracies:
+            weakest_fold_accuracy = min(fold_accuracies)
+
+    gate_reasons: list[str] = []
+    if setup_status == "needs_review":
+        gate_reasons.append("walk-forward 설정 점검이 필요합니다.")
+    if overall_accuracy is None:
+        gate_reasons.append("overall_accuracy가 없습니다.")
+    elif overall_accuracy < 0.55:
+        gate_reasons.append(f"overall_accuracy={overall_accuracy:.4f}로 0.55 미만입니다.")
+    if weakest_fold_accuracy is not None and weakest_fold_accuracy <= 0.0:
+        gate_reasons.append("최소 fold 정확도가 0 이하입니다.")
+    if cumulative_net is None:
+        gate_reasons.append("cumulative_net_return_pct가 없습니다.")
+    elif cumulative_net <= 0.0:
+        gate_reasons.append(f"cumulative_net_return_pct={cumulative_net:.4f}로 양수가 아닙니다.")
+
+    gate_status = "needs_review" if gate_reasons else "pass"
+    gate_reason = " ".join(gate_reasons) if gate_reasons else "워크포워드 gate 기준을 통과했습니다."
     return {
-        "status": status,
-        "status_label": "점검 필요" if status == "needs_review" else "정상",
+        "status": setup_status,
+        "status_label": "점검 필요" if setup_status == "needs_review" else "정상",
+        "setup_status": setup_status,
+        "setup_status_label": "점검 필요" if setup_status == "needs_review" else "정상",
+        "gate_status": gate_status,
+        "gate_status_label": "점검 필요" if gate_status == "needs_review" else "통과",
+        "gate_reason": gate_reason,
+        "weakest_fold_accuracy": weakest_fold_accuracy,
         "note": note,
         "reasons": reasons,
         "evaluated_at": report.get("evaluated_at"),
@@ -2176,6 +2362,46 @@ def _table(headers: list[str], rows: list[list[Any]], empty_text: str, *, scroll
         f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>",
         max_height=scroll_height,
     )
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _readiness_fixture_check(report: dict[str, Any], key: str) -> dict[str, Any]:
+    for item in report.get("fixture_checks") or []:
+        if isinstance(item, dict) and item.get("key") == key:
+            return item
+    return {}
+
+
+def _format_evidence_freshness(details: dict[str, Any]) -> str:
+    age = details.get("evidence_age_seconds")
+    max_age = details.get("max_evidence_age_seconds")
+    if age is None and max_age is None:
+        return "-"
+    if age is None:
+        return f"max {max_age}s"
+    if max_age is None:
+        return f"{age}s"
+    return f"{age}s / max {max_age}s"
+
+
+def _format_yes_no(value: Any) -> str:
+    if value is None:
+        return "-"
+    return "예" if bool(value) else "아니오"
+
+
+def _format_ws_reconnect_snapshot(details: dict[str, Any]) -> str:
+    stable = _as_dict(details.get("stable"))
+    source = stable or details
+    cumulative = source.get("cumulative_reconnects")
+    consecutive = source.get("consecutive_reconnects")
+    storm = source.get("reconnect_storm")
+    if cumulative is None and consecutive is None and storm is None:
+        return "-"
+    return f"누적 {cumulative if cumulative is not None else '-'}, 연속 {consecutive if consecutive is not None else '-'}, storm {_format_yes_no(storm)}"
 
 
 def _list(items: list[str], empty_text: str, *, scroll_height: int = 320) -> str:
@@ -2935,6 +3161,15 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     local_setup_watchdog = latest_local_setup.get("watchdog_status") or {}
     local_setup_startup = latest_local_setup.get("runtime_startup_launcher_status") or {}
     local_setup_blockers = latest_local_setup.get("blockers") or []
+    latest_codex_premarket_readiness = payload.get("latest_codex_premarket_readiness", {}) or {}
+    latest_live_readiness = payload.get("latest_live_readiness", {}) or {}
+    live_readiness_run = latest_live_readiness.get("readiness_run") or {}
+    live_readiness_checks = (live_readiness_run.get("checks_json") or {}).get("checks") or {}
+    live_readiness_blockers = latest_live_readiness.get("blocking_reasons") or []
+    ws_recovery_check = _readiness_fixture_check(latest_live_readiness, "ws_recovery")
+    ws_recovery_details = _as_dict(ws_recovery_check.get("details"))
+    ws_recovery_stable = _as_dict(ws_recovery_details.get("stable"))
+    ws_recovery_evidence_type = str(ws_recovery_details.get("evidence_type") or "").strip()
     local_setup_rows = [
         ["전체 상태", "ok" if latest_local_setup.get("ok") else "점검 필요" if latest_local_setup else "-"],
         ["점검 시각", latest_local_setup.get("checked_at") or "-"],
@@ -2957,6 +3192,50 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["startup launcher", "ok" if local_setup_startup.get("ok") else "점검 필요" if local_setup_startup else "-"],
         ["websockets", "예" if latest_local_setup.get("websockets_available") else "아니오"],
         ["lightgbm", "예" if latest_local_setup.get("lightgbm_available") else "아니오"],
+    ]
+    live_readiness_rows = [
+        ["Codex premarket", latest_codex_premarket_readiness.get("status") or "-"],
+        ["Live readiness", latest_live_readiness.get("status") or live_readiness_run.get("status") or "-"],
+        ["phase", latest_live_readiness.get("phase") or live_readiness_run.get("phase") or "-"],
+        ["trading day", latest_live_readiness.get("trading_day") or live_readiness_run.get("trading_day") or "-"],
+        ["생성 시각", latest_live_readiness.get("generated_at") or live_readiness_run.get("checked_at") or "-"],
+        ["dry-run", "예" if latest_live_readiness.get("dry_run") else "아니오" if latest_live_readiness else "-"],
+        ["DB 기록", "예" if latest_live_readiness.get("recorded") else "아니오" if latest_live_readiness else "-"],
+        ["DB 경로", latest_live_readiness.get("database_path") or "-"],
+        ["통과", "예" if live_readiness_run.get("passed") else "아니오" if live_readiness_run else "-"],
+        ["blockers", ", ".join(live_readiness_blockers) if live_readiness_blockers else "none"],
+        ["token refresh", "ok" if live_readiness_checks.get("token_refresh") else "미검증/차단"],
+        ["WS recovery", "ok" if live_readiness_checks.get("ws_recovery") else "미검증/차단"],
+        ["WS recovery 상태", ws_recovery_check.get("status") or "-"],
+        ["WS evidence type", ws_recovery_evidence_type or "-"],
+        [
+            "WS real evidence",
+            _format_yes_no(is_real_ws_recovery_evidence_type(ws_recovery_evidence_type))
+            if ws_recovery_evidence_type
+            else "-",
+        ],
+        ["WS evidence freshness", _format_evidence_freshness(ws_recovery_details)],
+        ["WS stable state", ws_recovery_stable.get("state") or "-"],
+        [
+            "WS stable frames",
+            (
+                f"{ws_recovery_stable.get('frames_since_connect')} / {ws_recovery_stable.get('frames_seen_total')}"
+                if ws_recovery_stable
+                else "-"
+            ),
+        ],
+        ["WS reconnects", _format_ws_reconnect_snapshot(ws_recovery_details)],
+        ["WS observed at", ws_recovery_stable.get("observed_at") or ws_recovery_details.get("checked_at") or "-"],
+        ["account snapshot", "ok" if live_readiness_checks.get("account_snapshot") else "미검증/차단"],
+        ["market status", "ok" if live_readiness_checks.get("market_status") else "미검증/차단"],
+        ["kill switch", "ok" if live_readiness_checks.get("kill_switch") else "미검증/차단"],
+        ["database", "ok" if live_readiness_checks.get("database") else "미검증/차단"],
+        ["disk space", "ok" if live_readiness_checks.get("disk_space") else "미검증/차단"],
+        ["dashboard", "ok" if live_readiness_checks.get("dashboard") else "미검증/차단"],
+        [
+            "storage migration",
+            "ok" if live_readiness_checks.get("storage_migration_state") else "미검증/차단",
+        ],
     ]
     setting_rows = [
         ["앱 이름", project.get("name")],
@@ -3091,7 +3370,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"활성 모델(15분): {active_model.get('model_version') or '-'}",
         f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}",
         f"학습 validation 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
-        f"게이트 기준 평가: {latest_walk_forward_setup.get('status_label') or '-'}",
+        f"워크포워드 설정: {latest_walk_forward_setup.get('setup_status_label') or latest_walk_forward_setup.get('status_label') or '-'}",
+        f"게이트 성능 판단: {latest_walk_forward_setup.get('gate_status_label') or '-'}",
         f"ML 상태: {ml_state.get('status') or '-'}",
     ]
     feature_drift_assessment = latest_feature_source_drift.get("assessment") or {}
@@ -3175,18 +3455,26 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["리포트", "runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json"],
     ]
     post_close_maintenance = lightgbm_status.get("latest_post_close_maintenance") or {}
+    post_close_tasks = post_close_maintenance.get("tasks") or []
+    post_close_has_training = any(
+        keyword in str(task).lower()
+        for task in post_close_tasks
+        for keyword in ("train", "challenger", "walk-forward", "backtest")
+    )
     post_close_rows = [
         ["상태", post_close_maintenance.get("status") or "-"],
         ["기준일", post_close_maintenance.get("maintenance_date") or "-"],
         ["시작 시각", post_close_maintenance.get("started_at") or "-"],
         ["완료 시각", post_close_maintenance.get("completed_at") or "-"],
         ["실행 모드", post_close_maintenance.get("mode") or "-"],
+        ["학습/평가 수행", "예" if post_close_has_training else "아니오 (리포트/진단만)"],
         [
             "예측 수평선",
             f"{post_close_maintenance.get('horizon_min')}분"
             if post_close_maintenance.get("horizon_min") is not None
             else "-",
         ],
+        ["작업", ", ".join(post_close_tasks) or "-"],
         ["프로세스 ID", post_close_maintenance.get("pid") or "-"],
         ["스냅샷 DB", post_close_maintenance.get("snapshot_path") or "-"],
         ["스냅샷 runtime", post_close_maintenance.get("snapshot_runtime_data_dir") or "-"],
@@ -3233,7 +3521,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ],
     ]
     walk_forward_gate_rows = [
-        ["상태", latest_walk_forward_setup.get("status_label") or "-"],
+        ["설정 상태", latest_walk_forward_setup.get("setup_status_label") or latest_walk_forward_setup.get("status_label") or "-"],
+        ["게이트 성능 판단", latest_walk_forward_setup.get("gate_status_label") or "-"],
+        ["게이트 판단 사유", latest_walk_forward_setup.get("gate_reason") or "-"],
         ["평가 시각", latest_walk_forward_setup.get("evaluated_at") or "-"],
         ["모델 버전", latest_walk_forward_setup.get("model_version") or "-"],
         ["reference 파일", latest_walk_forward_setup.get("reference_path") or "-"],
@@ -3248,7 +3538,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["거래합산 순수익률", _pct(latest_walk_forward_setup.get("trade_sum_net_return_pct", latest_walk_forward_setup.get("cumulative_net_return_pct")), 2)],
         ["비용 차감 합계", _pct(latest_walk_forward_setup.get("estimated_cost_drag_pct"), 2)],
         ["수익률 집계 방식", latest_walk_forward_setup.get("return_aggregation") or "-"],
-        ["판단 메모", latest_walk_forward_setup.get("note") or "-"],
+        ["설정 판단 메모", latest_walk_forward_setup.get("note") or "-"],
     ]
     latest_kis_quality_recent = {}
     if isinstance(latest_kis_quality.get("recent_days"), list) and latest_kis_quality.get("recent_days"):
@@ -3350,6 +3640,65 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["실전 주문 허용", "예" if project.get("allow_live_orders") else "아니오"],
         ["보유 종목 수", len(live_account.get("positions") or [])],
         ["안내", "실 운용계좌는 현재 조회 중심이며, 주문 기능은 기본 비활성화 상태입니다."],
+    ]
+    live_fill_consistency = payload.get("live_fill_consistency", {}) or {}
+    live_fill_consistency_rows = [
+        ["거래일", live_fill_consistency.get("trading_day") or "-"],
+        ["상태", live_fill_consistency.get("status") or "-"],
+        ["확인 주문 수", live_fill_consistency.get("checked_order_count", 0)],
+        ["불일치 수", live_fill_consistency.get("mismatch_count", 0)],
+        ["오류", live_fill_consistency.get("error") or "없음"],
+    ]
+    live_fill_mismatch_rows = [
+        [
+            row.get("order_id") or "-",
+            row.get("order_filled_qty", 0),
+            row.get("live_fill_qty_sum", 0),
+        ]
+        for row in (live_fill_consistency.get("mismatches") or [])[:20]
+    ]
+    live_order_attention = payload.get("live_order_attention", {}) or {}
+    live_order_attention_rows = [
+        ["거래일", live_order_attention.get("trading_day") or "-"],
+        ["상태", live_order_attention.get("status") or "-"],
+        ["확인 주문 수", live_order_attention.get("checked_order_count", 0)],
+        ["미해결 주문 수", live_order_attention.get("attention_count", 0)],
+        ["열린 주문 수", live_order_attention.get("open_order_count", 0)],
+        ["최장 경과(분)", live_order_attention.get("max_attention_age_minutes") or "-"],
+        ["오류", live_order_attention.get("error") or "없음"],
+    ]
+    live_order_attention_detail_rows = [
+        [
+            row.get("order_id") or "-",
+            row.get("status") or "-",
+            row.get("symbol") or "-",
+            row.get("side") or "-",
+            row.get("remaining_qty", 0),
+            row.get("age_minutes") if row.get("age_minutes") is not None else "-",
+        ]
+        for row in (live_order_attention.get("attention_orders") or [])[:20]
+    ]
+    live_phase2_parent_order_limit = payload.get("live_phase2_parent_order_limit", {}) or {}
+    live_phase2_parent_order_limit_rows = [
+        ["거래일", live_phase2_parent_order_limit.get("trading_day") or "-"],
+        ["상태", live_phase2_parent_order_limit.get("status") or "-"],
+        ["부모 주문 수", f"{live_phase2_parent_order_limit.get('parent_order_count', 0)} / {live_phase2_parent_order_limit.get('max_parent_orders_per_day', 1)}"],
+        ["남은 부모 주문 수", live_phase2_parent_order_limit.get("remaining_parent_orders", 0)],
+        ["차단 여부", "예" if live_phase2_parent_order_limit.get("blocked_by_limit") else "아니오"],
+        ["차단된 부모 intent 수", live_phase2_parent_order_limit.get("blocked_parent_order_count", 0)],
+        ["오류", live_phase2_parent_order_limit.get("error") or "없음"],
+    ]
+    live_phase2_parent_order_detail_rows = [
+        [
+            row.get("order_id") or "-",
+            row.get("status") or "-",
+            row.get("phase") or "-",
+            row.get("symbol") or "-",
+            row.get("side") or "-",
+            row.get("qty", 0),
+            row.get("created_at") or "-",
+        ]
+        for row in (live_phase2_parent_order_limit.get("parent_orders") or [])[:20]
     ]
     signal_fill_rows = [
         [row.get("event_time"), row.get("order_id"), _money(row.get("fill_price")), row.get("fill_qty"), _money(row.get("commission"))]
@@ -3558,6 +3907,48 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 _stack_cards(
                     _section_card("현재 제공 범위", _table(["항목", "값"], live_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
                     _section_card(
+                        "실전 fill 정합성",
+                        _table(["항목", "값"], live_fill_consistency_rows, "실전 fill 정합성 정보가 없습니다.", scroll_height=220),
+                        note="read-only SQLite 점검입니다. 실전 포지션, 회계, 세금, 정산 반영은 아직 연결하지 않았습니다.",
+                    ),
+                    _section_card(
+                        "실전 fill 불일치 상세",
+                        _table(
+                            ["주문 ID", "주문 체결수량", "fill 합계"],
+                            live_fill_mismatch_rows,
+                            "현재 확인된 실전 fill 불일치는 없습니다.",
+                            scroll_height=220,
+                        ),
+                    ),
+                    _section_card(
+                        "실전 미해결 주문",
+                        _table(["항목", "값"], live_order_attention_rows, "실전 미해결 주문 정보가 없습니다.", scroll_height=220),
+                        note="unknown/stuck 상태는 자동 복구가 아니라 브로커 재조회와 사람 확인이 필요한 상태로 취급합니다.",
+                    ),
+                    _section_card(
+                        "실전 미해결 주문 상세",
+                        _table(
+                            ["주문 ID", "상태", "종목", "방향", "잔량", "경과(분)"],
+                            live_order_attention_detail_rows,
+                            "현재 확인 필요한 실전 주문은 없습니다.",
+                            scroll_height=220,
+                        ),
+                    ),
+                    _section_card(
+                        "Phase 2 부모 주문 한도",
+                        _table(["항목", "값"], live_phase2_parent_order_limit_rows, "Phase 2 부모 주문 한도 정보가 없습니다.", scroll_height=220),
+                        note="Phase 2 기본 정책은 1거래일 1부모 주문서입니다. filled/cancelled/rejected 상태도 당일 한도 사용으로 봅니다.",
+                    ),
+                    _section_card(
+                        "Phase 2 부모 주문 상세",
+                        _table(
+                            ["주문 ID", "상태", "단계", "종목", "방향", "수량", "생성 시각"],
+                            live_phase2_parent_order_detail_rows,
+                            "현재 한도에 포함되는 Phase 2 부모 주문은 없습니다.",
+                            scroll_height=220,
+                        ),
+                    ),
+                    _section_card(
                         "안내",
                         '<div class="muted">실전 계좌는 현재 조회 위주로만 표시합니다. 실전 자격정보를 넣지 않았거나 조회를 일부러 막아둔 경우 빈 상태가 정상입니다.</div>',
                     ),
@@ -3614,9 +4005,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         note="정본 저장소의 승격 게이트가 보는 보고서입니다. D드라이브 snapshot post-close 산출물과 별도로 표시합니다.",
                     ),
                     _section_card(
-                        "장후 자동 학습 상태",
+                        "장후 ML 유지보수 상태",
                         _table(["항목", "값"], post_close_rows, "표시할 장후 자동 학습 상태가 없습니다.", scroll_height=330),
-                        note="장중 수집과 분리된 스냅샷 DB로 장마감 후 재학습을 수행합니다.",
+                        note="quick-live-train은 리포트·품질 진단 뒤 제한된 최근 labeled row로 LightGBM 학습과 challenger 평가를 수행합니다. legacy quick-live-report는 학습/평가 row를 만들지 않습니다.",
                     ),
                     _section_card(
                         "장후 label refresh 상태",
@@ -3657,7 +4048,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                                 f"학습 validation 정확도: {_ratio_pct(latest_evaluation.get('accuracy'), 2) if latest_evaluation else '-'}",
                                 f"백테스트 정확도: {_ratio_pct(latest_backtest.get('overall_accuracy'), 2) if latest_backtest else '-'}",
                                 f"워크포워드 정확도: {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2) if latest_walk_forward else '-'}",
-                                f"게이트 기준: {latest_walk_forward_setup.get('status_label') or '-'}",
+                                f"워크포워드 설정: {latest_walk_forward_setup.get('setup_status_label') or latest_walk_forward_setup.get('status_label') or '-'}",
+                                f"게이트 성능: {latest_walk_forward_setup.get('gate_status_label') or '-'}",
                                 f"챌린저 권장: {latest_challenger.get('recommended_action') or '-'}",
                             ]
                         ),
@@ -3699,6 +4091,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "장전 readiness",
                         _table(["항목", "값"], local_setup_rows, "장전 점검 결과가 없습니다.", scroll_height=280),
                         note="check_local_setup.sh 최신 결과입니다.",
+                    ),
+                    _section_card(
+                        "실전 전환 readiness dry-run",
+                        _table(["항목", "값"], live_readiness_rows, "실전 전환 readiness dry-run 결과가 없습니다.", scroll_height=330),
+                        note="Codex ops premarket report와 fixture 기반 live readiness dry-run 결과입니다. fixture가 없는 항목은 통과로 보지 않습니다.",
                     ),
                 ),
             ),

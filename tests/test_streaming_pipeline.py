@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -8,9 +9,9 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.services.broker_paper_sync import BrokerPaperSyncResult
-from app.storage.contracts import BrokerOrderSubmission, Fill
+from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder
 from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
-from app.storage.runtime_writer import get_sqlite_store
+from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class StreamingPipelineTests(unittest.TestCase):
@@ -115,6 +116,73 @@ class StreamingPipelineTests(unittest.TestCase):
             processor = OnlinePipelineProcessor(settings)
             self.assertLess(processor.portfolio_book.cash_balance, settings.strategy.paper_initial_cash)
             self.assertIn("005930", processor.portfolio_book.positions)
+
+    def test_online_pipeline_ignores_pending_orders_before_alignment_marker(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-pending-alignment" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
+        }
+        marker_dir = runtime_root / "reports" / "broker-paper"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / "latest-alignment.json").write_text(
+            json.dumps(
+                {
+                    "ok": True,
+                    "aligned_at": "2026-05-13T10:00:00+09:00",
+                    "baseline_positions": [],
+                    "baseline_snapshot": {
+                        "snapshot_id": "portfolio-broker-aligned-test",
+                        "event_time": "2026-05-13T10:00:00+09:00",
+                        "cash_balance": 1000000.0,
+                        "gross_market_value": 0.0,
+                        "net_liquidation_value": 1000000.0,
+                        "open_positions": 0,
+                        "realized_pnl": 0.0,
+                        "unrealized_pnl": 0.0,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-before-align",
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-05-13T09:59:00+09:00"),
+                    side="buy",
+                    qty=1,
+                    limit_price=70000.0,
+                    status="pending_lookup",
+                )
+            )
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-after-align",
+                    symbol="000660",
+                    event_time=datetime.fromisoformat("2026-05-13T10:01:00+09:00"),
+                    side="buy",
+                    qty=1,
+                    limit_price=130000.0,
+                    status="pending_lookup",
+                )
+            )
+
+            processor = OnlinePipelineProcessor(settings)
+
+        self.assertNotIn("005930", processor.pending_order_symbols)
+        self.assertNotIn("005930", processor.pending_buy_symbols)
+        self.assertIn("000660", processor.pending_order_symbols)
+        self.assertIn("000660", processor.pending_buy_symbols)
 
     def test_online_pipeline_default_ids_are_unique_across_runtime_starts(self) -> None:
         root = Path(__file__).resolve().parents[1]

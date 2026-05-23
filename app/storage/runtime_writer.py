@@ -11,6 +11,15 @@ from app.storage.contracts import (
     Fill,
     BrokerOrderStatusSnapshot,
     BrokerOrderSubmission,
+    LiveAuditEvent,
+    LiveFill,
+    LiveOrder,
+    LiveOrderEvent,
+    LivePhaseApproval,
+    LivePortfolioSnapshot,
+    LivePosition,
+    LiveReadinessRun,
+    MarketStatusSnapshot,
     MarketTickEvent,
     MinuteBar,
     ModelEvaluation,
@@ -157,6 +166,57 @@ class RuntimeWriter:
         self.jsonl_store.append("broker", "paper_order_status", snapshot.to_record(), snapshot.synced_at)
         if self.sqlite_store:
             self.sqlite_store.insert_broker_order_status_snapshot(snapshot)
+
+    def write_market_status_snapshot(self, snapshot: MarketStatusSnapshot) -> None:
+        self.jsonl_store.append("live", "market_status_snapshots", snapshot.to_record(), snapshot.created_at)
+        if self.sqlite_store:
+            self.sqlite_store.insert_market_status_snapshot(snapshot)
+
+    def write_live_order(self, order: LiveOrder) -> None:
+        self.jsonl_store.append("live", "orders", order.to_record(), order.created_at)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_order(order)
+
+    def write_live_order_event(self, event: LiveOrderEvent) -> None:
+        self.jsonl_store.append("live", "order_events", event.to_record(), event.event_time)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_order_event(event)
+
+    def write_live_fill(self, fill: LiveFill) -> None:
+        self.jsonl_store.append("live", "fills", fill.to_record(), fill.event_time)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_fill(fill)
+
+    def write_live_fill_if_absent(self, fill: LiveFill) -> bool:
+        if self.sqlite_store and not self.sqlite_store.insert_live_fill_if_absent(fill):
+            return False
+        self.jsonl_store.append("live", "fills", fill.to_record(), fill.event_time)
+        return True
+
+    def write_live_position(self, position: LivePosition) -> None:
+        self.jsonl_store.append("live", "positions", position.to_record(), position.updated_at)
+        if self.sqlite_store:
+            self.sqlite_store.upsert_live_position(position)
+
+    def write_live_portfolio_snapshot(self, snapshot: LivePortfolioSnapshot) -> None:
+        self.jsonl_store.append("live", "portfolio_snapshots", snapshot.to_record(), snapshot.event_time)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_portfolio_snapshot(snapshot)
+
+    def write_live_audit_event(self, event: LiveAuditEvent) -> None:
+        self.jsonl_store.append("ops", "live_audit_events", event.to_record(), event.event_time)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_audit_event(event)
+
+    def write_live_phase_approval(self, approval: LivePhaseApproval) -> None:
+        self.jsonl_store.append("live", "phase_approvals", approval.to_record(), approval.approved_at)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_phase_approval(approval)
+
+    def write_live_readiness_run(self, run: LiveReadinessRun) -> None:
+        self.jsonl_store.append("live", "readiness_runs", run.to_record(), run.checked_at)
+        if self.sqlite_store:
+            self.sqlite_store.insert_live_readiness_run(run)
 
     def write_risk_event(self, event: RiskEvent) -> None:
         self.jsonl_store.append("ops", "risk_events", event.to_record(), event.event_time)

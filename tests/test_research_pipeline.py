@@ -444,11 +444,20 @@ class ResearchPipelineTests(unittest.TestCase):
             feature_rows = sqlite_store.fetch_feature_rows(horizon_min=15)
             self.assertGreater(len(feature_rows), 0)
             self.assertEqual(_resolve_feature_row_source(feature_rows[0]), "cybos-historical")
+            limited_rows = sqlite_store.fetch_feature_rows(horizon_min=15, max_rows=3)
+            self.assertEqual(len(limited_rows), 3)
+            self.assertEqual(
+                sorted(str(row["event_time"]) for row in limited_rows),
+                sorted(str(row["event_time"]) for row in feature_rows)[-3:],
+            )
 
             feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=15)
             self.assertEqual(feature_names, ["avg_trade_size", "hl_range_pct", "return_1m_pct"])
             self.assertGreater(len(dataset), 0)
             self.assertEqual(dataset[0]["feature_source"], "cybos-historical")
+            _, limited_dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=15, max_rows=6)
+            self.assertEqual(len(limited_dataset), 6)
+            self.assertLessEqual(limited_dataset[0]["event_time"], limited_dataset[-1]["event_time"])
             logging.shutdown()
 
     def test_cybos_rule_challenger_review_writes_reports(self) -> None:

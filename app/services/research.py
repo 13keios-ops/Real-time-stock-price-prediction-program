@@ -42,6 +42,7 @@ CYBOS_CONFIDENCE_THRESHOLD_GRID = (0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.7
 CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
 CHALLENGER_HOLDOUT_FRACTION = 0.10
+LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS = 250_000
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
     "range_expansion",
@@ -424,8 +425,13 @@ def _load_labeled_feature_dataset(
     horizon_min: int,
     *,
     feature_market_source: str | None = None,
+    max_rows: int | None = None,
 ) -> tuple[list[str], list[dict[str, object]]]:
-    rows = sqlite_store.fetch_feature_rows(horizon_min=horizon_min, market_source=feature_market_source)
+    rows = sqlite_store.fetch_feature_rows(
+        horizon_min=horizon_min,
+        market_source=feature_market_source,
+        max_rows=max_rows,
+    )
     if len(rows) < 5:
         raise ValueError("Not enough labeled feature rows are available for training.")
 
@@ -4609,6 +4615,8 @@ def train_lightgbm_from_sqlite(
     project_root: Path,
     horizon_min: int = 15,
     set_active: bool = False,
+    max_rows: int | None = LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS,
+    feature_market_source: str | None = None,
 ) -> BaselineTrainingResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -4616,7 +4624,12 @@ def train_lightgbm_from_sqlite(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for training.")
 
-    feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
     split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
     train_rows = list(split_payload["train_rows"])
     validation_rows = list(split_payload["validation_rows"])
@@ -4696,12 +4709,18 @@ def train_lightgbm_from_sqlite(
                 },
                 "validation_split": _split_window_summary(train_rows, validation_rows),
                 "challenger_holdout_split": split_payload["metadata"],
+                "dataset_load": {
+                    "max_rows": max_rows,
+                    "loaded_rows": len(dataset),
+                    "feature_market_source": feature_market_source,
+                    "scope": "recent_labeled_rows" if max_rows else "full_history",
+                },
                 "validation_purge": {
                     "horizon_min": horizon_min,
                     "split": "development_tail_after_challenger_holdout",
                     "purge_rule": "drop train rows where event_time + horizon reaches validation_start_time",
                 },
-                "training_window": "recent_60_trading_days_plus_today",
+                "training_window": "recent_labeled_rows" if max_rows else "full_history",
                 "activation_applied": set_active,
             },
         )
@@ -5120,6 +5139,8 @@ def run_model_challenger_review_from_sqlite(
     project_root: Path,
     horizon_min: int = 15,
     promote_best: bool = False,
+    max_rows: int | None = LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS,
+    feature_market_source: str | None = None,
 ) -> ChallengerRunResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -5127,7 +5148,12 @@ def run_model_challenger_review_from_sqlite(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for challenger evaluation.")
 
-    feature_names, dataset = _load_labeled_feature_dataset(sqlite_store, horizon_min=horizon_min)
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
     split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
     train_rows = list(split_payload["train_rows"])
     development_rows = list(split_payload["development_rows"])
@@ -5450,6 +5476,12 @@ def run_model_challenger_review_from_sqlite(
             else None
         ),
         "dataset_scope": evaluation_dataset_scope,
+        "dataset_load": {
+            "max_rows": max_rows,
+            "loaded_rows": len(dataset),
+            "feature_market_source": feature_market_source,
+            "scope": "recent_labeled_rows" if max_rows else "full_history",
+        },
         "evaluation_split": split_metadata,
         "promotion_requested": promote_best,
         "promotion_applied": promotion_applied,

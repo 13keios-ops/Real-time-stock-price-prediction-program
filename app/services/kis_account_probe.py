@@ -1,0 +1,138 @@
+"""Sanitized KIS account snapshot checks for live readiness."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+
+REQUIRED_ACCOUNT_SNAPSHOT_ATTRIBUTES = (
+    "position_row_count",
+    "summary_row_count",
+    "cash_balance",
+    "stock_evaluation_amount",
+    "total_asset_amount",
+)
+ACCOUNT_SNAPSHOT_ROW_COUNT_ATTRIBUTES = ("position_row_count", "summary_row_count")
+ACCOUNT_SNAPSHOT_NUMERIC_VALUE_ATTRIBUTES = (
+    "cash_balance",
+    "stock_evaluation_amount",
+    "total_asset_amount",
+)
+
+
+def probe_kis_account_snapshot_check(
+    readonly_client: Any,
+    *,
+    mode: str,
+    checked_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Build a readiness-compatible account_snapshot check without account identifiers."""
+
+    observed_at = checked_at or datetime.now(timezone.utc)
+    try:
+        snapshot = readonly_client.get_account_balance()
+    except Exception as exc:  # pragma: no cover - network/client failures vary.
+        return {
+            "key": "account_snapshot",
+            "status": "failed",
+            "passed": False,
+            "summary": "KIS account snapshot refresh failed",
+            "details": {
+                "mode": mode,
+                "checked_at": observed_at.isoformat(),
+                "error_type": type(exc).__name__,
+            },
+        }
+
+    missing_attributes = [attribute for attribute in REQUIRED_ACCOUNT_SNAPSHOT_ATTRIBUTES if not hasattr(snapshot, attribute)]
+    invalid_type_attributes = _invalid_type_attributes(snapshot, missing_attributes)
+    position_count = _safe_non_negative_int(getattr(snapshot, "position_row_count", None))
+    summary_count = _safe_non_negative_int(getattr(snapshot, "summary_row_count", None))
+    passed = (
+        summary_count is not None
+        and position_count is not None
+        and summary_count >= 1
+        and not missing_attributes
+        and not invalid_type_attributes
+    )
+    if missing_attributes:
+        summary = "KIS account snapshot shape invalid"
+    elif invalid_type_attributes:
+        summary = "KIS account snapshot value type invalid"
+    elif summary_count < 1:
+        summary = "KIS account snapshot missing summary row"
+    else:
+        summary = "KIS account snapshot refreshed"
+    if missing_attributes:
+        shape_status = "missing_required_attributes"
+    elif invalid_type_attributes:
+        shape_status = "invalid_value_types"
+    else:
+        shape_status = "ok"
+    return {
+        "key": "account_snapshot",
+        "status": "ok" if passed else "failed",
+        "passed": passed,
+        "summary": summary,
+        "details": {
+            "mode": mode,
+            "checked_at": observed_at.isoformat(),
+            "shape_status": shape_status,
+            "required_attributes": list(REQUIRED_ACCOUNT_SNAPSHOT_ATTRIBUTES),
+            "missing_attributes": missing_attributes,
+            "invalid_type_attributes": invalid_type_attributes,
+            "position_row_count": position_count,
+            "summary_row_count": summary_count,
+            "cash_balance_present": getattr(snapshot, "cash_balance", None) is not None,
+            "stock_evaluation_present": getattr(snapshot, "stock_evaluation_amount", None) is not None,
+            "total_asset_present": getattr(snapshot, "total_asset_amount", None) is not None,
+        },
+    }
+
+
+def _invalid_type_attributes(snapshot: Any, missing_attributes: list[str]) -> list[dict[str, str]]:
+    missing = set(missing_attributes)
+    invalid: list[dict[str, str]] = []
+    for attribute in ACCOUNT_SNAPSHOT_ROW_COUNT_ATTRIBUTES:
+        if attribute in missing:
+            continue
+        value = getattr(snapshot, attribute, None)
+        if not _is_non_bool_int(value) or int(value) < 0:
+            invalid.append(
+                {
+                    "attribute": attribute,
+                    "expected": "non-negative int",
+                    "actual_type": type(value).__name__,
+                }
+            )
+    for attribute in ACCOUNT_SNAPSHOT_NUMERIC_VALUE_ATTRIBUTES:
+        if attribute in missing:
+            continue
+        value = getattr(snapshot, attribute, None)
+        if not _is_non_bool_number(value):
+            invalid.append(
+                {
+                    "attribute": attribute,
+                    "expected": "number",
+                    "actual_type": type(value).__name__,
+                }
+            )
+    return invalid
+
+
+def _safe_non_negative_int(value: Any) -> int | None:
+    if not _is_non_bool_int(value):
+        return None
+    count = int(value)
+    if count < 0:
+        return None
+    return count
+
+
+def _is_non_bool_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_non_bool_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)

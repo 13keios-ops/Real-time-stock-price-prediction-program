@@ -26,6 +26,19 @@ class KisWebSocketVerificationTests(unittest.TestCase):
         self.assertFalse(market_data_expected)
         self.assertIn("holiday", status_note.lower())
 
+    def test_market_session_context_marks_overnight_before_warmup(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        settings = load_settings(project_root=root, env={})
+
+        session_status, market_data_expected, status_note = _market_session_context(
+            settings,
+            datetime.fromisoformat("2026-05-21T00:30:00+09:00"),
+        )
+
+        self.assertEqual(session_status, "overnight")
+        self.assertFalse(market_data_expected)
+        self.assertIn("not expected", status_note.lower())
+
     def test_verification_reports_missing_requirements_without_credentials(self) -> None:
         root = Path(__file__).resolve().parents[1]
         temp_root = root / ".tmp-tests" / "kis-ws-verification-root" / str(uuid.uuid4())

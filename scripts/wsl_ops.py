@@ -194,7 +194,7 @@ def account_position_count(account_snapshot: dict[str, Any]) -> int:
     return 0
 
 
-def market_settings(root: Path) -> tuple[str, bool, bool]:
+def market_settings(root: Path, *, pre_open_warmup_minutes: int = 60) -> tuple[str, bool, bool]:
     open_text, close_text, holidays = market_schedule(root)
     now = dt.datetime.now()
     if now.weekday() >= 5:
@@ -206,7 +206,8 @@ def market_settings(root: Path) -> tuple[str, bool, bool]:
     opened = now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
     closed = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
     if now < opened:
-        return "pre-open", False, opened - dt.timedelta(minutes=60) <= now < opened
+        in_warmup = opened - dt.timedelta(minutes=max(0, int(pre_open_warmup_minutes))) <= now < opened
+        return ("pre-open" if in_warmup else "overnight"), False, in_warmup
     if now > closed:
         return "post-close", False, False
     return "regular-session", True, True
@@ -315,7 +316,7 @@ def maybe_start_post_close_ml(
 
 def post_close_ml_mode_name(args: argparse.Namespace) -> str:
     if not bool(getattr(args, "post_close_ml_heavy_research", False)):
-        return "quick-live-report"
+        return "quick-live-train"
     if bool(getattr(args, "post_close_ml_live_db", False)):
         return "heavy-live-db"
     return "heavy-snapshot"
@@ -587,7 +588,7 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
     started = now_text()
     while True:
         errors: list[str] = []
-        session, regular, should_run = market_settings(root)
+        session, regular, should_run = market_settings(root, pre_open_warmup_minutes=args.pre_open_warmup_minutes)
         dashboard_action = "none"
         live_action = "none"
         try:
@@ -1380,14 +1381,17 @@ def export_recovery(args: argparse.Namespace) -> None:
         print(f"Dry run: {archive}")
         return
     excluded_prefixes = {".env", "runtime-data/cache/kis", "runtime-data/logs"}
+    private_key_prefixes = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
     with tarfile.open(archive, "w:gz") as tar:
         for path in repo.rglob("*"):
             rel = path.relative_to(repo).as_posix()
+            if rel.startswith(".env"):
+                continue
             if any(rel == item or rel.startswith(item + "/") for item in excluded_prefixes):
                 continue
-            if path.name.endswith((".pem", ".key")) or path.name.startswith("id_rsa"):
+            if path.name.endswith((".pem", ".key")) or path.name.startswith(private_key_prefixes):
                 continue
-            tar.add(path, arcname=rel)
+            tar.add(path, arcname=rel, recursive=False)
     if args.keep_count > 0:
         archives = sorted(dest.glob(f"{prefix}-*.tar.gz"), key=lambda item: item.stat().st_mtime, reverse=True)
         for old in archives[args.keep_count:]:

@@ -71,11 +71,15 @@ def main() -> int:
     parser.add_argument("--rebuild-actual-ml", action="store_true", help="Delete offline ML artifacts and rebuild actual-runtime-only features, labels, training, and reports.")
     parser.add_argument("--train-baseline", action="store_true", help="Train the local centroid baseline using SQLite feature rows.")
     parser.add_argument("--train-lightgbm", action="store_true", help="Train the LightGBM model using SQLite feature rows.")
+    parser.add_argument("--train-lightgbm-max-rows", type=int, default=250000, help="Maximum recent labeled rows loaded for LightGBM training. Use 0 for full history.")
+    parser.add_argument("--train-lightgbm-feature-market-source", default="", help="Optional raw market source filter for LightGBM training feature rows.")
     parser.add_argument("--set-active-builtin", action="store_true", help="Set a builtin model as the active runtime model.")
     parser.add_argument("--run-backtest", action="store_true", help="Run the validation-tail backtest using the active prediction model.")
     parser.add_argument("--run-walk-forward", action="store_true", help="Run an expanding-window walk-forward backtest.")
     parser.add_argument("--run-gate-walk-forward", action="store_true", help="Run the fixed gate-reference walk-forward profile.")
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
+    parser.add_argument("--challenger-max-rows", type=int, default=250000, help="Maximum recent labeled rows loaded for challenger evaluation. Use 0 for full history.")
+    parser.add_argument("--challenger-feature-market-source", default="", help="Optional raw market source filter for challenger feature rows.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-expected-value-review", action="store_true", help="Run train-only expected-value threshold review for Cybos LightGBM.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
@@ -205,7 +209,13 @@ def main() -> int:
         return 0
 
     if args.train_lightgbm:
-        result = train_lightgbm_from_sqlite(project_root=project_root, horizon_min=args.horizon_min, set_active=False)
+        result = train_lightgbm_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            set_active=False,
+            max_rows=args.train_lightgbm_max_rows if args.train_lightgbm_max_rows > 0 else None,
+            feature_market_source=args.train_lightgbm_feature_market_source or None,
+        )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 
@@ -260,6 +270,8 @@ def main() -> int:
             project_root=project_root,
             horizon_min=args.horizon_min,
             promote_best=args.promote_best_challenger,
+            max_rows=args.challenger_max_rows if args.challenger_max_rows > 0 else None,
+            feature_market_source=args.challenger_feature_market_source or None,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0

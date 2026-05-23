@@ -20,7 +20,7 @@ from app.services.dashboard import (
 from app.services.orchestrator import run_synthetic_dev_cycle
 from app.services.runtime import run_demo_pipeline
 from app.services.streaming import build_sample_ws_frames, replay_ws_frames
-from app.storage.contracts import MarketTickEvent, MinuteBar, PaperPosition, PortfolioSnapshot, Prediction
+from app.storage.contracts import LiveOrder, MarketTickEvent, MinuteBar, PaperPosition, PortfolioSnapshot, Prediction
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
@@ -151,6 +151,8 @@ class DashboardTests(unittest.TestCase):
         (reports_root / "ml-maintenance" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "state").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "automation" / "backlog").mkdir(parents=True, exist_ok=True)
+        (reports_root / "codex" / "ops" / "premarket-readiness").mkdir(parents=True, exist_ok=True)
+        (reports_root / "live-readiness").mkdir(parents=True, exist_ok=True)
 
         (reports_root / "recovery" / "latest-local-setup-check.json").write_text(
             json.dumps(
@@ -174,6 +176,84 @@ class DashboardTests(unittest.TestCase):
                     "runtime_startup_launcher_status": {"ok": True},
                     "websockets_available": True,
                     "lightgbm_available": True,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        (reports_root / "codex" / "ops" / "premarket-readiness" / "latest-premarket-readiness.json").write_text(
+            json.dumps(
+                {
+                    "job_type": "premarket-readiness",
+                    "status": "ok",
+                    "generated_at": "2026-05-16 00:18:28 +0900",
+                    "report_path": "runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json",
+                    "blockers": [],
+                    "warnings": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (reports_root / "live-readiness" / "latest-readiness.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "job_type": "live-readiness-fault-dry-run",
+                    "status": "blocked",
+                    "generated_at": "2026-05-16T02:04:17+09:00",
+                    "phase": "phase1_readonly",
+                    "trading_day": "2026-05-16",
+                    "dry_run": True,
+                    "recorded": False,
+                    "database_path": None,
+                    "blocking_reasons": ["ws_recovery_not_verified_by_fault_dry_run"],
+                    "fixture_checks": [
+                        {
+                            "key": "ws_recovery",
+                            "status": "failed",
+                            "passed": False,
+                            "summary": "synthetic WS recovery evidence is not enough for live submit",
+                            "details": {
+                                "checked_at": "2026-05-16T02:03:37+09:00",
+                                "evidence_type": "synthetic_fault_injection",
+                                "evidence_age_seconds": 42.123,
+                                "max_evidence_age_seconds": 1800.0,
+                                "stable": {
+                                    "state": "stable",
+                                    "frames_since_connect": 2,
+                                    "frames_seen_total": 2,
+                                    "cumulative_reconnects": 1,
+                                    "consecutive_reconnects": 0,
+                                    "reconnect_storm": False,
+                                    "observed_at": "2026-05-16T02:04:17+09:00",
+                                },
+                            },
+                        }
+                    ],
+                    "readiness_run": {
+                        "phase": "phase1_readonly",
+                        "trading_day": "2026-05-16",
+                        "status": "blocked",
+                        "passed": False,
+                        "checked_at": "2026-05-16T02:04:17+09:00",
+                        "checks_json": {
+                            "checks": {
+                                "token_refresh": False,
+                                "ws_recovery": False,
+                                "account_snapshot": False,
+                                "market_status": False,
+                                "kill_switch": False,
+                                "database": False,
+                                "disk_space": False,
+                                "dashboard": False,
+                                "storage_migration_state": False,
+                            }
+                        },
+                    },
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -348,6 +428,88 @@ class DashboardTests(unittest.TestCase):
                 indent=2,
             ),
             encoding="utf-8",
+        )
+
+    def _seed_live_fill_mismatch(self, root: Path, *, trading_day: str = "2026-04-13") -> None:
+        store = get_sqlite_store(load_settings(project_root=root))
+        created_at = datetime.fromisoformat(f"{trading_day}T10:05:00+09:00")
+        store.insert_live_order(
+            LiveOrder(
+                order_id="live-order-dashboard-mismatch",
+                idempotency_key="live-idem-dashboard-mismatch",
+                trading_day=trading_day,
+                phase="phase2_canary",
+                symbol="005930",
+                side="buy",
+                qty=3,
+                filled_qty=3,
+                remaining_qty=0,
+                order_type="limit",
+                limit_price=70000.0,
+                avg_fill_price=70000.0,
+                status="filled",
+                prediction_id="pred-dashboard-live-001",
+                signal_id="signal-dashboard-live-001",
+                target_id="target-dashboard-live-001",
+                gate_decision_id="gate-dashboard-live-001",
+                market_status_snapshot_id="market-dashboard-live-001",
+                model_version="baseline-h15-v1",
+                rule_version="live-rule-v1",
+                broker_order_no="0000000001",
+                broker_branch_no="001",
+                reject_reason=None,
+                cancel_reason=None,
+                parent_order_id=None,
+                created_at=created_at,
+                submitted_at=created_at,
+                last_synced_at=created_at,
+                detail_json={
+                    "order_policy": {},
+                    "blocking_reasons": [],
+                    "raw_broker_response": {},
+                },
+            )
+        )
+
+    def _seed_live_order_attention(self, root: Path, *, trading_day: str = "2026-04-13") -> None:
+        store = get_sqlite_store(load_settings(project_root=root))
+        created_at = datetime.fromisoformat(f"{trading_day}T10:15:00+09:00")
+        store.insert_live_order(
+            LiveOrder(
+                order_id="live-order-dashboard-unknown",
+                idempotency_key="live-idem-dashboard-unknown",
+                trading_day=trading_day,
+                phase="phase2_canary",
+                symbol="005930",
+                side="buy",
+                qty=3,
+                filled_qty=0,
+                remaining_qty=3,
+                order_type="limit",
+                limit_price=70000.0,
+                avg_fill_price=0.0,
+                status="unknown",
+                prediction_id="pred-dashboard-live-unknown",
+                signal_id="signal-dashboard-live-unknown",
+                target_id="target-dashboard-live-unknown",
+                gate_decision_id="gate-dashboard-live-unknown",
+                market_status_snapshot_id="market-dashboard-live-unknown",
+                model_version="baseline-h15-v1",
+                rule_version="live-rule-v1",
+                broker_order_no="0000000003",
+                broker_branch_no="001",
+                reject_reason=None,
+                cancel_reason=None,
+                parent_order_id=None,
+                created_at=created_at,
+                submitted_at=created_at,
+                last_synced_at=created_at,
+                detail_json={
+                    "order_policy": {},
+                    "blocking_reasons": [],
+                    "raw_broker_response": {},
+                },
+            )
         )
 
     def _seed_actual_prediction_runtime(self, root: Path) -> None:
@@ -562,10 +724,20 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("장전 readiness", html)
         self.assertIn("점검 신선도", html)
         self.assertIn("check_local_setup.sh 최신 결과입니다.", html)
+        self.assertIn("실전 전환 readiness dry-run", html)
+        self.assertIn("DB 기록", html)
+        self.assertIn("ws_recovery_not_verified_by_fault_dry_run", html)
+        self.assertIn("WS evidence type", html)
+        self.assertIn("synthetic_fault_injection", html)
+        self.assertIn("42.123s / max 1800.0s", html)
+        self.assertIn("누적 1, 연속 0, storm 아니오", html)
+        self.assertEqual(snapshot.payload["latest_live_readiness"]["status"], "blocked")
         self.assertIn("최근 raw minute 지연", html)
         self.assertIn("분봉 coverage(닫힌 분)", html)
         self.assertIn("장전 호가나 REST snapshot 때문에 raw coverage는 100%를 넘을 수 있고", html)
-        self.assertIn("장후 자동 학습 상태", html)
+        self.assertIn("장후 ML 유지보수 상태", html)
+        self.assertIn("legacy quick-live-report는 학습/평가 row를 만들지 않습니다", html)
+        self.assertIn("학습/평가 수행", html)
         self.assertIn("스냅샷 DB", html)
         self.assertIn("stdout 로그", html)
         self.assertIn("장후 label refresh 상태", html)
@@ -604,6 +776,62 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["runtime_summary"]["broker_order_submissions"], 0)
         self.assertIn("order_mirroring_enabled", payload["account_sync"])
         self.assertIn("paper_account_reconciliation", payload)
+
+    def test_dashboard_shows_live_fill_consistency(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
+            self._seed_dashboard_inputs(runtime_root)
+            self._seed_live_fill_mismatch(root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, selected_date="2026-04-13")
+
+        self.assertEqual(snapshot.payload["live_fill_consistency"]["status"], "mismatch")
+        self.assertEqual(snapshot.payload["live_fill_consistency"]["mismatch_count"], 1)
+        self.assertEqual(snapshot.payload["status_alerts"][0]["title"], "실전 fill 정합성 불일치")
+        html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
+        self.assertIn("실전 fill 정합성", html)
+        self.assertIn("실전 fill 불일치 상세", html)
+        self.assertIn("live-order-dashboard-mismatch", html)
+
+    def test_dashboard_shows_live_order_attention(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
+            self._seed_dashboard_inputs(runtime_root)
+            self._seed_live_order_attention(root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, selected_date="2026-04-13")
+
+        self.assertEqual(snapshot.payload["live_order_attention"]["status"], "attention")
+        self.assertEqual(snapshot.payload["live_order_attention"]["attention_count"], 1)
+        self.assertEqual(snapshot.payload["status_alerts"][0]["title"], "실전 주문 상태 확인 필요")
+        html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
+        self.assertIn("실전 미해결 주문", html)
+        self.assertIn("실전 미해결 주문 상세", html)
+        self.assertIn("live-order-dashboard-unknown", html)
+
+    def test_dashboard_shows_phase2_parent_order_limit(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root, env = self._prepare_runtime_root()
+        with patch.dict(os.environ, env, clear=False):
+            run_synthetic_dev_cycle(project_root=root, symbol="005930", minutes=70, train_horizon_min=15)
+            self._seed_dashboard_inputs(runtime_root)
+            self._seed_live_order_attention(root)
+            with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
+                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, selected_date="2026-04-13")
+
+        phase2_limit = snapshot.payload["live_phase2_parent_order_limit"]
+        self.assertEqual(phase2_limit["status"], "blocked")
+        self.assertEqual(phase2_limit["parent_order_count"], 1)
+        self.assertEqual(phase2_limit["max_parent_orders_per_day"], 1)
+        self.assertTrue(phase2_limit["blocked_by_limit"])
+        html = snapshot.snapshot_html_path.read_text(encoding="utf-8")
+        self.assertIn("Phase 2 부모 주문 한도", html)
+        self.assertIn("Phase 2 부모 주문 상세", html)
+        self.assertIn("live-order-dashboard-unknown", html)
 
     def test_account_sync_uses_broker_effective_cash(self) -> None:
         account_sync = _build_account_sync_status(
@@ -662,6 +890,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("fetch('/api/refresh'", html)
         self.assertIn("refreshIntervalMs = 600000", html)
         self.assertIn("data-subtab-group", html)
+        self.assertIn("실전 전환 readiness dry-run", html)
+        self.assertIn("ws_recovery_not_verified_by_fault_dry_run", html)
+        self.assertIn("synthetic_fault_injection", html)
+        self.assertEqual(json.loads(payload)["latest_live_readiness"]["status"], "blocked")
 
     def test_dashboard_reconciliation_uses_full_local_account_state(self) -> None:
         root = Path(__file__).resolve().parents[1]

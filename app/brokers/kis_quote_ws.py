@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import datetime
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from app.brokers.kis_auth import KisApiError, KisAuthProfile, KisTokenManager
 
@@ -135,6 +136,10 @@ except ImportError:  # pragma: no cover - optional runtime dependency
 LOGGER = logging.getLogger(__name__)
 
 
+def _now_local() -> datetime:
+    return datetime.now().astimezone()
+
+
 @dataclass(slots=True)
 class KisWebSocketSubscription:
     tr_id: str
@@ -158,6 +163,105 @@ class KisWebSocketSubscription:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class KisWebSocketReconnectSnapshot:
+    state: str
+    observed_at: datetime
+    cumulative_reconnects: int
+    consecutive_reconnects: int
+    frames_seen_total: int
+    frames_since_connect: int
+    stable_connection_seen: bool
+    reconnect_storm: bool
+    last_reconnect_at: datetime | None = None
+    last_stable_at: datetime | None = None
+    storm_active_since: datetime | None = None
+    last_error: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state,
+            "observed_at": self.observed_at.isoformat(),
+            "cumulative_reconnects": self.cumulative_reconnects,
+            "consecutive_reconnects": self.consecutive_reconnects,
+            "frames_seen_total": self.frames_seen_total,
+            "frames_since_connect": self.frames_since_connect,
+            "stable_connection_seen": self.stable_connection_seen,
+            "reconnect_storm": self.reconnect_storm,
+            "last_reconnect_at": _datetime_iso_or_none(self.last_reconnect_at),
+            "last_stable_at": _datetime_iso_or_none(self.last_stable_at),
+            "storm_active_since": _datetime_iso_or_none(self.storm_active_since),
+            "last_error": self.last_error,
+        }
+
+
+
+@dataclass(slots=True)
+class KisWebSocketReconnectMetrics:
+    stable_frame_reset_threshold: int = 5
+    reconnect_storm_threshold: int = 3
+    cumulative_reconnects: int = 0
+    consecutive_reconnects: int = 0
+    frames_seen_total: int = 0
+    frames_since_connect: int = 0
+    stable_connection_seen: bool = False
+    last_reconnect_at: datetime | None = None
+    last_stable_at: datetime | None = None
+    storm_active_since: datetime | None = None
+    last_error: str = ""
+    clock: Callable[[], datetime] = _now_local
+
+    def record_connected(self) -> KisWebSocketReconnectSnapshot:
+        observed_at = self.clock()
+        self.frames_since_connect = 0
+        self.stable_connection_seen = False
+        return self.snapshot("connected", observed_at=observed_at)
+
+    def record_frame(self) -> KisWebSocketReconnectSnapshot | None:
+        observed_at = self.clock()
+        self.frames_seen_total += 1
+        self.frames_since_connect += 1
+        threshold = max(int(self.stable_frame_reset_threshold), 1)
+        if not self.stable_connection_seen and self.frames_since_connect >= threshold:
+            self.stable_connection_seen = True
+            self.consecutive_reconnects = 0
+            self.last_stable_at = observed_at
+            self.storm_active_since = None
+            return self.snapshot("stable", observed_at=observed_at)
+        return None
+
+    def record_disconnected(self, error: Exception | str) -> KisWebSocketReconnectSnapshot:
+        observed_at = self.clock()
+        self.cumulative_reconnects += 1
+        self.consecutive_reconnects += 1
+        self.last_reconnect_at = observed_at
+        self.last_error = str(error)
+        if _is_reconnect_storm(self.consecutive_reconnects, threshold=self.reconnect_storm_threshold):
+            self.storm_active_since = self.storm_active_since or observed_at
+        else:
+            self.storm_active_since = None
+        return self.snapshot("disconnected", observed_at=observed_at)
+
+    def snapshot(self, state: str, *, observed_at: datetime | None = None) -> KisWebSocketReconnectSnapshot:
+        return KisWebSocketReconnectSnapshot(
+            state=state,
+            observed_at=observed_at or self.clock(),
+            cumulative_reconnects=self.cumulative_reconnects,
+            consecutive_reconnects=self.consecutive_reconnects,
+            frames_seen_total=self.frames_seen_total,
+            frames_since_connect=self.frames_since_connect,
+            stable_connection_seen=self.stable_connection_seen,
+            reconnect_storm=_is_reconnect_storm(
+                self.consecutive_reconnects,
+                threshold=self.reconnect_storm_threshold,
+            ),
+            last_reconnect_at=self.last_reconnect_at,
+            last_stable_at=self.last_stable_at,
+            storm_active_since=self.storm_active_since,
+            last_error=self.last_error,
+        )
+
+
 @dataclass(slots=True)
 class KisWebSocketQuoteClient:
     profile: KisAuthProfile
@@ -165,6 +269,8 @@ class KisWebSocketQuoteClient:
     reconnect_backoff_seconds: int = 5
     frame_timeout_seconds: int = 30
     subscription_delay_seconds: float = 0.1
+    stable_frame_reset_threshold: int = 5
+    reconnect_storm_threshold: int = 3
 
     def describe(self) -> dict[str, str | int]:
         return {
@@ -172,6 +278,8 @@ class KisWebSocketQuoteClient:
             "endpoint": self.profile.websocket_tryitout_url,
             "reconnect_backoff_seconds": self.reconnect_backoff_seconds,
             "frame_timeout_seconds": self.frame_timeout_seconds,
+            "stable_frame_reset_threshold": self.stable_frame_reset_threshold,
+            "reconnect_storm_threshold": self.reconnect_storm_threshold,
             "status": "active",
         }
 
@@ -239,7 +347,16 @@ class KisWebSocketQuoteClient:
         include_orderbook: bool = True,
         max_frames: int = 50,
         max_reconnects: int = 2,
+        metrics_callback: Callable[[KisWebSocketReconnectSnapshot], None] | None = None,
     ):
+        """Yield raw WebSocket frames and optionally emit lightweight reconnect snapshots.
+
+        ``metrics_callback`` is called synchronously on connect, stable, and
+        disconnect events. Keep it limited to in-memory updates or enqueue work
+        for another worker; database, file, or network I/O here can delay quote
+        processing. Callback exceptions are logged and ignored so observability
+        failures do not stop the stream.
+        """
         if websockets is None:
             raise KisApiError("WebSocket support requires the optional 'websockets' package.")
         if not symbols:
@@ -250,7 +367,10 @@ class KisWebSocketQuoteClient:
             include_orderbook=include_orderbook,
         )
         frames_seen = 0
-        reconnect_attempt = 0
+        metrics = KisWebSocketReconnectMetrics(
+            stable_frame_reset_threshold=self.stable_frame_reset_threshold,
+            reconnect_storm_threshold=self.reconnect_storm_threshold,
+        )
         unbounded = max_frames <= 0
 
         while unbounded or frames_seen < max_frames:
@@ -266,6 +386,7 @@ class KisWebSocketQuoteClient:
                         ",".join(symbols),
                         len(subscriptions),
                     )
+                    _emit_reconnect_snapshot(metrics_callback, metrics.record_connected())
                     for index, subscription in enumerate(subscriptions):
                         await connection.send(
                             json.dumps(
@@ -291,19 +412,28 @@ class KisWebSocketQuoteClient:
                             )
                             raise KisApiError(message) from exc
                         frames_seen += 1
+                        stable_snapshot = metrics.record_frame()
+                        if stable_snapshot is not None:
+                            _emit_reconnect_snapshot(metrics_callback, stable_snapshot)
                         yield frame
                 break
             except Exception as exc:
-                if reconnect_attempt >= max_reconnects:
+                if metrics.cumulative_reconnects >= max_reconnects:
                     raise KisApiError(
-                        f"KIS WebSocket listen failed after {reconnect_attempt} reconnects: {exc}"
+                        f"KIS WebSocket listen failed after {metrics.cumulative_reconnects} reconnects: {exc}"
                     ) from exc
-                reconnect_attempt += 1
+                reconnect_snapshot = metrics.record_disconnected(exc)
+                _emit_reconnect_snapshot(metrics_callback, reconnect_snapshot)
                 LOGGER.warning(
-                    "KIS WebSocket disconnected; reconnecting in %ss (attempt %s/%s): %s",
+                    (
+                        "KIS WebSocket disconnected; reconnecting in %ss "
+                        "(attempt %s/%s, consecutive=%s, storm=%s): %s"
+                    ),
                     self.reconnect_backoff_seconds,
-                    reconnect_attempt,
+                    reconnect_snapshot.cumulative_reconnects,
                     max_reconnects,
+                    reconnect_snapshot.consecutive_reconnects,
+                    reconnect_snapshot.reconnect_storm,
                     exc,
                 )
                 await asyncio.sleep(self.reconnect_backoff_seconds)
@@ -361,3 +491,22 @@ def _build_records(tokens: list[str], columns: list[str], record_count: int) -> 
         mapped = {column: chunk[offset] if offset < len(chunk) else "" for offset, column in enumerate(columns)}
         records.append(mapped)
     return records
+
+
+def _is_reconnect_storm(consecutive_reconnects: int, *, threshold: int) -> bool:
+    return threshold > 0 and consecutive_reconnects >= threshold
+
+
+def _datetime_iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _emit_reconnect_snapshot(
+    metrics_callback: Callable[[KisWebSocketReconnectSnapshot], None] | None,
+    snapshot: KisWebSocketReconnectSnapshot,
+) -> None:
+    if metrics_callback is not None:
+        try:
+            metrics_callback(snapshot)
+        except Exception:
+            LOGGER.warning("KIS WebSocket reconnect metrics callback failed", exc_info=True)

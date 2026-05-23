@@ -27,6 +27,11 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최근 기록
 - `docs/Current-Implementation.md`: 실제 구현 범위와 실행 방법
 - `docs/Versioning.md`: `VERSION` 기반 버전 관리와 watcher 기준
+- `docs/Production-Architecture.md`: 실제 자금 자동매매 전환을 위한 목표 구조와 안전 기준
+- `docs/Production-Implementation-Blueprint.md`: 실전 전환을 코드 작업 단위로 나눈 구현 청사진
+- `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
+- `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
+- `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `docs/Repo-Audit-Automation.md`: 매시간 저장소 전체 점검 자동화 기준
 - `docs/*.md`: 주제별 상세 설계와 참고 문서
 
@@ -100,10 +105,10 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - 머신러닝 현황 탭은 오늘 학습이 없더라도 최신 전체 `backtest / walk-forward / challenger` 결과를 계속 보여줘서 공백처럼 보이지 않게 바뀌었다.
 - 대시보드 상단 경고는 이제 `오늘 학습 부재`를 무조건 띄우지 않고, 최신 학습이나 평가 기록이 실제로 `없음` 또는 `지연` 상태일 때만 올린다.
 - 대시보드의 기본 조회 범위가 `오늘`일 때 현재 달력 날짜에 장중 기록이 없으면, 마지막 실제 장중 날짜를 자동으로 골라 `최근 장중` 기준으로 보여준다.
-- 장마감 후 자동 quick maintenance 는 `run_post_close_ml_maintenance.sh --quick` 로 runtime report 와 dashboard snapshot 을 10분 안에 갱신하는 것을 목표로 한다.
+- 장마감 후 자동 quick maintenance 는 `run_post_close_ml_maintenance.sh --quick` 로 runtime report, 품질 진단, 제한 LightGBM 학습, challenger 평가, dashboard snapshot 을 10분 안에 갱신하는 것을 목표로 한다.
 - heavy research 는 `run_post_close_ml_maintenance.sh --heavy-research --use-snapshot` 처럼 명시적으로 실행할 때만 snapshot DB에서 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 재구축을 수행한다.
 - post-close maintenance 는 최신 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, heavy research 의 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
-- post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 pre-open warmup 으로 live runtime 을 미리 켠다.
+- post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 `pre-open` warmup 으로 live runtime 을 미리 켠다. 그보다 이른 거래일 새벽/야간 시간은 `overnight`로 구분해 live runtime 이 꺼진 상태를 정상으로 본다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - runtime watchdog 상태 조회는 프로세스 존재뿐 아니라 `last_checked_at` 심박 나이도 확인한다. 기본 10분 이상 심박이 멈추면 `stale` 로 보고, 시작 스크립트는 같은 watchdog 프로세스를 재사용하지 않고 재시작한다.
 - 정규장에 live runtime 이 이미 최신 분봉을 쓰고 있으면 watchdog 은 별도 KIS 검증 WebSocket 을 중복으로 열지 않고, live runtime 의 실제 데이터 흐름을 우선 신뢰한다.
@@ -129,6 +134,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - audit progress JSON 배열 정합성 보강
 - `scripts/start_repo_review_until_deadline_background.sh` 로 특정 시각까지 저장소 전체점검을 반복 실행할 수 있다.
 - bounded repo review runner 는 공백이 있는 workspace 경로에서도 하위 bash 호출이 끊기지 않도록 인자 인용과 iteration timeout 을 보강했다.
+- 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper, account snapshot probe, synthetic WS recovery probe, live 주문/체결/감사/알림 원장 골격, readiness dry-run, KIS paper fixture redaction/export helper 가 추가되었다. 현재는 runtime 실전 주문 경로에 연결하지 않은 안전 검증 골격이다.
 
 현재 기준 버전은 `0.2.0` 이다.
 
@@ -280,6 +286,8 @@ challenger 비교:
 python -m app --run-challengers --horizon-min 15
 ```
 
+기본 실행은 PC 안정성을 위해 최근 labeled feature row `250,000`건만 읽는다. 전체 이력으로 평가해야 할 때만 `--challenger-max-rows 0`을 명시한다.
+
 이제 challenger는 학습 validation 구간을 다시 평가 구간으로 쓰지 않고 마지막 tail `10%`를 reserved holdout으로 분리해 평가한다. candidate별 `evaluation_independence_status`를 기록하고, 최신 walk-forward 결과도 함께 읽어 `promote`, `keep_active`, `review_required` 중 하나를 내린다. LightGBM artifact에는 `training_run_id`와 holdout metadata를 저장하며, DB 최신 training row와 artifact의 run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다. 재학습 뒤 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, 승격 검토는 재학습 직후 challenger를 이어서 실행한다.
 
 active model을 안전하게 baseline으로 고정:
@@ -294,7 +302,7 @@ LightGBM shadow 학습:
 python -m app --train-lightgbm --horizon-min 15
 ```
 
-이 명령은 이제 artifact와 평가 기록만 만들고, active model을 자동으로 교체하지 않는다.
+이 명령은 이제 artifact와 평가 기록만 만들고, active model을 자동으로 교체하지 않는다. 기본 실행은 최근 labeled feature row `250,000`건으로 제한하며, 전체 이력 학습은 `--train-lightgbm-max-rows 0`을 명시했을 때만 수행한다.
 
 Cybos 실제 15분봉만 사용하는 bar-only 기준선 실험:
 
@@ -452,7 +460,7 @@ runtime watchdog background 시작 / 상태 / 중지:
 ./scripts/stop_runtime_watchdog.sh
 ```
 
-runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 WebSocket 재연결 루프를 막는다. 다만 일반 거래일의 정규장 시작 60분 전부터는 pre-open warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다.
+runtime watchdog 은 정규장에는 dashboard 와 live runtime 이 둘 다 살아 있는지 보고 꺼져 있으면 다시 올린다. 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 새로 켜지 않고, 켜져 있으면 중지 상태로 둬서 WebSocket 재연결 루프를 막는다. 다만 일반 거래일의 정규장 시작 60분 전부터는 `pre-open` warmup 으로 live runtime 을 미리 켜서 장 시작 직후 수집 지연을 줄인다. 그보다 이른 시간은 `overnight` 상태로 표시한다.
 다만 root `.env` 가 없거나 KIS 자격정보가 비어 있으면 live runtime 은 `blocked` 상태로 두고 무한 재시도를 멈춘다.
 반대로 root `.env` 와 현재 trading mode 기준 KIS app key/secret 이 다시 준비되면, stale blocked 상태는 `stopped` 로 정리되고 다음 watchdog cycle 에서 재기동을 다시 시도할 수 있다.
 상태 파일은 `runtime-data/reports/runtime-watchdog/state/watchdog-state.json` 에 남는다.
@@ -584,6 +592,10 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 
 자동 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 쌓이고 repo-tracked 파일은 건드리지 않는다.
 
+Codex 운영 보조 job 산출물은 `runtime-data/reports/codex/ops/` 아래에 둔다. 장중 incident patch 초안은 `.tmp-tests/codex-ops/` 아래에만 만들고 자동 cleanup 대상에서 제외한다. 실제 root 코드 적용, 운영 DB schema apply, runtime restart, 실전 주문 관련 flag 변경은 Codex 운영 job이 자동으로 수행하지 않는다. 현재 wrapper는 `scripts/run_codex_ops_job.sh --job-type premarket-readiness` dry-run report와 `scripts/run_live_readiness_dry_run.sh` fixture 기반 readiness report 생성까지 구현되어 있으며 Codex CLI를 호출하지 않는다. live readiness dry-run은 token refresh, WebSocket recovery, account snapshot, market status, system clock, kill switch, database, disk space, dashboard, storage migration state 10개 check를 요구한다. `token_refresh` check는 `scripts/probe_kis_token_refresh.sh`가 paper/live 인증 refresh 결과에서 token 원문 없이 sanitized JSON을 만든 경우에만 통과 후보가 된다. `account_snapshot` check는 `scripts/probe_kis_account_snapshot.sh`가 read-only 계좌 snapshot 조회 결과에서 계좌번호 없이 sanitized JSON을 만든 경우에만 통과 후보가 된다. `ws_recovery` check는 `scripts/probe_kis_ws_recovery.sh`가 실제 WebSocket 네트워크를 열지 않는 synthetic fault injection 결과를 만든 경우에만 통과 후보가 된다. 실제 KIS WebSocket 복구 관측은 Phase 1 read-only 진입 뒤 별도로 수집한다. `market_status` check는 `scripts/probe_market_status_snapshot.sh`가 repo 내부 수동 snapshot을 읽어 모든 요청 종목이 거래 가능하다고 판단한 경우에만 통과 후보가 된다. KIS/거래소 자동 원천은 아직 연결하지 않는다. `system_clock` check는 fixture/dry-run 결과 또는 `scripts/probe_kis_clock_reference.sh`가 read-only 현재가 조회 1회로 생성한 sanitized check JSON을 `--system-clock-check-path`로 넘긴 경우에만 통과 후보가 된다. `scripts/build_live_readiness_fixture_snapshot.sh`는 기존 premarket report, token refresh check, account snapshot check, synthetic WS recovery check, market status check, system clock check, kill switch 상태 파일을 읽어 로컬로 증명 가능한 check만 fixture JSON으로 묶는다. market status check 파일이 없으면 자동으로 통과시키지 않는다. `database` check는 premarket report에서 SQLite read-only smoke로 확인하며 storage migration state와 분리한다. 기본 실행은 JSON only이고, SQLite 기록은 `--record --database-path <repo 내부 경로>`를 명시한 경우에만 수행한다. `scripts/set_live_kill_switch.sh`는 기본 dry-run/status이며 실제 ON/OFF 파일 기록은 `--apply`가 있을 때만 수행한다. OFF 해제는 실수 방지를 위해 `--disable --apply --confirm-disable`을 요구한다.
+
+2026-05-23 기준으로 timestamp가 있는 readiness 증거는 key별 freshness 기준을 넘으면 `stale_evidence`로 차단한다. 현재 기준은 `system_clock/ws_recovery=30분`, `account_snapshot/market_status=1시간`, `token_refresh=4시간`이다. `account_snapshot`은 row count뿐 아니라 `cash_balance`, `stock_evaluation_amount`, `total_asset_amount` shape 존재와 값 타입 drift까지 확인한다. Phase 2/3에서는 synthetic `ws_recovery`가 readiness와 live submit guard 양쪽에서 거부되며, 실제 KIS WebSocket 관측 evidence type이 있어야 broker 호출 전 가드를 통과할 수 있다. WS evidence type은 `app/services/ws_recovery_evidence.py`의 단일 정의를 사용한다. Dashboard의 live readiness 카드에는 `ws_recovery` evidence type, 실제 증거 여부, freshness, stable frame, reconnect storm 여부를 read-only로 표시한다. HTTP `Date` 기반 `system_clock` skew는 초 단위 header 한계 때문에 밀리초 정밀도가 아니라 대략 1초 이내 여부를 보는 증거다. `scripts/probe_kis_clock_reference.sh --compare-paper-live`는 주문 메서드 없는 read-only quote로 paper/live HTTP `Date` reference를 각각 1회 비교하는 sanitized 진단 JSON을 만들 수 있다.
+
 버전은 작업 마지막에 바꾸고, watcher가 그 변화를 감지해 자동 commit/push 또는 기존 release commit push를 수행한다.
 
 ## 현재 ML 운용 기준
@@ -615,11 +627,13 @@ repo audit 스크립트는 WSL2의 `git` 을 기준으로 현재 저장소 상�
 <!-- NAS_BACKUP_START -->
 ## NAS Backup
 
-- NAS share root: \\192.168.0.2\backup
-- Repository backup path: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
-- Full backups only, with the latest 3 packages retained.
-- Regular backup cadence: weekly.
-- Forced backups are used for important periods and risky changes.
+- NAS 공유 루트: \\192.168.0.2\backup
+- 저장소 백업 경로: \\192.168.0.2\backup\repos\real-time-stock-price-prediction-program\recovery-exports
+- NAS 백업은 재난 복구용 전체 백업과 실전 전환 검증용 sanitized recovery export를 구분한다.
+- 재난 복구용 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이며, 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있다.
+- 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시(`runtime-data/cache/kis`), runtime 로그(`runtime-data/logs`), private key 계열 파일을 제외한다. cowork 전달이나 readiness 증거는 이 sanitized 기준만 사용한다.
+- 정기 백업 주기는 주 1회이며, 최신 3개 package를 보관한다.
+- 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
 
 Weekly backup:
 ```powershell

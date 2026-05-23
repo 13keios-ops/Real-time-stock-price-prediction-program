@@ -1,6 +1,8 @@
 import json
+import datetime as dt
 import subprocess
 import sys
+import tarfile
 import tempfile
 from contextlib import redirect_stdout
 from io import StringIO
@@ -10,6 +12,105 @@ import unittest
 from unittest.mock import patch
 
 from scripts import wsl_ops
+
+
+class WslOpsMarketSettingsTests(unittest.TestCase):
+    def _status_at(self, timestamp_text: str, *, pre_open_warmup_minutes: int = 60) -> tuple[str, bool, bool]:
+        class FixedDateTime(dt.datetime):
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                value = dt.datetime.fromisoformat(timestamp_text)
+                if tz is not None:
+                    return value.replace(tzinfo=tz)
+                return value
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config"
+            config.mkdir()
+            (config / "market_calendar.toml").write_text(
+                "session_open = '09:00'\nsession_close = '15:30'\nholidays = []\n",
+                encoding="utf-8",
+            )
+            with patch("scripts.wsl_ops.dt.datetime", FixedDateTime):
+                return wsl_ops.market_settings(root, pre_open_warmup_minutes=pre_open_warmup_minutes)
+
+    def test_market_settings_distinguishes_overnight_from_pre_open_warmup(self) -> None:
+        self.assertEqual(self._status_at("2026-05-21T00:30:00"), ("overnight", False, False))
+        self.assertEqual(self._status_at("2026-05-21T07:59:59"), ("overnight", False, False))
+        self.assertEqual(self._status_at("2026-05-21T08:00:00"), ("pre-open", False, True))
+        self.assertEqual(self._status_at("2026-05-21T09:00:00"), ("regular-session", True, True))
+        self.assertEqual(self._status_at("2026-05-21T15:31:00"), ("post-close", False, False))
+
+    def test_market_settings_uses_configured_warmup_minutes(self) -> None:
+        self.assertEqual(
+            self._status_at("2026-05-21T07:30:00", pre_open_warmup_minutes=120),
+            ("pre-open", False, True),
+        )
+        self.assertEqual(
+            self._status_at("2026-05-21T08:30:00", pre_open_warmup_minutes=0),
+            ("overnight", False, False),
+        )
+
+
+class WslOpsRecoveryExportTests(unittest.TestCase):
+    def test_export_recovery_includes_live_ops_paths_and_excludes_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            dest = Path(tmp) / "exports"
+            (root / "app/services").mkdir(parents=True)
+            (root / "runtime-data/reports/alerts/local").mkdir(parents=True)
+            (root / "runtime-data/reports/live-risk").mkdir(parents=True)
+            (root / "runtime-data/reports/live-approvals").mkdir(parents=True)
+            (root / "runtime-data/ops/2026-05-18").mkdir(parents=True)
+            (root / "runtime-data/ml/registry-backups").mkdir(parents=True)
+            (root / "runtime-data/logs/app").mkdir(parents=True)
+            (root / "runtime-data/cache/kis").mkdir(parents=True)
+
+            (root / "app/services/example.py").write_text("print('ok')\n", encoding="utf-8")
+            (root / "runtime-data/reports/alerts/local/alerts-2026-05-18.jsonl").write_text("{}\n", encoding="utf-8")
+            (root / "runtime-data/reports/live-risk/kill-switch.json").write_text("{}", encoding="utf-8")
+            (root / "runtime-data/reports/live-approvals/latest-approval.json").write_text("{}", encoding="utf-8")
+            (root / "runtime-data/ops/2026-05-18/live_audit_events.jsonl").write_text("{}\n", encoding="utf-8")
+            (root / "runtime-data/ml/registry-backups/registry-1.json").write_text("{}", encoding="utf-8")
+            (root / "runtime-data/logs/app/app.log").write_text("secret-ish log\n", encoding="utf-8")
+            (root / "runtime-data/cache/kis/token.json").write_text("token\n", encoding="utf-8")
+            (root / ".env").write_text("KIS_APP_SECRET=secret\n", encoding="utf-8")
+            (root / ".env.local").write_text("KIS_APP_SECRET=secret\n", encoding="utf-8")
+            (root / ".env.example").write_text("KIS_APP_SECRET=example\n", encoding="utf-8")
+            (root / "private.key").write_text("key\n", encoding="utf-8")
+            (root / "id_ed25519").write_text("key\n", encoding="utf-8")
+
+            args = Namespace(
+                repo_root=str(root),
+                destination_root=str(dest),
+                package_prefix="recovery-test",
+                keep_count=0,
+                dry_run=False,
+                include_artifacts=False,
+                backup_mode="Manual",
+                backup_reason="unit-test",
+            )
+            with redirect_stdout(StringIO()):
+                wsl_ops.export_recovery(args)
+
+            archives = list(dest.glob("recovery-test-*.tar.gz"))
+            self.assertEqual(len(archives), 1)
+            with tarfile.open(archives[0], "r:gz") as archive:
+                names = set(archive.getnames())
+
+            self.assertIn("runtime-data/reports/alerts/local/alerts-2026-05-18.jsonl", names)
+            self.assertIn("runtime-data/reports/live-risk/kill-switch.json", names)
+            self.assertIn("runtime-data/reports/live-approvals/latest-approval.json", names)
+            self.assertIn("runtime-data/ops/2026-05-18/live_audit_events.jsonl", names)
+            self.assertIn("runtime-data/ml/registry-backups/registry-1.json", names)
+            self.assertNotIn(".env", names)
+            self.assertNotIn(".env.local", names)
+            self.assertNotIn(".env.example", names)
+            self.assertNotIn("runtime-data/logs/app/app.log", names)
+            self.assertNotIn("runtime-data/cache/kis/token.json", names)
+            self.assertNotIn("private.key", names)
+            self.assertNotIn("id_ed25519", names)
 
 
 class WslOpsPaperDualAccountMatchTests(unittest.TestCase):

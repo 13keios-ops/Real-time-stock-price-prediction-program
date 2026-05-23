@@ -175,7 +175,7 @@ PY
 market_session_status() {
   local workspace_root="$1"
   "$PYTHON_BIN" - "$workspace_root" <<'PY'
-from datetime import datetime, time
+from datetime import datetime, timedelta
 from pathlib import Path
 import re
 import sys
@@ -202,9 +202,12 @@ elif now.strftime("%Y-%m-%d") in holidays:
 else:
     open_h, open_m = [int(x) for x in settings["session_open"].split(":")[:2]]
     close_h, close_m = [int(x) for x in settings["session_close"].split(":")[:2]]
-    if now.time() < time(open_h, open_m):
-        print("pre-open")
-    elif now.time() > time(close_h, close_m):
+    opened = now.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+    closed = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
+    if now < opened:
+        warmup_start = opened - timedelta(minutes=60)
+        print("pre-open" if warmup_start <= now < opened else "overnight")
+    elif now > closed:
         print("post-close")
     else:
         print("regular-session")

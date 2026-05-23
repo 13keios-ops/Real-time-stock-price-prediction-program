@@ -38,8 +38,13 @@ def is_market_holiday(market_calendar: Any, timestamp: datetime) -> bool:
     return timestamp.date().isoformat() in holiday_dates
 
 
-def get_market_session_status(market_calendar: Any, timestamp: datetime) -> str:
-    """Classify the timestamp as weekend, holiday, pre-open, regular-session, or post-close."""
+def get_market_session_status(
+    market_calendar: Any,
+    timestamp: datetime,
+    *,
+    pre_open_warmup_minutes: int = 60,
+) -> str:
+    """Classify the timestamp as weekend, holiday, overnight, pre-open, regular-session, or post-close."""
 
     if timestamp.weekday() >= 5:
         return "weekend"
@@ -50,7 +55,17 @@ def get_market_session_status(market_calendar: Any, timestamp: datetime) -> str:
     session_open = parse_hhmm(market_calendar.session_open)
     session_close = parse_hhmm(market_calendar.session_close)
     if current_time < session_open:
-        return "pre-open"
+        session_open_at = timestamp.replace(
+            hour=session_open.hour,
+            minute=session_open.minute,
+            second=0,
+            microsecond=0,
+        )
+        warmup_minutes = max(0, int(pre_open_warmup_minutes))
+        warmup_start_at = session_open_at - timedelta(minutes=warmup_minutes)
+        if warmup_start_at <= timestamp < session_open_at:
+            return "pre-open"
+        return "overnight"
     if current_time > session_close:
         return "post-close"
     return "regular-session"

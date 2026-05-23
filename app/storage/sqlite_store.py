@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import sqlite3
 import time
 from collections.abc import Iterable
@@ -19,6 +18,15 @@ from app.storage.contracts import (
     Fill,
     BrokerOrderStatusSnapshot,
     BrokerOrderSubmission,
+    LiveAuditEvent,
+    LiveFill,
+    LiveOrder,
+    LiveOrderEvent,
+    LivePhaseApproval,
+    LivePortfolioSnapshot,
+    LivePosition,
+    LiveReadinessRun,
+    MarketStatusSnapshot,
     MarketTickEvent,
     MinuteBar,
     ModelEvaluation,
@@ -40,6 +48,17 @@ from app.storage.contracts import (
 logger = logging.getLogger(__name__)
 
 SQLITE_JOURNAL_MODE_FALLBACKS = ("WAL", "DELETE", "MEMORY")
+LIVE_OPEN_ORDER_STATUSES = (
+    "intent_created",
+    "submit_pending",
+    "submitted",
+    "accepted",
+    "open",
+    "partially_filled",
+    "cancel_requested",
+    "unknown",
+    "stuck",
+)
 
 
 def resolve_sqlite_path(database_url: str, project_root: Path) -> Path | None:
@@ -286,6 +305,234 @@ class SQLiteRuntimeStore:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS market_status_snapshots (
+                snapshot_id TEXT PRIMARY KEY,
+                trading_day TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                source TEXT NOT NULL,
+                symbol_set_hash TEXT NOT NULL,
+                status_json TEXT NOT NULL,
+                stale_after TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_market_status_day_hash
+            ON market_status_snapshots(trading_day, symbol_set_hash)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_orders (
+                order_id TEXT PRIMARY KEY,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                trading_day TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                filled_qty INTEGER NOT NULL,
+                remaining_qty INTEGER NOT NULL,
+                order_type TEXT NOT NULL,
+                limit_price REAL NOT NULL,
+                avg_fill_price REAL NOT NULL,
+                status TEXT NOT NULL,
+                prediction_id TEXT NOT NULL,
+                signal_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                gate_decision_id TEXT NOT NULL,
+                market_status_snapshot_id TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                broker_order_no TEXT NOT NULL,
+                broker_branch_no TEXT NOT NULL,
+                reject_reason TEXT,
+                cancel_reason TEXT,
+                parent_order_id TEXT,
+                created_at TEXT NOT NULL,
+                submitted_at TEXT,
+                last_synced_at TEXT,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_orders_status_symbol_day
+            ON live_orders(status, symbol, trading_day)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_orders_broker
+            ON live_orders(broker_branch_no, broker_order_no)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_orders_parent
+            ON live_orders(parent_order_id)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_order_events (
+                order_event_id TEXT PRIMARY KEY,
+                order_id TEXT NOT NULL,
+                event_time TEXT NOT NULL,
+                from_status TEXT NOT NULL,
+                to_status TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_order_events_order_time
+            ON live_order_events(order_id, event_time)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_fills (
+                fill_id TEXT PRIMARY KEY,
+                order_id TEXT NOT NULL,
+                broker_order_no TEXT NOT NULL,
+                broker_branch_no TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                trading_day TEXT NOT NULL,
+                event_time TEXT NOT NULL,
+                side TEXT NOT NULL,
+                fill_qty INTEGER NOT NULL,
+                fill_price REAL NOT NULL,
+                commission REAL NOT NULL,
+                tax REAL NOT NULL,
+                fee REAL NOT NULL,
+                settlement_day TEXT NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_fills_order_time
+            ON live_fills(order_id, event_time)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_fills_broker
+            ON live_fills(broker_branch_no, broker_order_no)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_fills_symbol_day
+            ON live_fills(symbol, trading_day)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_positions (
+                symbol TEXT PRIMARY KEY,
+                trading_day TEXT NOT NULL,
+                opened_at TEXT,
+                updated_at TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                avg_price REAL NOT NULL,
+                last_price REAL NOT NULL,
+                market_value REAL NOT NULL,
+                cost_basis REAL NOT NULL,
+                realized_pnl REAL NOT NULL,
+                unrealized_pnl REAL NOT NULL,
+                day_realized_pnl REAL NOT NULL,
+                broker_qty INTEGER NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_positions_updated_at
+            ON live_positions(updated_at)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_portfolio_snapshots (
+                snapshot_id TEXT PRIMARY KEY,
+                trading_day TEXT NOT NULL,
+                event_time TEXT NOT NULL,
+                cash_balance REAL NOT NULL,
+                available_cash REAL NOT NULL,
+                unsettled_cash REAL NOT NULL,
+                gross_market_value REAL NOT NULL,
+                net_liquidation_value REAL NOT NULL,
+                realized_pnl REAL NOT NULL,
+                unrealized_pnl REAL NOT NULL,
+                daily_pnl REAL NOT NULL,
+                open_positions INTEGER NOT NULL,
+                margin_requirement REAL NOT NULL,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_portfolio_snapshots_time
+            ON live_portfolio_snapshots(event_time)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS ops_live_audit_events (
+                audit_event_id TEXT PRIMARY KEY,
+                event_time TEXT NOT NULL,
+                trading_day TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                order_id TEXT NOT NULL,
+                prediction_id TEXT NOT NULL,
+                signal_id TEXT NOT NULL,
+                gate_decision_id TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                data_snapshot_id TEXT NOT NULL,
+                previous_hash TEXT NOT NULL,
+                event_hash TEXT NOT NULL UNIQUE,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_ops_live_audit_order_time
+            ON ops_live_audit_events(order_id, event_time)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_ops_live_audit_hash
+            ON ops_live_audit_events(event_hash)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_phase_approvals (
+                approval_id TEXT PRIMARY KEY,
+                phase TEXT NOT NULL,
+                trading_day TEXT NOT NULL,
+                approved_at TEXT NOT NULL,
+                approved_by TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                max_symbols INTEGER NOT NULL,
+                max_parent_orders INTEGER NOT NULL,
+                max_notional REAL NOT NULL,
+                daily_loss_limit_pct REAL NOT NULL,
+                per_symbol_loss_limit_pct REAL NOT NULL,
+                slippage_budget_bps REAL NOT NULL,
+                approval_hash TEXT NOT NULL UNIQUE,
+                detail_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_phase_approvals_day_phase
+            ON live_phase_approvals(trading_day, phase)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_phase_approvals_expires
+            ON live_phase_approvals(expires_at)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS live_readiness_runs (
+                readiness_id TEXT PRIMARY KEY,
+                trading_day TEXT NOT NULL,
+                checked_at TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                status TEXT NOT NULL,
+                passed INTEGER NOT NULL,
+                token_refresh_ok INTEGER NOT NULL,
+                ws_recovery_ok INTEGER NOT NULL,
+                account_snapshot_ok INTEGER NOT NULL,
+                market_status_ok INTEGER NOT NULL,
+                kill_switch_ok INTEGER NOT NULL,
+                database_ok INTEGER NOT NULL,
+                checks_json TEXT NOT NULL,
+                report_path TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_live_readiness_runs_day_phase
+            ON live_readiness_runs(trading_day, phase)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS ops_risk_events (
                 risk_event_id TEXT PRIMARY KEY,
                 symbol TEXT NOT NULL,
@@ -417,11 +664,12 @@ class SQLiteRuntimeStore:
             connection.execute(f"PRAGMA wal_checkpoint({normalized_mode})")
 
     def backup_database(self, backup_path: Path) -> Path:
+        """Create a consistent SQLite backup, including committed WAL pages."""
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         if backup_path.exists():
             backup_path.unlink()
-        self.checkpoint_wal("TRUNCATE")
-        shutil.copy2(self.database_path, backup_path)
+        with closing(self._connect()) as source, closing(sqlite3.connect(backup_path)) as target:
+            source.backup(target)
         return backup_path
 
 
@@ -486,6 +734,26 @@ class SQLiteRuntimeStore:
                     raise
         if last_error is not None:
             raise last_error
+
+    def _run_write_query_rowcount(self, query: str, params: tuple[Any, ...] = ()) -> int:
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.write_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            try:
+                with closing(self._connect()) as connection:
+                    cursor = connection.execute(query, params)
+                    connection.commit()
+                    return int(cursor.rowcount or 0)
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.write_retry_delays) - 1:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return 0
 
     @staticmethod
     def _is_missing_table_error(exc: sqlite3.OperationalError, table_name: str) -> bool:
@@ -846,6 +1114,445 @@ class SQLiteRuntimeStore:
             ),
         )
 
+    def insert_market_status_snapshot(self, snapshot: MarketStatusSnapshot) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO market_status_snapshots(
+                snapshot_id, trading_day, created_at, source, symbol_set_hash, status_json, stale_after
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot.snapshot_id,
+                snapshot.trading_day,
+                self._dt(snapshot.created_at),
+                snapshot.source,
+                snapshot.symbol_set_hash,
+                self._json(snapshot.status_json),
+                self._dt(snapshot.stale_after),
+            ),
+        )
+
+    def insert_live_order(self, order: LiveOrder) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_orders(
+                order_id, idempotency_key, trading_day, phase, symbol, side, qty, filled_qty,
+                remaining_qty, order_type, limit_price, avg_fill_price, status, prediction_id, signal_id,
+                target_id, gate_decision_id, market_status_snapshot_id, model_version, rule_version,
+                broker_order_no, broker_branch_no, reject_reason, cancel_reason, parent_order_id,
+                created_at, submitted_at, last_synced_at, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                order.order_id,
+                order.idempotency_key,
+                order.trading_day,
+                order.phase,
+                order.symbol,
+                order.side,
+                order.qty,
+                order.filled_qty,
+                order.remaining_qty,
+                order.order_type,
+                order.limit_price,
+                order.avg_fill_price,
+                order.status,
+                order.prediction_id,
+                order.signal_id,
+                order.target_id,
+                order.gate_decision_id,
+                order.market_status_snapshot_id,
+                order.model_version,
+                order.rule_version,
+                order.broker_order_no,
+                order.broker_branch_no,
+                order.reject_reason,
+                order.cancel_reason,
+                order.parent_order_id,
+                self._dt(order.created_at),
+                self._dt(order.submitted_at) if order.submitted_at else None,
+                self._dt(order.last_synced_at) if order.last_synced_at else None,
+                self._json(order.detail_json),
+            ),
+        )
+
+    def insert_live_order_event(self, event: LiveOrderEvent) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_order_events(
+                order_event_id, order_id, event_time, from_status, to_status, event_type, actor, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.order_event_id,
+                event.order_id,
+                self._dt(event.event_time),
+                event.from_status,
+                event.to_status,
+                event.event_type,
+                event.actor,
+                self._json(event.detail_json),
+            ),
+        )
+
+    def fetch_live_order(self, order_id: str) -> sqlite3.Row | None:
+        row = self._run_safe_read_query(
+            "SELECT * FROM live_orders WHERE order_id = ?",
+            (order_id,),
+            single=True,
+            missing_tables=("live_orders",),
+        )
+        return row if isinstance(row, sqlite3.Row) else None
+
+    def fetch_live_order_by_idempotency_key(self, idempotency_key: str) -> sqlite3.Row | None:
+        row = self._run_safe_read_query(
+            "SELECT * FROM live_orders WHERE idempotency_key = ?",
+            (idempotency_key,),
+            single=True,
+            missing_tables=("live_orders",),
+        )
+        return row if isinstance(row, sqlite3.Row) else None
+
+    def update_live_order_transition(
+        self,
+        *,
+        order_id: str,
+        status: str,
+        filled_qty: int | None = None,
+        remaining_qty: int | None = None,
+        avg_fill_price: float | None = None,
+        broker_order_no: str,
+        broker_branch_no: str,
+        reject_reason: str | None,
+        cancel_reason: str | None,
+        submitted_at: datetime | None,
+        last_synced_at: datetime | None,
+        detail_json: dict[str, Any],
+    ) -> None:
+        self._run_write_query(
+            """
+            UPDATE live_orders
+            SET status = ?,
+                filled_qty = COALESCE(?, filled_qty),
+                remaining_qty = COALESCE(?, remaining_qty),
+                avg_fill_price = COALESCE(?, avg_fill_price),
+                broker_order_no = ?,
+                broker_branch_no = ?,
+                reject_reason = ?,
+                cancel_reason = ?,
+                submitted_at = ?,
+                last_synced_at = ?,
+                detail_json = ?
+            WHERE order_id = ?
+            """,
+            (
+                status,
+                filled_qty,
+                remaining_qty,
+                avg_fill_price,
+                broker_order_no,
+                broker_branch_no,
+                reject_reason,
+                cancel_reason,
+                self._dt(submitted_at) if submitted_at else None,
+                self._dt(last_synced_at) if last_synced_at else None,
+                self._json(detail_json),
+                order_id,
+            ),
+        )
+
+    def insert_live_fill(self, fill: LiveFill) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_fills(
+                fill_id, order_id, broker_order_no, broker_branch_no, symbol, trading_day,
+                event_time, side, fill_qty, fill_price, commission, tax, fee, settlement_day, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            self._live_fill_values(fill),
+        )
+
+    def insert_live_fill_if_absent(self, fill: LiveFill) -> bool:
+        rowcount = self._run_write_query_rowcount(
+            """
+            INSERT OR IGNORE INTO live_fills(
+                fill_id, order_id, broker_order_no, broker_branch_no, symbol, trading_day,
+                event_time, side, fill_qty, fill_price, commission, tax, fee, settlement_day, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            self._live_fill_values(fill),
+        )
+        return rowcount > 0
+
+    def fetch_live_fill(self, fill_id: str) -> sqlite3.Row | None:
+        row = self._run_safe_read_query(
+            "SELECT * FROM live_fills WHERE fill_id = ?",
+            (fill_id,),
+            single=True,
+            missing_tables=("live_fills",),
+        )
+        return row if isinstance(row, sqlite3.Row) else None
+
+    def fetch_live_fill_totals(self, order_id: str) -> tuple[int, float]:
+        row = self._run_safe_read_query(
+            """
+            SELECT
+                COALESCE(SUM(fill_qty), 0) AS total_qty,
+                COALESCE(SUM(fill_qty * fill_price), 0.0) AS total_notional
+            FROM live_fills
+            WHERE order_id = ?
+            """,
+            (order_id,),
+            single=True,
+            missing_tables=("live_fills",),
+        )
+        if not isinstance(row, sqlite3.Row):
+            return 0, 0.0
+        return int(row["total_qty"] or 0), float(row["total_notional"] or 0.0)
+
+    def sum_live_fill_qty(self, order_id: str) -> int:
+        total_qty, _ = self.fetch_live_fill_totals(order_id)
+        return total_qty
+
+    def fetch_live_fills_for_trading_day(self, trading_day: str) -> list[sqlite3.Row]:
+        rows = self._run_safe_read_query(
+            """
+            SELECT *
+            FROM live_fills
+            WHERE trading_day = ?
+            ORDER BY event_time ASC, fill_id ASC
+            """,
+            (trading_day,),
+            missing_tables=("live_fills",),
+        )
+        return list(rows) if isinstance(rows, list) else []
+
+    @staticmethod
+    def _live_fill_values(fill: LiveFill) -> tuple[Any, ...]:
+        return (
+            fill.fill_id,
+            fill.order_id,
+            fill.broker_order_no,
+            fill.broker_branch_no,
+            fill.symbol,
+            fill.trading_day,
+            SQLiteRuntimeStore._dt(fill.event_time),
+            fill.side,
+            fill.fill_qty,
+            fill.fill_price,
+            fill.commission,
+            fill.tax,
+            fill.fee,
+            fill.settlement_day,
+            SQLiteRuntimeStore._json(fill.detail_json),
+        )
+
+    def upsert_live_position(self, position: LivePosition) -> None:
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO live_positions(
+                symbol, trading_day, opened_at, updated_at, qty, avg_price, last_price, market_value,
+                cost_basis, realized_pnl, unrealized_pnl, day_realized_pnl, broker_qty, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                position.symbol,
+                position.trading_day,
+                self._dt(position.opened_at) if position.opened_at else None,
+                self._dt(position.updated_at),
+                position.qty,
+                position.avg_price,
+                position.last_price,
+                position.market_value,
+                position.cost_basis,
+                position.realized_pnl,
+                position.unrealized_pnl,
+                position.day_realized_pnl,
+                position.broker_qty,
+                self._json(position.detail_json),
+            ),
+        )
+
+    def insert_live_portfolio_snapshot(self, snapshot: LivePortfolioSnapshot) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_portfolio_snapshots(
+                snapshot_id, trading_day, event_time, cash_balance, available_cash, unsettled_cash,
+                gross_market_value, net_liquidation_value, realized_pnl, unrealized_pnl, daily_pnl,
+                open_positions, margin_requirement, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot.snapshot_id,
+                snapshot.trading_day,
+                self._dt(snapshot.event_time),
+                snapshot.cash_balance,
+                snapshot.available_cash,
+                snapshot.unsettled_cash,
+                snapshot.gross_market_value,
+                snapshot.net_liquidation_value,
+                snapshot.realized_pnl,
+                snapshot.unrealized_pnl,
+                snapshot.daily_pnl,
+                snapshot.open_positions,
+                snapshot.margin_requirement,
+                self._json(snapshot.detail_json),
+            ),
+        )
+
+    def insert_live_audit_event(self, event: LiveAuditEvent) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO ops_live_audit_events(
+                audit_event_id, event_time, trading_day, event_type, actor, symbol, order_id,
+                prediction_id, signal_id, gate_decision_id, rule_version, model_version, data_snapshot_id,
+                previous_hash, event_hash, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.audit_event_id,
+                self._dt(event.event_time),
+                event.trading_day,
+                event.event_type,
+                event.actor,
+                event.symbol,
+                event.order_id,
+                event.prediction_id,
+                event.signal_id,
+                event.gate_decision_id,
+                event.rule_version,
+                event.model_version,
+                event.data_snapshot_id,
+                event.previous_hash,
+                event.event_hash,
+                self._json(event.detail_json),
+            ),
+        )
+
+    def fetch_live_audit_events(self, trading_day: str | None = None) -> list[sqlite3.Row]:
+        query = """
+            SELECT *
+            FROM ops_live_audit_events
+        """
+        params: tuple[Any, ...] = ()
+        if trading_day:
+            query += " WHERE trading_day = ?"
+            params = (trading_day,)
+        query += " ORDER BY event_time ASC, audit_event_id ASC"
+        rows = self._run_safe_read_query(query, params, missing_tables=("ops_live_audit_events",))
+        return list(rows) if isinstance(rows, list) else []
+
+    def insert_live_phase_approval(self, approval: LivePhaseApproval) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_phase_approvals(
+                approval_id, phase, trading_day, approved_at, approved_by, expires_at, scope,
+                max_symbols, max_parent_orders, max_notional, daily_loss_limit_pct,
+                per_symbol_loss_limit_pct, slippage_budget_bps, approval_hash, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                approval.approval_id,
+                approval.phase,
+                approval.trading_day,
+                self._dt(approval.approved_at),
+                approval.approved_by,
+                self._dt(approval.expires_at),
+                approval.scope,
+                approval.max_symbols,
+                approval.max_parent_orders,
+                approval.max_notional,
+                approval.daily_loss_limit_pct,
+                approval.per_symbol_loss_limit_pct,
+                approval.slippage_budget_bps,
+                approval.approval_hash,
+                self._json(approval.detail_json),
+            ),
+        )
+
+    def fetch_active_live_phase_approvals(
+        self,
+        *,
+        phase: str,
+        trading_day: str,
+        as_of: datetime,
+    ) -> list[sqlite3.Row]:
+        rows = self._run_safe_read_query(
+            """
+            SELECT *
+            FROM live_phase_approvals
+            WHERE phase = ?
+              AND trading_day = ?
+              AND approved_at <= ?
+              AND expires_at >= ?
+            ORDER BY approved_at DESC
+            """,
+            (phase, trading_day, self._dt(as_of), self._dt(as_of)),
+            missing_tables=("live_phase_approvals",),
+        )
+        return list(rows) if isinstance(rows, list) else []
+
+    def insert_live_readiness_run(self, run: LiveReadinessRun) -> None:
+        self._run_write_query(
+            """
+            INSERT INTO live_readiness_runs(
+                readiness_id, trading_day, checked_at, phase, status, passed, token_refresh_ok,
+                ws_recovery_ok, account_snapshot_ok, market_status_ok, kill_switch_ok, database_ok,
+                checks_json, report_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run.readiness_id,
+                run.trading_day,
+                self._dt(run.checked_at),
+                run.phase,
+                run.status,
+                int(run.passed),
+                int(run.token_refresh_ok),
+                int(run.ws_recovery_ok),
+                int(run.account_snapshot_ok),
+                int(run.market_status_ok),
+                int(run.kill_switch_ok),
+                int(run.database_ok),
+                self._json(run.checks_json),
+                run.report_path,
+            ),
+        )
+
+    def fetch_open_live_orders(
+        self,
+        trading_day: str | None = None,
+        statuses: tuple[str, ...] = LIVE_OPEN_ORDER_STATUSES,
+    ) -> list[sqlite3.Row]:
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        query = f"""
+            SELECT *
+            FROM live_orders
+            WHERE status IN ({placeholders})
+        """
+        params: tuple[Any, ...] = tuple(statuses)
+        if trading_day:
+            query += " AND trading_day = ?"
+            params = (*params, trading_day)
+        query += " ORDER BY created_at ASC"
+        rows = self._run_safe_read_query(query, params, missing_tables=("live_orders",))
+        return list(rows) if isinstance(rows, list) else []
+
+    def fetch_live_orders_for_trading_day(self, trading_day: str) -> list[sqlite3.Row]:
+        rows = self._run_safe_read_query(
+            """
+            SELECT *
+            FROM live_orders
+            WHERE trading_day = ?
+            ORDER BY created_at ASC
+            """,
+            (trading_day,),
+            missing_tables=("live_orders",),
+        )
+        return list(rows) if isinstance(rows, list) else []
+
     def update_paper_order_status(self, order_id: str, status: str) -> None:
         self._run_write_query(
             "UPDATE paper_orders SET status = ? WHERE order_id = ?",
@@ -1036,7 +1743,12 @@ class SQLiteRuntimeStore:
         )
         return list(rows) if isinstance(rows, list) else []
 
-    def fetch_feature_rows(self, horizon_min: int, market_source: str | None = None) -> list[sqlite3.Row]:
+    def fetch_feature_rows(
+        self,
+        horizon_min: int,
+        market_source: str | None = None,
+        max_rows: int | None = None,
+    ) -> list[sqlite3.Row]:
         query = """
             WITH orderbook_source_lookup AS (
                 SELECT
@@ -1089,7 +1801,11 @@ class SQLiteRuntimeStore:
                 )
             """
             params = (horizon_min, market_source)
-        query += " ORDER BY inputs.symbol, inputs.event_time"
+        if max_rows is not None and max_rows > 0:
+            query += " ORDER BY inputs.event_time DESC, inputs.symbol DESC LIMIT ?"
+            params = (*params, int(max_rows))
+        else:
+            query += " ORDER BY inputs.symbol, inputs.event_time"
         rows = self._run_safe_read_query(
             query,
             params,

@@ -193,8 +193,12 @@ class OnlinePipelineProcessor:
         if sqlite_store is None:
             return
         unresolved_statuses = {"created", "acknowledged", "submitted", "pending_lookup", "open", "partially_filled"}
-        for row in sqlite_store.fetch_all_rows("paper_orders", "event_time"):
-            payload = dict(row)
+        order_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        for payload in order_rows:
             if str(payload.get("status") or "") not in unresolved_statuses:
                 continue
             symbol = str(payload.get("symbol") or "")
