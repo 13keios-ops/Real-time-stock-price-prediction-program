@@ -201,8 +201,9 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 
 ## 8. 산출물 규칙
 
+- 작업 중 Codex가 경로를 지정할 수 있는 모든 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 D드라이브에만 저장한다. 캐시도 산출물로 취급하며, 새 작업에서 C드라이브나 OS 기본 임시 폴더를 저장 위치로 쓰지 않는다.
 - 현재 Ubuntu WSL2 배포판은 `D:\WSL\Ubuntu` 아래에 둔다. 따라서 WSL 저장소 내부의 `runtime-data/`, `.tmp-tests/`, 모델 산출물도 물리적으로 D드라이브에 위치하는 것을 기준으로 한다.
-- 이 저장소 작업에서 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
+- 이 저장소 작업에서 새 데이터 수집, 다운로드, 캐시, 스냅샷, 장기 보관, 대용량 임시 파일은 D드라이브만 사용한다. 도구가 내부적으로 강제하는 숨은 캐시도 경로를 지정할 수 있으면 `D:\CodexData\Real-time-stock-price-prediction-program\` 또는 WSL 저장소 내부 경로로 돌린다.
 - 누적 실행 산출물은 `runtime-data/` 아래에 둔다.
 - 새로 내려받거나 수집하는 대용량 외부 데이터는 WSL 저장소나 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관한다. WSL에서는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 접근한다.
 - Windows 전용 수집 스크립트가 임시 DB나 중간 파일을 만들 때도 기본값은 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래로 둔다. `C:\Temp`는 이 저장소 기본 경로로 사용하지 않는다.

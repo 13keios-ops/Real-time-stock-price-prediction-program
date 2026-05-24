@@ -15,11 +15,17 @@
 
 장중 운영은 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 live runtime 과 runtime watchdog 이 `runtime-data/dev.db`에 장중 KIS 데이터를 계속 저장하는 흐름이다. 연구 트랙은 같은 DB를 직접 무겁게 읽고 쓰지 않고, `scripts/create_research_db_snapshot.sh`로 SQLite backup 스냅샷을 만든 뒤 `DATABASE_URL`을 스냅샷 DB로 바꿔 실험한다.
 
-연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. D드라이브가 없으면 `runtime-data/research-snapshots/`로 내려간다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
+연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다. D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않고 경로 문제를 먼저 해결한다.
 
 장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작한다. quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
 
 quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feature/label 재생성은 포함하지 않는다. 장마감 뒤 h15/h60 라벨까지 닫아 학습 가능한 상태로 만들 때는 `./scripts/run_post_close_label_refresh.sh`를 별도로 실행한다. 이 경로는 `python -m app --build-feature-dataset` 후 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신하고 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다.
+
+## 로컬 데이터 저장 원칙
+
+작업 중 새로 생기는 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 모두 D드라이브에만 둔다. WSL 저장소 자체가 `D:\WSL\Ubuntu` 아래에 있으므로 저장소 내부 `runtime-data/`와 `.tmp-tests/`도 물리적으로 D드라이브 기준이다.
+
+저장소 밖에 둘 필요가 있는 대용량 외부 데이터, 연구 스냅샷, 장기 캐시는 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래를 기본 위치로 쓴다. WSL에서는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/`로 접근한다. 새 작업에서 `C:\Temp`, 사용자 홈의 기본 다운로드 폴더, OS 기본 임시 폴더를 저장 위치로 쓰지 않는다.
 
 ## 핵심 문서
 

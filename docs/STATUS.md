@@ -1,5 +1,19 @@
 # docs/STATUS.md
 
+## [2026-05-24] D드라이브 저장 원칙 강화
+
+- 기준:
+  - 작업 중 새로 생기는 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 모두 D드라이브에만 둔다.
+  - WSL 저장소 내부 `runtime-data/`, `.tmp-tests/`는 현재 WSL 배포판이 `D:\WSL\Ubuntu` 아래에 있으므로 물리적으로 D드라이브 기준이다.
+  - 저장소 밖 대용량 외부 데이터, 연구 스냅샷, 장기 캐시는 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래를 기본 위치로 쓴다.
+  - D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않고 경로 문제를 먼저 해결한다.
+- 반영:
+  - `AGENTS.md` 산출물 규칙 강화.
+  - `README.md`에 `로컬 데이터 저장 원칙` 섹션 추가.
+  - `docs/Current-Implementation.md`의 연구 산출물 fallback 표현 제거.
+- 주의:
+  - 아래 오래된 항목에 남아 있는 과거 fallback 표현보다 이 항목과 `AGENTS.md`의 최신 기준을 우선한다.
+
 ## [2026-05-13 23:15] 장후 label refresh 경로 추가
 
 - 목적:
@@ -737,7 +751,7 @@
   - 이동 후 `DistributionName=Ubuntu`, `BasePath=D:\WSL\Ubuntu`, `Version=2`로 확인했고, `wsl -d Ubuntu --exec /bin/bash -lc "echo ok"`가 성공했다.
   - Cybos 수집기 기본 DB 경로를 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`로 변경했다.
   - 병합 안내 경로도 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/cybos/cybos_collect.db` 기준으로 갱신했다.
-  - `AGENTS.md` 산출물 규칙에 D드라이브 우선 정책을 명시했다. 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
+  - `AGENTS.md` 산출물 규칙에 D드라이브 우선 정책을 명시했다. 2026-05-24 최신 기준에서는 캐시까지 포함해 Codex가 경로를 지정할 수 있는 모든 새 데이터 저장을 D드라이브로 제한한다.
 - 검증:
   - 이동 후 `C:` 여유 공간은 약 17GB로 회복됐다.
   - `python -m py_compile scripts/collect_cybos_historical.py` 통과.

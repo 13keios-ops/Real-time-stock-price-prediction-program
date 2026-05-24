@@ -1,5 +1,17 @@
 # 작업 기록
 
+## [2026-05-24] Codex -> D드라이브 저장 원칙 문서화 강화
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=stale`, `market_session_status=weekend`, `live_runtime_should_run=false`, `errors=[]`.
+- 변경:
+  - `AGENTS.md` 산출물 규칙에 Codex가 경로를 지정할 수 있는 모든 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 D드라이브에만 저장한다는 원칙을 명시했다.
+  - `README.md`에 `로컬 데이터 저장 원칙` 섹션을 추가해 저장소 내부 `runtime-data/`, `.tmp-tests/`는 `D:\WSL\Ubuntu` 때문에 물리적으로 D드라이브 기준이고, 저장소 밖 대용량 데이터와 장기 캐시는 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 둔다고 정리했다.
+  - `README.md`와 `docs/Current-Implementation.md`의 예전 fallback 문구를 제거하고, D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않는 기준으로 바꿨다.
+- 주의:
+  - 코드 변경, 런타임 재시작, DB schema apply, 실전 주문 관련 flag 변경 없음.
+
 ## [2026-05-23] Codex -> 휴장일 Phase 1 readiness 리허설
 
 - 상태:
@@ -2549,7 +2561,7 @@
   - Machine PATH의 `J:\Program Files\Git\Git\cmd`는 사용자 관리자 PowerShell 조치 후 제거된 것으로 확인했다.
   - 현재 Codex 앱 프로세스는 제거 전 PATH를 물고 있어 이 세션 일부 `wsl` 실행에는 경고가 남을 수 있다. 새 PowerShell 또는 Codex 재시작 후에는 사라지는 상태로 판단한다.
   - 앞으로 Cybos 수집 임시 DB도 C드라이브가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\cybos_collect.db`를 기본값으로 사용하도록 바꿨다.
-  - `AGENTS.md`에 D드라이브 우선 정책을 명시했다. 새 데이터 수집, 다운로드, 스냅샷, 장기 보관, 대용량 임시 파일은 어쩔 수 없는 OS/도구 캐시를 제외하고 D드라이브만 사용한다.
+  - `AGENTS.md`에 D드라이브 우선 정책을 명시했다. 2026-05-24 최신 기준에서는 캐시까지 포함해 Codex가 경로를 지정할 수 있는 모든 새 데이터 저장을 D드라이브로 제한한다.
 - 변경:
   - `AGENTS.md`: WSL 배포판 위치 `D:\WSL\Ubuntu`, 대용량 작업 D드라이브 우선, `C:\Temp` 기본 사용 금지 규칙 추가.
   - `scripts/collect_cybos_historical.py`: 기본 `--db-path`를 D드라이브 데이터 경로로 변경.
@@ -2719,7 +2731,7 @@
   - 장중 `수집 트랙`과 오프라인 `연구 트랙`을 명시적으로 분리했다.
   - live runtime/watchdog 은 계속 `runtime-data/dev.db`에 장중 KIS 체결/호가를 적재한다.
   - 연구/학습은 SQLite backup API로 만든 snapshot DB를 `DATABASE_URL`로 지정해 실행한다.
-  - 기본 snapshot / research run 보관 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래로 두고, D드라이브가 없을 때만 `runtime-data/` 아래 fallback을 사용한다.
+  - 기본 snapshot / research run 보관 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래로 둔다. 2026-05-24 최신 기준에서는 D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않는다.
   - `scripts/run_research_on_snapshot.sh -- python -m app ...` 형태로 기존 연구 명령을 live DB lock 없이 실행할 수 있게 했다.
 - 검증:
   - `bash -n scripts/create_research_db_snapshot.sh`
