@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import unittest
 from datetime import datetime
@@ -44,6 +45,42 @@ class PostCloseLabelRefreshScriptTests(unittest.TestCase):
 
         self.assertIn("already ok for today; skipping", result.stderr)
         self.assertIn('"mode": "post-close-label-refresh-live-db"', result.stdout)
+
+    def test_label_refresh_skips_on_configured_holiday(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        workspace = root / ".tmp-tests" / "post-close-label-refresh-holiday-workspace"
+        runtime_root = root / ".tmp-tests" / "post-close-label-refresh-holiday-runtime"
+        shutil.rmtree(workspace, ignore_errors=True)
+        shutil.rmtree(runtime_root, ignore_errors=True)
+        (workspace / "config").mkdir(parents=True, exist_ok=True)
+        (workspace / "config" / "market_calendar.toml").write_text(
+            "session_open = '09:00'\n"
+            "session_close = '15:30'\n"
+            f"holidays = ['{datetime.now().strftime('%Y-%m-%d')}']\n",
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(
+            [
+                "bash",
+                "scripts/run_post_close_label_refresh.sh",
+                "--recent-days",
+                "10",
+                "--workspace-root",
+                str(workspace),
+                "--runtime-data-dir",
+                str(runtime_root),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["skip_reason"], "market_session_holiday_no_post_close_label_refresh")
+        self.assertEqual(payload["tasks"], [])
 
     def test_dry_run_lists_label_refresh_steps(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -1,5 +1,24 @@
 # docs/STATUS.md
 
+## [2026-05-25] 휴장일 post-close 자동화 guard 보강
+
+- 원인:
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PostCloseOps`는 고정 시간표대로 실행되며, 등록된 action 안에서 `run_post_close_ml_maintenance.sh --quick`, `run_post_close_label_refresh.sh`, paper 정합성 확인, dashboard build를 직접 호출한다.
+  - 2026-05-25는 `config/market_calendar.toml` 기준 `holiday`였지만, 스크립트 wrapper 자체에는 holiday skip guard가 없어 장후 점검 산출물이 갱신됐다.
+- 확인:
+  - live runtime: `status=stopped`, `session_status=holiday`, `trading_mode=paper`.
+  - watchdog: `status=running`, `market_session_status=holiday`, `live_runtime_should_run=false`.
+  - 최신 paper dual account match 재확인: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`, 보유 포지션 `105560` 6주 로컬/KIS 일치.
+  - 열린 포지션이 있으므로 `-SyncInitialCash`는 실행하지 않는다. 갭이 0이라 `-AlignToBroker`도 실행하지 않았다.
+- 변경:
+  - `scripts/script_dispatch.sh`에서 post-close ML maintenance와 post-close label refresh가 `weekend` 또는 `holiday`이면 기본 실행에서 `skipped` 상태 파일만 쓰고 무거운 작업을 수행하지 않도록 했다.
+  - 수동 재실행이 필요한 경우에는 기존처럼 `--force`로 holiday guard를 우회할 수 있다.
+  - `tests/test_post_close_maintenance_script.py`, `tests/test_post_close_label_refresh_script.py`에 holiday skip 회귀 테스트를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script`: 7개 통과.
+  - `bash -n scripts/script_dispatch.sh scripts/run_post_close_ml_maintenance.sh scripts/run_post_close_label_refresh.sh`: 통과.
+  - 실제 2026-05-25 holiday 캘린더 기준 격리 runtime에서 두 wrapper 모두 `status=skipped` 확인.
+
 ## [2026-05-24] D드라이브 저장 원칙 강화
 
 - 기준:

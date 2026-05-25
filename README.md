@@ -114,7 +114,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - 장마감 후 자동 quick maintenance 는 `run_post_close_ml_maintenance.sh --quick` 로 runtime report, 품질 진단, 제한 LightGBM 학습, challenger 평가, dashboard snapshot 을 10분 안에 갱신하는 것을 목표로 한다.
 - heavy research 는 `run_post_close_ml_maintenance.sh --heavy-research --use-snapshot` 처럼 명시적으로 실행할 때만 snapshot DB에서 feature / label / LightGBM / backtest / walk-forward / challenger / dashboard 재구축을 수행한다.
 - post-close maintenance 는 최신 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 에 남기고, heavy research 의 실제 재구축 상세는 `runtime-data/reports/actual-ml/latest-rebuild.json` 에 남긴다.
-- post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 `pre-open` warmup 으로 live runtime 을 미리 켠다. 그보다 이른 거래일 새벽/야간 시간은 `overnight`로 구분해 live runtime 이 꺼진 상태를 정상으로 본다.
+- post-close ML maintenance 와 runtime watchdog 은 장외와 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 live runtime 을 다시 켜지 않아 WebSocket 재연결 루프가 CPU를 계속 쓰지 않도록 하되, 일반 거래일에는 정규장 시작 60분 전부터 `pre-open` warmup 으로 live runtime 을 미리 켠다. post-close ML maintenance 와 post-close label refresh wrapper 는 weekend/holiday 상태에서 기본 실행하면 `skipped` 상태 파일만 남기고 학습/라벨/대시보드 재생성 작업을 수행하지 않는다. 그보다 이른 거래일 새벽/야간 시간은 `overnight`로 구분해 live runtime 이 꺼진 상태를 정상으로 본다.
 - runtime watchdog 의 정규장 stale 복구는 검증용 단일 종목이 아니라 설정된 watchlist 로 live runtime 을 다시 시작한다.
 - runtime watchdog 상태 조회는 프로세스 존재뿐 아니라 `last_checked_at` 심박 나이도 확인한다. 기본 10분 이상 심박이 멈추면 `stale` 로 보고, 시작 스크립트는 같은 watchdog 프로세스를 재사용하지 않고 재시작한다.
 - 정규장에 live runtime 이 이미 최신 분봉을 쓰고 있으면 watchdog 은 별도 KIS 검증 WebSocket 을 중복으로 열지 않고, live runtime 의 실제 데이터 흐름을 우선 신뢰한다.

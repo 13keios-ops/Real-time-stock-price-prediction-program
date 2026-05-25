@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-25] Codex -> 휴장일 post-close 자동화 guard 보강
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=holiday`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=holiday`, `live_runtime_should_run=false`, `errors=[]`.
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PreOpenCheck`, `RealTimeStockRuntime_PostCloseOps`는 고정 시간표대로 실행됐고 `LastTaskResult=0`이었다.
+- 확인:
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`.
+  - KIS 모의계좌와 로컬 paper 모두 `105560` 6주 보유, 현금 `8,680,630`, 총자산 `9,640,630`으로 일치했다.
+  - 열린 포지션이 있으므로 `-SyncInitialCash`는 실행하지 않는 것이 맞고, 갭이 0이라 `-AlignToBroker`도 실행하지 않았다.
+  - `python -m app --build-dashboard`로 최신 갭 0 리포트를 대시보드에 반영했다. snapshot 갱신 시각은 `2026-05-25 18:07:20 +0900`.
+- 변경:
+  - `scripts/script_dispatch.sh`에 post-close holiday/weekend guard를 추가했다.
+  - `run_post_close_ml_maintenance.sh`와 `run_post_close_label_refresh.sh`는 기본 실행에서 `weekend` 또는 `holiday`이면 `skipped` 상태 파일만 남기고 학습/라벨/dashboard 재생성 작업을 수행하지 않는다.
+  - 수동 재실행이 필요한 경우에는 `--force`로 우회할 수 있다.
+  - `tests/test_post_close_maintenance_script.py`, `tests/test_post_close_label_refresh_script.py`에 holiday skip 회귀 테스트를 추가했다.
+- 검증:
+  - `python -m unittest tests.test_post_close_maintenance_script tests.test_post_close_label_refresh_script`: 7개 통과.
+  - `bash -n scripts/script_dispatch.sh scripts/run_post_close_ml_maintenance.sh scripts/run_post_close_label_refresh.sh`: 통과.
+  - 격리 runtime 기준 실제 holiday skip 확인: `market_session_holiday_no_post_close_maintenance`, `market_session_holiday_no_post_close_label_refresh`.
+- 주의:
+  - 실전 주문, live runtime restart, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-24] Codex -> D드라이브 저장 원칙 문서화 강화
 
 - 상태:

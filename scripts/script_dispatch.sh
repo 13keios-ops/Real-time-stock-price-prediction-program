@@ -435,6 +435,51 @@ post_close_data_root() {
   fi
 }
 
+write_post_close_skip_state() {
+  local state_path="$1" workspace="$2" runtime="$3" reason="$4" mode="$5" horizon="${6:-15}" recent_days="${7:-10}" skip_build="${8:-false}"
+  "$PYTHON_BIN" - "$state_path" "$workspace" "$runtime" "$reason" "$mode" "$horizon" "$recent_days" "$skip_build" <<'PY'
+import json
+import sys
+from datetime import datetime
+
+path, root, runtime, reason, mode, horizon, recent_days, skip_build = sys.argv[1:9]
+payload = {
+    "status": "skipped",
+    "maintenance_date": datetime.now().strftime("%Y-%m-%d"),
+    "completed_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z"),
+    "workspace_root": root,
+    "runtime_data_dir": runtime,
+    "mode": mode,
+    "skip_reason": reason,
+}
+if mode in {"quick-live-train", "heavy-snapshot", "heavy-live-db"}:
+    maintenance_scope = "quick" if mode == "quick-live-train" else "heavy"
+    payload.update(
+        {
+            "horizon_min": int(horizon),
+            "maintenance_scope": maintenance_scope,
+            "tasks": [],
+            "time_cap_target_minutes": 10 if maintenance_scope == "quick" else None,
+            "snapshot_path": "",
+            "snapshot_manifest_path": "",
+            "snapshot_runtime_data_dir": "",
+        }
+    )
+else:
+    payload.update(
+        {
+            "tasks": [],
+            "recent_days": int(recent_days),
+            "skipped_feature_label_build": skip_build == "true",
+            "time_cap_target_minutes": None,
+            "exit_code": 0,
+        }
+    )
+open(path, "w", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+print(json.dumps(payload, ensure_ascii=False, indent=2))
+PY
+}
+
 post_close_ml_maintenance() {
   local workspace="$REPO_ROOT" runtime="" horizon="15" use_snapshot="false" snapshot_dir="" run_dir="" maintenance_mode="quick" force_run="false"
   while [[ $# -gt 0 ]]; do
@@ -490,6 +535,15 @@ PY
       cat "$state_path"
       return 0
     fi
+  fi
+  local session_status
+  session_status="$(market_session_status "$workspace")"
+  if [[ "$force_run" != "true" && "$session_status" =~ ^(weekend|holiday)$ ]]; then
+    local skip_mode="quick-live-train"
+    [[ "$maintenance_mode" != "quick" && "$use_snapshot" == "true" ]] && skip_mode="heavy-snapshot"
+    [[ "$maintenance_mode" != "quick" && "$use_snapshot" != "true" ]] && skip_mode="heavy-live-db"
+    write_post_close_skip_state "$state_path" "$workspace" "$runtime" "market_session_${session_status}_no_post_close_maintenance" "$skip_mode" "$horizon"
+    return 0
   fi
   local snapshot_path="" snapshot_manifest="" snapshot_runtime="" database_url=""
   if [[ "$maintenance_mode" == "quick" ]]; then
@@ -628,6 +682,12 @@ PY
       cat "$state_path"
       return 0
     fi
+  fi
+  local session_status
+  session_status="$(market_session_status "$workspace")"
+  if [[ "$force_run" != "true" && "$dry_run" != "true" && "$session_status" =~ ^(weekend|holiday)$ ]]; then
+    write_post_close_skip_state "$state_path" "$workspace" "$runtime" "market_session_${session_status}_no_post_close_label_refresh" "post-close-label-refresh-live-db" "15" "$recent_days" "$skip_build"
+    return 0
   fi
 
   local tasks=()
