@@ -14,6 +14,32 @@ from unittest.mock import patch
 from scripts import wsl_ops
 
 
+class BrokerPaperMirroringHealthTests(unittest.TestCase):
+    def test_paper_mode_mirroring_is_informational_when_live_orders_disabled(self) -> None:
+        result = wsl_ops.broker_paper_mirroring_health(
+            {
+                "TRADING_MODE": "paper",
+                "ALLOW_LIVE_ORDERS": "false",
+                "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            }
+        )
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["level"], "info")
+        self.assertEqual(result["status"], "expected_phase0_paper_mirroring")
+
+    def test_mirroring_outside_phase0_profile_requires_review(self) -> None:
+        result = wsl_ops.broker_paper_mirroring_health(
+            {
+                "TRADING_MODE": "live",
+                "ALLOW_LIVE_ORDERS": "false",
+                "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            }
+        )
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["level"], "warning")
+        self.assertEqual(result["status"], "review_required")
+
+
 class WslOpsMarketSettingsTests(unittest.TestCase):
     def _status_at(self, timestamp_text: str, *, pre_open_warmup_minutes: int = 60) -> tuple[str, bool, bool]:
         class FixedDateTime(dt.datetime):

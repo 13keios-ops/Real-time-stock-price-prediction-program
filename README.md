@@ -401,6 +401,13 @@ python -m app --build-dashboard
 ./scripts/cleanup_runtime_test_data.sh
 ```
 
+테스트 실행 뒤 생긴 `.tmp-tests` 산출물, Python `__pycache__`, PowerShell provider prefix 오염 디렉터리를 점검하려면 아래를 사용한다. 기본은 dry-run 이며, 실제 삭제는 `--apply`를 붙인다. `.tmp-tests/codex-ops/`는 장중 incident 초안 보존을 위해, `app/risk/` 아래 생성물은 리스크 모듈 작업 금지 정책 때문에 자동 정리 대상에서 제외한다.
+
+```bash
+./scripts/cleanup_repo_generated_artifacts.sh
+./scripts/cleanup_repo_generated_artifacts.sh --apply
+```
+
 실데이터만 남기고 ML/검증 산출물을 다시 만들려면 아래를 사용한다.
 
 ```bash

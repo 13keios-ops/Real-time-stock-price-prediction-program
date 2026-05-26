@@ -1,5 +1,41 @@
 # 작업 기록
 
+## [2026-05-26] Codex -> Phase 1 readiness 재점검과 cleanup 자동화
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main`.
+- 모델 승격 불가 원인:
+  - 최신 LightGBM 학습은 성공했다. `training_run_id=train-lightgbm-h15-20260526161241790071`, train rows `176092`, validation rows `52346`, validation accuracy `0.6139724143201009`.
+  - 다만 active model 은 계속 `baseline-h15-v1`이고, 최신 challenger 는 `recommended_action=review_required`다.
+  - 직접 원인은 gate reference walk-forward 가 `overall_accuracy=0.4163`으로 낮아 승격 게이트를 통과하지 못한 것이다. 파일 손상이나 학습 중단이 아니라 safety gate 차단으로 본다.
+- paper/KIS 정합성 재발 원인:
+  - 이전 `needs_review`는 보유 수량 불일치가 아니라 현금/총자산 gap 이었다. KIS paper 주문/체결 조회는 `EGW00201` rate limit 으로 일부 재조회가 막힌 기록이 있었다.
+  - `align_local_paper_to_broker.sh` 이후 현재 baseline 은 marker 기준으로 재정렬되어 `reconcile_paper_accounts`와 `verify_paper_dual_account_match -AsJson` 모두 gap 0, `matched_waiting_first_submission`으로 확인됐다.
+- 변경:
+  - `scripts/check_local_setup.sh` 산출물에 `broker_paper_mirroring_level/status/note`, `warnings`, `informational_checks`를 추가했다.
+  - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_BROKER_PAPER_MIRRORING=true` 조합은 Phase 0 KIS 모의계좌 검증 의도에 맞는 `info / expected_phase0_paper_mirroring`으로 분류한다. 이 조합을 벗어난 mirroring enabled 는 warning 으로 남긴다.
+  - 대시보드 `장전 readiness` 카드에 broker paper mirroring level/status 표시를 추가했다.
+  - `scripts/cleanup_repo_generated_artifacts.sh`를 추가했다. 기본은 dry-run 이고 `--apply`를 붙일 때만 `.tmp-tests` 하위 산출물, Python `__pycache__`, 루트 PowerShell provider prefix 오염 디렉터리를 삭제한다. `.tmp-tests/codex-ops/`와 `app/risk/` 아래 생성물은 보존한다.
+  - `README.md`, `docs/Current-Implementation.md`, `docs/Production-Transition-Progress.md`를 새 동작 기준으로 갱신했다.
+- readiness 재점검:
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`: `status=ok`, DB read-only smoke, dashboard, watchdog, disk space 통과.
+  - `./scripts/probe_kis_token_refresh.sh --mode paper --use-cache`: 통과, token 원문 미기록.
+  - `./scripts/probe_kis_account_snapshot.sh --mode paper --timeout-seconds 10`: 통과, `position_row_count=3`, `summary_row_count=1`, 계좌번호/raw response 미기록.
+  - `./scripts/probe_kis_ws_recovery.sh`: 통과, `evidence_type=synthetic_fault_injection`, network call 없음.
+  - `./scripts/probe_kis_clock_reference.sh --mode paper --timeout-seconds 10`: 통과, `skew_seconds=0.430729`.
+  - `./scripts/run_live_readiness_dry_run.sh --fixture-path runtime-data/reports/live-readiness/latest-fixture-snapshot.json`: `status=blocked`.
+  - 통과 항목은 `token_refresh`, `ws_recovery`, `account_snapshot`, `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`; 차단 항목은 `market_status_not_verified_by_fault_dry_run`, `kill_switch_fault_dry_run_failed`.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh scripts/cleanup_repo_generated_artifacts.sh` 통과.
+  - `python -m unittest tests.test_wsl_ops tests.test_repo_generated_artifacts_cleanup` 통과, 17개.
+  - `python -m unittest tests.test_dashboard` 통과, 17개.
+  - `python -m unittest tests.test_wsl_ops tests.test_repo_generated_artifacts_cleanup tests.test_dashboard` 통과, 34개.
+  - `./scripts/cleanup_repo_generated_artifacts.sh --apply` 실행 후 최종 dry-run 기준 `target_count=0`.
+- 주의:
+  - 실전 주문, live runtime restart, 운영 DB schema apply, `app/risk/` 추적 파일, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-26] Codex -> 장전/장후 체크 확인과 데이터 오염 정리
 
 - 상태:

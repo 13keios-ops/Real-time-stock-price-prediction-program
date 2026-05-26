@@ -2069,6 +2069,7 @@ direct_sequence() {
   case "$SCRIPT_NAME" in
     align_local_paper_to_broker.sh) run_app --align-local-paper-to-broker ;;
     build_runtime_report.sh) run_app --build-runtime-report ;;
+    cleanup_repo_generated_artifacts.sh) ops cleanup-repo-generated-artifacts "$@" ;;
     cleanup_runtime_test_data.sh) run_app --cleanup-runtime-test-data; run_app --build-dashboard ;;
     rebuild_actual_ml_state.sh) run_app --rebuild-actual-ml --horizon-min 15; run_app --build-runtime-report; run_app --build-dashboard ;;
     reconcile_paper_accounts.sh) run_app --reconcile-paper-accounts ;;

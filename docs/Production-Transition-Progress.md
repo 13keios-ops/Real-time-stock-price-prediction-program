@@ -29,12 +29,12 @@
 
 | 항목 | 현재 상태 |
 |---|---|
-| 마지막 갱신 | 2026-05-23 |
-| 현재 런타임 상태 | 주말 `weekend`, live runtime 중지, runtime watchdog 실행 중, trading mode `paper` |
+| 마지막 갱신 | 2026-05-26 |
+| 현재 런타임 상태 | 장후 `post-close`, live runtime 중지, runtime watchdog 실행 중, trading mode `paper` |
 | 작업 모드 | 비장중 코드/문서 보강 가능 모드 |
 | 최신 cowork 기준 | `review_ver_15` 반영 |
 | 최신 통합 리포트 | `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md` |
-| 다음 cowork 예상 리뷰 | `review_ver_16` |
+| 다음 cowork 예상 리뷰 | 현재는 보류. 다음 리뷰는 Phase 1 live read-only shape 또는 market status/kill switch 증거 확보 뒤 권장 |
 
 관련 문서/코드 경로: `scripts/get_live_runtime_status.sh`, `scripts/get_runtime_watchdog_status.sh`, `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
 
@@ -43,12 +43,13 @@
 | Phase | 목표 | 현재 상태 | 진입/통과 기준 | 남은 blocker |
 |---|---|---|---|---|
 | 설계 기준 정리 | 실전 전환 목표 구조, 구현 청사진, cowork ping-pong 이력 정리 | 완료 | `Production-Architecture`, `Production-Implementation-Blueprint`, cowork reports 유지 | 없음 |
-| Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요 |
+| Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요. 2026-05-26 marker alignment 뒤 `matched_waiting_first_submission` 재확인 |
 | Phase 1 | 실전 계좌 read-only 연결, 주문 금지 | 대기 | read-only client 구조적 차단, live order path hard fail, freshness/readiness 통과, sanitized 복구 drill | live account read-only shape 확인, sanitized NAS drill 표본, 실제 market status snapshot 증적, kill switch 상태 파일 |
 | Phase 2 | 실전 1종목/소액 canary, 1일 1주문/1주 제한 | 미시작 | Phase 1 관측 통과, submit guard, kill switch, alert, audit, 모델 성능 선행 게이트, operator approval | Phase 1 미통과, active model 승격 기준 미충족 |
 | Phase 3 | 다종목 일일 한도 운용 | 미시작 | Phase 2 20~60거래일 관측, 손실/슬리피지/체결/감사 안정 | Phase 2 미시작 |
 | 지속 연구/학습 | 장중 수집과 장후 학습/개선의 분리 운영 | 진행 중 | 장중 live DB 보호, snapshot 기반 research, 장후 quick/heavy 분리 | active model 자동 승격은 계속 금지 |
 | Codex 운영 자동화 | 장전 readiness, 장후 점검, 사고 triage를 Codex job으로 안전하게 구조화 | 진행 중 | dry-run report, 권한 manifest, root 적용 금지, live flag 변경 금지 | 실제 Codex CLI 자동 실행은 아직 연결하지 않음 |
+| 저장소 생성 부산물 정리 | 테스트/PowerShell/pycache 오염을 실제 운용 데이터와 분리 | 완료 | dry-run 우선 wrapper, `.tmp-tests/codex-ops`와 `app/risk/` 보존, repo 내부 경로 안전 확인 | 필요 시 `--apply`로 수동 실행 |
 
 관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `app/services/codex_ops.py`, `scripts/run_live_readiness_dry_run.sh`
 
@@ -65,9 +66,9 @@
 | NAS recovery | 대기 | 기존 NAS 재난 복구용 전체 백업 폴더 확인, WSL `/mnt/backup` 마운트 확인, sanitized export include/exclude self-test와 NAS dry-run 완료 | `recovery-drills/phase1-readonly` 같은 별도 폴더에서 sanitized drill 표본 확인 | 기존 전체 백업은 유지하고, Phase readiness 증거는 비밀값 제외 sanitized export만 사용 |
 | overnight/pre-open 상태 라벨 | 완료 | `overnight`와 60분 `pre-open` warmup 분리, watchdog 재시작 확인 | legacy PowerShell 사용 여부 확인 | WSL 정본만 쓰면 후순위, PS1 사용 시 미러링 |
 | readiness 기록 저장 | 진행 중 | fixture 기반 dry-run, SQLite 기록은 `--record` 명시 때만 수행 | 실제 Phase 1 record schema 적용 여부 결정 | 장중/운영 DB schema apply 금지 유지 |
-| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 실제 실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=not_verified`, kill switch missing으로 failed | kill switch 상태 파일 생성 승인과 실제 market status snapshot 증적 확보 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
+| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-26 post-close 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=not_verified`, kill switch missing으로 failed. paper account snapshot shape 는 `position_row_count=3`, `summary_row_count=1`, system clock skew 는 약 `0.431`초였다. | kill switch 상태 파일 생성 승인과 실제 market status snapshot 증적 확보 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
 | 외부 알림 | 대기 | 정책 결정: Telegram 기본, 중요 사고는 email 병행 | 실제 connector/secret 관리 설계 | token/secret은 repo 문서에 기록 금지 |
-| Phase 2 모델 성능 게이트 | 진행 중 | 현재 active는 `baseline-h15-v1`, LightGBM은 challenger로 유지. 최신 `latest-challengers-h15.json`은 `recommended_action=keep_active` | Phase 2 전 active model/challenger 기준을 명시하고 장후 연구축에서 통과 여부 확인 | 단순 accuracy가 아니라 독립 holdout, 비용 반영 net return, 거래 수, paper 성과, walk-forward gate를 함께 본다 |
+| Phase 2 모델 성능 게이트 | 진행 중 | 현재 active는 `baseline-h15-v1`, LightGBM은 challenger로 유지. 2026-05-26 LightGBM 학습은 성공했지만 challenger 는 `review_required`이고 gate reference walk-forward `overall_accuracy=0.4163`으로 차단된다. | Phase 2 전 active model/challenger 기준을 명시하고 장후 연구축에서 통과 여부 확인 | 단순 accuracy가 아니라 독립 holdout, 비용 반영 net return, 거래 수, paper 성과, walk-forward gate를 함께 본다 |
 
 관련 문서/코드 경로: `app/brokers/kis_readonly.py`, `app/brokers/kis_live_order.py`, `app/services/live_order_manager.py`, `app/services/system_clock.py`, `app/services/system_clock_probe.py`, `app/services/kis_token_probe.py`, `app/services/kis_account_probe.py`, `app/services/kis_ws_recovery_probe.py`, `app/services/market_status_probe.py`, `app/services/live_readiness_fixture.py`, `app/services/live_phase_readiness.py`, `app/brokers/kis_quote_ws.py`, `docs/Manual-Market-Status-Runbook.md`, `scripts/probe_kis_clock_reference.sh`, `scripts/probe_kis_token_refresh.sh`, `scripts/probe_kis_account_snapshot.sh`, `scripts/probe_kis_ws_recovery.sh`, `scripts/probe_market_status_snapshot.sh`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/export_kis_paper_fixture_candidates.py`
 

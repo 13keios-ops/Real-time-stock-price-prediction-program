@@ -150,6 +150,38 @@ def parse_env(path: Path) -> dict[str, str]:
     return values
 
 
+def broker_paper_mirroring_health(values: dict[str, str]) -> dict[str, Any]:
+    enabled = values.get("ENABLE_BROKER_PAPER_MIRRORING") == "true"
+    trading_mode = (values.get("TRADING_MODE") or "").strip().lower()
+    allow_live_orders = values.get("ALLOW_LIVE_ORDERS") == "true"
+    if not enabled:
+        return {
+            "enabled": False,
+            "level": "info",
+            "status": "disabled",
+            "note": "broker paper mirroring is disabled.",
+        }
+    if trading_mode == "paper" and not allow_live_orders:
+        return {
+            "enabled": True,
+            "level": "info",
+            "status": "expected_phase0_paper_mirroring",
+            "note": (
+                "Phase 0 paper mode mirrors local paper orders to the KIS paper account; "
+                "ALLOW_LIVE_ORDERS is false, so this is not a live-order enable signal."
+            ),
+        }
+    return {
+        "enabled": True,
+        "level": "warning",
+        "status": "review_required",
+        "note": (
+            "broker paper mirroring is enabled outside the expected paper + live-disabled "
+            "Phase 0 profile; review the trading mode and live-order flags."
+        ),
+    }
+
+
 def set_env_value(path: Path, key: str, value: str) -> None:
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     output: list[str] = []
@@ -1139,6 +1171,101 @@ def set_autopush_enabled(args: argparse.Namespace) -> None:
     write_json(path, cfg)
 
 
+def _path_size(path: Path) -> int:
+    try:
+        if path.is_symlink() or path.is_file():
+            return path.lstat().st_size
+        if path.is_dir():
+            total = 0
+            for child in path.rglob("*"):
+                if child.is_symlink() or child.is_file():
+                    total += child.lstat().st_size
+            return total
+    except OSError:
+        return 0
+    return 0
+
+
+def _is_safe_workspace_child(path: Path, root: Path) -> bool:
+    try:
+        resolved_path = path.resolve()
+        resolved_root = root.resolve()
+    except OSError:
+        return False
+    return resolved_path != resolved_root and resolved_root in resolved_path.parents
+
+
+def cleanup_repo_generated_artifacts(args: argparse.Namespace) -> None:
+    root = Path(args.workspace_root).expanduser().resolve()
+    runtime = runtime_dir(root, args.runtime_data_dir)
+    report_dir = runtime / "reports/cleanup"
+    dry_run = not bool(args.apply)
+    targets: list[dict[str, Any]] = []
+    kept: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
+
+    def add_target(path: Path, kind: str) -> None:
+        if not path.exists() and not path.is_symlink():
+            return
+        if path.is_symlink():
+            skipped.append({"path": str(path), "kind": kind, "reason": "symlink_not_removed"})
+            return
+        if not _is_safe_workspace_child(path, root):
+            skipped.append({"path": str(path), "kind": kind, "reason": "outside_workspace"})
+            return
+        targets.append({"path": str(path), "kind": kind, "estimated_bytes": _path_size(path)})
+
+    tmp_tests = root / ".tmp-tests"
+    if tmp_tests.exists():
+        for child in sorted(tmp_tests.iterdir(), key=lambda item: item.name):
+            if child.name == "codex-ops":
+                kept.append({"path": str(child), "reason": "codex_ops_drafts_preserved"})
+                continue
+            add_target(child, "tmp_tests_child")
+
+    for base_name in ("app", "scripts", "tests"):
+        base = root / base_name
+        if not base.exists():
+            continue
+        for path in sorted(base.rglob("__pycache__")):
+            if base_name == "app" and (root / "app" / "risk") in path.parents:
+                kept.append({"path": str(path), "reason": "app_risk_excluded_by_policy"})
+                continue
+            add_target(path, "python_pycache")
+
+    for child in sorted(root.iterdir(), key=lambda item: item.name):
+        if child.name.startswith("Microsoft.PowerShell.CoreFileSystem::"):
+            add_target(child, "powershell_filesystem_artifact")
+
+    removed = []
+    if not dry_run:
+        for target in targets:
+            path = Path(target["path"])
+            if not path.exists():
+                continue
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+            removed.append(target)
+
+    payload = {
+        "ok": not skipped,
+        "status": "dry_run" if dry_run else "applied",
+        "dry_run": dry_run,
+        "checked_at": now_text(),
+        "workspace_root": str(root),
+        "runtime_data_dir": str(runtime),
+        "target_count": len(targets),
+        "removed_count": len(removed),
+        "estimated_bytes": sum(int(item.get("estimated_bytes") or 0) for item in targets),
+        "targets": targets,
+        "kept": kept,
+        "skipped": skipped,
+    }
+    write_json(report_dir / "latest-repo-generated-artifacts-cleanup.json", payload)
+
+
 def check_local_setup(args: argparse.Namespace) -> None:
     root = Path(args.workspace_root).expanduser().resolve()
     runtime = runtime_dir(root, args.runtime_data_dir)
@@ -1146,6 +1273,7 @@ def check_local_setup(args: argparse.Namespace) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
     env_path = root / ".env"
     values = parse_env(env_path)
+    mirroring_health = broker_paper_mirroring_health(values)
 
     def script_status(name: str) -> dict[str, Any]:
         try:
@@ -1175,6 +1303,12 @@ def check_local_setup(args: argparse.Namespace) -> None:
         blockers.append("dashboard_not_running")
     if watchdog.get("status") not in {"running", "warning"}:
         blockers.append("watchdog_not_running")
+    warnings = []
+    informational_checks = []
+    if mirroring_health["level"] == "warning":
+        warnings.append("broker_paper_mirroring_review_required")
+    elif mirroring_health["enabled"]:
+        informational_checks.append("broker_paper_mirroring_expected_phase0")
     payload = {
         "ok": not blockers,
         "checked_at": now_text(),
@@ -1183,7 +1317,10 @@ def check_local_setup(args: argparse.Namespace) -> None:
         "env_file_path": str(env_path),
         "env_file_exists": env_path.exists(),
         "trading_mode": values.get("TRADING_MODE", ""),
-        "broker_paper_mirroring_enabled": values.get("ENABLE_BROKER_PAPER_MIRRORING") == "true",
+        "broker_paper_mirroring_enabled": mirroring_health["enabled"],
+        "broker_paper_mirroring_level": mirroring_health["level"],
+        "broker_paper_mirroring_status": mirroring_health["status"],
+        "broker_paper_mirroring_note": mirroring_health["note"],
         "python_executable": sys.executable,
         "websockets_available": websockets_ok,
         "lightgbm_available": lightgbm_ok,
@@ -1192,6 +1329,8 @@ def check_local_setup(args: argparse.Namespace) -> None:
         "watchdog_status": watchdog,
         "runtime_startup_launcher_status": launcher,
         "blockers": blockers,
+        "warnings": warnings,
+        "informational_checks": informational_checks,
         "next_actions": [],
     }
     write_json(report_dir / "latest-local-setup-check.json", payload, echo=False)
@@ -1199,7 +1338,9 @@ def check_local_setup(args: argparse.Namespace) -> None:
         "# Local Setup Check\n\n"
         f"- checked at: {payload['checked_at']}\n"
         f"- ok: {payload['ok']}\n"
-        f"- blockers: {', '.join(blockers) if blockers else 'none'}\n",
+        f"- blockers: {', '.join(blockers) if blockers else 'none'}\n"
+        f"- warnings: {', '.join(warnings) if warnings else 'none'}\n"
+        f"- broker paper mirroring: {mirroring_health['status']} ({mirroring_health['level']})\n",
         encoding="utf-8",
     )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -1507,6 +1648,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--enabled", "-Enabled", action="store_true")
     p.add_argument("--disabled", "-Disabled", action="store_true")
 
+    p = common("cleanup-repo-generated-artifacts")
+    p.add_argument("--apply", "-Apply", action="store_true")
+
     p = common("check-local-setup")
     p.add_argument("--as-json", "-AsJson", action="store_true")
     p = common("verify-paper-dual-account-match")
@@ -1552,6 +1696,7 @@ def main() -> None:
         "audit-autopush": audit_autopush,
         "bootstrap-autopush": bootstrap_autopush,
         "set-autopush-enabled": set_autopush_enabled,
+        "cleanup-repo-generated-artifacts": cleanup_repo_generated_artifacts,
         "check-local-setup": check_local_setup,
         "verify-paper-dual-account-match": verify_paper_dual_account_match,
         "hourly-audit": hourly_audit,

@@ -3161,6 +3161,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     local_setup_watchdog = latest_local_setup.get("watchdog_status") or {}
     local_setup_startup = latest_local_setup.get("runtime_startup_launcher_status") or {}
     local_setup_blockers = latest_local_setup.get("blockers") or []
+    local_setup_mirroring_enabled = latest_local_setup.get("broker_paper_mirroring_enabled")
+    local_setup_mirroring_level = latest_local_setup.get("broker_paper_mirroring_level") or "-"
+    local_setup_mirroring_status = latest_local_setup.get("broker_paper_mirroring_status") or "-"
     latest_codex_premarket_readiness = payload.get("latest_codex_premarket_readiness", {}) or {}
     latest_live_readiness = payload.get("latest_live_readiness", {}) or {}
     live_readiness_run = latest_live_readiness.get("readiness_run") or {}
@@ -3188,6 +3191,13 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["live runtime", local_setup_live_runtime.get("status") or "-"],
         ["장 상태", local_setup_watchdog.get("market_session_status") or local_setup_live_runtime.get("session_status") or "-"],
         ["live runtime 필요", "예" if local_setup_watchdog.get("live_runtime_should_run") else "아니오"],
+        [
+            "브로커 paper 미러링",
+            (
+                f"{'예' if local_setup_mirroring_enabled else '아니오'} / "
+                f"{local_setup_mirroring_level} / {local_setup_mirroring_status}"
+            ),
+        ],
         ["KIS 시세 자격정보", "준비됨" if local_setup_live_runtime.get("credentials_ready_for_quotes") else "점검 필요"],
         ["startup launcher", "ok" if local_setup_startup.get("ok") else "점검 필요" if local_setup_startup else "-"],
         ["websockets", "예" if latest_local_setup.get("websockets_available") else "아니오"],
