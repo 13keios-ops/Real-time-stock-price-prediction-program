@@ -29,9 +29,9 @@
 
 | 항목 | 현재 상태 |
 |---|---|
-| 마지막 갱신 | 2026-05-26 |
-| 현재 런타임 상태 | 장후 `post-close`, live runtime 중지, runtime watchdog 실행 중, trading mode `paper` |
-| 작업 모드 | 비장중 코드/문서 보강 가능 모드 |
+| 마지막 갱신 | 2026-05-27 |
+| 현재 런타임 상태 | 장전 `pre-open`, live runtime 실행 중, runtime watchdog 실행 중, trading mode `paper` |
+| 작업 모드 | 장중 수집 보호 모드. 코드 변경, 운영 DB 접근, runtime restart 없이 read-only 점검과 문서/리포트 정리만 수행 |
 | 최신 cowork 기준 | `review_ver_15` 반영 |
 | 최신 통합 리포트 | `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md` |
 | 다음 cowork 예상 리뷰 | 현재는 보류. 다음 리뷰는 Phase 1 live read-only shape 또는 market status/kill switch 증거 확보 뒤 권장 |
@@ -62,11 +62,12 @@
 | system clock 검증 | 진행 중 | KIS REST HTTP `Date` parser, decision helper, sanitized readiness check 구현, timezone 없는/알 수 없는 timezone header invalid 차단, readiness `--system-clock-check-path` 병합 구현, read-only 현재가 조회 기반 `probe_kis_clock_reference.sh` wrapper 구현, `--compare-paper-live` paper/live reference delta 비교 helper 구현, KIS paper read-only probe 1회 성공(`system_clock=true`, skew 약 0.167초) | Phase 1 승인 뒤 live account header shape와 paper/live 비교 실행 증적 확보 | raw header 저장 금지, parsed reference time/skew/delta만 기록 |
 | KIS paper/live 응답 shape | 진행 중 | KIS paper fixture export/redaction, paper quote `date` header 확인, account snapshot 필수 shape와 값 타입 자동 검증 구현 | Phase 1 read-only에서 live account 조회 shape 비교 | live 계좌는 조회만, 주문 메서드 노출 금지 |
 | WS reconnect metric | 진행 중 | timestamp, storm duration, `to_dict()`, callback 안전 주석 구현, Phase 2/3 readiness와 submit guard에서 synthetic 증거 차단, dashboard readiness 카드에 evidence type/실제 증거 여부/freshness/stable frame/reconnect storm 표시 | 실제 KIS WS 관측 baseline 수집 | Phase 1은 관측만, Phase 2 submit은 real evidence type 없으면 차단 |
-| market status readiness 증적 | 진행 중 | repo 내부 수동 snapshot을 읽어 `market_status` check를 만드는 `app/services/market_status_probe.py`, `scripts/probe_market_status_snapshot.sh` 구현, `docs/Manual-Market-Status-Runbook.md` 추가, 수동 source enum 고정 | 실제 거래일 snapshot 생성과 KIS/거래소 자동 원천 결정 | 데이터 원천 결정 전에는 enum으로 제한된 수동 snapshot만 허용하고, 증거 없으면 자동 통과 금지 |
+| market status readiness 증적 | 진행 중 | repo 내부 수동 snapshot을 읽어 `market_status` check를 만드는 `app/services/market_status_probe.py`, `scripts/probe_market_status_snapshot.sh` 구현, `docs/Manual-Market-Status-Runbook.md` 추가, 수동 source enum 고정. 2026-05-27 pre-open 리허설에서 현재 watchlist 10종목 hash는 `symbols-sha256-bde8bc3841c52c29`이고, `.tmp-tests` snapshot/check는 `market_status=true`로 통과했다. | 실제 거래일 snapshot 생성과 KIS/거래소 자동 원천 결정 | 데이터 원천 결정 전에는 enum으로 제한된 수동 snapshot만 허용하고, 증거 없으면 자동 통과 금지. `.tmp-tests` 리허설 결과는 실제 거래 가능 증거가 아님 |
 | NAS recovery | 대기 | 기존 NAS 재난 복구용 전체 백업 폴더 확인, WSL `/mnt/backup` 마운트 확인, sanitized export include/exclude self-test와 NAS dry-run 완료 | `recovery-drills/phase1-readonly` 같은 별도 폴더에서 sanitized drill 표본 확인 | 기존 전체 백업은 유지하고, Phase readiness 증거는 비밀값 제외 sanitized export만 사용 |
 | overnight/pre-open 상태 라벨 | 완료 | `overnight`와 60분 `pre-open` warmup 분리, watchdog 재시작 확인 | legacy PowerShell 사용 여부 확인 | WSL 정본만 쓰면 후순위, PS1 사용 시 미러링 |
 | readiness 기록 저장 | 진행 중 | fixture 기반 dry-run, SQLite 기록은 `--record` 명시 때만 수행 | 실제 Phase 1 record schema 적용 여부 결정 | 장중/운영 DB schema apply 금지 유지 |
-| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-26 post-close 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=not_verified`, kill switch missing으로 failed. paper account snapshot shape 는 `position_row_count=3`, `summary_row_count=1`, system clock skew 는 약 `0.431`초였다. | kill switch 상태 파일 생성 승인과 실제 market status snapshot 증적 확보 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
+| kill switch 상태 파일 | 진행 중 | missing 상태는 fail-closed로 신규 submit 차단함을 확인. 2026-05-27 pre-open에는 `--disable --confirm-disable` dry-run만 실행했고 실제 OFF 파일은 쓰지 않았다. | Phase 1 당일 계좌 소유자/실전 운용 승인권자 승인 뒤 `--disable --apply --confirm-disable`로 만료 시간이 있는 OFF 파일 생성 | pre-open/regular-session 중에는 명시 승인 없이 실제 OFF 파일을 만들지 않는다. missing/broken/stale은 계속 안전 차단 |
+| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-26 post-close 실제 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=not_verified`, kill switch missing으로 failed. 2026-05-27 `.tmp-tests` 전체 fixture 리허설은 `status=ok`로 통과했다. | kill switch 상태 파일 생성 승인과 실제 market status snapshot 증적 확보 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. `.tmp-tests` 통과는 실제 Phase 1 통과 증거가 아님. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
 | 외부 알림 | 대기 | 정책 결정: Telegram 기본, 중요 사고는 email 병행 | 실제 connector/secret 관리 설계 | token/secret은 repo 문서에 기록 금지 |
 | Phase 2 모델 성능 게이트 | 진행 중 | 현재 active는 `baseline-h15-v1`, LightGBM은 challenger로 유지. 2026-05-26 LightGBM 학습은 성공했지만 challenger 는 `review_required`이고 gate reference walk-forward `overall_accuracy=0.4163`으로 차단된다. | Phase 2 전 active model/challenger 기준을 명시하고 장후 연구축에서 통과 여부 확인 | 단순 accuracy가 아니라 독립 holdout, 비용 반영 net return, 거래 수, paper 성과, walk-forward gate를 함께 본다 |
 

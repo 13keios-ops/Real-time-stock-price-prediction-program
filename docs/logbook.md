@@ -1,5 +1,34 @@
 # 작업 기록
 
+## [2026-05-27] Codex -> Phase 1 blocker 장전 보호모드 리허설
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=running`, `session_status=pre-open`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=pre-open`, `live_runtime_should_run=true`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main` clean.
+  - 장중 수집 보호 모드로 보고 루트 코드 변경, 운영 DB 접근, runtime restart, dashboard rebuild, 실전 주문 관련 변경은 하지 않았다.
+- market status 수동 snapshot 리허설:
+  - `config/watchlist.txt` 기준 대상 종목은 10개다.
+  - 현재 watchlist hash 는 `symbols-sha256-bde8bc3841c52c29`이다.
+  - 운영 readiness 기본 snapshot 경로에는 실제 snapshot이 없어 `scripts/probe_market_status_snapshot.sh --symbols-file config/watchlist.txt --print-symbol-set-hash` 실행 결과가 fail-closed check를 남겼다.
+  - `.tmp-tests/phase1-readiness-rehearsal/market-status-snapshot.json`에 형식 리허설용 snapshot을 만들고, `.tmp-tests/phase1-readiness-rehearsal/market-status-check.json`으로 probe를 실행했다.
+  - 리허설 check 결과는 `passed=true`, `allowed_count=10`, `blocked_symbols={}`였다.
+  - 이 리허설은 실제 거래 가능 증거가 아니며, 실제 Phase 1 readiness 통과에는 계좌 소유자/실전 운용 승인권자가 당일 거래정지/VI/관리/투자유의/상하한가 상태를 확인한 snapshot이 필요하다.
+- kill switch 상태 파일 정책:
+  - `./scripts/set_live_kill_switch.sh --status`: `status=missing`, `enabled=true`, `submit_blocking_reason=kill_switch_state_missing`.
+  - `./scripts/set_live_kill_switch.sh --disable --reason phase1-readonly-readiness-rehearsal --actor account_owner --stale-after-minutes 480 --confirm-disable`를 dry-run으로 실행했다.
+  - dry-run 결과는 `would_write=true`, `enabled=false`, `stale_after=2026-05-27T16:26:42+09:00` 후보였고 실제 파일은 쓰지 않았다.
+  - dry-run 직후 status 재확인 결과는 여전히 `missing`으로, fail-closed 상태가 유지됐다.
+- readiness dry-run 리허설:
+  - `.tmp-tests/phase1-readiness-rehearsal/full-readiness-fixture.json`에 market_status와 kill_switch를 포함한 전체 fixture를 만들었다.
+  - `./scripts/run_live_readiness_dry_run.sh --fixture-path .tmp-tests/phase1-readiness-rehearsal/full-readiness-fixture.json --report-path .tmp-tests/phase1-readiness-rehearsal/readiness-dry-run.json` 실행 결과 `status=ok`, `passed=true`.
+  - 이 결과는 `.tmp-tests` 격리 fixture 경로 검증이며 실제 운영 readiness 파일이나 DB record를 갱신하지 않았다.
+- 다음 연결점:
+  - 실제 Phase 1 readiness 통과를 위해서는 `runtime-data/reports/live-readiness/market-status-snapshot.json`에 당일 수동 snapshot을 만들고, 계좌 소유자/실전 운용 승인권자 승인 뒤 만료 시간이 있는 kill switch OFF 상태 파일을 생성해야 한다.
+  - pre-open/regular-session 중 실제 OFF 파일 적용은 별도 명시 승인 없이는 하지 않는다.
+- 주의:
+  - 실전 주문, live runtime restart, 운영 DB schema apply, `app/risk/` 추적 파일, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-26] Codex -> Phase 1 readiness 재점검과 cleanup 자동화
 
 - 상태:
