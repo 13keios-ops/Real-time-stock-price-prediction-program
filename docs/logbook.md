@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-05-26] Codex -> 장전/장후 체크 확인과 데이터 오염 정리
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main` clean.
+- 장전/장후 체크:
+  - `latest-local-setup-check.json`: `ok=true`, blockers 없음, `broker_paper_mirroring_enabled=true`.
+  - `latest-post-close-ml.json`: `status=ok`, `mode=quick-live-train`, `completed_at=2026-05-26 16:16:50 +0900`.
+  - `latest-post-close-label-refresh.json`: `status=ok`, `completed_at=2026-05-26 17:20:47 +0900`.
+  - 장전 mirroring 경고는 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_BROKER_PAPER_MIRRORING=true` 조합이라 Phase 0 KIS 모의계좌 검증 의도와 맞는 확인성 경고로 봤다.
+- 조치:
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson` 재확인 결과 수량은 일치했지만 `cash_gap=-538996.277219994`, `total_asset_gap=49003.722780006006`으로 `needs_review`였다.
+  - 열린 포지션이 있으므로 `SyncInitialCash`는 실행하지 않고, `./scripts/align_local_paper_to_broker.sh`로 브로커 기준 정렬을 수행했다.
+  - 정렬 backup: `runtime-data/backups/paper-alignment/260526_1749_marker-only.sqlite3`.
+  - `./scripts/reconcile_paper_accounts.sh`: `ok=true`, `positions_match=true`, `balance_match=true`, `total_asset_match=true`, `cash_gap=0`, `total_asset_gap=0`.
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+  - `python -m app --build-dashboard`: `generated_at=2026-05-26T17:54:02.107237+09:00`.
+- 데이터 오염 정리:
+  - 루트 PowerShell provider prefix 오염 디렉터리는 이전 PR식 점검에서 제거된 상태를 재확인했다.
+  - `.tmp-tests` top-level 70개 생성 산출물을 정리했다. 정리 전 `.tmp-tests`는 약 11GB, 83,244개 파일이었다.
+  - `app/`, `scripts/`, `tests/` 아래 `__pycache__` 19개 디렉터리를 정리했다.
+  - 정리 후 `.tmp-tests`는 4KB, `__pycache__` 잔여 없음.
+- 주의:
+  - 실전 주문, live runtime restart, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-25] Codex -> 휴장일 post-close 자동화 guard 보강
 
 - 상태:
