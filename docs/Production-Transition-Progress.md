@@ -29,12 +29,12 @@
 
 | 항목 | 현재 상태 |
 |---|---|
-| 마지막 갱신 | 2026-05-27 |
-| 현재 런타임 상태 | 장후 `post-close`, live runtime 정지, runtime watchdog/dashboard 실행 중, trading mode `paper` |
-| 작업 모드 | 장후 마감 점검 모드. 장후 자동화 산출물 확인, paper/KIS marker 정렬, dashboard/report 갱신, Windows 장전 자동화 보강, stale watchdog 재기동 수행 |
+| 마지막 갱신 | 2026-05-28 |
+| 현재 런타임 상태 | `overnight`, live runtime 정지, runtime watchdog/dashboard 실행 중, trading mode `paper` |
+| 작업 모드 | 장전 준비 점검 모드. local setup, premarket-readiness, KIS paper read-only 증거, paper/KIS 정합성, runtime report/dashboard 갱신, Windows startup fast path 보강 수행 |
 | 최신 cowork 기준 | `review_ver_15` 반영 |
 | 최신 통합 리포트 | `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md` |
-| 다음 cowork 예상 리뷰 | 현재는 보류. 다음 리뷰는 Phase 1 live read-only shape 또는 market status/kill switch 증거 확보 뒤 권장 |
+| 다음 cowork 예상 리뷰 | 현재는 보류. 다음 리뷰는 Phase 1 live read-only shape, market status 자동/수동 원천, kill switch readiness 분리 정책 중 하나가 구체화된 뒤 권장 |
 
 관련 문서/코드 경로: `scripts/get_live_runtime_status.sh`, `scripts/get_runtime_watchdog_status.sh`, `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
 
@@ -44,12 +44,12 @@
 |---|---|---|---|---|
 | 설계 기준 정리 | 실전 전환 목표 구조, 구현 청사진, cowork ping-pong 이력 정리 | 완료 | `Production-Architecture`, `Production-Implementation-Blueprint`, cowork reports 유지 | 없음 |
 | Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요. 2026-05-27 marker alignment 뒤 `matched_waiting_first_submission` 재확인. 2026-05-27 label refresh full build 실패 원인은 전체 이력 build였고, 최근 10일 bounded build로 수정/재실행 완료. KIS live data quality 는 raw/minute coverage 약 94.3%로 `watch` 유지 |
-| Phase 1 | 실전 계좌 read-only 연결, 주문 금지 | 대기 | read-only client 구조적 차단, live order path hard fail, freshness/readiness 통과, sanitized 복구 drill | live account read-only shape 확인, sanitized NAS drill 표본, 실제 market status snapshot 증적, kill switch 상태 파일 |
+| Phase 1 | 실전 계좌 read-only 연결, 주문 금지 | 대기 | read-only client 구조적 차단, live order path hard fail, freshness/readiness 통과, sanitized 복구 drill | live account read-only shape 확인, sanitized NAS drill 표본, 실제 market status snapshot 증적. kill switch OFF 파일은 Phase 0/paper와 Phase 1 read-only에는 지금 만들 필요가 없으며, live-submit readiness 또는 Phase 2 이후에 명시 승인으로 생성 |
 | Phase 2 | 실전 1종목/소액 canary, 1일 1주문/1주 제한 | 미시작 | Phase 1 관측 통과, submit guard, kill switch, alert, audit, 모델 성능 선행 게이트, operator approval | Phase 1 미통과, active model 승격 기준 미충족 |
 | Phase 3 | 다종목 일일 한도 운용 | 미시작 | Phase 2 20~60거래일 관측, 손실/슬리피지/체결/감사 안정 | Phase 2 미시작 |
 | 지속 연구/학습 | 장중 수집과 장후 학습/개선의 분리 운영 | 진행 중 | 장중 live DB 보호, snapshot 기반 research, 장후 quick/heavy 분리 | active model 자동 승격은 계속 금지 |
 | Codex 운영 자동화 | 장전 readiness, 장후 점검, 사고 triage를 Codex job으로 안전하게 구조화 | 진행 중 | dry-run report, 권한 manifest, root 적용 금지, live flag 변경 금지 | 실제 Codex CLI 자동 실행은 아직 연결하지 않음 |
-| Windows 장전 자동화 | PC 작업 스케줄러에서 장전 runtime fast-start, premarket-readiness dry-run, local setup check 실행 | 진행 중 | `RealTimeStockRuntime_PreOpenCheck` 액션에 `start_runtime_autoboot`, `run_codex_ops_job.sh --job-type premarket-readiness`, `check_local_setup` 순서 반영. manual dry-run 은 `status=ok` | 다음 확인 지점은 2026-05-28 08:20 자동 실행 결과 |
+| Windows 장전 자동화 | PC 작업 스케줄러와 Windows startup launcher에서 장전 runtime fast-start, premarket-readiness dry-run, local setup check 실행 | 진행 중 | `RealTimeStockRuntime_PreOpenCheck` 액션에 `start_runtime_autoboot`, `run_codex_ops_job.sh --job-type premarket-readiness`, `check_local_setup` 순서 반영. Windows startup launcher는 `--skip-runtime-cleanup --skip-dashboard-build` fast path로 갱신. manual dry-run 은 `status=ok` | 다음 확인 지점은 2026-05-28 08:20 자동 실행 결과 |
 | 저장소 생성 부산물 정리 | 테스트/PowerShell/pycache 오염을 실제 운용 데이터와 분리 | 완료 | dry-run 우선 wrapper, `.tmp-tests/codex-ops`와 `app/risk/` 보존, repo 내부 경로 안전 확인 | 필요 시 `--apply`로 수동 실행 |
 
 관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `app/services/codex_ops.py`, `scripts/run_live_readiness_dry_run.sh`
@@ -67,8 +67,8 @@
 | NAS recovery | 대기 | 기존 NAS 재난 복구용 전체 백업 폴더 확인, WSL `/mnt/backup` 마운트 확인, sanitized export include/exclude self-test와 NAS dry-run 완료 | `recovery-drills/phase1-readonly` 같은 별도 폴더에서 sanitized drill 표본 확인 | 기존 전체 백업은 유지하고, Phase readiness 증거는 비밀값 제외 sanitized export만 사용 |
 | overnight/pre-open 상태 라벨 | 완료 | `overnight`와 60분 `pre-open` warmup 분리, watchdog 재시작 확인 | legacy PowerShell 사용 여부 확인 | WSL 정본만 쓰면 후순위, PS1 사용 시 미러링 |
 | readiness 기록 저장 | 진행 중 | fixture 기반 dry-run, SQLite 기록은 `--record` 명시 때만 수행 | 실제 Phase 1 record schema 적용 여부 결정 | 장중/운영 DB schema apply 금지 유지 |
-| kill switch 상태 파일 | 진행 중 | missing 상태는 fail-closed로 신규 submit 차단함을 확인. 2026-05-27 pre-open에는 `--disable --confirm-disable` dry-run만 실행했고 실제 OFF 파일은 쓰지 않았다. | Phase 1 당일 계좌 소유자/실전 운용 승인권자 승인 뒤 `--disable --apply --confirm-disable`로 만료 시간이 있는 OFF 파일 생성 | pre-open/regular-session 중에는 명시 승인 없이 실제 OFF 파일을 만들지 않는다. missing/broken/stale은 계속 안전 차단 |
-| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-26 post-close 실제 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=not_verified`, kill switch missing으로 failed. 2026-05-27 `.tmp-tests` 전체 fixture 리허설은 `status=ok`로 통과했다. | kill switch 상태 파일 생성 승인과 실제 market status snapshot 증적 확보 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. `.tmp-tests` 통과는 실제 Phase 1 통과 증거가 아님. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
+| kill switch 상태 파일 | 진행 중 | missing 상태는 fail-closed로 신규 submit 차단함을 확인. 2026-05-28 장전 dry-run도 kill switch missing으로 blocked 되었지만, 이는 live-submit readiness 관점의 차단이다. Phase 0 paper와 Phase 1 read-only에는 지금 OFF 파일을 만들 필요가 없다. | read-only readiness와 live-submit readiness를 분리하거나, Phase 2 이후 실전 주문 가능 날에 계좌 소유자/실전 운용 승인권자 승인 뒤 `--disable --apply --confirm-disable`로 만료 시간이 있는 OFF 파일 생성 | pre-open/regular-session 중에는 명시 승인 없이 실제 OFF 파일을 만들지 않는다. missing/broken/stale은 계속 안전 차단 |
+| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-28 장전 실제 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=false`, `kill_switch=false`, dry-run status는 `blocked`다. | 실제 market status snapshot 증적 확보. kill switch는 Phase 0/Phase 1 read-only에서는 생성하지 않고, live-submit readiness 분리 또는 Phase 2 승인 시점에 처리 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. `.tmp-tests` 통과는 실제 Phase 1 통과 증거가 아님. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
 | 외부 알림 | 대기 | 정책 결정: Telegram 기본, 중요 사고는 email 병행 | 실제 connector/secret 관리 설계 | token/secret은 repo 문서에 기록 금지 |
 | Phase 2 모델 성능 게이트 | 진행 중 | 현재 active는 `baseline-h15-v1`, LightGBM은 challenger로 유지. 2026-05-26 LightGBM 학습은 성공했지만 challenger 는 `review_required`이고 gate reference walk-forward `overall_accuracy=0.4163`으로 차단된다. | Phase 2 전 active model/challenger 기준을 명시하고 장후 연구축에서 통과 여부 확인 | 단순 accuracy가 아니라 독립 holdout, 비용 반영 net return, 거래 수, paper 성과, walk-forward gate를 함께 본다 |
 
@@ -94,6 +94,7 @@
 | 구현 | live account `system_clock` probe 실행 증적 확보 | Phase 1 read-only 승인 뒤 주문 메서드 없는 client로 1회 실행 |
 | 구현 | legacy PowerShell `overnight` 미러링 | 실제 사용 중이면 Phase 1 전 반영, 아니면 후순위 |
 | 구현 | WS reconnect metric submit 차단 연결 | Phase 1 관측 뒤 false positive 확인 후 결정 |
+| 구현 | read-only readiness와 live-submit readiness 분리 | Phase 1 read-only는 kill switch OFF 없이 통과 가능하게 하고, live-submit/Phase 2에서만 OFF 파일을 요구 |
 | 알림 | 외부 알림 채널 | Telegram 기본, 중요 사고는 email 병행 |
 
 관련 문서/코드 경로: `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_13.md`, `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-operator-decision.md`, `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-operator-decision.md`
