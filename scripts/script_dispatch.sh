@@ -233,7 +233,7 @@ install_runtime_service() {
     install_windows_startup_launcher \
       "RealTimeStockRuntime.cmd" \
       "RealTimeStockRuntime" \
-      "./scripts/start_runtime_autoboot.sh"
+      "./scripts/start_runtime_autoboot.sh --skip-runtime-cleanup --skip-dashboard-build"
     return
   fi
   ops install-runtime-service

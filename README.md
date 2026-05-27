@@ -495,7 +495,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
-`install_runtime_startup_launcher.sh` 는 WSL2/Windows 환경에서는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다. Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 로 fallback 한다.
+`install_runtime_startup_launcher.sh` 는 WSL2/Windows 환경에서는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다. Windows launcher는 로그인 직후 짧게 대기한 뒤 `--skip-runtime-cleanup --skip-dashboard-build` 빠른 시작 경로로 실행하고, 결과를 `runtime-data/logs/automation/RealTimeStockRuntime.log`에 남긴다. Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 로 fallback 한다.
 `get_runtime_startup_launcher_status.sh` 는 Windows 시작프로그램 런처와 systemd user service 상태를 함께 보고, 현재 저장소 경로와 일치하는지도 확인한다.
 
 복구 직후 로컬 setup 점검:

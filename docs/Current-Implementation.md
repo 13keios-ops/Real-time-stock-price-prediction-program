@@ -421,6 +421,7 @@ PC 재부팅 후 자동 시작 루틴:
 
 WSL2/Windows 환경의 `install_runtime_startup_launcher.sh`는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다.
 Windows 로그인 직후 WSL 준비 지연을 줄이기 위해 시작 전 짧게 대기하고, 실행 결과는 `runtime-data/logs/automation/RealTimeStockRuntime.log`에 남긴다.
+Windows 시작프로그램 launcher는 장전 자동 시작이 DB cleanup 때문에 지연되지 않도록 `--skip-runtime-cleanup --skip-dashboard-build`를 붙여 빠른 시작 경로로 실행한다.
 Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 를 fallback 으로 사용한다.
 
 ## 월요일 시작 루틴

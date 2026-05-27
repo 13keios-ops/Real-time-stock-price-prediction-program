@@ -1,5 +1,35 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> 장전 운영 준비 작업
+
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=overnight`, `live_runtime_should_run=false`, `errors=[]`.
+  - `./scripts/get_dashboard_status.sh`: `status=running`, dashboard/api 응답 정상.
+- 장전 점검:
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers/warnings 없음.
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`: `status=ok`, blockers/warnings 없음.
+  - `./scripts/start_runtime_autoboot.sh` 기본 실행은 `--cleanup-runtime-test-data` 단계가 5분 이상 CPU/메모리를 크게 쓰며 장전 병목이 되어 종료했다. 과거 기록에도 이 cleanup이 DB lock으로 live runtime을 방해한 이력이 있어 장전 fast-start에서는 cleanup을 건너뛰는 것이 맞다.
+  - `scripts/script_dispatch.sh`의 Windows startup launcher 명령을 `./scripts/start_runtime_autoboot.sh --skip-runtime-cleanup --skip-dashboard-build`로 보강했고, `./scripts/install_runtime_startup_launcher.sh`를 재실행해 실제 `RealTimeStockRuntime.cmd`도 갱신했다.
+  - `./scripts/start_runtime_autoboot.sh --skip-runtime-cleanup --skip-dashboard-build`: `ok=true`, `market_session_status=overnight`, live runtime 중지 유지.
+- readiness 증거:
+  - `token_refresh`: 통과, KIS paper auth-only token refresh 성공.
+  - `account_snapshot`: 통과, KIS paper account read-only snapshot shape 정상, position row 2개.
+  - `ws_recovery`: 통과, synthetic fault injection 기준.
+  - `system_clock`: 통과, KIS paper current-price read-only HTTP Date 기준 skew 약 `0.166s`.
+  - `system_clock paper/live comparison`: blocked, live reference time 미확보. 주문은 없었고 read-only quote 비교만 시도했다.
+  - `market_status`: failed, `runtime-data/reports/live-readiness/market-status-snapshot.json` 수동 snapshot 없음.
+  - `kill_switch`: failed, `runtime-data/reports/live-risk/kill-switch.json` 없음. 안전 측 기본값으로 submit 차단 상태다.
+  - `./scripts/run_live_readiness_dry_run.sh --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json`: `status=blocked`, blocking reasons는 `market_status_fault_dry_run_failed`, `kill_switch_fault_dry_run_failed`.
+- 계좌/리포트:
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`, positions match.
+  - `python -m app --build-runtime-report`: 통과, `latest-runtime-report.json` 갱신.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-05-28T04:23:09+09:00`.
+  - 최종 `./scripts/check_local_setup.sh`: `ok=true`, blockers/warnings 없음.
+- 남은 조치:
+  - Phase 1 readiness 통과에는 장전 수동 market status snapshot 생성과 kill switch OFF 파일 적용 여부에 대한 명시 승인/절차가 필요하다.
+  - 현 상태는 실전 주문 안전 측 차단 상태이며, `ALLOW_LIVE_ORDERS`, `app/risk/`, `config/`, `VERSION`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> PC 재시작 후 runtime 상태 확인과 startup launcher 보강
 
 - 재시작 후 최초 상태:
