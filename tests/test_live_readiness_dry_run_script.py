@@ -89,6 +89,58 @@ class LiveReadinessDryRunScriptTests(unittest.TestCase):
         self.assertTrue(payload["readiness_run"]["passed"])
         self.assertTrue(report_path.exists())
 
+    def test_phase1a_paper_readonly_does_not_block_on_submit_safety_checks(self) -> None:
+        root = self._root()
+        work_dir = self._work_dir() / "phase1a-paper-readonly"
+        premarket_path = self._premarket_report(work_dir / "premarket.json")
+        fixture_path = self._write_json(
+            work_dir / "fixture.json",
+            {
+                "token_refresh": "ok",
+                "ws_recovery": "ok",
+                "account_snapshot": "ok",
+                "market_status": "failed",
+                "system_clock": "ok",
+                "kill_switch": "failed",
+                "database": "ok",
+                "disk_space": "ok",
+                "dashboard": "ok",
+                "storage_migration_state": "ok",
+            },
+        )
+        report_path = work_dir / "readiness.json"
+
+        result = subprocess.run(
+            [
+                "bash",
+                "scripts/run_live_readiness_dry_run.sh",
+                "--phase",
+                "phase1a_paper_readonly",
+                "--trading-day",
+                "2026-05-16",
+                "--premarket-report-path",
+                str(premarket_path),
+                "--fixture-path",
+                str(fixture_path),
+                "--report-path",
+                str(report_path),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        checks_json = payload["readiness_run"]["checks_json"]
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["readiness_run"]["passed"])
+        self.assertNotIn("market_status_fault_dry_run_failed", payload["blocking_reasons"])
+        self.assertNotIn("kill_switch_fault_dry_run_failed", payload["blocking_reasons"])
+        self.assertIn("market_status_fault_dry_run_failed", payload["non_blocking_reasons"])
+        self.assertIn("kill_switch_fault_dry_run_failed", payload["non_blocking_reasons"])
+        self.assertEqual(checks_json["optional_check_keys"], ["market_status", "kill_switch"])
+
     def test_missing_fixture_keeps_readiness_blocked(self) -> None:
         root = self._root()
         work_dir = self._work_dir() / "missing-fixture"

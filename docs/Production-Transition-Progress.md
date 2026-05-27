@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-05-28
+- 마지막 갱신: 2026-05-28 05:14 KST
 - 현재 런타임: `overnight`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
@@ -28,9 +28,12 @@
 - 최신 cowork 기준: `review_ver_15` 반영
 - 최신 통합 리포트:
   `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
+- 최신 Phase readiness:
+  `runtime-data/reports/live-readiness/latest-readiness.json`
+  기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
 - 다음 cowork 리뷰 권장 시점:
-  Phase 1 read-only shape, market status 원천, 또는 kill switch readiness 분리 정책이
-  구체화된 뒤.
+  Phase 1b 실전 계좌 read-only shape 또는 Phase 2 submit readiness 정책을
+  구체화한 뒤.
 
 관련 문서/코드 경로:
 `scripts/get_live_runtime_status.sh`,
@@ -60,19 +63,24 @@
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
-- 상태: 다음 권장 단계
+- 상태: 1차 리허설 통과
 - 목적:
   - 실전 계좌를 건드리지 않고 Phase 1 절차를 먼저 리허설한다.
   - token, account snapshot, system clock, dashboard, readiness flow를 검증한다.
 - 현재 가능 여부:
-  - 가능.
-  - 현재 모의투자계좌 기반 `token_refresh`, `account_snapshot`, `system_clock` 증거는 생성 가능하다.
+  - 가능하며 2026-05-28 05:12 KST 기준 1차 dry-run을 통과했다.
+  - 모의투자계좌 기반 `token_refresh`, `account_snapshot`, `system_clock` 증거를 생성했다.
+  - `ws_recovery`는 실제 WebSocket 네트워크를 열지 않는 synthetic fault injection 증거다.
 - 남은 blocker:
-  - 실제 거래일 `market_status` snapshot 증거.
-  - readiness에서 read-only와 live-submit gate를 분리.
+  - 현재 Phase 1a 자체 blocker는 없음.
+  - 단, evidence freshness 기준을 넘기면 다음 리허설에서 다시 생성해야 한다.
+- 비차단 관측:
+  - `market_status=false`: Phase 1a 조회 리허설에서는 주문 제출 전 필터라 비차단.
+  - `kill_switch=false`: Phase 1a 조회 리허설에서는 live submit OFF 파일을 요구하지 않음.
 - 권장안:
-  - 바로 Phase 1a를 진행한다.
-  - kill switch OFF 파일은 만들지 않는다.
+  - Phase 1a는 필요 시 장전마다 반복 실행한다.
+  - 다음 구조 작업은 Phase 1b 실전 계좌 read-only shape 확인 준비로 넘어간다.
+  - kill switch OFF 파일은 Phase 2 live-submit 준비 전까지 만들지 않는다.
 
 ### Phase 1b: 실전 계좌 read-only 확인
 
@@ -177,8 +185,8 @@
 
 ### readiness local fixture snapshot
 
-- 상태: 진행 중
-- 2026-05-28 장전 결과:
+- 상태: Phase 1a 기준 통과
+- 2026-05-28 Phase 1a 결과:
   - `token_refresh=true`
   - `ws_recovery=true`
   - `account_snapshot=true`
@@ -189,12 +197,16 @@
   - `storage_migration_state=true`
   - `market_status=false`
   - `kill_switch=false`
-- dry-run status: `blocked`
-- blocking reasons:
+- dry-run phase: `phase1a_paper_readonly`
+- dry-run status: `ok`
+- passed: `true`
+- blocking reasons: 없음
+- non-blocking reasons:
   - `market_status_fault_dry_run_failed`
   - `kill_switch_fault_dry_run_failed`
 - 권장안:
-  - Phase 1a/1b read-only에서는 kill switch OFF를 요구하지 않도록 분리한다.
+  - Phase 1a read-only에서는 kill switch OFF를 요구하지 않는다.
+  - Phase 1b와 Phase 2의 live-submit readiness는 별도 기준으로 유지한다.
   - Phase 2/3은 synthetic WS evidence를 통과시키지 않는다.
 
 ### Windows 장전 자동화

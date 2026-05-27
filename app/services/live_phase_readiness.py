@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from app.services.system_clock import (
     DEFAULT_MAX_CLOCK_SKEW_SECONDS,
@@ -58,6 +58,16 @@ READINESS_EVIDENCE_MAX_AGE_SECONDS = {
     "system_clock": 1800.0,
 }
 READINESS_FRESH_EVIDENCE_KEYS = set(READINESS_EVIDENCE_MAX_AGE_SECONDS)
+PHASE1A_PAPER_READONLY_REQUIRED_CHECK_KEYS = tuple(
+    key for key in READINESS_CHECK_KEYS if key not in {"market_status", "kill_switch"}
+)
+
+
+def readiness_required_check_keys_for_phase(phase: str) -> tuple[str, ...]:
+    normalized = _normalize_phase_name(phase)
+    if normalized in {"phase1a", "phase1a_paper_readonly", "phase1_paper_readonly_rehearsal"}:
+        return PHASE1A_PAPER_READONLY_REQUIRED_CHECK_KEYS
+    return READINESS_CHECK_KEYS
 
 
 def create_phase_approval(
@@ -134,13 +144,20 @@ def create_readiness_run(
     report_path: str,
     readiness_id: str | None = None,
     extra_detail: dict[str, Any] | None = None,
+    required_check_keys: Iterable[str] | None = None,
 ) -> LiveReadinessRun:
     missing = sorted(set(READINESS_CHECK_KEYS) - set(checks))
     if missing:
         raise ValueError(f"checks missing required keys: {', '.join(missing)}")
+    required_keys = tuple(required_check_keys or READINESS_CHECK_KEYS)
+    unknown_required = sorted(set(required_keys) - set(READINESS_CHECK_KEYS))
+    if unknown_required:
+        raise ValueError(f"unknown required readiness check keys: {', '.join(unknown_required)}")
+    required_key_set = set(required_keys)
+    optional_keys = tuple(key for key in READINESS_CHECK_KEYS if key not in required_key_set)
     normalized_checks = {key: bool(checks[key]) for key in READINESS_CHECK_KEYS}
     reasons = list(blocking_reasons or [])
-    passed = all(normalized_checks.values()) and not reasons
+    passed = all(normalized_checks[key] for key in required_keys) and not reasons
     status = "ok" if passed else "blocked"
     hash_payload = {
         "phase": phase,
@@ -149,6 +166,8 @@ def create_readiness_run(
         "checks": normalized_checks,
         "blocking_reasons": reasons,
         "report_path": report_path,
+        "required_check_keys": list(required_keys),
+        "optional_check_keys": list(optional_keys),
     }
     if extra_detail:
         hash_payload["extra_detail"] = extra_detail
@@ -168,6 +187,8 @@ def create_readiness_run(
         database_ok=normalized_checks["database"],
         checks_json={
             "checks": normalized_checks,
+            "required_check_keys": list(required_keys),
+            "optional_check_keys": list(optional_keys),
             "blocking_reasons": reasons,
             "readiness_hash": readiness_hash,
             "extra_detail": extra_detail or {},
@@ -213,13 +234,25 @@ def create_readiness_run_from_premarket_report(
                 raise ValueError(f"unknown readiness check override: {key}")
             checks[key] = bool(value)
 
+    required_keys = readiness_required_check_keys_for_phase(phase)
+    required_key_set = set(required_keys)
+    optional_keys = tuple(key for key in READINESS_CHECK_KEYS if key not in required_key_set)
     reasons = [f"codex_ops_{key}_blocked" for key in premarket_report.get("blockers", [])]
+    non_blocking_reasons: list[str] = []
     for key in ("token_refresh", "database", "disk_space", "dashboard", "storage_migration_state"):
         if not checks[key] and (not override_checks or key not in override_checks):
-            reasons.append(f"{key}_not_ok_in_premarket_report")
+            reason = f"{key}_not_ok_in_premarket_report"
+            if key in required_key_set:
+                reasons.append(reason)
+            else:
+                non_blocking_reasons.append(reason)
     for key in ("ws_recovery", "account_snapshot", "market_status", "system_clock", "kill_switch"):
         if not checks[key] and (not override_checks or key not in override_checks):
-            reasons.append(f"{key}_not_verified_by_premarket_report")
+            reason = f"{key}_not_verified_by_premarket_report"
+            if key in required_key_set:
+                reasons.append(reason)
+            else:
+                non_blocking_reasons.append(reason)
     if premarket_report.get("status") == "blocked":
         reasons.append("codex_ops_premarket_blocked")
 
@@ -229,6 +262,9 @@ def create_readiness_run_from_premarket_report(
         "codex_ops_warnings": list(premarket_report.get("warnings", [])),
         "codex_ops_report_path": premarket_report.get("report_path"),
         "override_checks": sorted((override_checks or {}).keys()),
+        "required_check_keys": list(required_keys),
+        "optional_check_keys": list(optional_keys),
+        "non_blocking_reasons": _dedupe(non_blocking_reasons),
     }
     return create_readiness_run(
         phase=phase,
@@ -239,6 +275,7 @@ def create_readiness_run_from_premarket_report(
         report_path=report_path,
         readiness_id=readiness_id,
         extra_detail=extra_detail,
+        required_check_keys=required_keys,
     )
 
 
@@ -272,22 +309,33 @@ def build_fault_injection_dry_run_report(
         fixture_checks["ws_recovery"],
     )
     checks = {key: check["passed"] for key, check in fixture_checks.items()}
+    required_keys = readiness_required_check_keys_for_phase(phase)
+    required_key_set = set(required_keys)
+    optional_keys = tuple(key for key in READINESS_CHECK_KEYS if key not in required_key_set)
     reasons = [f"codex_ops_{key}_blocked" for key in premarket_report.get("blockers", [])]
+    non_blocking_reasons: list[str] = []
     if premarket_report.get("status") == "blocked":
         reasons.append("codex_ops_premarket_blocked")
     for key, check in fixture_checks.items():
         if check["passed"]:
             continue
         if check["status"] == "not_verified":
-            reasons.append(f"{key}_not_verified_by_fault_dry_run")
+            reason = f"{key}_not_verified_by_fault_dry_run"
         else:
-            reasons.append(f"{key}_fault_dry_run_failed")
+            reason = f"{key}_fault_dry_run_failed"
+        if key in required_key_set:
+            reasons.append(reason)
+        else:
+            non_blocking_reasons.append(reason)
     extra_detail = {
         "source": "fault_injection_dry_run",
         "codex_ops_status": premarket_report.get("status"),
         "codex_ops_warnings": list(premarket_report.get("warnings", [])),
         "codex_ops_report_path": premarket_report.get("report_path"),
         "fixture_source": source,
+        "required_check_keys": list(required_keys),
+        "optional_check_keys": list(optional_keys),
+        "non_blocking_reasons": _dedupe(non_blocking_reasons),
     }
     readiness = create_readiness_run(
         phase=phase,
@@ -297,6 +345,7 @@ def build_fault_injection_dry_run_report(
         blocking_reasons=_dedupe(reasons),
         report_path=report_path,
         extra_detail=extra_detail,
+        required_check_keys=required_keys,
     )
     status = "ok" if readiness.passed else "blocked"
     return {
@@ -314,6 +363,7 @@ def build_fault_injection_dry_run_report(
         "override_checks": checks,
         "readiness_run": readiness.to_record(),
         "blocking_reasons": list(readiness.checks_json["blocking_reasons"]),
+        "non_blocking_reasons": list(readiness.checks_json["extra_detail"].get("non_blocking_reasons", [])),
     }
 
 
@@ -441,8 +491,12 @@ def _enforce_ws_recovery_evidence_for_phase(phase: str, check: dict[str, Any]) -
 
 
 def _requires_real_ws_recovery_evidence(phase: str) -> bool:
-    normalized = phase.strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = _normalize_phase_name(phase)
     return normalized.startswith("phase2") or normalized.startswith("phase3")
+
+
+def _normalize_phase_name(phase: str) -> str:
+    return phase.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _enforce_evidence_freshness(

@@ -1,5 +1,35 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> Phase 1a KIS 모의투자 read-only 리허설 진행
+
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=overnight`, `live_runtime_should_run=false`.
+  - `git status --short --branch`: `main...origin/main`.
+- 구현:
+  - `app/services/live_phase_readiness.py`에 `phase1a_paper_readonly` readiness 프로필을 추가했다.
+  - Phase 1a 필수 check는 `token_refresh`, `ws_recovery`, `account_snapshot`, `system_clock`, `database`, `disk_space`, `dashboard`, `storage_migration_state`다.
+  - `market_status`와 `kill_switch`는 Phase 1a에서는 비차단 관측 항목으로 기록한다.
+  - 기존 `phase1_readonly`, Phase 2, Phase 3 기준은 그대로 보수적으로 유지한다.
+- 실행:
+  - `./scripts/check_local_setup.sh`: `ok=true`.
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`: `status=ok`.
+  - `./scripts/probe_kis_token_refresh.sh`: `status=ok`, `mode=paper`.
+  - `./scripts/probe_kis_account_snapshot.sh`: `status=ok`, `mode=paper`, position row 2개.
+  - `./scripts/probe_kis_ws_recovery.sh`: `status=ok`, synthetic fault injection.
+  - `./scripts/probe_kis_clock_reference.sh`: `status=ok`, KIS paper read-only current-price HTTP `Date` 기준 skew 약 `0.628s`.
+  - `./scripts/build_live_readiness_fixture_snapshot.sh`: local fixture snapshot 갱신.
+  - `./scripts/run_live_readiness_dry_run.sh --phase phase1a_paper_readonly --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json --report-path runtime-data/reports/live-readiness/latest-readiness.json`: `status=ok`, `passed=true`.
+  - `market_status_fault_dry_run_failed`, `kill_switch_fault_dry_run_failed`는 non-blocking reasons로 남겼다.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-05-28T05:14:31+09:00`.
+- 검증:
+  - `python -m unittest tests.test_live_phase_readiness tests.test_live_readiness_dry_run_script` 통과, 29개.
+  - `python -m py_compile app/services/live_phase_readiness.py tests/test_live_phase_readiness.py tests/test_live_readiness_dry_run_script.py` 통과.
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+- 다음:
+  - Phase 1a는 1차 리허설 통과.
+  - 다음 권장 작업은 Phase 1b 실전 계좌 read-only shape 확인 준비다.
+
 ## [2026-05-28] Codex -> 진행상태 문서 sidebar 호환 정리와 Phase 1 분리
 
 - 원인/조치:

@@ -228,6 +228,85 @@ class LivePhaseReadinessTests(unittest.TestCase):
         self.assertEqual(report["status"], "ok")
         self.assertTrue(report["readiness_run"]["passed"])
 
+    def test_phase1a_paper_readonly_keeps_submit_safety_checks_non_blocking(self) -> None:
+        premarket_report = {
+            "status": "ok",
+            "report_path": "runtime-data/reports/codex/ops/premarket-readiness/latest.json",
+            "warnings": [],
+            "blockers": [],
+            "checks": [
+                {"key": "kis_credentials", "status": "ok"},
+                {"key": "database", "status": "ok"},
+                {"key": "dashboard", "status": "ok"},
+                {"key": "storage_migration_state", "status": "ok"},
+                {"key": "disk_space", "status": "ok"},
+            ],
+        }
+        fixture = {
+            "token_refresh": "ok",
+            "ws_recovery": "ok",
+            "account_snapshot": "ok",
+            "market_status": False,
+            "system_clock": "ok",
+            "kill_switch": False,
+            "database": "ok",
+            "disk_space": "ok",
+            "dashboard": "ok",
+            "storage_migration_state": "ok",
+        }
+
+        report = build_fault_injection_dry_run_report(
+            phase="phase1a_paper_readonly",
+            trading_day="2026-05-15",
+            checked_at=self._now(),
+            premarket_report=premarket_report,
+            fixture_results=fixture,
+            report_path="runtime-data/reports/live-readiness/latest.json",
+        )
+
+        checks_json = report["readiness_run"]["checks_json"]
+        self.assertEqual(report["status"], "ok")
+        self.assertTrue(report["readiness_run"]["passed"])
+        self.assertFalse(checks_json["checks"]["market_status"])
+        self.assertFalse(checks_json["checks"]["kill_switch"])
+        self.assertNotIn("market_status_fault_dry_run_failed", report["blocking_reasons"])
+        self.assertNotIn("kill_switch_fault_dry_run_failed", report["blocking_reasons"])
+        self.assertIn("market_status_fault_dry_run_failed", report["non_blocking_reasons"])
+        self.assertIn("kill_switch_fault_dry_run_failed", report["non_blocking_reasons"])
+        self.assertEqual(checks_json["optional_check_keys"], ["market_status", "kill_switch"])
+        self.assertEqual(
+            checks_json["extra_detail"]["non_blocking_reasons"],
+            ["market_status_fault_dry_run_failed", "kill_switch_fault_dry_run_failed"],
+        )
+
+    def test_phase1_readonly_still_requires_submit_safety_checks(self) -> None:
+        premarket_report = {"status": "ok", "warnings": [], "blockers": [], "checks": []}
+        fixture = {
+            "token_refresh": "ok",
+            "ws_recovery": "ok",
+            "account_snapshot": "ok",
+            "market_status": False,
+            "system_clock": "ok",
+            "kill_switch": False,
+            "database": "ok",
+            "disk_space": "ok",
+            "dashboard": "ok",
+            "storage_migration_state": "ok",
+        }
+
+        report = build_fault_injection_dry_run_report(
+            phase="phase1_readonly",
+            trading_day="2026-05-15",
+            checked_at=self._now(),
+            premarket_report=premarket_report,
+            fixture_results=fixture,
+            report_path="runtime-data/reports/live-readiness/latest.json",
+        )
+
+        self.assertEqual(report["status"], "blocked")
+        self.assertIn("market_status_fault_dry_run_failed", report["blocking_reasons"])
+        self.assertIn("kill_switch_fault_dry_run_failed", report["blocking_reasons"])
+
     def test_phase2_readiness_rejects_synthetic_ws_recovery_evidence(self) -> None:
         premarket_report = {
             "status": "ok",
