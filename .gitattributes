@@ -1,3 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.sh text eol=lf
+docs/Production-Transition-Progress.md text eol=lf
