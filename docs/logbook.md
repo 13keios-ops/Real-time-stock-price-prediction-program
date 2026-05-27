@@ -21,6 +21,13 @@
   - dashboard snapshot: `generated_at=2026-05-27T20:56:27.461218+09:00`.
   - `373220` h15 label symbol-minute는 `0`에서 `352`로 회복됐다.
   - `latest-kis-live-data-quality.json`은 여전히 `assessment.status=watch`지만, 이는 오늘 raw market/minute/feature closed coverage가 약 `94.3%`로 95% 기준을 소폭 하회하기 때문이다.
+- 백업/푸시:
+  - 로컬 커밋 `a838f11`, `4e361fd` 생성 후 `git push origin main`은 도구 안전 정책에서 차단됐다. 확인된 원격은 `https://github.com/13keios-ops/Real-time-stock-price-prediction-program`이며, 이 원격으로 push 하려면 위험 고지 후 명시 재승인이 필요하다.
+  - 사용자 승인 기준에 따라 forced NAS backup을 실행했다.
+  - NAS backup 경로: `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260527-210445.tar.gz`.
+  - 최종 크기: 약 `5.2G`.
+  - `gzip -t` 무결성 검사 통과.
+  - 이번 백업은 `runtime-data`가 약 67GB라 1시간 가까이 소요됐다. 중요 체크포인트 백업은 허용하되, 향후 sanitized recovery export와 재난 복구용 대용량 export의 범위/시간 예산을 분리하는 개선이 필요하다.
 - 주의:
   - 전체 이력 feature/label 재생성은 연구/복구용 명시 작업으로만 둔다.
   - 실전 주문, live account 주문/취소, live runtime restart, 운영 DB schema apply, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
