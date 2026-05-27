@@ -30,7 +30,7 @@
 | 항목 | 현재 상태 |
 |---|---|
 | 마지막 갱신 | 2026-05-27 |
-| 현재 런타임 상태 | 장전 `pre-open`, live runtime 실행 중, runtime watchdog 실행 중, trading mode `paper` |
+| 현재 런타임 상태 | 정규장 `regular-session`, live runtime 실행 중, runtime watchdog 실행 중, trading mode `paper` |
 | 작업 모드 | 장중 수집 보호 모드. 코드 변경, 운영 DB 접근, runtime restart 없이 read-only 점검과 문서/리포트 정리만 수행 |
 | 최신 cowork 기준 | `review_ver_15` 반영 |
 | 최신 통합 리포트 | `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md` |
@@ -49,6 +49,7 @@
 | Phase 3 | 다종목 일일 한도 운용 | 미시작 | Phase 2 20~60거래일 관측, 손실/슬리피지/체결/감사 안정 | Phase 2 미시작 |
 | 지속 연구/학습 | 장중 수집과 장후 학습/개선의 분리 운영 | 진행 중 | 장중 live DB 보호, snapshot 기반 research, 장후 quick/heavy 분리 | active model 자동 승격은 계속 금지 |
 | Codex 운영 자동화 | 장전 readiness, 장후 점검, 사고 triage를 Codex job으로 안전하게 구조화 | 진행 중 | dry-run report, 권한 manifest, root 적용 금지, live flag 변경 금지 | 실제 Codex CLI 자동 실행은 아직 연결하지 않음 |
+| Windows 장전 자동화 | PC 작업 스케줄러에서 장전 runtime fast-start와 local setup check 실행 | 진행 중 | `RealTimeStockRuntime_PreOpenCheck`가 08:20 정상 실행, `start_runtime_autoboot`와 `check_local_setup` 완료 | `run_codex_ops_job.sh --job-type premarket-readiness`는 아직 스케줄러 액션에 포함되지 않음. 장후 연결 권장 |
 | 저장소 생성 부산물 정리 | 테스트/PowerShell/pycache 오염을 실제 운용 데이터와 분리 | 완료 | dry-run 우선 wrapper, `.tmp-tests/codex-ops`와 `app/risk/` 보존, repo 내부 경로 안전 확인 | 필요 시 `--apply`로 수동 실행 |
 
 관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `app/services/codex_ops.py`, `scripts/run_live_readiness_dry_run.sh`

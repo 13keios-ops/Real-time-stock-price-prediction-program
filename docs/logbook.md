@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-05-27] Codex -> 장중 premarket-readiness 수동 보강
+
+- 상태:
+  - 장 시작 후 확인 시 `./scripts/get_live_runtime_status.sh`: `status=running`, `session_status=regular-session`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=regular-session`, `live_runtime_should_run=true`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main` clean.
+- 장전 자동화 확인:
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PreOpenCheck`: `LastRunTime=2026-05-27 08:20:20`, `LastTaskResult=0`, `NumberOfMissedRuns=0`.
+  - 등록된 액션은 `start_runtime_autoboot.sh --skip-runtime-cleanup --skip-dashboard-build` 실행 뒤 `check_local_setup.sh`를 실행하는 구성이다.
+  - `runtime-data/logs/automation/preopen-check.log`에서도 08:20 실행, `market_session_status=pre-open`, `live_window_fast_start=true`, `check_local_setup ok=true`를 확인했다.
+  - 따라서 자동화 자체는 실행됐고, `premarket-readiness` dry-run report 생성이 스케줄러 액션에 아직 포함되지 않은 것이 직접 원인이다.
+- 장중 수동 보강:
+  - 사용자 지시에 따라 `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`를 수동 실행했다.
+  - 결과: `status=ok`, `session_status=regular-session`, `protected_session=true`, live runtime/watchdog/dashboard/KIS 시세 자격정보/SQLite read-only smoke/disk/storage migration/manifest policy 모두 ok.
+  - `manifest_policy.storage_apply_blocking_reasons`에 `action_not_allowed_during_protected_session`이 포함되어 장중 보호 세션에서 storage apply가 차단되는 것을 확인했다.
+- 후속 권장:
+  - 장후에 Windows `RealTimeStockRuntime_PreOpenCheck` 액션에 `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`를 `check_local_setup.sh` 전후로 연결하는 작업을 진행한다.
+  - 장중에는 스케줄러 등록 변경, runtime restart, dashboard rebuild, 운영 DB write, 코드 적용은 하지 않는다.
+- 주의:
+  - 실전 주문, live runtime restart, dashboard rebuild, 운영 DB schema apply, `app/risk/` 추적 파일, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-27] Codex -> Phase 1 blocker 장전 보호모드 리허설
 
 - 상태:
