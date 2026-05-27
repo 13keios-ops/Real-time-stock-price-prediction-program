@@ -1,5 +1,38 @@
 # 작업 기록
 
+## [2026-05-27] Codex -> 장후 운영상태 확인과 마감 조치
+
+- 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PostCloseOps`: `LastRunTime=2026-05-27 16:40:40`, `LastTaskResult=0`, `NumberOfMissedRuns=0`.
+- 장후 자동화 확인:
+  - `latest-post-close-ml.json`: `status=ok`, `mode=quick-live-train`, `completed_at=2026-05-27 16:20:24 +0900`.
+  - 자동화의 `latest-post-close-label-refresh.json`는 `status=ok`였지만 `skipped_feature_label_build=true`였다. 30분 제한 뒤 fallback 진단/대시보드 갱신으로 끝난 상태로 판단했다.
+  - 수동 full `./scripts/run_post_close_label_refresh.sh --recent-days 10`를 재시도했지만 `python -m app --build-feature-dataset` 단계에서 exit code 1로 종료됐다. 이후 상태 파일이 `running`으로 남아 있어 `--skip-build --force` fallback을 실행해 운영 마감 상태를 `status=ok`, `completed_at=2026-05-27 18:36:37 +0900`로 정상화했다.
+  - fallback 결과 `runtime-data/reports/runtime/latest-runtime-report.json`과 dashboard snapshot은 각각 `18:36`, `18:38` 기준으로 갱신됐다.
+- paper/KIS 모의계좌 정합성 조치:
+  - 장후 자동화 직후 `latest-paper-dual-account-match.json`는 `status=needs_review`, `positions_match=true`, `cash_gap=398157.96565999836`, `total_asset_gap=784157.9656599984`였다.
+  - 열린 포지션이 있어 `SyncInitialCash`는 실행하지 않고 `./scripts/align_local_paper_to_broker.sh`로 브로커 기준 marker 정렬을 수행했다.
+  - 정렬 backup: `runtime-data/backups/paper-alignment/260527_1752_marker-only.sqlite3`.
+  - 정렬 뒤 `./scripts/reconcile_paper_accounts.sh`: `ok=true`, `cash_gap=0`, `total_asset_gap=0`, `status=aligned_waiting_first_submission`.
+  - 정렬 뒤 `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+- 데이터 품질:
+  - `latest-kis-live-data-quality.json`: `assessment.status=watch`.
+  - 최신 거래일 2026-05-27 기준 raw market coverage `0.943734`, minute/feature closed coverage `0.943333`으로 95% 기준을 소폭 하회했다.
+  - `373220`의 h15 label symbol-minute가 `0`으로 나타나 full feature/label build 실패와 함께 다음 장전 전 확인이 필요하다.
+- 장전 자동화 보강:
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PreOpenCheck` 액션에 `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`를 `start_runtime_autoboot.sh --skip-runtime-cleanup --skip-dashboard-build`와 `check_local_setup.sh` 사이에 추가했다.
+  - 새 액션 기준 manual dry-run `./scripts/run_codex_ops_job.sh --job-type premarket-readiness`: `status=ok`, `session_status=post-close`, `protected_session=false`, blockers/warnings 없음.
+  - 다음 실제 확인 지점은 2026-05-28 08:20 자동 실행 결과다.
+- 최종 런타임 정리:
+  - 최종 점검 중 runtime watchdog pid가 죽어 `status=stale`로 확인됐다.
+  - `./scripts/start_runtime_watchdog_background.sh`로 watchdog만 재기동했다.
+  - 재기동 뒤 watchdog은 `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`이고 dashboard도 `status=running`, HTTP/API 응답 정상이다.
+  - 최종 `./scripts/check_local_setup.sh`: `ok=true`, blockers/warnings 없음, `checked_at=2026-05-27 18:42:33 +0900`.
+- 주의:
+  - 실전 주문, live account 주문/취소, live runtime restart, 운영 DB schema apply, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-27] Codex -> 장중 premarket-readiness 수동 보강
 
 - 상태:
