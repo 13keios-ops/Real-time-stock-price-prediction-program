@@ -68,6 +68,7 @@ def main() -> int:
     parser.add_argument("--collect-kis-historical", action="store_true", help="Collect KIS REST minute bars into the existing SQLite schema.")
     parser.add_argument("--build-minute-bars", action="store_true", help="Build minute bars from raw ticks stored in SQLite.")
     parser.add_argument("--build-feature-dataset", action="store_true", help="Build feature snapshots and labels from SQLite minute bars.")
+    parser.add_argument("--feature-dataset-recent-days", type=int, default=0, help="Limit feature dataset generation to bars from the last N calendar days. Use 0 for full history.")
     parser.add_argument("--rebuild-actual-ml", action="store_true", help="Delete offline ML artifacts and rebuild actual-runtime-only features, labels, training, and reports.")
     parser.add_argument("--train-baseline", action="store_true", help="Train the local centroid baseline using SQLite feature rows.")
     parser.add_argument("--train-lightgbm", action="store_true", help="Train the LightGBM model using SQLite feature rows.")
@@ -187,7 +188,10 @@ def main() -> int:
         return 0
 
     if args.build_feature_dataset:
-        result = build_feature_dataset_from_sqlite(project_root=project_root)
+        result = build_feature_dataset_from_sqlite(
+            project_root=project_root,
+            recent_days=args.feature_dataset_recent_days if args.feature_dataset_recent_days > 0 else None,
+        )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
 

@@ -256,6 +256,7 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 기본 보관 정책은 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
 - 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
 - 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
+- 2026-05-27 사용자 승인 기준: 코드/운영 자동화 변경, 장후 마감 조치, Phase readiness 증거 생성, release/복구 직전 같은 중요 체크포인트에서는 Codex가 별도 재질문 없이 forced NAS backup을 실행할 수 있다. 단, 실전 주문 flag 변경, 비밀값 본문 기록, root `.env*`를 cowork/검증 산출물로 공유하는 행위는 계속 금지한다.
 
 주간 백업:
 

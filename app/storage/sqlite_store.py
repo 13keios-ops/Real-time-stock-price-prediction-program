@@ -1625,27 +1625,63 @@ class SQLiteRuntimeStore:
         rows = self._run_safe_read_query(query, params, missing_tables=("raw_market_ticks",))
         return list(rows) if isinstance(rows, list) else []
 
-    def fetch_orderbook_snapshots(self, symbol: str | None = None) -> list[sqlite3.Row]:
+    def fetch_orderbook_snapshots(
+        self,
+        symbol: str | None = None,
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[sqlite3.Row]:
         query = "SELECT symbol, event_time, bid_price, ask_price, bid_size, ask_size, source FROM raw_orderbook_ticks"
-        params: tuple[Any, ...] = ()
+        conditions: list[str] = []
+        params: list[Any] = []
         if symbol:
-            query += " WHERE symbol = ?"
-            params = (symbol,)
+            conditions.append("symbol = ?")
+            params.append(symbol)
+        if start_time is not None:
+            conditions.append("event_time >= ?")
+            params.append(self._dt(start_time))
+        if end_time is not None:
+            conditions.append("event_time <= ?")
+            params.append(self._dt(end_time))
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY symbol, event_time"
-        rows = self._run_safe_read_query(query, params, missing_tables=("raw_orderbook_ticks",))
+        rows = self._run_safe_read_query(query, tuple(params), missing_tables=("raw_orderbook_ticks",))
         return list(rows) if isinstance(rows, list) else []
 
-    def fetch_minute_bars(self, symbol: str | None = None) -> list[sqlite3.Row]:
+    def fetch_minute_bars(
+        self,
+        symbol: str | None = None,
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[sqlite3.Row]:
         query = "SELECT symbol, bar_time, open, high, low, close, volume, trade_count FROM curated_minute_bars"
-        params: tuple[Any, ...] = ()
+        conditions: list[str] = []
+        params: list[Any] = []
         if symbol:
-            query += " WHERE symbol = ?"
-            params = (symbol,)
+            conditions.append("symbol = ?")
+            params.append(symbol)
+        if start_time is not None:
+            conditions.append("bar_time >= ?")
+            params.append(self._dt(start_time))
+        if end_time is not None:
+            conditions.append("bar_time <= ?")
+            params.append(self._dt(end_time))
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY symbol, bar_time"
-        rows = self._run_safe_read_query(query, params, missing_tables=("curated_minute_bars",))
+        rows = self._run_safe_read_query(query, tuple(params), missing_tables=("curated_minute_bars",))
         return list(rows) if isinstance(rows, list) else []
 
-    def fetch_minute_bars_with_market_sources(self, symbol: str | None = None) -> list[sqlite3.Row]:
+    def fetch_minute_bars_with_market_sources(
+        self,
+        symbol: str | None = None,
+        *,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[sqlite3.Row]:
         query = """
             SELECT
                 bars.symbol,
@@ -1662,10 +1698,19 @@ class SQLiteRuntimeStore:
                 ON ticks.symbol = bars.symbol
                AND ticks.event_time = bars.bar_time
         """
-        params: tuple[Any, ...] = ()
+        conditions: list[str] = []
+        params: list[Any] = []
         if symbol:
-            query += " WHERE bars.symbol = ?"
-            params = (symbol,)
+            conditions.append("bars.symbol = ?")
+            params.append(symbol)
+        if start_time is not None:
+            conditions.append("bars.bar_time >= ?")
+            params.append(self._dt(start_time))
+        if end_time is not None:
+            conditions.append("bars.bar_time <= ?")
+            params.append(self._dt(end_time))
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += """
             GROUP BY
                 bars.symbol,
@@ -1680,7 +1725,7 @@ class SQLiteRuntimeStore:
         """
         rows = self._run_safe_read_query(
             query,
-            params,
+            tuple(params),
             missing_tables=("curated_minute_bars", "raw_market_ticks"),
         )
         return list(rows) if isinstance(rows, list) else []

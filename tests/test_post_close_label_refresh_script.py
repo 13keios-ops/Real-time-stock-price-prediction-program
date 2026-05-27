@@ -94,7 +94,7 @@ class PostCloseLabelRefreshScriptTests(unittest.TestCase):
         )
 
         expected_steps = [
-            "python -m app --build-feature-dataset",
+            "python -m app --build-feature-dataset --feature-dataset-recent-days 10",
             "python scripts/summarize_kis_live_data_quality.py --recent-days 10",
             "python scripts/summarize_feature_source_drift.py",
             "python scripts/summarize_kis_live_feature_diagnostics.py",

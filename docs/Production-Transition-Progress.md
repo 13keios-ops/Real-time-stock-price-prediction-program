@@ -43,7 +43,7 @@
 | Phase | 목표 | 현재 상태 | 진입/통과 기준 | 남은 blocker |
 |---|---|---|---|---|
 | 설계 기준 정리 | 실전 전환 목표 구조, 구현 청사진, cowork ping-pong 이력 정리 | 완료 | `Production-Architecture`, `Production-Implementation-Blueprint`, cowork reports 유지 | 없음 |
-| Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요. 2026-05-27 marker alignment 뒤 `matched_waiting_first_submission` 재확인. 2026-05-27 KIS live data quality 는 coverage 약 94.3%로 `watch`, full label build 는 실패하고 skip-build fallback 으로 마감 |
+| Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요. 2026-05-27 marker alignment 뒤 `matched_waiting_first_submission` 재확인. 2026-05-27 label refresh full build 실패 원인은 전체 이력 build였고, 최근 10일 bounded build로 수정/재실행 완료. KIS live data quality 는 raw/minute coverage 약 94.3%로 `watch` 유지 |
 | Phase 1 | 실전 계좌 read-only 연결, 주문 금지 | 대기 | read-only client 구조적 차단, live order path hard fail, freshness/readiness 통과, sanitized 복구 drill | live account read-only shape 확인, sanitized NAS drill 표본, 실제 market status snapshot 증적, kill switch 상태 파일 |
 | Phase 2 | 실전 1종목/소액 canary, 1일 1주문/1주 제한 | 미시작 | Phase 1 관측 통과, submit guard, kill switch, alert, audit, 모델 성능 선행 게이트, operator approval | Phase 1 미통과, active model 승격 기준 미충족 |
 | Phase 3 | 다종목 일일 한도 운용 | 미시작 | Phase 2 20~60거래일 관측, 손실/슬리피지/체결/감사 안정 | Phase 2 미시작 |

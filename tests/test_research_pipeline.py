@@ -393,6 +393,79 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertGreater(float(label_rows[0]["future_return_pct"]), 0.0)
             logging.shutdown()
 
+    def test_feature_dataset_recent_days_limits_source_window(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        kst = get_timezone("Asia/Seoul")
+        runtime_root = root / ".tmp-tests" / "research-recent-feature-window" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+
+            for base_time, base_price in (
+                (datetime(2026, 4, 10, 9, 0, tzinfo=kst), 70000),
+                (datetime(2026, 4, 13, 9, 0, tzinfo=kst), 72000),
+            ):
+                for offset, price in ((0, base_price), (15, base_price + 100)):
+                    event_time = base_time + timedelta(minutes=offset)
+                    writer.write_market_tick(
+                        MarketTickEvent(
+                            symbol="005930",
+                            event_time=event_time,
+                            price=float(price),
+                            volume=100,
+                            source="kis-ws",
+                        )
+                    )
+                    writer.write_minute_bar(
+                        MinuteBar(
+                            symbol="005930",
+                            bar_time=event_time,
+                            open=float(price),
+                            high=float(price + 10),
+                            low=float(price - 10),
+                            close=float(price),
+                            volume=100,
+                            trade_count=1,
+                        )
+                    )
+                    writer.write_orderbook_snapshot(
+                        OrderbookSnapshot(
+                            symbol="005930",
+                            event_time=event_time,
+                            bid_price=float(price - 5),
+                            ask_price=float(price + 5),
+                            bid_size=1000,
+                            ask_size=900,
+                            source="kis-ws",
+                        )
+                    )
+
+            with patch(
+                "app.services.research.now_local",
+                return_value=datetime(2026, 4, 14, 10, 0, tzinfo=kst),
+            ):
+                feature_result = build_feature_dataset_from_sqlite(project_root=root, horizons=(15,), recent_days=2)
+
+            sqlite_store = get_sqlite_store(settings)
+            self.assertIsNotNone(sqlite_store)
+            self.assertEqual(feature_result.features_written, 2)
+            self.assertEqual(feature_result.labels_written, 1)
+            self.assertIsNotNone(feature_result.source_window_start)
+            feature_rows = sqlite_store.fetch_all_rows("feature_model_inputs", "event_time")
+            self.assertEqual([row["event_time"] for row in feature_rows], [
+                "2026-04-13T09:00:00+09:00",
+                "2026-04-13T09:15:00+09:00",
+            ])
+            label_rows = sqlite_store.fetch_all_rows("feature_labels", "event_time")
+            self.assertEqual([row["event_time"] for row in label_rows], ["2026-04-13T09:00:00+09:00"])
+
     def test_cybos_bars_build_bar_only_features_without_orderbook(self) -> None:
         root = Path(__file__).resolve().parents[1]
         kst = get_timezone("Asia/Seoul")

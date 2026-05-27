@@ -19,7 +19,7 @@
 
 장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작한다. quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
 
-quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feature/label 재생성은 포함하지 않는다. 장마감 뒤 h15/h60 라벨까지 닫아 학습 가능한 상태로 만들 때는 `./scripts/run_post_close_label_refresh.sh`를 별도로 실행한다. 이 경로는 `python -m app --build-feature-dataset` 후 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신하고 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다.
+quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feature/label 재생성은 포함하지 않는다. 장마감 뒤 h15/h60 라벨까지 닫아 학습 가능한 상태로 만들 때는 `./scripts/run_post_close_label_refresh.sh`를 별도로 실행한다. 이 경로는 `--recent-days` 값에 맞춰 `python -m app --build-feature-dataset --feature-dataset-recent-days N`으로 최근 구간만 갱신한 뒤 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신하고 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다. 전체 이력 feature/label 재생성은 연구/복구용 명시 작업으로만 실행한다.
 
 ## 로컬 데이터 저장 원칙
 

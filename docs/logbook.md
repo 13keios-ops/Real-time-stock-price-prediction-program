@@ -1,5 +1,30 @@
 # 작업 기록
 
+## [2026-05-27] Codex -> 장후 label refresh full build 실패 원인 수정
+
+- 원인:
+  - `./scripts/run_post_close_label_refresh.sh --recent-days 10`가 내부에서 `python -m app --build-feature-dataset`를 제한 없이 호출해 전체 이력 feature/label build를 수행하고 있었다.
+  - 현재 `runtime-data/dev.db` 기준 `minute_bars`와 `feature_rows`가 643만 건 이상이라 장후 운영 작업으로는 과도했고, 2026-05-27 수동 full 재시도는 약 23분 뒤 실패했다.
+- 변경:
+  - `python -m app --build-feature-dataset --feature-dataset-recent-days N` 옵션을 추가했다.
+  - `app/storage/sqlite_store.py`의 minute bar/orderbook 조회에 `start_time/end_time` 필터를 추가해 Python 메모리 필터가 아니라 SQLite 조회 단계에서 최근 구간만 읽도록 했다.
+  - `build_feature_dataset_from_sqlite(..., recent_days=N)`가 최근 N일 구간과 직전 1일 orderbook context만 읽도록 했다.
+  - `run_post_close_label_refresh.sh`는 `--recent-days` 값을 `--feature-dataset-recent-days`로 넘긴다.
+- 검증:
+  - `python -m py_compile app/__main__.py app/services/research.py app/storage/sqlite_store.py` 통과.
+  - `bash -n scripts/script_dispatch.sh scripts/run_post_close_label_refresh.sh` 통과.
+  - `python -m unittest tests.test_post_close_label_refresh_script tests.test_research_pipeline` 통과, 13개.
+  - 실제 `./scripts/run_post_close_label_refresh.sh --recent-days 10 --force` 재실행 통과.
+- 실제 재실행 결과:
+  - feature build: `features_written=26450`, `labels_written=47683`, `source_window_start=2026-05-17T20:43:14.976481+09:00`.
+  - `latest-post-close-label-refresh.json`: `status=ok`, `skipped_feature_label_build=false`, `completed_at=2026-05-27 20:54:58 +0900`.
+  - dashboard snapshot: `generated_at=2026-05-27T20:56:27.461218+09:00`.
+  - `373220` h15 label symbol-minute는 `0`에서 `352`로 회복됐다.
+  - `latest-kis-live-data-quality.json`은 여전히 `assessment.status=watch`지만, 이는 오늘 raw market/minute/feature closed coverage가 약 `94.3%`로 95% 기준을 소폭 하회하기 때문이다.
+- 주의:
+  - 전체 이력 feature/label 재생성은 연구/복구용 명시 작업으로만 둔다.
+  - 실전 주문, live account 주문/취소, live runtime restart, 운영 DB schema apply, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-27] Codex -> 장후 운영상태 확인과 마감 조치
 
 - 상태:

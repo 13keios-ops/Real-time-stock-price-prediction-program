@@ -741,7 +741,7 @@ PY
   }
 
   if [[ "$dry_run" == "true" ]]; then
-    [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset
+    [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset --feature-dataset-recent-days "$recent_days"
     run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
     run_label_python_step scripts/summarize_feature_source_drift.py
     run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py
@@ -753,7 +753,7 @@ PY
   write_label_refresh_state "running" 0 >/dev/null
   trap 'code=$?; if [[ $code -ne 0 ]]; then write_label_refresh_state "failed" "$code" >/dev/null || true; fi' EXIT
 
-  [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset
+  [[ "$skip_build" == "true" ]] || run_label_app_step --build-feature-dataset --feature-dataset-recent-days "$recent_days"
   run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
   run_label_python_step scripts/summarize_feature_source_drift.py
   run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py

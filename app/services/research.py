@@ -94,6 +94,7 @@ class FeatureDatasetBuildResult:
     labels_written: int
     horizons: list[int]
     runtime_root: Path
+    source_window_start: datetime | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +102,7 @@ class FeatureDatasetBuildResult:
             "labels_written": self.labels_written,
             "horizons": self.horizons,
             "runtime_root": str(self.runtime_root),
+            "source_window_start": self.source_window_start.isoformat() if self.source_window_start else None,
         }
 
 
@@ -4251,6 +4253,7 @@ def build_feature_dataset_from_sqlite(
     actual_only: bool = False,
     clear_existing: bool = False,
     persist_runtime_artifacts: bool = True,
+    recent_days: int | None = None,
 ) -> FeatureDatasetBuildResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -4262,22 +4265,27 @@ def build_feature_dataset_from_sqlite(
         sqlite_store.clear_tables(["feature_model_inputs", "feature_labels"])
 
     fetch_minute_bars = getattr(sqlite_store, "fetch_minute_bars_with_market_sources", sqlite_store.fetch_minute_bars)
+    source_window_start: datetime | None = None
+    orderbook_window_start: datetime | None = None
+    if recent_days is not None and recent_days > 0:
+        source_window_start = now_local(settings.timezone) - timedelta(days=recent_days)
+        orderbook_window_start = source_window_start - timedelta(days=1)
 
     if actual_only:
         scope = build_runtime_scope(sqlite_store, settings)
         minute_bar_rows = filter_actual_rows(
             "curated_minute_bars",
-            [dict(row) for row in fetch_minute_bars()],
+            [dict(row) for row in fetch_minute_bars(start_time=source_window_start)],
             scope,
         )
         orderbook_rows = filter_actual_rows(
             "raw_orderbook_ticks",
-            [dict(row) for row in sqlite_store.fetch_orderbook_snapshots()],
+            [dict(row) for row in sqlite_store.fetch_orderbook_snapshots(start_time=orderbook_window_start)],
             scope,
         )
     else:
-        minute_bar_rows = [dict(row) for row in fetch_minute_bars()]
-        orderbook_rows = [dict(row) for row in sqlite_store.fetch_orderbook_snapshots()]
+        minute_bar_rows = [dict(row) for row in fetch_minute_bars(start_time=source_window_start)]
+        orderbook_rows = [dict(row) for row in sqlite_store.fetch_orderbook_snapshots(start_time=orderbook_window_start)]
 
     bars_by_symbol: dict[str, list[MinuteBar]] = defaultdict(list)
     market_sources_by_symbol: dict[str, dict[datetime, set[str]]] = defaultdict(dict)
@@ -4387,6 +4395,7 @@ def build_feature_dataset_from_sqlite(
         labels_written=labels_written,
         horizons=list(horizons),
         runtime_root=settings.runtime_data_dir,
+        source_window_start=source_window_start,
     )
 
 
