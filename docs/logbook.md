@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> C드라이브 저장소 전용 산출물 감사와 D드라이브 이동
+
+- 작업 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=overnight`, `live_runtime_should_run=false`, `errors=[]`.
+- C드라이브 감사:
+  - `C:\CodexData\Real-time-stock-price-prediction-program`, `C:\Users\Keios\CodexData\Real-time-stock-price-prediction-program`, `C:\Temp\Real-time-stock-price-prediction-program`, 사용자 `Temp/Downloads/Documents/Desktop`의 저장소명 후보는 발견되지 않았다.
+  - `C:\Temp\cybos_collect.db` 본체는 이미 삭제된 상태였다.
+  - `C:\Users\Keios\AppData\Local\wsl`에는 과거 WSL stub로 보이는 `shortcut.ico`만 남아 있었고, 현재 실제 WSL 디스크는 `D:\WSL\Ubuntu\ext4.vhdx`로 확인했다.
+  - `C:\Users\Keios\.codex`, `C:\Users\Keios\AppData\Local\Codex`, `C:\Users\Keios\AppData\Local\OpenAI` 안에서 이 저장소명 후보는 발견되지 않았다. 이 경로들은 저장소 전용 산출물이 아니라 앱/도구 내부 캐시이므로 이동하지 않았다.
+- 이동:
+  - `C:\Temp\cybos_collect_005930_chunk60.err.log`
+  - `C:\Temp\cybos_collect_005930_chunk60.log`
+  - `C:\Temp\cybos_collect_005930_early.err.log`
+  - `C:\Temp\cybos_collect_005930_early.log`
+  - 위 4개 파일을 `D:\CodexData\Real-time-stock-price-prediction-program\cybos\logs\`로 이동했다.
+  - 이동 뒤 `C:\Temp\cybos_collect*` 잔여 파일 없음, D드라이브 대상 폴더의 4개 파일 존재를 확인했다.
+- 기준:
+  - 이 저장소에서 경로를 지정할 수 있는 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 계속 D드라이브만 사용한다.
+  - Codex Desktop, OpenAI 앱, Windows/WSL 자체가 강제하는 내부 캐시는 저장소 전용 산출물이 아니며, 이동 시 도구 실행을 깨뜨릴 수 있어 별도 검증 전에는 옮기지 않는다.
+
 ## [2026-05-27] Codex -> 장후 label refresh full build 실패 원인 수정
 
 - 원인:
