@@ -212,9 +212,11 @@ install_windows_startup_launcher() {
   mkdir -p "$startup_dir"
   local launcher_path="$startup_dir/$launcher_name"
   local distro="${WSL_DISTRO_NAME:-Ubuntu}"
+  local log_name="${launcher_name%.cmd}.log"
   cat >"$launcher_path" <<EOF
 @echo off
-start "$window_title" /min "%SystemRoot%\System32\wsl.exe" -d "$distro" --cd "$REPO_ROOT" --exec bash -lc "$wsl_command"
+timeout /t 20 /nobreak >nul
+start "$window_title" /min "%SystemRoot%\System32\wsl.exe" -d "$distro" --cd "$REPO_ROOT" --exec bash -lc "mkdir -p runtime-data/logs/automation; echo '[windows-startup] start at '\$(date -Is) >> runtime-data/logs/automation/$log_name; $wsl_command >> runtime-data/logs/automation/$log_name 2>&1; rc=\$?; echo '[windows-startup] exit '\$rc' at '\$(date -Is) >> runtime-data/logs/automation/$log_name; exit \$rc"
 EOF
   echo "Installed Windows startup launcher: $launcher_path"
 }

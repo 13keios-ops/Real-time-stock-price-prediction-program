@@ -420,6 +420,7 @@ PC 재부팅 후 자동 시작 루틴:
 하위 `python -m app ...` 명령이 실패하면 성공처럼 넘기지 않고 즉시 오류로 처리한다.
 
 WSL2/Windows 환경의 `install_runtime_startup_launcher.sh`는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다.
+Windows 로그인 직후 WSL 준비 지연을 줄이기 위해 시작 전 짧게 대기하고, 실행 결과는 `runtime-data/logs/automation/RealTimeStockRuntime.log`에 남긴다.
 Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 를 fallback 으로 사용한다.
 
 ## 월요일 시작 루틴

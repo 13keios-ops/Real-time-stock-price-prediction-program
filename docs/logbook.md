@@ -1,5 +1,27 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> PC 재시작 후 runtime 상태 확인과 startup launcher 보강
+
+- 재시작 후 최초 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`. 장외 시간이므로 live runtime 중지는 정상 상태다.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=stale`, 이전 pid는 종료됨.
+  - `./scripts/get_dashboard_status.sh`: `status=stale`, 이전 pid는 종료됨, `dashboard_responding=false`.
+  - `./scripts/get_runtime_startup_launcher_status.sh`: Windows 시작프로그램 launcher는 설치됨.
+- 조치:
+  - `./scripts/start_runtime_watchdog_background.sh`로 watchdog 재기동.
+  - `./scripts/start_dashboard_background.sh` 호출 중 1회 `Address already in use`가 stderr에 남았지만, watchdog이 먼저 dashboard를 정상 재시작한 상태였고 최종 상태는 정상이다.
+  - 최종 `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=overnight`, `live_runtime_should_run=false`, `errors=[]`.
+  - 최종 `./scripts/get_dashboard_status.sh`: `status=running`, `port_bound=true`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- 원인/보강:
+  - 기존 `RealTimeStockRuntime.cmd`는 Windows 시작프로그램에서 WSL 명령을 조용히 실행해, PC 재시작 직후 실제 실행 여부와 실패 원인이 repo 내부에 남지 않았다.
+  - `scripts/script_dispatch.sh`의 Windows startup launcher 생성 로직에 로그인 직후 짧은 대기와 `runtime-data/logs/automation/RealTimeStockRuntime.log` 기록을 추가했다.
+  - `./scripts/install_runtime_startup_launcher.sh`를 재실행해 실제 Windows 시작프로그램 cmd도 새 형식으로 갱신했다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh` 통과.
+  - `python -m unittest tests.test_wsl_ops` 통과, 15개.
+  - `git diff --check` 통과.
+  - 실전 주문, live account 주문/취소, 운영 DB schema apply, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> C드라이브 저장소 전용 산출물 감사와 D드라이브 이동
 
 - 작업 시작 상태:
