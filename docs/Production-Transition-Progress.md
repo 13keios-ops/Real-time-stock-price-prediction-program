@@ -1,116 +1,269 @@
 # Production Transition Progress
 
-이 문서는 실전 전환 작업의 단계별 목표와 현재 진행상태를 한눈에 보기 위한 진행판이다.
-작업이 끝날 때마다 Codex는 이 문서를 갱신하고, 최종 보고에 이 파일 링크를 함께 출력한다.
+이 문서는 실전 전환 작업의 현재 상태를 빠르게 보기 위한 진행판이다.
+사이드패널에서 안정적으로 열리도록 긴 표 대신 짧은 섹션과 bullet 위주로 유지한다.
 
 ## 1. 갱신 규칙
 
-- 갱신 시점: 실전 전환 관련 작업이 끝날 때마다.
-- 갱신 범위: 단계 상태, 완료 항목, 남은 blocker, 다음 권장 작업, 최신 cowork 전달 파일.
-- 세부 논쟁과 리뷰 전문은 `docs/cowork-reports/`에 남기고, 이 문서에는 현재 판단 기준만 남긴다.
-- KIS app key, app secret, token, 계좌번호 등 비밀값은 적지 않는다.
-- `app/risk/`, `config/`, `VERSION`, gate 기준값, `ALLOW_LIVE_ORDERS`는 이 진행판 갱신 목적으로 수정하지 않는다.
+- 실전 전환 관련 작업이 끝날 때마다 갱신한다.
+- 현재 상태, 남은 blocker, 다음 권장 작업을 우선 기록한다.
+- 긴 리뷰 전문은 `docs/cowork-reports/`에 둔다.
+- 비밀값은 적지 않는다.
+- 이 문서 갱신 목적으로 `app/risk/`, `config/`, `VERSION`, gate 기준값,
+  `ALLOW_LIVE_ORDERS`는 수정하지 않는다.
 
-관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `docs/cowork-reports/`, `docs/logbook.md`
+관련 문서/코드 경로:
+`docs/Production-Architecture.md`,
+`docs/Production-Implementation-Blueprint.md`,
+`docs/logbook.md`
 
-## 2. 상태 범례
+## 2. 현재 스냅샷
 
-| 상태 | 의미 |
-|---|---|
-| 완료 | 코드/문서/테스트가 현재 기준으로 닫힌 상태 |
-| 진행 중 | 구현 또는 검증이 일부 끝났고 후속 연결이 남은 상태 |
-| 대기 | 운영자 승인, cowork 리뷰, 장외 시간, 외부 조건을 기다리는 상태 |
-| 미시작 | 아직 설계 또는 코드 작업을 시작하지 않은 상태 |
-| 차단 | 다음 phase 진입 전에 반드시 해결해야 하는 blocker |
+- 마지막 갱신: 2026-05-28
+- 현재 런타임: `overnight`
+- live runtime: 정지 상태가 정상
+- runtime watchdog: 실행 중
+- dashboard: 실행 중
+- trading mode: `paper`
+- 최신 cowork 기준: `review_ver_15` 반영
+- 최신 통합 리포트:
+  `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
+- 다음 cowork 리뷰 권장 시점:
+  Phase 1 read-only shape, market status 원천, 또는 kill switch readiness 분리 정책이
+  구체화된 뒤.
 
-관련 문서/코드 경로: `docs/logbook.md`, `docs/cowork-reports/README.md`
+관련 문서/코드 경로:
+`scripts/get_live_runtime_status.sh`,
+`scripts/get_runtime_watchdog_status.sh`
 
-## 3. 현재 스냅샷
+## 3. Phase 상태
 
-| 항목 | 현재 상태 |
-|---|---|
-| 마지막 갱신 | 2026-05-28 |
-| 현재 런타임 상태 | `overnight`, live runtime 정지, runtime watchdog/dashboard 실행 중, trading mode `paper` |
-| 작업 모드 | 장전 준비 점검 모드. local setup, premarket-readiness, KIS paper read-only 증거, paper/KIS 정합성, runtime report/dashboard 갱신, Windows startup fast path 보강 수행 |
-| 최신 cowork 기준 | `review_ver_15` 반영 |
-| 최신 통합 리포트 | `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md` |
-| 다음 cowork 예상 리뷰 | 현재는 보류. 다음 리뷰는 Phase 1 live read-only shape, market status 자동/수동 원천, kill switch readiness 분리 정책 중 하나가 구체화된 뒤 권장 |
+### 설계 기준 정리
 
-관련 문서/코드 경로: `scripts/get_live_runtime_status.sh`, `scripts/get_runtime_watchdog_status.sh`, `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
+- 상태: 완료
+- 완료:
+  - `docs/Production-Architecture.md`
+  - `docs/Production-Implementation-Blueprint.md`
+  - cowork reports 누적
+- 남은 blocker: 없음
 
-## 4. Phase별 목표와 진행상태
+### Phase 0: paper + KIS 모의계좌 mirroring
 
-| Phase | 목표 | 현재 상태 | 진입/통과 기준 | 남은 blocker |
-|---|---|---|---|---|
-| 설계 기준 정리 | 실전 전환 목표 구조, 구현 청사진, cowork ping-pong 이력 정리 | 완료 | `Production-Architecture`, `Production-Implementation-Blueprint`, cowork reports 유지 | 없음 |
-| Phase 0 | 현재 paper + KIS 모의계좌 mirroring 안정화 | 진행 중 | paper-vs-broker 정합성, KIS live 데이터 품질, 장후 quick maintenance 안정 | 누적 자동 집계와 dashboard 노출은 추가 확인 필요. 2026-05-27 marker alignment 뒤 `matched_waiting_first_submission` 재확인. 2026-05-27 label refresh full build 실패 원인은 전체 이력 build였고, 최근 10일 bounded build로 수정/재실행 완료. KIS live data quality 는 raw/minute coverage 약 94.3%로 `watch` 유지 |
-| Phase 1 | 실전 계좌 read-only 연결, 주문 금지 | 대기 | read-only client 구조적 차단, live order path hard fail, freshness/readiness 통과, sanitized 복구 drill | live account read-only shape 확인, sanitized NAS drill 표본, 실제 market status snapshot 증적. kill switch OFF 파일은 Phase 0/paper와 Phase 1 read-only에는 지금 만들 필요가 없으며, live-submit readiness 또는 Phase 2 이후에 명시 승인으로 생성 |
-| Phase 2 | 실전 1종목/소액 canary, 1일 1주문/1주 제한 | 미시작 | Phase 1 관측 통과, submit guard, kill switch, alert, audit, 모델 성능 선행 게이트, operator approval | Phase 1 미통과, active model 승격 기준 미충족 |
-| Phase 3 | 다종목 일일 한도 운용 | 미시작 | Phase 2 20~60거래일 관측, 손실/슬리피지/체결/감사 안정 | Phase 2 미시작 |
-| 지속 연구/학습 | 장중 수집과 장후 학습/개선의 분리 운영 | 진행 중 | 장중 live DB 보호, snapshot 기반 research, 장후 quick/heavy 분리 | active model 자동 승격은 계속 금지 |
-| Codex 운영 자동화 | 장전 readiness, 장후 점검, 사고 triage를 Codex job으로 안전하게 구조화 | 진행 중 | dry-run report, 권한 manifest, root 적용 금지, live flag 변경 금지 | 실제 Codex CLI 자동 실행은 아직 연결하지 않음 |
-| Windows 장전 자동화 | PC 작업 스케줄러와 Windows startup launcher에서 장전 runtime fast-start, premarket-readiness dry-run, local setup check 실행 | 진행 중 | `RealTimeStockRuntime_PreOpenCheck` 액션에 `start_runtime_autoboot`, `run_codex_ops_job.sh --job-type premarket-readiness`, `check_local_setup` 순서 반영. Windows startup launcher는 `--skip-runtime-cleanup --skip-dashboard-build` fast path로 갱신. manual dry-run 은 `status=ok` | 다음 확인 지점은 2026-05-28 08:20 자동 실행 결과 |
-| 저장소 생성 부산물 정리 | 테스트/PowerShell/pycache 오염을 실제 운용 데이터와 분리 | 완료 | dry-run 우선 wrapper, `.tmp-tests/codex-ops`와 `app/risk/` 보존, repo 내부 경로 안전 확인 | 필요 시 `--apply`로 수동 실행 |
+- 상태: 진행 중
+- 현재 기준:
+  - paper/KIS 모의계좌 정합성은 최근 점검에서 `ok=true`.
+  - bounded post-close label refresh 수정과 재실행 완료.
+  - KIS live data quality는 raw/minute coverage 약 94.3%로 `watch`.
+- 남은 blocker:
+  - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
+  - KIS live data quality `watch` 원인 추적.
 
-관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`, `app/services/codex_ops.py`, `scripts/run_live_readiness_dry_run.sh`
+### Phase 1a: KIS 모의투자 read-only 리허설
 
-## 5. Phase 1 진입 전 P0 보드
+- 상태: 다음 권장 단계
+- 목적:
+  - 실전 계좌를 건드리지 않고 Phase 1 절차를 먼저 리허설한다.
+  - token, account snapshot, system clock, dashboard, readiness flow를 검증한다.
+- 현재 가능 여부:
+  - 가능.
+  - 현재 모의투자계좌 기반 `token_refresh`, `account_snapshot`, `system_clock` 증거는 생성 가능하다.
+- 남은 blocker:
+  - 실제 거래일 `market_status` snapshot 증거.
+  - readiness에서 read-only와 live-submit gate를 분리.
+- 권장안:
+  - 바로 Phase 1a를 진행한다.
+  - kill switch OFF 파일은 만들지 않는다.
 
-| P0 항목 | 상태 | 현재까지 완료 | 다음 작업 | 권장안 |
-|---|---|---|---|---|
-| read-only 구조적 차단 | 진행 중 | `KisReadOnlyClient` 골격과 isolation 테스트 구현 | runtime/readiness flow 연결 전 최종 점검 | Phase 1 기본 client는 주문 메서드가 없는 read-only client로 고정 |
-| live enable guard | 진행 중 | live order guard, KIS live order guarded adapter, submit guard 테스트 구현 | streaming/live submit caller 연결 전 clock/phase gate 자동 주입 | 주문 manager와 KIS adapter 양쪽에서 이중 확인 |
-| system clock 검증 | 진행 중 | KIS REST HTTP `Date` parser, decision helper, sanitized readiness check 구현, timezone 없는/알 수 없는 timezone header invalid 차단, readiness `--system-clock-check-path` 병합 구현, read-only 현재가 조회 기반 `probe_kis_clock_reference.sh` wrapper 구현, `--compare-paper-live` paper/live reference delta 비교 helper 구현, KIS paper read-only probe 1회 성공(`system_clock=true`, skew 약 0.167초) | Phase 1 승인 뒤 live account header shape와 paper/live 비교 실행 증적 확보 | raw header 저장 금지, parsed reference time/skew/delta만 기록 |
-| KIS paper/live 응답 shape | 진행 중 | KIS paper fixture export/redaction, paper quote `date` header 확인, account snapshot 필수 shape와 값 타입 자동 검증 구현 | Phase 1 read-only에서 live account 조회 shape 비교 | live 계좌는 조회만, 주문 메서드 노출 금지 |
-| WS reconnect metric | 진행 중 | timestamp, storm duration, `to_dict()`, callback 안전 주석 구현, Phase 2/3 readiness와 submit guard에서 synthetic 증거 차단, dashboard readiness 카드에 evidence type/실제 증거 여부/freshness/stable frame/reconnect storm 표시 | 실제 KIS WS 관측 baseline 수집 | Phase 1은 관측만, Phase 2 submit은 real evidence type 없으면 차단 |
-| market status readiness 증적 | 진행 중 | repo 내부 수동 snapshot을 읽어 `market_status` check를 만드는 `app/services/market_status_probe.py`, `scripts/probe_market_status_snapshot.sh` 구현, `docs/Manual-Market-Status-Runbook.md` 추가, 수동 source enum 고정. 2026-05-27 pre-open 리허설에서 현재 watchlist 10종목 hash는 `symbols-sha256-bde8bc3841c52c29`이고, `.tmp-tests` snapshot/check는 `market_status=true`로 통과했다. | 실제 거래일 snapshot 생성과 KIS/거래소 자동 원천 결정 | 데이터 원천 결정 전에는 enum으로 제한된 수동 snapshot만 허용하고, 증거 없으면 자동 통과 금지. `.tmp-tests` 리허설 결과는 실제 거래 가능 증거가 아님 |
-| NAS recovery | 대기 | 기존 NAS 재난 복구용 전체 백업 폴더 확인, WSL `/mnt/backup` 마운트 확인, sanitized export include/exclude self-test와 NAS dry-run 완료 | `recovery-drills/phase1-readonly` 같은 별도 폴더에서 sanitized drill 표본 확인 | 기존 전체 백업은 유지하고, Phase readiness 증거는 비밀값 제외 sanitized export만 사용 |
-| overnight/pre-open 상태 라벨 | 완료 | `overnight`와 60분 `pre-open` warmup 분리, watchdog 재시작 확인 | legacy PowerShell 사용 여부 확인 | WSL 정본만 쓰면 후순위, PS1 사용 시 미러링 |
-| readiness 기록 저장 | 진행 중 | fixture 기반 dry-run, SQLite 기록은 `--record` 명시 때만 수행 | 실제 Phase 1 record schema 적용 여부 결정 | 장중/운영 DB schema apply 금지 유지 |
-| kill switch 상태 파일 | 진행 중 | missing 상태는 fail-closed로 신규 submit 차단함을 확인. 2026-05-28 장전 dry-run도 kill switch missing으로 blocked 되었지만, 이는 live-submit readiness 관점의 차단이다. Phase 0 paper와 Phase 1 read-only에는 지금 OFF 파일을 만들 필요가 없다. | read-only readiness와 live-submit readiness를 분리하거나, Phase 2 이후 실전 주문 가능 날에 계좌 소유자/실전 운용 승인권자 승인 뒤 `--disable --apply --confirm-disable`로 만료 시간이 있는 OFF 파일 생성 | pre-open/regular-session 중에는 명시 승인 없이 실제 OFF 파일을 만들지 않는다. missing/broken/stale은 계속 안전 차단 |
-| readiness local fixture snapshot | 진행 중 | premarket report, token refresh check, synthetic WS recovery check, account snapshot check, market status check, system clock check, kill switch 상태를 읽어 로컬로 증명 가능한 항목만 fixture JSON으로 묶는 wrapper 구현. timestamp가 있는 핵심 증거는 key별 freshness를 요구한다. 2026-05-28 장전 실제 재실행 결과 `token_refresh/ws_recovery/account_snapshot/system_clock/database/disk_space/dashboard/storage_migration_state=true`, `market_status=false`, `kill_switch=false`, dry-run status는 `blocked`다. | 실제 market status snapshot 증적 확보. kill switch는 Phase 0/Phase 1 read-only에서는 생성하지 않고, live-submit readiness 분리 또는 Phase 2 승인 시점에 처리 | 자동 통과 금지, 증거 없는 항목은 absent/not_verified 유지. `.tmp-tests` 통과는 실제 Phase 1 통과 증거가 아님. Phase 2/3은 synthetic WS evidence를 통과시키지 않음 |
-| 외부 알림 | 대기 | 정책 결정: Telegram 기본, 중요 사고는 email 병행 | 실제 connector/secret 관리 설계 | token/secret은 repo 문서에 기록 금지 |
-| Phase 2 모델 성능 게이트 | 진행 중 | 현재 active는 `baseline-h15-v1`, LightGBM은 challenger로 유지. 2026-05-26 LightGBM 학습은 성공했지만 challenger 는 `review_required`이고 gate reference walk-forward `overall_accuracy=0.4163`으로 차단된다. | Phase 2 전 active model/challenger 기준을 명시하고 장후 연구축에서 통과 여부 확인 | 단순 accuracy가 아니라 독립 holdout, 비용 반영 net return, 거래 수, paper 성과, walk-forward gate를 함께 본다 |
+### Phase 1b: 실전 계좌 read-only 확인
 
-관련 문서/코드 경로: `app/brokers/kis_readonly.py`, `app/brokers/kis_live_order.py`, `app/services/live_order_manager.py`, `app/services/system_clock.py`, `app/services/system_clock_probe.py`, `app/services/kis_token_probe.py`, `app/services/kis_account_probe.py`, `app/services/kis_ws_recovery_probe.py`, `app/services/market_status_probe.py`, `app/services/live_readiness_fixture.py`, `app/services/live_phase_readiness.py`, `app/brokers/kis_quote_ws.py`, `docs/Manual-Market-Status-Runbook.md`, `scripts/probe_kis_clock_reference.sh`, `scripts/probe_kis_token_refresh.sh`, `scripts/probe_kis_account_snapshot.sh`, `scripts/probe_kis_ws_recovery.sh`, `scripts/probe_market_status_snapshot.sh`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/export_kis_paper_fixture_candidates.py`
+- 상태: 대기
+- 목적:
+  - 실제 자금 운용 전에 실전 계좌의 조회 권한, 응답 shape, 예수금/주문가능금액,
+    T+2 관련 필드가 실제로 어떻게 오는지 확인한다.
+- 중요한 경계:
+  - 주문 금지.
+  - 실전 주문 메서드가 없는 read-only client로만 확인한다.
+  - `ALLOW_LIVE_ORDERS=false` 유지.
+- 왜 필요한가:
+  - 모의투자와 실전 계좌의 응답 필드, 권한, 예수금/주문가능금액 계산이 다를 수 있다.
+  - 실제 운용 전 이 차이를 모르면 Phase 2에서 주문 가능 금액, 포지션,
+    정합성 판단이 틀어질 수 있다.
+- 남은 blocker:
+  - 실전 KIS 조회용 credentials를 비밀 저장소에 준비.
+  - live account read-only shape 확인.
+  - sanitized NAS 복구 drill 표본.
+- 권장안:
+  - Phase 1a를 먼저 완료한다.
+  - 그다음 실전 계좌 read-only를 1회 연결한다.
 
-## 6. Phase별 통과 기준 초안
+### Phase 2: 실전 1종목 소액 canary
 
-| Phase | 최소 관측/검증 기준 | 사람 승인 |
-|---|---|---|
-| Phase 0 | paper-vs-broker mismatch 0 또는 설명 가능, KIS live 데이터 품질 warning-only 관리, 장후 quick maintenance 실패 원인 추적 가능 | Phase 1 전 read-only 연결 승인 |
-| Phase 1 | live 주문 함수 호출 0건, read-only 조회 stale/토큰/WS/drop/clock readiness 검증, sanitized NAS 복구 drill 1회 | Phase 2 canary 진입 승인 |
-| Phase 2 | 1종목, 1주문/일, 1주 기본, 일일 손실/종목 손실/슬리피지 budget 위반 없음, audit trace 완전성, 모델 성능 선행 게이트 통과 | Phase 3 한도 확대 승인 |
-| Phase 3 | 다종목 운용에서 손실 한도, 노출 한도, 체결/수수료/세금 정합성, 알림/kill switch 안정 | 한도 변경/전략 확대 승인 |
+- 상태: 미시작
+- 조건:
+  - Phase 1a/1b 관측 통과.
+  - submit guard, audit, alert, kill switch, model gate 통과.
+- 남은 blocker:
+  - Phase 1 미통과.
+  - active model 승격 기준 미충족.
 
-관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Implementation-Blueprint.md`
+### Phase 3: 다종목 일일 한도 운용
 
-## 7. 현재 열린 결정 항목
+- 상태: 미시작
+- 조건:
+  - Phase 2 20~60거래일 관측.
+  - 손실/슬리피지/체결/감사 안정.
 
-| 구분 | 항목 | Codex 권장안 |
-|---|---|---|
-| 운영 | NAS 복구 drill 실행 시점 | 기존 재난 복구용 전체 백업은 유지하고, Phase 1 전 sanitized drill 표본만 별도 폴더에서 확인 |
-| 운영 | Phase 1 live account read-only header 확인 허용 | 조회만 허용, 주문 메서드 없는 client로 수행 |
-| 구현 | live account `system_clock` probe 실행 증적 확보 | Phase 1 read-only 승인 뒤 주문 메서드 없는 client로 1회 실행 |
-| 구현 | legacy PowerShell `overnight` 미러링 | 실제 사용 중이면 Phase 1 전 반영, 아니면 후순위 |
-| 구현 | WS reconnect metric submit 차단 연결 | Phase 1 관측 뒤 false positive 확인 후 결정 |
-| 구현 | read-only readiness와 live-submit readiness 분리 | Phase 1 read-only는 kill switch OFF 없이 통과 가능하게 하고, live-submit/Phase 2에서만 OFF 파일을 요구 |
-| 알림 | 외부 알림 채널 | Telegram 기본, 중요 사고는 email 병행 |
+## 4. 현재 P0 보드
 
-관련 문서/코드 경로: `docs/cowork-reports/2026-05-21-production-architecture-implementation-blueprint-work_ver_13.md`, `docs/cowork-reports/2026-05-14-production-architecture-implementation-blueprint-operator-decision.md`, `docs/cowork-reports/2026-05-17-production-architecture-implementation-blueprint-operator-decision.md`
+### read-only 구조적 차단
 
-## 8. 작업 종료 시 체크리스트
+- 상태: 진행 중
+- 완료:
+  - `KisReadOnlyClient` 골격과 isolation 테스트 구현.
+- 다음 작업:
+  - Phase 1a/1b flow에 read-only client를 고정.
+- 권장안:
+  - Phase 1 기본 client는 주문 메서드가 없는 read-only client로 고정한다.
 
-매 작업 마지막에는 아래를 갱신한다.
+### live enable guard
 
-- 이 문서의 `현재 스냅샷`.
-- 해당 Phase/P0 항목의 상태.
-- 최신 cowork 전달 파일 또는 리뷰 파일.
-- 새 blocker와 다음 권장 작업.
-- `docs/logbook.md` 최신 entry.
+- 상태: 진행 중
+- 완료:
+  - live order guard와 guarded adapter 구현.
+  - submit guard 테스트 구현.
+- 다음 작업:
+  - streaming/live submit caller 연결 전 clock/phase gate 자동 주입.
+- 권장안:
+  - 주문 manager와 KIS adapter 양쪽에서 이중 확인한다.
 
-최종 보고에는 아래 링크를 항상 출력한다.
+### system clock 검증
 
-- `docs/Production-Transition-Progress.md`
+- 상태: 진행 중
+- 완료:
+  - KIS REST HTTP `Date` parser.
+  - readiness `--system-clock-check-path` 병합.
+  - KIS paper read-only probe 1회 성공.
+- 다음 작업:
+  - Phase 1b에서 live account header shape와 paper/live 비교 증거 확보.
+- 권장안:
+  - raw header 저장 금지.
+  - parsed reference time/skew/delta만 기록.
 
-관련 문서/코드 경로: `docs/logbook.md`, `docs/cowork-reports/README.md`
+### market status readiness 증거
+
+- 상태: 진행 중
+- 완료:
+  - repo-local 수동 snapshot probe 구현.
+  - `docs/Manual-Market-Status-Runbook.md` 추가.
+  - 수동 source enum 고정.
+- 현재 blocker:
+  - 실제 거래일 snapshot 없음.
+- 권장안:
+  - 자동 원천 전에는 수동 snapshot만 허용한다.
+  - 증거 없으면 자동 통과시키지 않는다.
+
+### kill switch 상태 파일
+
+- 상태: 진행 중
+- 현재 판단:
+  - missing 상태는 fail-closed로 신규 live submit을 차단한다.
+  - Phase 0 paper와 Phase 1 read-only에는 지금 OFF 파일을 만들 필요가 없다.
+  - Phase 2 이후 live-submit readiness에서만 OFF 파일을 요구한다.
+- 다음 작업:
+  - read-only readiness와 live-submit readiness를 분리한다.
+- 권장안:
+  - pre-open/regular-session 중에는 명시 승인 없이 OFF 파일을 만들지 않는다.
+  - missing/broken/stale은 계속 안전 차단으로 둔다.
+
+### readiness local fixture snapshot
+
+- 상태: 진행 중
+- 2026-05-28 장전 결과:
+  - `token_refresh=true`
+  - `ws_recovery=true`
+  - `account_snapshot=true`
+  - `system_clock=true`
+  - `database=true`
+  - `disk_space=true`
+  - `dashboard=true`
+  - `storage_migration_state=true`
+  - `market_status=false`
+  - `kill_switch=false`
+- dry-run status: `blocked`
+- blocking reasons:
+  - `market_status_fault_dry_run_failed`
+  - `kill_switch_fault_dry_run_failed`
+- 권장안:
+  - Phase 1a/1b read-only에서는 kill switch OFF를 요구하지 않도록 분리한다.
+  - Phase 2/3은 synthetic WS evidence를 통과시키지 않는다.
+
+### Windows 장전 자동화
+
+- 상태: 진행 중
+- 완료:
+  - Windows startup launcher를 현재 WSL 정본 경로로 갱신.
+  - 로그인 직후 20초 대기와 repo-local 로그 기록 추가.
+  - startup fast path는 `--skip-runtime-cleanup --skip-dashboard-build`로 실행.
+- 다음 확인:
+  - 2026-05-28 08:20 자동 실행 결과 확인.
+
+## 5. 실전 계좌 read-only 연결 방법
+
+### 사용자가 준비할 것
+
+- KIS 실전 계좌 API 접근 권한.
+- 실전용 app key와 app secret.
+- 실전 계좌번호와 상품 코드.
+- 위 값들은 저장소 문서, cowork 리포트, git 추적 파일에 적지 않는다.
+
+### Codex가 처리할 것
+
+- 비밀값은 `.env` 또는 `../secrets` 계열 로컬 비밀 저장소에서만 읽도록 한다.
+- `ALLOW_LIVE_ORDERS=false`를 유지한다.
+- 주문 메서드가 없는 read-only client만 사용한다.
+- token refresh, account snapshot, current price/system clock만 조회한다.
+- raw response와 계좌번호는 저장하지 않는다.
+- sanitized shape와 count, 필드 존재 여부만 readiness 증거로 남긴다.
+
+### 권장 절차
+
+1. Phase 1a 모의투자 read-only 리허설을 먼저 완료한다.
+2. 실전 credentials를 로컬 비밀 저장소에 준비한다.
+3. read-only client로 token/account/current-price probe를 1회 실행한다.
+4. 주문 함수 호출 0건을 확인한다.
+5. paper/live 응답 shape 차이를 문서화한다.
+6. 문제가 없으면 Phase 1b 관측 기간을 시작한다.
+
+### 주의
+
+- 실전 계좌 read-only는 실제 자금 주문을 보내는 단계가 아니다.
+- 실전 주문 활성 플래그는 켜지 않는다.
+- 실전 계좌 조회만으로도 민감 정보가 포함될 수 있으므로, 본문과 git에는 sanitized 결과만 남긴다.
+
+## 6. 열린 결정 항목
+
+- NAS 복구 drill 실행 시점:
+  - 권장안은 Phase 1 전 sanitized drill 표본만 별도 폴더에서 확인.
+- Phase 1b live account read-only 허용:
+  - 권장안은 조회만 허용, 주문 메서드 없는 client로 수행.
+- live account `system_clock` probe:
+  - 권장안은 Phase 1b 승인 뒤 주문 메서드 없는 client로 1회 실행.
+- read-only readiness와 live-submit readiness 분리:
+  - 권장안은 Phase 1 read-only는 kill switch OFF 없이 통과 가능하게 한다.
+  - live-submit/Phase 2에서만 OFF 파일을 요구한다.
+- 외부 알림 채널:
+  - 권장안은 Telegram 기본, 중요 사고는 email 병행.
+
+## 7. 작업 종료 체크리스트
+
+매 작업 마지막에는 아래를 확인한다.
+
+- 이 문서의 현재 스냅샷 갱신.
+- Phase/P0 상태 갱신.
+- 새 blocker와 다음 권장 작업 기록.
+- `docs/logbook.md` 최신 entry 확인.
+- 최종 보고에 이 파일 링크 출력.
+
+관련 문서/코드 경로:
+`docs/logbook.md`,
+`docs/cowork-reports/README.md`

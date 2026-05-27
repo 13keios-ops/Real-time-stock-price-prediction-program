@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> 진행상태 문서 sidebar 호환 정리와 Phase 1 분리
+
+- 원인/조치:
+  - `docs/Production-Transition-Progress.md`가 메모장에서는 열리지만 Codex sidebar에서 열리지 않는 문제가 있었다.
+  - 파일은 UTF-8이었지만 긴 표 행이 많아 sidebar markdown/file viewer가 불안정할 수 있는 구조였다.
+  - 긴 표 중심 문서를 짧은 section/bullet 중심 문서로 재구성했다.
+  - 파일은 UTF-8 text이고 220자 초과 줄이 없음을 확인했다.
+- Phase 1 정리:
+  - Phase 1a를 KIS 모의투자 read-only 리허설로 분리했다.
+  - Phase 1b를 실전 계좌 read-only 확인으로 분리했다.
+  - Phase 1a는 지금 모의투자계좌로 진행 가능하다.
+  - Phase 1b는 실제 자금 운용 전 실전 계좌 응답 shape와 권한 차이를 확인하기 위해 필요하다.
+- 실전 계좌 read-only 방법:
+  - KIS 실전 credentials는 git 추적 파일이나 문서에 기록하지 않는다.
+  - `ALLOW_LIVE_ORDERS=false`를 유지한다.
+  - 주문 메서드가 없는 read-only client로 token/account/current-price probe만 실행한다.
+  - raw response와 계좌번호는 저장하지 않고 sanitized shape/count만 readiness 증거로 남긴다.
+- 검증:
+  - `git diff --check` 통과.
+  - `file docs/Production-Transition-Progress.md`: UTF-8 text.
+  - `grep -n -E ".{221}" docs/Production-Transition-Progress.md`: 결과 없음.
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> 장전 운영 준비 작업
 
 - 시작 상태:
