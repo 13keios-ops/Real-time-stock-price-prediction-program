@@ -1,5 +1,20 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> NAS 백업 실행 기준 변경
+
+- 사용자 지시:
+  - NAS 백업은 용량이 크고 너무 잦으므로 앞으로 지시할 때만 실행한다.
+- 조치:
+  - `AGENTS.md`, `README.md`, `RECOVERY.md`의 NAS 백업 정책을 갱신했다.
+  - `docs/Production-Transition-Progress.md`에 현재 기준을 추가했다.
+- 현재 기준:
+  - Codex는 주간/강제 NAS 백업을 자율 실행하지 않는다.
+  - 코드 변경, 장후 조치, Phase readiness 생성, release/복구 직전이라도 자동 실행하지 않는다.
+  - 사용자가 해당 작업에서 `NAS 백업 실행`처럼 명시적으로 지시한 경우에만 실행한다.
+- 금지/안전:
+  - 실제 NAS 백업 실행 없음.
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> 대시보드 운영 콘솔형 UI 정리
 
 - 시작 상태:

@@ -253,10 +253,12 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 이 저장소의 NAS 백업은 두 종류로 구분한다.
 - 재난 복구용 NAS 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이며, 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있다. 이 백업은 cowork 전달, 감사 증적 공유, 실전 전환 readiness 통과 증거로 직접 쓰지 않는다.
 - 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다. `tests/test_wsl_ops.py`와 저장소 export wrapper가 잠그는 포함/제외 정책은 이 sanitized export 기준이다.
-- 기본 보관 정책은 최신 3개 보관, 주 1회 정기 실행, 중요 기간 강제 백업이다.
+- 기본 보관 정책은 최신 3개 보관과 주 1회 정기 백업 명령 제공이다.
 - 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
 - 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
-- 2026-05-27 사용자 승인 기준: 코드/운영 자동화 변경, 장후 마감 조치, Phase readiness 증거 생성, release/복구 직전 같은 중요 체크포인트에서는 Codex가 별도 재질문 없이 forced NAS backup을 실행할 수 있다. 단, 실전 주문 flag 변경, 비밀값 본문 기록, root `.env*`를 cowork/검증 산출물로 공유하는 행위는 계속 금지한다.
+- 2026-05-28 사용자 변경 기준: NAS 백업은 용량과 소요 시간이 크므로 Codex가 자율 실행하지 않는다. 주간/강제 NAS 백업 모두 사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
+- 코드/운영 자동화 변경, 장후 마감 조치, Phase readiness 증거 생성, release/복구 직전 같은 중요 체크포인트여도 Codex가 forced NAS backup을 자동 실행하지 않는다. 필요하면 "NAS 백업 실행" 같은 명시 지시를 받은 뒤에만 실행한다.
+- 실전 주문 flag 변경, 비밀값 본문 기록, root `.env*`를 cowork/검증 산출물로 공유하는 행위는 계속 금지한다.
 
 주간 백업:
 

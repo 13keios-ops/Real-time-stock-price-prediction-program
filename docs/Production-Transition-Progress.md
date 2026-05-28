@@ -37,6 +37,9 @@
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
+- NAS 백업 실행 기준:
+  앞으로 Codex는 주간/강제 NAS 백업을 자율 실행하지 않고,
+  사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
 - 다음 cowork 리뷰 권장 시점:
   Phase 1b 실전 계좌 read-only shape 또는 Phase 2 submit readiness 정책을
   구체화한 뒤.

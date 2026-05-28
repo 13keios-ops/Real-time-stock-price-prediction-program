@@ -645,8 +645,9 @@ Codex 운영 보조 job 산출물은 `runtime-data/reports/codex/ops/` 아래에
 - NAS 백업은 재난 복구용 전체 백업과 실전 전환 검증용 sanitized recovery export를 구분한다.
 - 재난 복구용 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이며, 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있다.
 - 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시(`runtime-data/cache/kis`), runtime 로그(`runtime-data/logs`), private key 계열 파일을 제외한다. cowork 전달이나 readiness 증거는 이 sanitized 기준만 사용한다.
-- 정기 백업 주기는 주 1회이며, 최신 3개 package를 보관한다.
-- 중요 기간이나 위험한 변경 전에는 강제 백업을 사용한다.
+- 정기 백업 명령은 주 1회 기준으로 제공하며, 최신 3개 package를 보관한다.
+- NAS 백업은 용량과 소요 시간이 크므로 Codex가 자율 실행하지 않는다.
+- 주간/강제 NAS 백업은 사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
 
 Weekly backup:
 ```powershell

@@ -12,8 +12,9 @@ Use GitHub and NAS together so the repository can be restored quickly after driv
 1. NAS 백업은 `재난 복구용 전체 백업`과 `실전 전환 검증용 sanitized recovery export`를 구분한다.
 2. 재난 복구용 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이다. 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있으며, cowork 전달이나 실전 전환 readiness 증거로 직접 쓰지 않는다.
 3. 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 제외한다. 이 기준은 `tests/test_wsl_ops.py`와 저장소 export wrapper의 포함/제외 self-test가 잠근다.
-4. 정기 백업은 주 1회 실행하고, 최신 3개 package를 보관한다.
-5. 릴리스, 큰 변경, 위험한 장비 작업 전에는 강제 백업을 실행한다.
+4. 정기 백업 명령은 주 1회 기준으로 제공하고, 최신 3개 package를 보관한다.
+5. NAS 백업은 용량과 소요 시간이 크므로 Codex가 자율 실행하지 않는다.
+6. 주간/강제 NAS 백업은 사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
 
 ## Recommended NAS Path
 
