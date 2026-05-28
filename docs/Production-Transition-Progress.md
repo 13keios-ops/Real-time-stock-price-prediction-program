@@ -19,11 +19,11 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-05-28 20:12 KST
+- 마지막 갱신: 2026-05-28 22:41 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
-- dashboard: 실행 중
+- dashboard: 실행 중, 첫 화면은 `운영 콘솔`
 - trading mode: `paper`
 - 최신 cowork 기준: `review_ver_15` 반영
 - 최신 통합 리포트:
@@ -31,6 +31,12 @@
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
+- 최신 dashboard snapshot:
+  `runtime-data/reports/dashboard/latest-dashboard.html`
+  기준 `generated_at=2026-05-28T22:40:46+09:00`.
+- 최신 forced NAS backup:
+  `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
+  (`5558128973` bytes).
 - 다음 cowork 리뷰 권장 시점:
   Phase 1b 실전 계좌 read-only shape 또는 Phase 2 submit readiness 정책을
   구체화한 뒤.

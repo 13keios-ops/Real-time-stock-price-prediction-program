@@ -3612,29 +3612,109 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f'<option value="{_esc(option.get("value"))}" {"selected" if option.get("value") == period_filter.get("range_key") else ""}>{_esc(option.get("label"))}</option>'
         for option in period_filter.get("options", [])
     )
+    def _tone_from_status(status: Any) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized in {"ok", "passed", "complete", "completed", "success", "matched", "aligned", "already_ok"}:
+            return "is-ok"
+        if normalized in {"blocked", "failed", "error", "mismatch", "stale", "unknown"}:
+            return "is-danger"
+        if normalized in {"", "-"}:
+            return "is-muted"
+        return "is-warn"
+
+    def _tone_from_bool(value: Any) -> str:
+        if value is True:
+            return "is-ok"
+        if value is False:
+            return "is-danger"
+        return "is-muted"
+
+    readiness_phase = latest_live_readiness.get("phase") or live_readiness_run.get("phase") or "-"
+    readiness_status = latest_live_readiness.get("status") or live_readiness_run.get("status") or "-"
+    readiness_passed = live_readiness_run.get("passed")
+    readiness_checked_at = latest_live_readiness.get("generated_at") or live_readiness_run.get("checked_at") or "-"
+    readiness_extra_detail = (live_readiness_run.get("checks_json") or {}).get("extra_detail") or {}
+    readiness_non_blocking = latest_live_readiness.get("non_blocking_reasons") or readiness_extra_detail.get("non_blocking_reasons") or []
+    readiness_required_keys = (live_readiness_run.get("checks_json") or {}).get("required_check_keys") or []
+    readiness_optional_keys = (live_readiness_run.get("checks_json") or {}).get("optional_check_keys") or []
+    readiness_blocker_text = ", ".join(str(item) for item in live_readiness_blockers) if live_readiness_blockers else "없음"
+    readiness_optional_text = ", ".join(str(item) for item in readiness_non_blocking) if readiness_non_blocking else "없음"
+    readiness_key_text = (
+        f"필수 {len(readiness_required_keys)}개 / 선택 {len(readiness_optional_keys)}개"
+        if live_readiness_run
+        else "readiness 기록 없음"
+    )
+    paper_reconciliation_ok = (
+        bool(paper_account_reconciliation)
+        and paper_account_reconciliation.get("positions_match") is True
+        and paper_account_reconciliation.get("balance_match") is True
+        and paper_account_reconciliation.get("total_asset_match") is True
+    )
+    paper_reconciliation_status = paper_account_reconciliation.get("status") or "-"
+    paper_reconciliation_note = paper_account_reconciliation.get("note") or "최근 정합성 점검 기록을 확인하세요."
+    post_close_status = post_close_maintenance.get("status") or "-"
+    post_close_label_status = post_close_label_refresh.get("status") or "-"
+    data_quality_status = latest_kis_quality_assessment.get("status") or "-"
+    live_order_safety_ok = project.get("allow_live_orders") is False
+    live_order_safety_value = "차단" if live_order_safety_ok else "확인 필요"
+    live_runtime_label = "실행 중" if live_runtime.get("status") == "running" else "중지"
+    watchdog_status = local_setup_watchdog.get("status") or "-"
+    session_label = local_setup_watchdog.get("market_session_status") or local_setup_live_runtime.get("session_status") or latest_kis.get("session_status") or "-"
+    operator_metrics = [
+        (
+            "Phase",
+            readiness_phase,
+            "통과" if readiness_passed is True else "차단/미검증" if readiness_passed is False else "기록 없음",
+            _tone_from_bool(readiness_passed),
+        ),
+        (
+            "계좌 정합성",
+            "일치" if paper_reconciliation_ok else "확인",
+            f"현금 {_money(paper_account_reconciliation.get('cash_gap'))} / 총자산 {_money(paper_account_reconciliation.get('total_asset_gap'))}",
+            "is-ok" if paper_reconciliation_ok else "is-warn",
+        ),
+        (
+            "데이터 품질",
+            data_quality_status,
+            f"최근 거래일 {latest_kis_quality_recent.get('trade_date') or latest_kis_quality.get('latest_trade_date') or '-'}",
+            _tone_from_status(data_quality_status),
+        ),
+        (
+            "장후 작업",
+            post_close_status,
+            post_close_maintenance.get("mode") or "기록 없음",
+            _tone_from_status(post_close_status),
+        ),
+        (
+            "예측/신호",
+            f"{runtime.get('predictions', 0)} / {runtime.get('signals', 0)}",
+            f"주문 {runtime.get('orders', 0)} / 체결 {runtime.get('fills', 0)}",
+            "is-muted",
+        ),
+        (
+            "실전 안전",
+            live_order_safety_value,
+            f"trading_mode={project.get('trading_mode') or '-'}",
+            "is-ok" if live_order_safety_ok else "is-danger",
+        ),
+    ]
     metrics_html = "".join(
-        f'<div class="metric-card"><div class="metric-label">{_esc(label)}</div><div class="metric-value">{_esc(value)}</div></div>'
-        for label, value in [
-            ("실데이터 minute", scope.get("actual_symbol_minutes", 0)),
-            ("예측", runtime.get("predictions", 0)),
-            ("신호", runtime.get("signals", 0)),
-            ("주문", runtime.get("orders", 0)),
-            ("체결", runtime.get("fills", 0)),
-            ("열린 포지션", virtual_account.get("open_positions", 0)),
-        ]
+        (
+            f'<div class="metric-card {tone}">'
+            f'<div class="metric-label">{_esc(label)}</div>'
+            f'<div class="metric-value">{_esc(value)}</div>'
+            f'<div class="metric-note">{_esc(note)}</div>'
+            "</div>"
+        )
+        for label, value, note, tone in operator_metrics
     )
     tab_buttons = "".join(
         [
-            _tab_button("tab-virtual-paper", "모의투자(가상)", active=True),
-            _tab_button("tab-paper-broker", "모의계좌(실제)"),
-            _tab_button("tab-live-broker", "실 운용계좌"),
-            _tab_button("tab-ml", "머신러닝 현황"),
-            _tab_button("tab-status", "상태 및 설정"),
-            _tab_button("tab-predictions", "예측현황"),
-            _tab_button("tab-signal-orders", "신호 & 주문현황"),
-            _tab_button("tab-fills-bars", "체결과 분봉"),
-            _tab_button("tab-daily-report", "오늘의 리포트"),
-            _tab_button("tab-other", "기타"),
+            _tab_button("tab-ops", "운영 콘솔", active=True),
+            _tab_button("tab-accounts", "계좌"),
+            _tab_button("tab-ml-data", "ML/데이터"),
+            _tab_button("tab-orders", "예측/주문"),
+            _tab_button("tab-reports-settings", "리포트/설정"),
         ]
     )
     paper_compare_rows = [
@@ -4267,6 +4347,76 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             ("other-guide", "안내", _section_card("안내", '<div class="muted">이 화면은 실제 KIS 기반 운용 데이터만 보여줍니다. 샘플, synthetic, demo, replay 데이터는 제외됩니다. 조회 범위를 바꾸면 특정 날짜나 최근 기간 기준으로 데이터를 다시 볼 수 있습니다.</div>')),
         ],
     )
+    runtime_expected = bool(local_setup_watchdog.get("live_runtime_should_run"))
+    runtime_running = live_runtime.get("status") == "running"
+    runtime_position_ok = runtime_running if runtime_expected else not runtime_running
+    watchdog_errors = local_setup_watchdog.get("errors") or []
+    operator_session_tone = "is-ok" if runtime_position_ok and not watchdog_errors else "is-warn"
+    operator_console_html = f"""
+      <div class="ops-grid">
+        <article class="ops-card {operator_session_tone}">
+          <div class="ops-card-head">
+            <span class="status-dot"></span>
+            <span>운영 세션</span>
+          </div>
+          <div class="ops-value">{_esc(session_label)}</div>
+          <div class="ops-meta">runtime {_esc(live_runtime_label)} · watchdog {_esc(watchdog_status)}</div>
+          <div class="ops-kv"><span>수집기 필요</span><strong>{'예' if runtime_expected else '아니오'}</strong></div>
+          <div class="ops-kv"><span>대시보드 갱신</span><strong>{_esc(payload.get('generated_at') or '-')}</strong></div>
+        </article>
+        <article class="ops-card {_tone_from_bool(readiness_passed)}">
+          <div class="ops-card-head">
+            <span class="status-dot"></span>
+            <span>Phase readiness</span>
+          </div>
+          <div class="ops-value">{_esc(readiness_phase)}</div>
+          <div class="ops-meta">{_esc(readiness_status)} · {_esc(readiness_key_text)}</div>
+          <div class="ops-kv"><span>차단 사유</span><strong>{_esc(readiness_blocker_text)}</strong></div>
+          <div class="ops-kv"><span>선택 미충족</span><strong>{_esc(readiness_optional_text)}</strong></div>
+        </article>
+        <article class="ops-card {'is-ok' if paper_reconciliation_ok else 'is-warn'}">
+          <div class="ops-card-head">
+            <span class="status-dot"></span>
+            <span>계좌 정합성</span>
+          </div>
+          <div class="ops-value">{'일치' if paper_reconciliation_ok else '확인 필요'}</div>
+          <div class="ops-meta">{_esc(paper_reconciliation_status)}</div>
+          <div class="ops-kv"><span>예수금 차이</span><strong>{_money(paper_account_reconciliation.get('cash_gap'))}</strong></div>
+          <div class="ops-kv"><span>총자산 차이</span><strong>{_money(paper_account_reconciliation.get('total_asset_gap'))}</strong></div>
+        </article>
+        <article class="ops-card {_tone_from_status(post_close_status)}">
+          <div class="ops-card-head">
+            <span class="status-dot"></span>
+            <span>장후 파이프라인</span>
+          </div>
+          <div class="ops-value">{_esc(post_close_status)}</div>
+          <div class="ops-meta">label {_esc(post_close_label_status)} · KIS 품질 {_esc(data_quality_status)}</div>
+          <div class="ops-kv"><span>실행 모드</span><strong>{_esc(post_close_maintenance.get('mode') or '-')}</strong></div>
+          <div class="ops-kv"><span>완료 시각</span><strong>{_esc(post_close_maintenance.get('completed_at') or '-')}</strong></div>
+        </article>
+      </div>
+      <div class="layout-2 ops-lower">
+        <div class="card">
+          <h2>오늘 볼 것</h2>
+          <div class="ops-list">
+            {_list([
+                f"Phase readiness: {_esc(readiness_phase)} / {_esc(readiness_status)} / 점검 {_esc(readiness_checked_at)}",
+                f"계좌 정합성: {_esc(paper_reconciliation_note)}",
+                f"실전 주문 안전: ALLOW_LIVE_ORDERS {'false' if live_order_safety_ok else 'true/확인 필요'}",
+                f"데이터 품질: {_esc(data_quality_status)} / 최근 거래일 {_esc(latest_kis_quality_recent.get('trade_date') or latest_kis_quality.get('latest_trade_date') or '-')}",
+            ], "표시할 운영 요약이 없습니다.", scroll_height=260)}
+          </div>
+        </div>
+        <div class="card">
+          <h2>다음 연결점</h2>
+          {_list(next_actions, "기록된 다음 작업이 없습니다.", scroll_height=260)}
+        </div>
+      </div>
+    """
+    accounts_tab_html = _stack_cards(virtual_tab_html, paper_tab_html, live_tab_html)
+    ml_data_tab_html = ml_tab_html
+    orders_tab_html = _stack_cards(predictions_tab_html, signal_orders_tab_html, fills_bars_tab_html)
+    reports_settings_tab_html = _stack_cards(daily_report_tab_html, status_tab_html, other_tab_html)
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -4276,60 +4426,86 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
   {refresh_meta}
   <title>실시간 주가 예측 대시보드</title>
   <style>
-    body {{ margin:0; background:#f4efe6; color:#15212d; font-family:"Segoe UI","Malgun Gothic",sans-serif; }}
-    .wrap {{ max-width:1320px; margin:0 auto; padding:18px 20px 40px; }}
-    .card {{ background:#fffaf3; border:1px solid rgba(21,33,45,.12); border-radius:22px; padding:18px 20px; box-shadow:0 18px 40px rgba(21,33,45,.08); }}
-    .hero {{ display:grid; grid-template-columns:1.15fr .85fr; gap:16px; margin-bottom:18px; }}
+    :root {{ color-scheme:light; --bg:#f6f8fb; --surface:#ffffff; --surface-soft:#f8fafc; --line:#d7dee8; --text:#172033; --muted:#64748b; --accent:#0f766e; --accent-strong:#0b5f59; --ok:#15803d; --warn:#b45309; --danger:#b91c1c; --info:#2563eb; }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI","Malgun Gothic",sans-serif; letter-spacing:0; }}
+    .wrap {{ max-width:1360px; margin:0 auto; padding:16px 18px 36px; }}
+    .card {{ background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:16px 18px; box-shadow:0 8px 22px rgba(23,32,51,.06); }}
+    .hero {{ display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:12px; margin-bottom:12px; }}
     .hero-title {{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }}
-    .version {{ font-size:16px; font-weight:600; margin-top:12px; white-space:nowrap; }}
-    h1 {{ margin:0; font-size:44px; letter-spacing:-1px; }}
-    h2 {{ margin:0 0 14px; font-size:28px; }}
-    h3 {{ margin:0 0 10px; font-size:20px; }}
-    .muted {{ color:#5e6b79; font-size:14px; line-height:1.6; }}
-    .pillrow {{ display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 0; }}
-    .pill {{ display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; border:1px solid rgba(21,33,45,.12); background:#fff; font-size:14px; }}
+    .version {{ font-size:14px; font-weight:700; margin-top:8px; white-space:nowrap; color:var(--muted); }}
+    h1 {{ margin:0; font-size:30px; line-height:1.2; letter-spacing:0; }}
+    h2 {{ margin:0 0 12px; font-size:20px; line-height:1.25; }}
+    h3 {{ margin:0 0 10px; font-size:17px; line-height:1.3; }}
+    .muted {{ color:var(--muted); font-size:13px; line-height:1.55; }}
+    .top-kicker {{ color:var(--muted); font-size:13px; font-weight:700; margin-bottom:6px; }}
+    .pillrow {{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; }}
+    .pill {{ display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--surface-soft); font-size:13px; color:var(--text); }}
     .hero-actions {{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; }}
-    .action-button {{ appearance:none; border:none; border-radius:12px; background:#0d5c63; color:#fff; padding:12px 16px; font-size:16px; font-weight:700; cursor:pointer; box-shadow:0 10px 24px rgba(13,92,99,.20); }}
+    .action-button {{ appearance:none; border:none; border-radius:8px; background:var(--accent); color:#fff; padding:10px 14px; font-size:14px; font-weight:800; cursor:pointer; box-shadow:0 8px 18px rgba(15,118,110,.20); }}
     .action-button:disabled {{ opacity:.7; cursor:wait; }}
-    .alert-list {{ display:grid; gap:10px; margin-top:14px; }}
-    .alert-card {{ border:1px solid rgba(13,92,99,.14); border-radius:14px; background:rgba(13,92,99,.06); padding:12px 14px; }}
-    .alert-card.is-warning {{ border-color:rgba(176,98,0,.20); background:rgba(255,174,0,.10); }}
-    .status-box {{ max-height:140px; overflow:auto; padding-right:8px; }}
-    .filter-form {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center; }}
-    .filter-form select, .filter-form input {{ border:1px solid rgba(21,33,45,.16); border-radius:10px; padding:10px 12px; font-size:14px; background:#fff; }}
-    .filter-form button {{ appearance:none; border:1px solid rgba(21,33,45,.16); border-radius:10px; background:#fff; padding:10px 14px; font-size:14px; cursor:pointer; }}
-    .metrics {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin:0 0 18px; }}
-    .metric-card {{ background:#fffaf3; border:1px solid rgba(21,33,45,.12); border-radius:18px; padding:16px; box-shadow:0 14px 30px rgba(21,33,45,.06); }}
-    .metric-label {{ color:#5e6b79; font-size:14px; }}
-    .metric-value {{ margin-top:8px; font-size:28px; font-weight:800; }}
-    .tabs {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:18px; }}
-    .tab-button {{ appearance:none; width:100%; border:1px solid rgba(21,33,45,.18); border-radius:14px; background:#fff; padding:16px 12px; font-size:17px; font-weight:700; cursor:pointer; }}
-    .tab-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
+    .alert-list {{ display:grid; gap:8px; margin-top:12px; }}
+    .alert-card {{ border:1px solid rgba(37,99,235,.18); border-radius:8px; background:#eff6ff; padding:10px 12px; }}
+    .alert-card.is-warning {{ border-color:rgba(180,83,9,.25); background:#fff7ed; }}
+    .status-box {{ max-height:126px; overflow:auto; padding-right:8px; }}
+    .filter-form {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; align-items:center; }}
+    .filter-form select, .filter-form input {{ border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; color:var(--text); }}
+    .filter-form button {{ appearance:none; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 12px; font-size:13px; cursor:pointer; color:var(--text); }}
+    .metrics {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin:0 0 12px; }}
+    .metric-card {{ background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--muted); border-radius:8px; padding:10px 12px; min-height:86px; box-shadow:0 6px 16px rgba(23,32,51,.05); }}
+    .metric-card.is-ok {{ border-left-color:var(--ok); }}
+    .metric-card.is-warn {{ border-left-color:var(--warn); }}
+    .metric-card.is-danger {{ border-left-color:var(--danger); }}
+    .metric-card.is-muted {{ border-left-color:#94a3b8; }}
+    .metric-label {{ color:var(--muted); font-size:12px; font-weight:700; }}
+    .metric-value {{ margin-top:6px; font-size:20px; line-height:1.15; font-weight:850; overflow-wrap:anywhere; }}
+    .metric-note {{ margin-top:6px; color:var(--muted); font-size:11px; line-height:1.3; overflow-wrap:anywhere; }}
+    .tabs {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; padding:4px; border:1px solid var(--line); border-radius:8px; background:#e8eef6; }}
+    .tab-button {{ appearance:none; border:1px solid transparent; border-radius:6px; background:transparent; padding:10px 14px; font-size:14px; font-weight:800; cursor:pointer; color:#334155; }}
+    .tab-button.is-active {{ background:var(--surface); color:var(--accent-strong); border-color:var(--line); box-shadow:0 4px 10px rgba(23,32,51,.06); }}
     .tab-panel {{ display:none; }}
     .tab-panel.is-active {{ display:block; }}
     .subtab-shell {{ display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; }}
     .subtab-nav {{ display:grid; gap:10px; align-content:start; }}
-    .subtab-button {{ appearance:none; width:100%; border:1px solid rgba(21,33,45,.18); border-radius:14px; background:#fff; padding:14px 12px; font-size:15px; font-weight:700; text-align:left; cursor:pointer; }}
-    .subtab-button.is-active {{ background:#15212d; color:#fff; border-color:#15212d; }}
+    .subtab-button {{ appearance:none; width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; font-size:14px; font-weight:750; text-align:left; cursor:pointer; color:var(--text); }}
+    .subtab-button.is-active {{ background:#172033; color:#fff; border-color:#172033; }}
     .subtab-panel {{ display:none; }}
     .subtab-panel.is-active {{ display:block; }}
-    .card.card-embedded {{ background:#fff; border-radius:18px; box-shadow:none; }}
+    .card.card-embedded {{ background:#fff; border-radius:8px; box-shadow:none; }}
     .data-scroll {{ overflow:auto; padding-right:6px; }}
     .data-scroll table {{ min-width:100%; }}
-    .expand-tabs {{ display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 16px; }}
-    .expand-tabs .subtab-button {{ width:auto; border-radius:999px; padding:10px 14px; font-size:14px; }}
-    .expand-tabs .subtab-button.is-active {{ background:#0d5c63; color:#fff; border-color:#0d5c63; }}
+    .expand-tabs {{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }}
+    .expand-tabs .subtab-button {{ width:auto; border-radius:999px; padding:8px 12px; font-size:13px; }}
+    .expand-tabs .subtab-button.is-active {{ background:var(--accent); color:#fff; border-color:var(--accent); }}
     .expand-panel {{ display:none; }}
     .expand-panel.is-active {{ display:block; }}
     .layout-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
     .stack {{ display:grid; gap:16px; }}
+    .ops-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }}
+    .ops-card {{ background:var(--surface); border:1px solid var(--line); border-top:4px solid #94a3b8; border-radius:8px; padding:13px; min-height:168px; box-shadow:0 8px 20px rgba(23,32,51,.05); }}
+    .ops-card.is-ok {{ border-top-color:var(--ok); }}
+    .ops-card.is-warn {{ border-top-color:var(--warn); }}
+    .ops-card.is-danger {{ border-top-color:var(--danger); }}
+    .ops-card.is-muted {{ border-top-color:#94a3b8; }}
+    .ops-card-head {{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; font-weight:800; }}
+    .status-dot {{ width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block; }}
+    .is-ok .status-dot {{ background:var(--ok); }}
+    .is-warn .status-dot {{ background:var(--warn); }}
+    .is-danger .status-dot {{ background:var(--danger); }}
+    .ops-value {{ margin-top:10px; font-size:22px; line-height:1.2; font-weight:850; overflow-wrap:anywhere; }}
+    .ops-meta {{ margin-top:7px; color:var(--muted); font-size:12px; line-height:1.35; min-height:32px; overflow-wrap:anywhere; }}
+    .ops-kv {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; border-top:1px solid var(--line); padding-top:8px; margin-top:8px; color:var(--muted); font-size:12px; }}
+    .ops-kv strong {{ color:var(--text); text-align:right; font-weight:750; overflow-wrap:anywhere; }}
+    .ops-lower {{ margin-bottom:12px; }}
+    .ops-list .data-scroll {{ max-height:260px; }}
     table {{ width:100%; border-collapse:collapse; font-size:14px; }}
-    th, td {{ text-align:left; padding:10px 8px; border-top:1px solid rgba(21,33,45,.10); vertical-align:top; }}
-    thead th {{ border-top:none; color:#5e6b79; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }}
-    .empty {{ color:#5e6b79; font-size:14px; padding:8px 0; }}
+    th, td {{ text-align:left; padding:10px 8px; border-top:1px solid rgba(23,32,51,.10); vertical-align:top; }}
+    thead th {{ border-top:none; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0; }}
+    .empty {{ color:var(--muted); font-size:14px; padding:8px 0; }}
     ul {{ margin:0; padding-left:18px; }}
     li {{ margin:8px 0; }}
-    @media (max-width: 1200px) {{ .hero,.layout-2,.metrics,.tabs,.subtab-shell {{ grid-template-columns:1fr; }} }}
+    @media (max-width: 1200px) {{ .hero,.layout-2,.subtab-shell {{ grid-template-columns:1fr; }} .metrics,.ops-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
+    @media (max-width: 720px) {{ .wrap {{ padding:10px; }} .metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .ops-grid {{ grid-template-columns:1fr; }} .metric-card {{ min-height:82px; padding:9px 10px; }} .metric-value {{ font-size:18px; }} .tab-button {{ flex:1 1 48%; padding:10px 8px; }} h1 {{ font-size:24px; }} }}
   </style>
 </head>
 <body>
@@ -4338,7 +4514,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       <div class="card">
         <div class="hero-title">
           <div>
-            <h1>실시간 주가 예측 대시보드</h1>
+            <div class="top-kicker">실시간 주가 예측 대시보드</div>
+            <h1>운영 콘솔</h1>
             {_pill_row([f"운영 모드: {project.get('trading_mode')}", f"활성 모델(15분): {active_model.get('model_version')}", f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}", f"장 상태: {latest_kis.get('session_status')}", f"실시간 수집기: {'실행 중' if live_runtime.get('status') == 'running' else '중지'}", f"자동 새로고침: {refresh_text}"])}
           </div>
           <div class="version">Ver {_esc(payload.get('version'))}</div>
@@ -4360,16 +4537,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     <section class="metrics">{metrics_html}</section>
     <section class="tabs" role="tablist" aria-label="대시보드 탭">{tab_buttons}</section>
 
-    <section id="tab-virtual-paper" class="tab-panel is-active">{virtual_tab_html}</section>
-    <section id="tab-paper-broker" class="tab-panel">{paper_tab_html}</section>
-    <section id="tab-live-broker" class="tab-panel">{live_tab_html}</section>
-    <section id="tab-ml" class="tab-panel">{ml_tab_html}</section>
-    <section id="tab-status" class="tab-panel">{status_tab_html}</section>
-    <section id="tab-predictions" class="tab-panel">{predictions_tab_html}</section>
-    <section id="tab-signal-orders" class="tab-panel">{signal_orders_tab_html}</section>
-    <section id="tab-fills-bars" class="tab-panel">{fills_bars_tab_html}</section>
-    <section id="tab-daily-report" class="tab-panel">{daily_report_tab_html}</section>
-    <section id="tab-other" class="tab-panel">{other_tab_html}</section>
+    <section id="tab-ops" class="tab-panel is-active">{operator_console_html}</section>
+    <section id="tab-accounts" class="tab-panel">{accounts_tab_html}</section>
+    <section id="tab-ml-data" class="tab-panel">{ml_data_tab_html}</section>
+    <section id="tab-orders" class="tab-panel">{orders_tab_html}</section>
+    <section id="tab-reports-settings" class="tab-panel">{reports_settings_tab_html}</section>
   </div>
   <script>
     (() => {{
@@ -4399,7 +4571,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         }} catch (error) {{}}
       }};
       const activate = (targetId) => {{
-        const fallbackId = 'tab-virtual-paper';
+        const fallbackId = 'tab-ops';
         const nextId = document.getElementById(targetId) ? targetId : fallbackId;
         buttons.forEach((button) => {{
           const active = button.dataset.tabTarget === nextId;
@@ -4426,7 +4598,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
           initialTab = '';
         }}
       }}
-      activate(initialTab || 'tab-virtual-paper');
+      activate(initialTab || 'tab-ops');
       const subtabGroups = Array.from(new Set(Array.from(document.querySelectorAll('[data-subtab-group]')).map((button) => button.dataset.subtabGroup).filter(Boolean)));
       subtabGroups.forEach((group) => {{
         let initialSubtab = '';

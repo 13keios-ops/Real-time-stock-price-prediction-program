@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> 대시보드 운영 콘솔형 UI 정리
+
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`.
+  - `git status --short --branch`: `main...origin/main [ahead 2]`.
+- 조치:
+  - 대시보드 첫 화면을 `운영 콘솔`로 바꿨다.
+  - 첫 화면에 Phase readiness, 계좌 정합성, 데이터 품질, 장후 파이프라인, 실전 주문 안전 상태를 먼저 보이도록 정리했다.
+  - 기존 10개 상위 탭을 `운영 콘솔`, `계좌`, `ML/데이터`, `예측/주문`, `리포트/설정` 5개로 묶었다.
+  - 기존 상세 카드와 표는 제거하지 않고 각 묶음 탭 안에 보존했다.
+  - 대시보드 색상과 카드 반경을 운영 도구형으로 정리하고 첫 화면의 과도한 히어로 느낌을 줄였다.
+- 실행/검증:
+  - `python -m py_compile app/services/dashboard.py`: 통과.
+  - `python -m unittest tests.test_dashboard`: 17개 통과.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-05-28T22:40:46+09:00`.
+  - 대시보드 서버만 재시작했고 `http://127.0.0.1:8765` 응답 HTML에서 `운영 콘솔`, `Phase readiness`, `tab-ops` 노출을 확인했다.
+  - Codex in-app browser에서 `운영 콘솔` 표시, `계좌` 탭 전환, 콘솔 error/warn 0건을 확인했다.
+  - 스크린샷 캡처는 in-app browser의 `Page.captureScreenshot` 명령이 타임아웃되어 남기지 못했다.
+- 커밋/백업:
+  - 로컬 커밋을 생성했다.
+  - forced NAS backup 완료:
+    `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
+    (`5558128973` bytes).
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> 장후 paper/KIS 모의계좌 정합성 조치
 
 - 시작 상태:
