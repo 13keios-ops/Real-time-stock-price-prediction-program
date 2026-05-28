@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-28] Codex -> 장후 paper/KIS 모의계좌 정합성 조치
+
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `ml_maintenance_action=already_ok`.
+  - `./scripts/get_dashboard_status.sh`: `status=running`, dashboard/api 응답 정상.
+- 장후 체크 결과:
+  - `latest-post-close-ml.json`: `status=ok`, `mode=quick-live-train`.
+  - `latest-post-close-label-refresh.json`: `status=ok`.
+  - `latest-kis-live-data-quality.json`: `assessment.status=ok`.
+  - `latest-local-setup-check.json`: `ok=true`, blockers/warnings 없음.
+  - `latest-paper-dual-account-match.json`: `status=initial_cash_mismatch`, `ok=false`.
+- 조치:
+  - `./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -AsJson` 실행.
+  - 로컬 paper 기준선을 KIS 모의계좌 기준으로 정렬했다.
+  - 정렬 후 `paper_initial_cash_after=8748211`.
+  - 브로커 유효현금 기준 `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
+  - KIS raw cash와 effective cash 사이에는 `raw_cash_gap=747827`이 남지만, 이 값은 브로커 유효현금 계산 기준과 raw cash 표시의 차이로 따로 기록한다.
+- 후속 갱신:
+  - `./scripts/reconcile_paper_accounts.sh`: `ok=true`, `status=aligned_waiting_first_submission`.
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+  - `python -m app --build-runtime-report`: 통과.
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers/warnings 없음.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-05-28T20:12:27+09:00`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-05-28] Codex -> Phase 1a KIS 모의투자 read-only 리허설 진행
 
 - 시작 상태:

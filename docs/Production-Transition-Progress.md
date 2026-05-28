@@ -19,8 +19,8 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-05-28 05:14 KST
-- 현재 런타임: `overnight`
+- 마지막 갱신: 2026-05-28 20:12 KST
+- 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
 - dashboard: 실행 중
@@ -54,12 +54,14 @@
 
 - 상태: 진행 중
 - 현재 기준:
-  - paper/KIS 모의계좌 정합성은 최근 점검에서 `ok=true`.
+  - paper/KIS 모의계좌 정합성은 2026-05-28 20:07 KST 점검에서 `ok=true`.
+  - 장후 `initial_cash_mismatch`는 `-SyncInitialCash -AlignToBroker`로 조치했다.
+  - 정렬 후 `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
   - bounded post-close label refresh 수정과 재실행 완료.
-  - KIS live data quality는 raw/minute coverage 약 94.3%로 `watch`.
+  - 2026-05-28 장후 KIS live data quality는 `assessment.status=ok`.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
-  - KIS live data quality `watch` 원인 추적.
+  - KIS raw cash와 effective cash의 표시 차이 `raw_cash_gap`은 계속 관측한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
