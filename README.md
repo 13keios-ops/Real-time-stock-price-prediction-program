@@ -37,6 +37,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/Production-Implementation-Blueprint.md`: 실전 전환을 코드 작업 단위로 나눈 구현 청사진
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
+- `docs/Codex-Operating-Feedback.md`: 반복 지적 방지 체크리스트와 저장소 전용 skill 후보 관리
 - `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `docs/Repo-Audit-Automation.md`: 매시간 저장소 전체 점검 자동화 기준
 - `docs/*.md`: 주제별 상세 설계와 참고 문서

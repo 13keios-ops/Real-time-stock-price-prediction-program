@@ -35,6 +35,7 @@
 - `docs/Production-Implementation-Blueprint.md`: 실전 전환 구현 순서, 상태머신, schema 초안
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
+- `docs/Codex-Operating-Feedback.md`: 사용자의 반복 지적을 작업 전후 체크리스트와 skill 후보로 정리한 보조 기준
 - `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `RECOVERY.md`: GitHub + NAS 복구 기준
 - `runtime-data/`: 실행 로그, 리포트, 캐시, 모델 산출물
@@ -53,6 +54,14 @@
 7. 산출물 경로, 삭제한 임시 자산, 다음 연결점이 있으면 `docs/logbook.md`에 남긴다.
 8. 변경 파일이 있으면 가능한 한 같은 턴에서 commit과 push까지 마친다.
 9. 사용자가 직접 해야 하는 작업은 Cybos Plus 로그인처럼 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내하고, 그 외 구현·검증·문서화·커밋·푸시는 Codex가 자율적으로 처리한다.
+
+반복 지적 방지 체크:
+
+- 사용자가 이미 승인한 같은 작업 범위의 commit/push는 반복해서 묻지 않고 진행한다. 도구 안전정책이 막으면 우회하지 않고 차단 사유와 남은 상태를 보고한다.
+- 판단 요청에는 가능한 한 권장안을 함께 제시한다. 사용자가 직접 결정해야 하는 항목은 이유와 기본 권장안을 같이 둔다.
+- 최종 답변은 최근 한 문장에만 좁히지 않고, 이번 큰 작업 흐름에서 확인한 상태, 조치, 검증, 남은 위험을 함께 요약한다.
+- 운영자는 Codex나 Claude cowork가 아니라 계좌 소유자 또는 실전 운용 승인권자를 뜻한다.
+- 반복 누락이 다시 나오면 `docs/Codex-Operating-Feedback.md`에 체크 항목 또는 skill 후보로 반영한다.
 
 장중 수집 보호:
 

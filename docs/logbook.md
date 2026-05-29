@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-05-29] Codex -> 반복 지적 체크리스트와 skill 후보 구조화
+
+- 사용자 지시:
+  - 반복해서 지적한 부분을 점검하고, MD에 반영할 수 있게 조치한다.
+  - skill화할 수 있는 부분도 계속 체크할 수 있게 구조화한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`.
+  - `git status --short --branch`: `main...origin/main`.
+- 조치:
+  - `docs/Codex-Operating-Feedback.md`를 추가했다.
+  - 반복 지적을 작업 시작, 작업 중, 최종 답변 체크리스트로 나눴다.
+  - commit/push 반복 문의 방지, 권장안 동반, 전체 흐름 중심 최종 답변,
+    운영자 의미, NAS 명시 지시, side panel 친화 문서 기준을 한곳에 모았다.
+  - skill 후보 판정 기준과 현재 후보
+    `Daily Ops Check`, `Cowork Ping-Pong`, `Market-Safe Work Mode`,
+    `Final Report Shape`, `Recovery And Backup Discipline`을 정리했다.
+  - `AGENTS.md`와 `README.md`의 핵심 문서/문서 역할 목록에 새 문서를 추가했다.
+  - `.agents/skills/README.md`에 skill 후보 관리 기준과 새 문서 링크를 추가했다.
+- 현재 판단:
+  - 지금은 실제 skill 파일을 만들기보다 체크리스트와 후보 관리 문서로 1차 고정한다.
+  - 반복 누락이 계속되는 절차부터 `.agents/skills/` 아래의 저장소 전용 skill로 승격한다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-05-29] Codex -> 장전/장후 자동화 확인과 paper/KIS 정합성 보강
 
 - 시작 상태:
