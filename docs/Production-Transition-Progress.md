@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-05-28 22:41 KST
+- 마지막 갱신: 2026-05-29 18:31 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
@@ -33,7 +33,20 @@
   기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-05-28T22:40:46+09:00`.
+  기준 `generated_at=2026-05-29T18:31:42+09:00`.
+- 최신 장전 readiness:
+  `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
+  기준 `status=ok`, blockers/warnings 없음.
+- 최신 장후 ML maintenance:
+  `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`
+  기준 `status=ok`, `mode=quick-live-train`.
+- 최신 장후 label refresh:
+  `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`
+  기준 `status=ok`.
+- 최신 paper/KIS 정합성:
+  `runtime-data/reports/reconciliation/latest-paper-reconciliation.json`
+  기준 `status=needs_review`, 포지션 mismatch 0,
+  `cash_gap=28937.828660000116`.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -63,14 +76,18 @@
 
 - 상태: 진행 중
 - 현재 기준:
-  - paper/KIS 모의계좌 정합성은 2026-05-28 20:07 KST 점검에서 `ok=true`.
-  - 장후 `initial_cash_mismatch`는 `-SyncInitialCash -AlignToBroker`로 조치했다.
-  - 정렬 후 `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
+  - 2026-05-28 장후 `initial_cash_mismatch`는 `-SyncInitialCash -AlignToBroker`로 조치했다.
+  - 2026-05-29 장후 정합성은 `status=needs_review`다.
+  - 포지션 mismatch는 0건이고, 현금/총자산 gap은 약 `28,938원`이다.
+  - 같은 timestamp 스냅샷 중 오래된 행을 최신으로 고르는 문제는
+    `app/storage/sqlite_store.py`에서 `rowid DESC` tie-break로 보강했다.
+  - KIS order fill 조회는 `EGW00201` rate limit이 반복되어 추가 호출을 중단했다.
   - bounded post-close label refresh 수정과 재실행 완료.
-  - 2026-05-28 장후 KIS live data quality는 `assessment.status=ok`.
+  - 2026-05-29 장후 KIS live data quality는 `assessment.status=ok`.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
-  - KIS raw cash와 effective cash의 표시 차이 `raw_cash_gap`은 계속 관측한다.
+  - KIS order fill 조회 rate limit 해소 뒤 잔여 `cash_gap`을 재평가한다.
+  - 잔여 gap은 자동 align으로 덮지 않고 원인 확인 뒤 조치한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 

@@ -1,5 +1,45 @@
 # 작업 기록
 
+## [2026-05-29] Codex -> 장전/장후 자동화 확인과 paper/KIS 정합성 보강
+
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `ml_maintenance_action=already_ok`.
+  - `git status --short --branch`: `main...origin/main [ahead 4]`.
+- 오늘 자동화 확인:
+  - `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`: `status=ok`, blockers/warnings 없음.
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`: `status=ok`, `mode=quick-live-train`.
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`: `status=ok`.
+  - `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`: `assessment.status=ok`, latest trade date `2026-05-29`.
+  - `runtime-data/reports/data-quality/latest-kis-live-feature-source-drift.json`: `posture=source_drift_detected`.
+  - `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`: `posture=no_clear_single_feature_signal`.
+  - `runtime-data/reports/broker-paper/latest-sync.json`: `status=rate_limited`, KIS `EGW00201` 초당 거래건수 제한.
+  - `runtime-data/reports/reconciliation/latest-paper-reconciliation.json`: 기존 `status=needs_review`, 큰 현금 갭 확인.
+- 원인 분석:
+  - `paper_portfolio_snapshots`에 같은 `event_time`을 가진 스냅샷이 여러 개 있었다.
+  - 공통 SQLite helper가 `ORDER BY event_time DESC`만 사용해, 같은 시각의 최신 삽입 행 대신 오래된 행을 최신 스냅샷으로 고를 수 있었다.
+  - 이 때문에 reconciliation이 오래된 open position/cash snapshot을 참조하며 약 104만 원 규모의 gap을 크게 보였다.
+- 조치:
+  - `app/storage/sqlite_store.py`의 최신/최근 행 조회를 `ORDER BY <time> DESC, rowid DESC`로 보강했다.
+  - `tests/test_sqlite_store.py`에 동일 timestamp tie-break 회귀 테스트를 추가했다.
+  - `app/services/broker_paper_sync.py`의 수동/배치 broker-paper sync는 KIS rate limit 완화를 위해 기본 재시도 간격을 `10/30/60/120초`로 늘렸다.
+  - `tests/test_broker_paper_sync.py`에 app-level sync가 느린 배치 backoff를 쓰는지 잠갔다.
+  - 수정 후 `python -m app --reconcile-paper-accounts` 기준 gap은 약 `1,042,508원`에서 `28,938원` 수준으로 줄었고 포지션 mismatch는 0건이다.
+  - 남은 gap은 자동 align으로 덮지 않고, KIS 주문체결 조회 rate limit 해소 뒤 재확인 대상으로 남겼다.
+- 실행/검증:
+  - `python -m py_compile app/storage/sqlite_store.py app/services/broker_paper_sync.py tests/test_sqlite_store.py tests/test_broker_paper_sync.py`: 통과.
+  - `python -m unittest tests.test_sqlite_store tests.test_broker_paper_sync tests.test_paper_reconciliation`: 19개 통과.
+  - `python -m unittest tests.test_dashboard`: 17개 통과.
+  - `python -m app --build-runtime-report`: 통과.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-05-29T18:31:42+09:00`.
+  - 대시보드 서버 재시작 후 `./scripts/get_dashboard_status.sh`: `status=running`, dashboard/api 응답 정상.
+- 남은 조치:
+  - KIS order fill 조회 endpoint는 오늘 여러 번 `EGW00201` rate limit을 반환했으므로 추가 호출을 중단했다.
+  - 다음 장후 또는 충분한 cooldown 뒤 broker-paper sync를 1회 재시도하고, 잔여 `cash_gap=28,937.82866`을 재평가한다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음. 현재 정책대로 명시 지시가 있을 때만 실행한다.
+
 ## [2026-05-28] Codex -> NAS 백업 실행 기준 변경
 
 - 사용자 지시:

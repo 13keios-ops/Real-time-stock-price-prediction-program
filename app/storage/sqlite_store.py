@@ -1859,7 +1859,7 @@ class SQLiteRuntimeStore:
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_latest_row(self, table_name: str, order_by_column: str) -> sqlite3.Row | None:
-        query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT 1"
+        query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC, rowid DESC LIMIT 1"
         row = self._run_safe_read_query(query, single=True, missing_tables=(table_name,))
         return row if isinstance(row, sqlite3.Row) or row is None else None
 
@@ -1916,7 +1916,7 @@ class SQLiteRuntimeStore:
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:
-        query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC LIMIT ?"
+        query = f"SELECT * FROM {table_name} ORDER BY {order_by_column} DESC, rowid DESC LIMIT ?"
         rows = self._run_safe_read_query(query, (limit,), missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
@@ -1933,7 +1933,7 @@ class SQLiteRuntimeStore:
         value: Any,
         order_by_column: str,
     ) -> sqlite3.Row | None:
-        query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column} DESC LIMIT 1"
+        query = f"SELECT * FROM {table_name} WHERE {column_name} = ? ORDER BY {order_by_column} DESC, rowid DESC LIMIT 1"
         row = self._run_safe_read_query(query, (value,), single=True, missing_tables=(table_name,))
         return row if isinstance(row, sqlite3.Row) or row is None else None
     def count_rows(self, table_name: str) -> int:

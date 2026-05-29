@@ -28,6 +28,7 @@ from app.utils.time import now_local
 
 FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"}
 OPEN_BROKER_ORDER_STATUSES = {"submitted", "pending_lookup", "open", "partially_filled"}
+BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (10.0, 30.0, 60.0, 120.0)
 
 
 @dataclass(slots=True)
@@ -505,7 +506,12 @@ def sync_broker_paper_orders(
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     service = BrokerPaperExecutionSync(settings)
+    effective_retry_delays = (
+        BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS
+        if retry_delays_seconds is None
+        else retry_delays_seconds
+    )
     return service.sync_recent_orders(
         lookback_days=lookback_days,
-        retry_delays_seconds=retry_delays_seconds,
+        retry_delays_seconds=effective_retry_delays,
     )

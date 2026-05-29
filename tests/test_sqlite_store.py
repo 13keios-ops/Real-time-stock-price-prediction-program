@@ -117,6 +117,38 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertTrue(created_path.exists())
         self.assertEqual(backup_store.count_rows("paper_orders"), 1)
 
+    def test_fetch_latest_row_breaks_timestamp_ties_by_insert_order(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
+        store = SQLiteRuntimeStore(database_path)
+        event_time = "2026-05-29T15:01:58+09:00"
+        for index, cash_balance in enumerate((100.0, 200.0, 300.0), start=1):
+            store._run_write_query(
+                """
+                INSERT INTO paper_portfolio_snapshots(
+                    snapshot_id, event_time, cash_balance, gross_market_value,
+                    net_liquidation_value, open_positions, realized_pnl, unrealized_pnl
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"snapshot-{index}",
+                    event_time,
+                    cash_balance,
+                    0.0,
+                    cash_balance,
+                    index,
+                    0.0,
+                    0.0,
+                ),
+            )
+
+        latest = store.fetch_latest_row("paper_portfolio_snapshots", "event_time")
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(float(latest["cash_balance"]), 300.0)
+        self.assertEqual(int(latest["open_positions"]), 3)
+
     def test_backup_database_uses_consistent_sqlite_snapshot_with_wal(self) -> None:
         root = Path(__file__).resolve().parents[1]
         tmp_root = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4())

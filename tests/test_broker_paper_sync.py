@@ -9,7 +9,12 @@ from unittest.mock import patch
 from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_rest import KisDailyOrderFillRecord
 from app.config.settings import load_settings
-from app.services.broker_paper_sync import BrokerPaperExecutionSync, sync_broker_paper_orders
+from app.services.broker_paper_sync import (
+    BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS,
+    BrokerPaperExecutionSync,
+    BrokerPaperSyncResult,
+    sync_broker_paper_orders,
+)
 from app.storage.contracts import BrokerOrderSubmission, OrderEvent, PaperOrder
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
@@ -182,6 +187,33 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertNotEqual(first_id, second_id)
         self.assertIn("fill-broker-sync-", first_id)
         self.assertIn("fill-broker-sync-", second_id)
+
+    def test_app_level_sync_uses_slow_batch_retry_delays(self) -> None:
+        root, env = self._prepare_runtime()
+        dummy_result = BrokerPaperSyncResult(
+            ok=True,
+            synced_at="2026-04-17T10:15:00+09:00",
+            status="ok",
+            total_submissions=0,
+            matched_orders=0,
+            updated_orders=0,
+            applied_fill_events=0,
+            applied_fill_qty=0,
+            open_order_count=0,
+            final_order_count=0,
+            pending_symbols=[],
+            report_markdown_path=Path("latest-sync.md"),
+            report_json_path=Path("latest-sync.json"),
+        )
+        with patch.dict(os.environ, env, clear=False):
+            with patch.object(BrokerPaperExecutionSync, "sync_recent_orders", return_value=dummy_result) as mocked_sync:
+                result = sync_broker_paper_orders(project_root=root)
+
+        self.assertIs(result, dummy_result)
+        self.assertEqual(
+            mocked_sync.call_args.kwargs["retry_delays_seconds"],
+            BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS,
+        )
 
     def test_sync_ignores_submissions_before_alignment_marker(self) -> None:
         root, env = self._prepare_runtime()
