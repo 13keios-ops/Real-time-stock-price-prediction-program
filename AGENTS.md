@@ -36,6 +36,7 @@
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/Codex-Operating-Feedback.md`: 사용자의 반복 지적을 작업 전후 체크리스트와 skill 후보로 정리한 보조 기준
+- `.agents/skills/daily-ops-check/SKILL.md`: 장전/장후 자동화 상태 확인과 조치 절차
 - `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `RECOVERY.md`: GitHub + NAS 복구 기준
 - `runtime-data/`: 실행 로그, 리포트, 캐시, 모델 산출물
@@ -54,6 +55,7 @@
 7. 산출물 경로, 삭제한 임시 자산, 다음 연결점이 있으면 `docs/logbook.md`에 남긴다.
 8. 변경 파일이 있으면 가능한 한 같은 턴에서 commit과 push까지 마친다.
 9. 사용자가 직접 해야 하는 작업은 Cybos Plus 로그인처럼 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내하고, 그 외 구현·검증·문서화·커밋·푸시는 Codex가 자율적으로 처리한다.
+10. 사용자가 장전/장후 상태체크, daily ops, 운영상태 자동화 확인과 조치를 요청하면 `.agents/skills/daily-ops-check/SKILL.md`를 먼저 읽고 따른다.
 
 반복 지적 방지 체크:
 

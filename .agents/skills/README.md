@@ -11,3 +11,7 @@ skill 후보 관리는 `docs/Codex-Operating-Feedback.md`의 판정 기준을 �
 - 절차가 3회 이상 반복되고 누락이 잦으면 skill 후보로 올린다.
 - 실행 순서가 완전히 결정적이면 skill보다 스크립트나 테스트로 잠근다.
 - skill로 승격할 때는 최소한의 `SKILL.md`와 필요한 reference/script만 둔다.
+
+현재 저장소 전용 skill:
+
+- `daily-ops-check/`: 장전/장후 자동화 상태 확인과 조치 절차.

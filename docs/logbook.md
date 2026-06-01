@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-01] Codex -> 장전/장후 상태체크 조치와 Daily Ops skill 승격
+
+- 사용자 지시:
+  - 장전/장후 상태체크 결과를 확인하고 조치한다.
+  - 이 절차를 저장소 전용 skill로 만든다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `ml_maintenance_action=already_ok`.
+  - `git status --short --branch`: `main...origin/main`.
+- 오늘 자동화 확인:
+  - 장전 readiness: `status=ok`, blockers/warnings 없음.
+  - 장후 ML maintenance: `status=ok`, `mode=quick-live-train`, completed `2026-06-01 16:14:29 +0900`.
+  - 장후 label refresh: `status=ok`, `mode=post-close-label-refresh-live-db`, completed `2026-06-01 16:44:59 +0900`.
+  - KIS live data quality: `assessment.status=ok`, latest trade date `2026-06-01`.
+  - source drift: `source_drift_detected`.
+  - feature diagnostics: `no_clear_single_feature_signal`.
+  - broker paper sync: `status=ok`, KIS rate limit 없음.
+  - local setup: `ok=true`, blockers/warnings 없음.
+- 조치:
+  - `python -m app --sync-broker-paper-orders`: `status=ok`, rate limit 없음.
+  - `python -m app --reconcile-paper-accounts`: `needs_review`, 포지션 mismatch 0, `cash_gap=28937.82866`, `total_asset_gap=71937.82866`.
+  - 원인은 로컬 paper portfolio 최신 snapshot이 `2026-05-29` 평가가격에 머문 상태에서 브로커 모의계좌가 `2026-06-01` 현재가를 쓰는 stale valuation 차이로 확인했다.
+  - 보유 수량 mismatch가 없고 broker account 조회가 정상이라 `./scripts/verify_paper_dual_account_match.sh -AlignToBroker -AsJson`로 marker-only alignment를 적용했다.
+  - 조치 후 dual match는 `status=matched_waiting_first_submission`, `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0이다.
+  - `python -m app --build-runtime-report`: 통과.
+  - `python -m app --build-dashboard`: 1회 shell timeout 후 timeout을 늘려 재실행했고, dashboard snapshot `generated_at=2026-06-01T18:58:47+09:00`로 갱신했다.
+- Skill 승격:
+  - `.agents/skills/daily-ops-check/SKILL.md`를 추가했다.
+  - 장전/장후 자동화 결과 확인, paper/KIS 정합성 조치, dashboard/runtime 갱신, logbook 기록, 최종 보고 형식을 skill 절차로 고정했다.
+  - `AGENTS.md`, `README.md`, `.agents/skills/README.md`, `docs/Codex-Operating-Feedback.md`, `docs/Production-Transition-Progress.md`에 새 skill과 오늘 상태를 반영했다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-05-29] Codex -> 반복 지적 체크리스트와 skill 후보 구조화
 
 - 사용자 지시:

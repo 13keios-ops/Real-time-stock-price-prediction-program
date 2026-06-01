@@ -97,16 +97,17 @@
 
 ### Daily Ops Check
 
-- 후보 상태: 강함
+- 후보 상태: skill 승격 완료
 - 대상:
   장전/장후 자동화 결과 확인, runtime/watchdog/dashboard 상태,
   계좌 정합성, data quality, logbook 갱신.
 - 이유:
   거의 매일 반복되고, 빠지면 장중 수집과 정합성 판단에 직접 영향이 있다.
 - 권장안:
-  먼저 문서 체크리스트로 1~2주 더 안정화한 뒤 skill로 승격한다.
+  `.agents/skills/daily-ops-check/SKILL.md`를 기준으로 사용한다.
 
 관련 문서/코드 경로:
+`.agents/skills/daily-ops-check/SKILL.md`,
 `scripts/get_live_runtime_status.sh`,
 `scripts/get_runtime_watchdog_status.sh`,
 `runtime-data/reports/`
