@@ -1,5 +1,41 @@
 # 작업 기록
 
+## [2026-06-02] Codex -> Daily Ops Check 실행과 open order 보류 기준 보강
+
+- 사용자 지시:
+  - `.agents/skills/daily-ops-check/SKILL.md` skill을 사용해 장전/장후 상태체크를 수행한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main`.
+- 오늘 자동화 확인:
+  - 장전 readiness: `status=ok`, blockers/warnings 없음.
+  - 장후 ML maintenance: `status=ok`, `mode=quick-live-train`, completed `2026-06-02 16:14:41 +0900`.
+  - 장후 label refresh: `status=ok`, `mode=post-close-label-refresh-live-db`, completed `2026-06-02 16:45:19 +0900`.
+  - KIS live data quality: `assessment.status=ok`, latest trade date `2026-06-02`.
+  - source drift: `source_drift_detected`.
+  - feature diagnostics: `no_clear_single_feature_signal`.
+  - local setup: `ok=true`, blockers/warnings 없음.
+- 조치:
+  - `python -m app --sync-broker-paper-orders`를 cooldown 뒤 1회 재시도했다.
+  - 결과는 KIS `EGW00201` rate limit 유지, `status=rate_limited`, open order 3건, pending symbols `105560`, `247540`, `373220`.
+  - 같은 order-fill endpoint 추가 호출은 중단했다.
+  - `python -m app --reconcile-paper-accounts`로 계좌 조회 기반 정합성을 재계산했다.
+  - 포지션 mismatch는 0건이지만 `cash_gap=25177.399659998715`, `total_asset_gap=24377.399659998715`로 `needs_review`가 유지됐다.
+  - open broker order 3건이 남아 있으므로 marker-only alignment는 보류했다.
+  - `python -m app --build-runtime-report`: 통과.
+  - `python -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-06-02T18:52:39+09:00`.
+- Skill/문서 보강:
+  - `.agents/skills/daily-ops-check/SKILL.md`에 `open_order_count > 0`이고 order-fill 조회가 rate limit이면 align을 보류한다는 기준을 추가했다.
+  - `docs/Codex-Operating-Feedback.md`와 `docs/Production-Transition-Progress.md`에 같은 기준과 오늘 상태를 반영했다.
+- 남은 조치:
+  - 다음 cooldown 또는 다음 장후에 broker paper sync를 1회 재시도한다.
+  - open order 3건의 최종 상태가 확인되기 전에는 alignment로 gap을 덮지 않는다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-01] Codex -> 장전/장후 상태체크 조치와 Daily Ops skill 승격
 
 - 사용자 지시:

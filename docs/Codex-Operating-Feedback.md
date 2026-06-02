@@ -105,6 +105,9 @@
   거의 매일 반복되고, 빠지면 장중 수집과 정합성 판단에 직접 영향이 있다.
 - 권장안:
   `.agents/skills/daily-ops-check/SKILL.md`를 기준으로 사용한다.
+- 2026-06-02 보강:
+  broker open order가 남아 있고 order-fill 조회가 rate limit이면
+  marker-only alignment를 보류하고 `needs_review`를 유지한다.
 
 관련 문서/코드 경로:
 `.agents/skills/daily-ops-check/SKILL.md`,

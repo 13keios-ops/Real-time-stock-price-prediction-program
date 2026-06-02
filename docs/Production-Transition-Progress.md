@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-01 18:58 KST
+- 마지막 갱신: 2026-06-02 18:52 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
@@ -33,7 +33,7 @@
   기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-01T18:58:47+09:00`.
+  기준 `generated_at=2026-06-02T18:52:39+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
   기준 `status=ok`, blockers/warnings 없음.
@@ -44,9 +44,10 @@
   `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`
   기준 `status=ok`.
 - 최신 paper/KIS 정합성:
-  `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
-  기준 `status=matched_waiting_first_submission`,
-  `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
+  `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
+  기준 `status=needs_review`,
+  `cash_gap=25177.399659998715`,
+  `total_asset_gap=24377.399659998715`, 포지션 mismatch 0.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -85,11 +86,17 @@
   - 2026-06-01 broker paper sync는 `status=ok`였으나,
     로컬 평가 snapshot이 2026-05-29 가격에 머물러 있어
     `-AlignToBroker` marker-only 정렬로 KIS 모의계좌 현재 상태를 기준선으로 갱신했다.
+  - 2026-06-02 broker paper sync는 KIS `EGW00201` rate limit으로
+    `status=rate_limited`다.
+  - 2026-06-02 정합성은 수량 mismatch 0이지만
+    broker open order 3건(`105560`, `247540`, `373220`)이 남아 있어
+    marker-only alignment를 보류했다.
   - bounded post-close label refresh 수정과 재실행 완료.
-  - 2026-06-01 장후 KIS live data quality는 `assessment.status=ok`.
+  - 2026-06-02 장후 KIS live data quality는 `assessment.status=ok`.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
-  - broker order submissions가 marker 이전 open 상태로 남는 구조는 계속 관측한다.
+  - KIS order-fill rate limit이 풀린 뒤 broker sync를 1회 재시도한다.
+  - open order 3건의 최종 상태가 확인되기 전에는 alignment로 gap을 덮지 않는다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 

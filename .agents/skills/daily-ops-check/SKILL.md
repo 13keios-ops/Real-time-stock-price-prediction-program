@@ -99,6 +99,8 @@ python -m app --reconcile-paper-accounts
 - 보유 수량 mismatch 가 0이다.
 - broker account 조회가 정상이다.
 - local snapshot 이 오래되어 현재가/평가금액만 어긋난다.
+- broker sync 의 `open_order_count`가 0이거나,
+  남은 open order가 다음 거래일 기준선에 영향을 주지 않는다고 확인됐다.
 - `-SyncInitialCash`가 필요한 상황이 아니다.
 
 적용 명령:
@@ -111,6 +113,8 @@ python -m app --reconcile-paper-accounts
 
 - 보유 포지션이 있으면 `-SyncInitialCash`를 임의로 붙이지 않는다.
 - 수량 mismatch 가 있으면 align으로 덮지 말고 원인을 먼저 확인한다.
+- `open_order_count > 0`이고 order-fill 조회가 rate limit이면
+  align을 보류하고 `needs_review`를 유지한다.
 - 실전 계좌 주문/취소는 하지 않는다.
 
 ### 리포트와 dashboard
