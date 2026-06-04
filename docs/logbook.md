@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-04] Codex -> 장전/장후 자동화 실행 확인과 rate-limit 재점검
+
+- 사용자 질문:
+  - 오늘 장전/장후 자동화가 된 것이 맞는지 확인 요청.
+  - 스레드 선택 시 아무 내용이 보이지 않는다고 보고.
+- 시작 상태:
+  - 현재 시각: `2026-06-04T21:44:39+09:00`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `ml_maintenance_action=already_ok`.
+  - `git status --short --branch`: `main...origin/main`.
+- 자동화 실행 확인:
+  - 장전 readiness: `2026-06-04 08:20:18 +0900`, `status=ok`, blockers/warnings 없음.
+  - 장후 ML maintenance: `2026-06-04 16:18:21 +0900`, `status=ok`, `mode=quick-live-train`.
+  - 장후 label refresh: `2026-06-04 16:50:21 +0900`, `status=ok`, `mode=post-close-label-refresh-live-db`.
+  - KIS live data quality: `assessment.status=ok`, latest trade date `2026-06-04`.
+  - local setup: `ok=true`, blockers/warnings 없음.
+  - dashboard snapshot 자동화 산출물: `generated_at=2026-06-04T16:57:28+09:00`.
+- 조치:
+  - 장후 자동화 자체는 정상 실행된 것으로 확인했다.
+  - broker paper sync는 자동화 시점에 KIS `EGW00201` rate limit으로 `status=rate_limited`였고 open order 3건(`105560`, `247540`, `373220`)이 남아 있었다.
+  - cooldown 뒤 `python -m app --sync-broker-paper-orders`를 1회 재시도했으나 `EGW00201`가 계속되어 같은 endpoint 추가 호출을 중단했다.
+  - `python -m app --reconcile-paper-accounts` 재계산 결과 포지션 mismatch 0, `cash_gap=41829.05498999916`, `total_asset_gap=41429.05498999916`, `status=needs_review`.
+  - open order가 남아 있어 marker-only alignment는 보류했다.
+  - `python -m app --build-runtime-report`: shell timeout처럼 보였으나 `runtime-data/reports/runtime/latest-runtime-report.json`이 `2026-06-04 21:55:32 +0900`로 갱신됨을 확인했다.
+  - `python -m app --build-dashboard`: shell timeout처럼 보였으나 dashboard snapshot `generated_at=2026-06-04T21:56:15+09:00`로 갱신됨을 확인했다.
+  - dashboard server는 `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- 판단:
+  - 자동화는 실행됐다.
+  - 스레드 UI에 내용이 안 보이는 문제는 자동화 미실행과 별개로 보이며, 실제 결과는 `runtime-data/reports/` 아래에 남아 있다.
+  - 현재 남은 운영 이슈는 KIS order-fill rate limit과 open broker order 3건이다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-02] Codex -> Daily Ops Check 실행과 open order 보류 기준 보강
 
 - 사용자 지시:

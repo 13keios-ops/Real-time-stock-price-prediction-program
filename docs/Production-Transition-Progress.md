@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-02 18:52 KST
+- 마지막 갱신: 2026-06-04 21:56 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
@@ -33,7 +33,7 @@
   기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-02T18:52:39+09:00`.
+  기준 `generated_at=2026-06-04T21:56:15+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
   기준 `status=ok`, blockers/warnings 없음.
@@ -46,8 +46,8 @@
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
   기준 `status=needs_review`,
-  `cash_gap=25177.399659998715`,
-  `total_asset_gap=24377.399659998715`, 포지션 mismatch 0.
+  `cash_gap=41829.05498999916`,
+  `total_asset_gap=41429.05498999916`, 포지션 mismatch 0.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -91,8 +91,14 @@
   - 2026-06-02 정합성은 수량 mismatch 0이지만
     broker open order 3건(`105560`, `247540`, `373220`)이 남아 있어
     marker-only alignment를 보류했다.
+  - 2026-06-04 장전 readiness, 장후 ML maintenance, 장후 label refresh,
+    KIS live data quality는 모두 실행됐고 `ok` 상태다.
+  - 2026-06-04 broker paper sync는 cooldown 뒤 1회 재시도해도
+    KIS `EGW00201` rate limit이 유지됐다.
+  - 2026-06-04 정합성은 포지션 mismatch 0이지만
+    open broker order 3건이 남아 있어 marker-only alignment를 보류했다.
   - bounded post-close label refresh 수정과 재실행 완료.
-  - 2026-06-02 장후 KIS live data quality는 `assessment.status=ok`.
+  - 2026-06-04 장후 KIS live data quality는 `assessment.status=ok`.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
   - KIS order-fill rate limit이 풀린 뒤 broker sync를 1회 재시도한다.
