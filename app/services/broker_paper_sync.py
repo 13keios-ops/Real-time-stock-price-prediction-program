@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -26,7 +26,8 @@ from app.storage.runtime_writer import RuntimeWriter
 from app.utils.time import now_local
 
 
-FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"}
+EXPIRED_BROKER_ORDER_STATUSES = {"expired", "expired_partial"}
+FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"} | EXPIRED_BROKER_ORDER_STATUSES
 OPEN_BROKER_ORDER_STATUSES = {"submitted", "pending_lookup", "open", "partially_filled"}
 BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (10.0, 30.0, 60.0, 120.0)
 
@@ -79,6 +80,40 @@ def _normalize_order_date(value: str) -> str:
     return str(value or "").replace("-", "").strip()
 
 
+def _parse_order_date(value: Any) -> date | None:
+    normalized = _normalize_order_date(str(value or ""))
+    if len(normalized) < 8:
+        return None
+    try:
+        return datetime.strptime(normalized[:8], "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _is_prior_day_order(order_date: Any, synced_at: datetime | None) -> bool:
+    if synced_at is None:
+        return False
+    parsed = _parse_order_date(order_date)
+    return parsed is not None and parsed < synced_at.date()
+
+
+def _expire_stale_open_status(
+    *,
+    status: str,
+    order_date: Any,
+    synced_at: datetime,
+    filled_qty: int,
+    remaining_qty: int,
+) -> str:
+    if status not in OPEN_BROKER_ORDER_STATUSES:
+        return status
+    if remaining_qty <= 0:
+        return status
+    if not _is_prior_day_order(order_date, synced_at):
+        return status
+    return "expired_partial" if filled_qty > 0 else "expired"
+
+
 def _to_side_text(side_code: str, fallback_side: str = "") -> str:
     normalized = str(side_code or "").strip().lower()
     if normalized in {"02", "buy", "b"}:
@@ -88,7 +123,18 @@ def _to_side_text(side_code: str, fallback_side: str = "") -> str:
     return fallback_side or normalized or "buy"
 
 
-def _derive_broker_status(*, matched: bool, order_qty: int, filled_qty: int, remaining_qty: int, reject_qty: int, cancel_yn: bool, cancel_confirm_qty: int) -> str:
+def _derive_broker_status(
+    *,
+    matched: bool,
+    order_qty: int,
+    filled_qty: int,
+    remaining_qty: int,
+    reject_qty: int,
+    cancel_yn: bool,
+    cancel_confirm_qty: int,
+    order_date: Any = "",
+    synced_at: datetime | None = None,
+) -> str:
     if not matched:
         return "pending_lookup"
     if reject_qty >= max(order_qty, 1):
@@ -99,6 +145,8 @@ def _derive_broker_status(*, matched: bool, order_qty: int, filled_qty: int, rem
         return "cancelled"
     if order_qty > 0 and filled_qty >= order_qty:
         return "filled"
+    if remaining_qty > 0 and _is_prior_day_order(order_date, synced_at):
+        return "expired_partial" if filled_qty > 0 else "expired"
     if filled_qty > 0:
         return "partially_filled"
     if remaining_qty > 0:
@@ -304,6 +352,14 @@ class BrokerPaperExecutionSync:
                 paper_order = paper_orders.get(local_order_id, {})
                 previous_snapshot = latest_status_by_order.get(local_order_id) or {}
                 status = str(previous_snapshot.get("status") or paper_order.get("status") or submission.get("status") or "submitted")
+                if previous_snapshot:
+                    status = _expire_stale_open_status(
+                        status=status,
+                        order_date=previous_snapshot.get("order_date"),
+                        synced_at=synced_at,
+                        filled_qty=int(previous_snapshot.get("filled_qty", 0) or 0),
+                        remaining_qty=int(previous_snapshot.get("remaining_qty", 0) or 0),
+                    )
                 if status in FINAL_BROKER_ORDER_STATUSES:
                     final_order_count += 1
                     continue
@@ -386,6 +442,8 @@ class BrokerPaperExecutionSync:
                 reject_qty=reject_qty,
                 cancel_yn=cancel_yn,
                 cancel_confirm_qty=cancel_confirm_qty,
+                order_date=(broker_row.order_date if broker_row is not None else order_date_key),
+                synced_at=synced_at,
             )
             if status in OPEN_BROKER_ORDER_STATUSES:
                 open_order_count += 1

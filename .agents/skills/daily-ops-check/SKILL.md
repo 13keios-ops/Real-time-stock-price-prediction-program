@@ -115,6 +115,13 @@ python -m app --reconcile-paper-accounts
 - 수량 mismatch 가 있으면 align으로 덮지 말고 원인을 먼저 확인한다.
 - `open_order_count > 0`이고 order-fill 조회가 rate limit이면
   align을 보류하고 `needs_review`를 유지한다.
+- 단, 최신 KIS 모의계좌 status snapshot 이 이미 있고 주문일이 현재 점검일보다
+  이전이며, 체결수량 0 / 잔량 전체 유지인 prior-day stale open 주문은
+  다음 거래일 기준선에 체결로 반영될 수 없는 만료 후보로 본다.
+  이때 보유 수량 mismatch 0, broker account 조회 정상, 현금/총자산 gap 이
+  평가 기준선 차이로 설명되면 marker-only alignment 를 적용할 수 있다.
+- snapshot 이 없는 제출 주문, 당일 open 주문, 부분 체결 후 잔량이 남은 주문은
+  stale 로 단정하지 않고 조회 복구 또는 사람 확인 전까지 align 을 보류한다.
 - 실전 계좌 주문/취소는 하지 않는다.
 
 ### 리포트와 dashboard

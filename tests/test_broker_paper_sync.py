@@ -15,7 +15,7 @@ from app.services.broker_paper_sync import (
     BrokerPaperSyncResult,
     sync_broker_paper_orders,
 )
-from app.storage.contracts import BrokerOrderSubmission, OrderEvent, PaperOrder
+from app.storage.contracts import BrokerOrderStatusSnapshot, BrokerOrderSubmission, OrderEvent, PaperOrder
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
@@ -174,6 +174,156 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertIsNotNone(result.error)
         self.assertIsNotNone(latest_order)
         self.assertEqual(str(latest_order["status"]), "submitted")
+
+    def test_sync_expires_prior_day_unfilled_open_order(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+
+            broker_rows = [
+                KisDailyOrderFillRecord(
+                    mode="paper",
+                    order_date="20260417",
+                    broker_branch_no="00111",
+                    broker_order_no="1234567890",
+                    original_order_no="",
+                    symbol="005930",
+                    symbol_name="삼성전자",
+                    side="02",
+                    side_name="매수",
+                    order_type_code="00",
+                    order_type_name="지정가",
+                    order_time="101500",
+                    order_qty=3,
+                    order_price=70000.0,
+                    filled_qty=0,
+                    remaining_qty=3,
+                    avg_fill_price=0.0,
+                    filled_amount=0.0,
+                    cancel_confirm_qty=0,
+                    reject_qty=0,
+                    cancel_yn=False,
+                    exchange_id="KRX",
+                    raw_output={"odno": "1234567890"},
+                )
+            ]
+            with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=broker_rows):
+                result = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
+            latest_status = sqlite_store.fetch_latest_row("broker_paper_order_status_snapshots", "synced_at")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.open_order_count, 0)
+        self.assertEqual(result.final_order_count, 1)
+        self.assertEqual(result.pending_symbols, [])
+        self.assertIsNotNone(latest_order)
+        self.assertIsNotNone(latest_status)
+        self.assertEqual(str(latest_order["status"]), "expired")
+        self.assertEqual(str(latest_status["status"]), "expired")
+
+    def test_rate_limited_sync_counts_prior_day_open_snapshot_as_final(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        snapshot_time = datetime.fromisoformat("2026-04-18T09:30:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            writer.write_broker_order_status_snapshot(
+                BrokerOrderStatusSnapshot(
+                    sync_id="broker-sync-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    synced_at=snapshot_time,
+                    order_date="20260417",
+                    side="buy",
+                    order_qty=3,
+                    filled_qty=0,
+                    remaining_qty=3,
+                    avg_fill_price=0.0,
+                    status="open",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    reject_qty=0,
+                    cancel_confirm_qty=0,
+                    cancel_yn=False,
+                    matched=True,
+                    applied_fill_qty=0,
+                    detail={"status": "open"},
+                )
+            )
+
+            with patch(
+                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                side_effect=KisApiError("KIS REST quote error: EGW00201 rate limit"),
+            ):
+                result = sync_broker_paper_orders(project_root=root)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "rate_limited")
+        self.assertEqual(result.open_order_count, 0)
+        self.assertEqual(result.final_order_count, 1)
+        self.assertEqual(result.pending_symbols, [])
 
     def test_manual_sync_generated_ids_are_unique_across_runs(self) -> None:
         root, env = self._prepare_runtime()

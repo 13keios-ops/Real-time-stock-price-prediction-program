@@ -1,5 +1,52 @@
 # 작업 기록
 
+## [2026-06-04] Codex -> broker paper stale open order 원인 해결과 정합성 복구
+
+- 사용자 지시:
+  - 장전/장후 자동화 이후 남은 이슈를 해결한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `market_session_status=post-close`, `live_runtime_should_run=false`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main`.
+- 원인 분석:
+  - `runtime-data/reports/broker-paper/latest-sync.json`은 KIS `EGW00201` rate limit, `open_order_count=3`, pending symbols `105560`, `247540`, `373220`였다.
+  - 운영 DB read-only 확인 결과 3건은 모두 `order_date=20260602`인 과거 주문일 주문이었다.
+    - `247540`: sell 3주, filled 0, remaining 3, status `open`.
+    - `373220`: sell 1주, filled 0, remaining 1, status `open`.
+    - `105560`: buy 3주, filled 0, remaining 3, status `open`.
+  - 최신 broker 계좌와 local 계좌의 보유 수량 mismatch 는 0이었다.
+  - 문제는 과거 주문일의 stale open snapshot 을 active open 으로 계속 세어 marker-only alignment 를 막는 구조였다.
+- 코드 조치:
+  - `app/services/broker_paper_sync.py`에 prior-day stale open 주문 해석을 추가했다.
+  - 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+    - 변경 전: KIS order-fill 조회가 rate-limit 으로 막히면 과거 주문일 open snapshot 도 계속 active open 으로 계산했다.
+    - 변경 후: 이미 broker status snapshot 이 있는 주문 중 주문일이 동기화일보다 이전이고 잔량이 남은 주문은 `expired` 또는 `expired_partial` final 상태로 해석한다.
+    - 영향 범위: KIS 모의계좌 paper sync 의 상태 해석과 `tests/test_broker_paper_sync.py`.
+    - 회귀 위험: 당일 주문을 잘못 만료 처리할 위험이 있으나, snapshot 이 없는 단순 제출 주문은 제외하고 prior-day snapshot 에만 적용해 줄였다.
+- 운영 조치:
+  - `python3 -m app --align-local-paper-to-broker`로 `-SyncInitialCash` 없이 marker-only alignment 를 적용했다.
+  - alignment 결과: `status=aligned_to_broker_marker`, broker position count 2, broker cash balance 8,414,055원.
+  - `python3 -m app --sync-broker-paper-orders`: `status=no_submissions`, `open_order_count=0`, pending symbols 없음.
+  - `python3 -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`, mismatch 0, `cash_gap=0`, `total_asset_gap=0`.
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+  - `python3 -m app --build-runtime-report && python3 -m app --build-dashboard && ./scripts/get_dashboard_status.sh`는 shell timeout이 발생했으나, 남은 build 프로세스가 없고 runtime report는 `2026-06-04 22:58:57 +0900`, dashboard snapshot은 `generated_at=2026-06-04T23:04:32+09:00`로 갱신됨을 확인했다.
+  - dashboard server는 `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- 문서/skill 보강:
+  - `.agents/skills/daily-ops-check/SKILL.md`에 prior-day stale open 주문의 marker-only alignment 허용 조건과 보류 조건을 추가했다.
+  - `docs/Current-Implementation.md`에 KIS 모의계좌 stale open 주문 해석 기준을 추가했다.
+  - `docs/Production-Transition-Progress.md`의 Phase 0 상태를 최신 정상 상태로 갱신했다.
+- 검증:
+  - `python3 -m py_compile app/services/broker_paper_sync.py tests/test_broker_paper_sync.py`: 통과.
+  - `python3 -m unittest tests.test_broker_paper_sync`: 7개 통과.
+  - `python3 -m unittest tests.test_broker_paper_sync tests.test_paper_reconciliation`: 11개 통과.
+  - `bash -n scripts/sync_broker_paper_orders.sh scripts/reconcile_paper_accounts.sh scripts/verify_paper_dual_account_match.sh`: 통과.
+  - `git diff --check`: 통과. 기존 문서 CRLF 경고만 확인.
+  - `git diff -- app/risk config VERSION`: 변경 없음.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-04] Codex -> 장전/장후 자동화 실행 확인과 rate-limit 재점검
 
 - 사용자 질문:

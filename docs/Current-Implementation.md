@@ -319,6 +319,16 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 계속 막히면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
 실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 즉시 재시도하지 않은 뒤 5분 동안 추가 조회를 쉬어 KIS 호출 제한, 지연, 로그 증가를 줄인다.
 
+브로커 status snapshot 이 이미 있는 주문이 과거 주문일의 미체결 잔량으로 남아 있으면 다음 거래일에 새 체결로 이어질 수 없으므로 paper sync 는 이를 active open 으로 계속 세지 않는다.
+주문일이 동기화일보다 이전이고 `remaining_qty > 0`이면 `expired` 또는 `expired_partial` final 상태로 해석한다.
+단, KIS status snapshot 이 아직 없는 단순 제출 주문은 stale 로 단정하지 않고 기존처럼 pending 으로 유지한다.
+
+변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+변경 전에는 KIS order-fill 조회가 rate-limit 으로 막히면 과거 주문일의 open snapshot 도 계속 active open 으로 세어 장후 정합성 alignment 를 보류했다.
+변경 후에는 이미 조회된 과거 주문일 open snapshot 만 만료 상태로 해석해 open count 를 부풀리지 않는다.
+영향 범위는 `app/services/broker_paper_sync.py`의 KIS 모의계좌 paper sync 해석과 관련 테스트에 한정된다.
+회귀 위험은 당일 open 주문을 잘못 만료 처리하는 경우인데, snapshot 이 없는 주문은 제외하고 주문일이 동기화일보다 이전인 snapshot 에만 적용해 줄였다.
+
 ## KIS 계좌 설정 메모
 
 모의투자 계좌 화면에 상품코드가 따로 없으면 root `.env` 의 `KIS_PRODUCT_CODE_PAPER` 는 빈 값으로 둔다.

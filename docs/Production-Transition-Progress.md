@@ -97,12 +97,20 @@
     KIS `EGW00201` rate limit이 유지됐다.
   - 2026-06-04 정합성은 포지션 mismatch 0이지만
     open broker order 3건이 남아 있어 marker-only alignment를 보류했다.
+  - 2026-06-04 추가 원인 분석 결과 open broker order 3건은 모두
+    `order_date=20260602`인 prior-day stale open snapshot 이었다.
+    보유 수량 mismatch 0을 확인한 뒤 `-SyncInitialCash` 없이 marker-only
+    alignment 를 적용했고, 이후 broker sync 는 `status=no_submissions`,
+    `open_order_count=0`, dual-account match 는
+    `status=matched_waiting_first_submission`이다.
+  - `app/services/broker_paper_sync.py`는 broker status snapshot 이 이미 있는
+    과거 주문일 미체결 잔량을 `expired` / `expired_partial` final 상태로
+    해석하도록 보강했다.
   - bounded post-close label refresh 수정과 재실행 완료.
   - 2026-06-04 장후 KIS live data quality는 `assessment.status=ok`.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
-  - KIS order-fill rate limit이 풀린 뒤 broker sync를 1회 재시도한다.
-  - open order 3건의 최종 상태가 확인되기 전에는 alignment로 gap을 덮지 않는다.
+  - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
