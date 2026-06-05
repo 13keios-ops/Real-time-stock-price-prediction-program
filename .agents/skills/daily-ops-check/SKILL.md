@@ -122,6 +122,11 @@ python -m app --reconcile-paper-accounts
   평가 기준선 차이로 설명되면 marker-only alignment 를 적용할 수 있다.
 - snapshot 이 없는 제출 주문, 당일 open 주문, 부분 체결 후 잔량이 남은 주문은
   stale 로 단정하지 않고 조회 복구 또는 사람 확인 전까지 align 을 보류한다.
+- 장후이고 같은 order-fill endpoint 가 cooldown 뒤 1회 재시도에서도
+  `EGW00201`로 막혔으며, broker account snapshot 이 정상/최신이고
+  다음 거래일 기준선 보호가 필요한 paper mirroring 수량 mismatch 라면
+  `-SyncInitialCash` 없이 broker account 기준 marker-only alignment 를 적용할 수 있다.
+  이 경우 order-level fill 감사가 복구되지 않았다는 한계를 logbook 에 반드시 남긴다.
 - 실전 계좌 주문/취소는 하지 않는다.
 
 ### 리포트와 dashboard

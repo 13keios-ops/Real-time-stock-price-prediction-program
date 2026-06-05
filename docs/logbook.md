@@ -1,5 +1,51 @@
 # 작업 기록
 
+## [2026-06-05] Codex -> PC 재부팅 후 runtime 복구와 paper/KIS 정합성 조치
+
+- 사용자 지시:
+  - PC 재부팅 후 필요한 작업을 진행한다.
+- 시작 상태:
+  - 현재 시각: `2026-06-05T19:38:50+09:00`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`, live runtime 은 `2026-06-05 15:30:43 +0900`에 정상 정지.
+  - `./scripts/get_runtime_watchdog_status.sh`: 재부팅 전 PID가 남은 `status=stale`, `process_running=false`.
+  - `./scripts/get_dashboard_status.sh`: 재부팅 전 PID가 남은 `status=stale`, dashboard/API 응답 없음.
+  - `git status --short --branch`: `main...origin/main`, 최신 커밋 `da2501d fix-stale-broker-paper-orders`.
+- 자동화 확인:
+  - 장전 readiness: `generated_at=2026-06-05 08:20:02 +0900`, `status=ok`, blockers/warnings 없음.
+  - 장후 ML maintenance: `completed_at=2026-06-05 16:21:43 +0900`, `status=ok`.
+  - 장후 label refresh: `completed_at=2026-06-05 16:53:25 +0900`, `status=ok`.
+  - KIS live data quality: latest trade date `2026-06-05`, `assessment.status=watch`.
+    - watch 이유는 최신일 market tick/minute bar/feature coverage 가 기대 symbol-minute 의 95% 미만이라는 진단이다.
+  - local setup: `ok=true`, blockers/warnings 없음.
+- 조치:
+  - `./scripts/start_runtime_watchdog_background.sh`로 watchdog 재기동.
+  - `./scripts/start_dashboard_background.sh`는 최초 응답이 `failed`였으나 watchdog 이 dashboard 를 재시작했고, 이후 dashboard/API 응답 정상.
+  - `python3 -m app --sync-broker-paper-orders`를 cooldown 뒤 1회 재시도했다.
+  - 결과는 KIS `EGW00201` rate limit 유지, `open_order_count=5`, pending symbols `005380`, `035420`, `068270`, `086520`, `247540`.
+  - 같은 order-fill endpoint 추가 호출은 중단했다.
+  - DB/read-only 리포트 확인 결과 5건은 `2026-06-05` 당일 주문이었다.
+    - `035420` buy 2주, `068270` buy 4주: 최신 snapshot 은 `open`.
+    - `247540` sell 4주, `005380` sell 1주, `086520` sell 6주: snapshot 없는 `submitted`.
+  - `python3 -m app --reconcile-paper-accounts` 재계산 결과 `mismatch_count=3`, `cash_gap=-716232.4992000014`, `total_asset_gap=56167.50079999864`.
+  - broker account snapshot 은 정상/최신이고 장후라 다음 거래일 기준선 보호가 우선이므로, `-SyncInitialCash` 없이 `python3 -m app --align-local-paper-to-broker` marker-only alignment 를 적용했다.
+  - 조치 후:
+    - `python3 -m app --sync-broker-paper-orders`: `status=no_submissions`, `open_order_count=0`.
+    - `python3 -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`, mismatch 0, `cash_gap=0`, `total_asset_gap=0`.
+    - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+  - `python3 -m app --build-runtime-report`: 통과.
+  - `python3 -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-06-05T19:55:02+09:00`.
+  - `./scripts/get_dashboard_status.sh`: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- Skill 보강:
+  - `.agents/skills/daily-ops-check/SKILL.md`에 장후 order-fill rate limit 지속 + broker account snapshot 정상 + 다음 거래일 기준선 보호가 필요한 paper mirroring mismatch 의 제한적 marker-only alignment 기준을 추가했다.
+  - 이 경로는 order-level fill 감사가 복구되지 않았다는 한계가 있으므로 logbook 기록을 필수로 둔다.
+- 남은 주의:
+  - `latest-kis-live-data-quality.json`은 `assessment.status=watch`다. 수집 latest trade date 는 `2026-06-05`로 맞지만, 최신일 coverage 미달 원인은 다음 장후에도 재확인한다.
+  - KIS order-fill endpoint 는 오늘도 `EGW00201`를 반환했으므로, 같은 endpoint 추가 호출은 중단했다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-04] Codex -> broker paper stale open order 원인 해결과 정합성 복구
 
 - 사용자 지시:

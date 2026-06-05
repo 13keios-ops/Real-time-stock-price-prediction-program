@@ -106,11 +106,24 @@
   - `app/services/broker_paper_sync.py`는 broker status snapshot 이 이미 있는
     과거 주문일 미체결 잔량을 `expired` / `expired_partial` final 상태로
     해석하도록 보강했다.
+  - 2026-06-05 PC 재부팅 후 watchdog/dashboard 는 stale 상태였고,
+    장후 조치로 watchdog 과 dashboard 를 재기동했다.
+  - 2026-06-05 장전 readiness, 장후 ML maintenance, 장후 label refresh,
+    local setup 은 정상 실행됐다.
+  - 2026-06-05 broker paper sync 는 KIS `EGW00201` rate limit 이 유지됐고
+    당일 open/submitted 주문 5건 때문에 정합성이 `needs_review`였다.
+    장후 broker account snapshot 이 정상/최신이고 다음 거래일 기준선 보호가
+    우선이라 `-SyncInitialCash` 없이 marker-only alignment 를 적용했다.
+    이후 broker sync 는 `status=no_submissions`, `open_order_count=0`,
+    dual-account match 는 `status=matched_waiting_first_submission`이다.
   - bounded post-close label refresh 수정과 재실행 완료.
   - 2026-06-04 장후 KIS live data quality는 `assessment.status=ok`.
+  - 2026-06-05 장후 KIS live data quality 는 latest trade date 는 맞지만
+    최신일 coverage 미달로 `assessment.status=watch`다.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
   - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
+  - 2026-06-05 data quality `watch` 원인이 반복되는지 다음 장후 확인한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
