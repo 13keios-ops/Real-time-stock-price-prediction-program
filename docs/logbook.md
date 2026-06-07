@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-06-08] Codex -> PC 재부팅 후 overnight runtime 복구
+
+- 사용자 지시:
+  - PC 재부팅 후 상태를 체크하고 필요한 프로세스를 실행한다.
+- 시작 상태:
+  - 현재 시각: `2026-06-08T02:05:37+09:00`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: 재부팅 전 PID가 남은 `status=stale`, `process_running=false`.
+  - `./scripts/get_dashboard_status.sh`: 재부팅 전 PID가 남은 `status=stale`, dashboard/API 응답 없음.
+  - `./scripts/get_runtime_startup_launcher_status.sh`: Windows startup launcher 설치 상태 `ok=true`.
+  - `git status --short --branch`: `main...origin/main`, 최신 커밋 `8be7aa9 reboot-ops-recovery`.
+- 조치:
+  - 현재 장 상태는 `overnight`이고 `live_runtime_should_run=false`라 live runtime은 켜지 않았다.
+  - `./scripts/start_runtime_watchdog_background.sh`로 watchdog을 재기동했다.
+  - `./scripts/start_dashboard_background.sh`는 최초 응답이 `failed`였지만, watchdog이 dashboard를 `restart`했고 이후 dashboard/API 응답이 정상화됐다.
+  - `./scripts/check_local_setup.sh`: `ok=true`, blockers/warnings 없음.
+  - `python3 -m app --build-runtime-report`: 통과.
+  - `python3 -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-06-08T02:12:44+09:00`.
+- 판단:
+  - 장전 readiness와 장중 live runtime은 아직 시간상 실행 대상이 아니다.
+  - watchdog이 이후 pre-open warmup 시점에 live runtime을 판단해 켜는 구조다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-05] Codex -> PC 재부팅 후 runtime 복구와 paper/KIS 정합성 조치
 
 - 사용자 지시:
