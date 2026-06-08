@@ -120,10 +120,21 @@
   - 2026-06-04 장후 KIS live data quality는 `assessment.status=ok`.
   - 2026-06-05 장후 KIS live data quality 는 latest trade date 는 맞지만
     최신일 coverage 미달로 `assessment.status=watch`다.
+  - 2026-06-08 장전 readiness, 장후 ML maintenance, 장후 label refresh,
+    local setup 은 정상 실행됐다.
+  - 2026-06-08 broker paper sync 는 KIS `EGW00201` rate limit 이 유지됐고
+    당일 sell close open 주문 2건(`005380`, `247540`) 때문에
+    `status=rate_limited`였다. broker account snapshot 은 정상/최신이고
+    보유 수량 mismatch 는 0이라 `-SyncInitialCash` 없이 marker-only
+    alignment 를 적용했다. 이후 broker sync 는 `status=no_submissions`,
+    `open_order_count=0`, dual-account match 는
+    `status=matched_waiting_first_submission`이다.
+  - 2026-06-08 장후 KIS live data quality 도 latest trade date 는 맞지만
+    최신일 coverage 미달로 `assessment.status=watch`다.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
   - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
-  - 2026-06-05 data quality `watch` 원인이 반복되는지 다음 장후 확인한다.
+  - 2026-06-05와 2026-06-08에 반복된 data quality `watch` 원인을 별도 확인한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
