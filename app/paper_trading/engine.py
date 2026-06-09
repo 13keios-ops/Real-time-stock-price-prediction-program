@@ -11,7 +11,14 @@ class PaperTradingEngine:
         self.tax_rate = tax_rate
         self.slippage_bps = slippage_bps
 
-    def create_order(self, target: TargetPosition, signal: TradeSignal, order_id: str) -> PaperOrder:
+    def create_order(
+        self,
+        target: TargetPosition,
+        signal: TradeSignal,
+        order_id: str,
+        *,
+        prediction_id: str | None = None,
+    ) -> PaperOrder:
         if target.target_qty <= 0:
             raise ValueError("Target quantity must be positive for an order.")
         return PaperOrder(
@@ -22,6 +29,9 @@ class PaperTradingEngine:
             qty=target.target_qty,
             limit_price=target.target_notional / target.target_qty,
             status="created",
+            prediction_id=prediction_id,
+            signal_id=signal.signal_id,
+            target_id=target.target_id,
         )
 
     def acknowledge(self, order: PaperOrder, order_event_id: str) -> OrderEvent:

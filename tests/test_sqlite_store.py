@@ -1,9 +1,11 @@
-﻿from pathlib import Path
+﻿from datetime import datetime, timezone
+from pathlib import Path
 import sqlite3
 import uuid
 import unittest
 from unittest.mock import patch
 
+from app.storage.contracts import PaperOrder
 from app.storage.sqlite_store import (
     SQLITE_JOURNAL_MODE_FALLBACKS,
     SQLiteRuntimeStore,
@@ -116,6 +118,34 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
 
         self.assertTrue(created_path.exists())
         self.assertEqual(backup_store.count_rows("paper_orders"), 1)
+
+    def test_paper_order_lineage_ids_are_persisted(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
+        store = SQLiteRuntimeStore(database_path)
+
+        store.insert_paper_order(
+            PaperOrder(
+                order_id="order-lineage-1",
+                symbol="005930",
+                event_time=datetime(2026, 6, 10, 9, 1, tzinfo=timezone.utc),
+                side="buy",
+                qty=1,
+                limit_price=70000.0,
+                status="submitted",
+                prediction_id="pred-1",
+                signal_id="signal-1",
+                target_id="target-1",
+            )
+        )
+
+        row = store.fetch_latest_row_by_column("paper_orders", "order_id", "order-lineage-1", "event_time")
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["prediction_id"], "pred-1")
+        self.assertEqual(row["signal_id"], "signal-1")
+        self.assertEqual(row["target_id"], "target-1")
 
     def test_fetch_latest_row_breaks_timestamp_ties_by_insert_order(self) -> None:
         root = Path(__file__).resolve().parents[1]

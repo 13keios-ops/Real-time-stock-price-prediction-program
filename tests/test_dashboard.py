@@ -725,6 +725,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("운영 대시보드", html)
         self.assertIn("오늘 해야 할 일", html)
         self.assertIn("실전 전환 readiness dry-run", html)
+        self.assertIn("예측 흐름", html)
         self.assertIn("계좌 정합성", html)
         self.assertIn("장후 ML", html)
         self.assertIn("데이터/모델", html)
@@ -1153,6 +1154,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(len(snapshot.payload["recent_predictions"]), 5)
         self.assertEqual(len(snapshot.payload["prediction_details"]), 8)
+        self.assertEqual(len(snapshot.payload["prediction_flow_rows"]), 5)
         self.assertEqual(snapshot.payload["prediction_summary"]["total"], 8)
 
 

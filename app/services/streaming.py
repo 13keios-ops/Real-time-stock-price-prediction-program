@@ -384,7 +384,12 @@ class OnlinePipelineProcessor:
             can_open = False
             open_reason = close_reason
         if signal.allowed and self.settings.strategy.enable_paper_execution and target.target_qty > 0 and can_open:
-            order = self.engine.create_order(target, signal, order_id=self._next_scoped_id("paper-order"))
+            order = self.engine.create_order(
+                target,
+                signal,
+                order_id=self._next_scoped_id("paper-order"),
+                prediction_id=prediction.prediction_id,
+            )
             ack = self.engine.acknowledge(order, order_event_id=self._next_scoped_id("order-event"))
             self.writer.write_order_event(ack)
             if self.broker_paper_mirror.enabled:

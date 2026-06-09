@@ -1,5 +1,59 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 예측-신호-주문-체결 흐름 추적 보강
+
+- 사용자 지시:
+  - 예측 상세가 날짜별로 저장되는지 확인하고, 저장 필요성을 검토한다.
+  - 예측, 모델별 판단, 실제 결과, 신호, 주문, 체결을 한 줄의 흐름으로 보고 싶다.
+  - 최소 6개월 보관, 용량 부담이 작고 유용하면 장기 보관하는 방향을 검토한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장중 보호 모드는 아니므로 dashboard, paper 주문 추적 필드, 저장 테스트를 수정했다.
+- 확인:
+  - `runtime-data/dev.db` 기준 `serving_predictions`는 `2026-04-11`부터 `2026-06-09`까지 182,653건, `serving_trade_signals`는 91,327건, `paper_orders`는 3,876건, `paper_fills`는 1,395건이었다.
+  - 날짜별 JSONL 원장도 이미 존재한다.
+    - `runtime-data/serving/YYYY-MM-DD/predictions.jsonl`
+    - `runtime-data/serving/YYYY-MM-DD/trade_signals.jsonl`
+    - `runtime-data/paper/YYYY-MM-DD/orders.jsonl`
+    - `runtime-data/paper/YYYY-MM-DD/fills.jsonl`
+  - `runtime-data/serving`은 약 104MB, `runtime-data/paper`는 약 5.5MB였다. 예측/신호/주문/체결 lineage 원장은 6개월 이상 보관해도 부담이 작고, 감사/모델 개선/PC 이전 연속성에 유용하다고 판단했다.
+  - 반대로 `runtime-data/dev.db` 전체는 약 12GB로, 대용량 부담은 예측 lineage보다 raw/feature/label 계열에서 크므로 보관 정책은 분리하는 것이 맞다.
+- 조치:
+  - `app/services/dashboard.py`에 `예측현황 > 예측 흐름` 하위 탭을 추가했다.
+    - 한 줄에 시각, 종목, 15분/60분 모델별 예측, 실제 결과, 신호, 주문, 체결, 연결 방식을 표시한다.
+    - 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각으로 보조 연결하고, 체결은 주문 ID 기준으로 연결한다.
+  - `paper_orders`에 `prediction_id`, `signal_id`, `target_id` 선택 컬럼을 추가했다.
+    - 기존 DB는 schema 초기화 시 `ALTER TABLE`로 컬럼만 추가된다.
+    - 과거 주문은 `NULL`로 남고, 신규 paper 진입 주문부터 정확한 예측/신호/타깃 ID가 저장된다.
+  - `app/paper_trading/engine.py`와 `app/services/streaming.py`를 연결해 신규 진입 주문이 예측 ID, 신호 ID, 타깃 ID를 함께 기록하도록 했다.
+  - 전체 테스트 중 `tests.test_market_status_probe`의 스크립트 fixture가 현재 날짜에 따라 stale 처리되는 시간 의존 실패를 확인했다.
+    - 변경 전: `probe_market_status_snapshot.py`가 항상 현재 시각으로 manual snapshot 신선도를 평가해, 고정 fixture 날짜가 지나면 테스트가 실패했다.
+    - 변경 후: 운영 기본값은 현재 시각 그대로 두고, 테스트/재현 실행에서만 `--checked-at`으로 기준 시각을 고정할 수 있게 했다.
+    - 영향 범위: `scripts/probe_market_status_snapshot.py`와 해당 스크립트 테스트.
+    - 회귀 위험: 운영 실행에서 `--checked-at`을 잘못 쓰면 stale 판단을 우회할 수 있으나, 기본 실행은 기존처럼 현재 시각 기준이며 테스트 재현용 옵션으로만 사용한다.
+  - dashboard 서버와 runtime watchdog 이 이전 코드 프로세스를 들고 있어, 장외 상태에서 둘 다 재시작해 최신 화면/API를 반영했다.
+- 검증:
+  - `python3 -m py_compile app/storage/contracts.py app/storage/sqlite_store.py app/paper_trading/engine.py app/services/streaming.py app/services/dashboard.py`: 통과.
+  - `python3 -m py_compile scripts/probe_market_status_snapshot.py`: 통과.
+  - `python3 -m unittest tests.test_sqlite_store`: 11개 통과.
+  - `python3 -m unittest tests.test_dashboard tests.test_streaming_pipeline`: 28개 통과.
+  - `python3 -m unittest tests.test_market_status_probe.MarketStatusProbeTests.test_script_generates_check_from_snapshot_file -v`: 통과.
+  - `python3 -m unittest discover -s tests -p 'test_*.py'`: 368개 통과.
+  - `python3 -m app --build-dashboard`: 통과, `generated_at=2026-06-10T02:21:19.376102+09:00`.
+  - 실제 DB `paper_orders`에 `prediction_id`, `signal_id`, `target_id` 컬럼이 존재함을 확인했다.
+  - `http://127.0.0.1:8765/` HTML에 `예측 흐름`이 포함되고, `/api/dashboard.json`에서 `prediction_flow_rows=100`이 반환됨을 확인했다.
+- 보관 판단:
+  - 권장안은 예측/신호/주문/체결 lineage 원장을 최소 6개월이 아니라 장기 보관으로 두는 것이다.
+  - raw tick, feature snapshot, label, broker raw 응답은 별도 용량 정책으로 관리한다.
+- 운영 상태:
+  - dashboard: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+  - runtime watchdog: `status=running`, `heartbeat_stale=false`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 대시보드 UI/UX 제로베이스 재구성
 
 - 사용자 지시:

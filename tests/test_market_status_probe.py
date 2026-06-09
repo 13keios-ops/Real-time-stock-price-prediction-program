@@ -112,6 +112,8 @@ class MarketStatusProbeTests(unittest.TestCase):
                 str(output_path),
                 "--symbols",
                 "005930,000660",
+                "--checked-at",
+                "2026-05-21T09:06:00+00:00",
             ],
             cwd=root,
             check=True,

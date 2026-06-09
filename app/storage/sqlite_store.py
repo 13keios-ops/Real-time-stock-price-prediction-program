@@ -214,7 +214,10 @@ class SQLiteRuntimeStore:
                 side TEXT NOT NULL,
                 qty INTEGER NOT NULL,
                 limit_price REAL NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                prediction_id TEXT,
+                signal_id TEXT,
+                target_id TEXT
             )
             """,
             """
@@ -630,6 +633,9 @@ class SQLiteRuntimeStore:
             for statement in statements:
                 connection.execute(statement)
             self._ensure_column(connection, "paper_positions", "opened_at", "TEXT")
+            self._ensure_column(connection, "paper_orders", "prediction_id", "TEXT")
+            self._ensure_column(connection, "paper_orders", "signal_id", "TEXT")
+            self._ensure_column(connection, "paper_orders", "target_id", "TEXT")
             connection.commit()
             return active_mode
         except sqlite3.OperationalError:
@@ -993,10 +999,24 @@ class SQLiteRuntimeStore:
     def insert_paper_order(self, order: PaperOrder) -> None:
         self._run_write_query(
             """
-            INSERT OR REPLACE INTO paper_orders(order_id, symbol, event_time, side, qty, limit_price, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO paper_orders(
+                order_id, symbol, event_time, side, qty, limit_price, status,
+                prediction_id, signal_id, target_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (order.order_id, order.symbol, self._dt(order.event_time), order.side, order.qty, order.limit_price, order.status),
+            (
+                order.order_id,
+                order.symbol,
+                self._dt(order.event_time),
+                order.side,
+                order.qty,
+                order.limit_price,
+                order.status,
+                order.prediction_id,
+                order.signal_id,
+                order.target_id,
+            ),
         )
 
     def insert_order_event(self, event: OrderEvent) -> None:

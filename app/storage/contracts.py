@@ -151,6 +151,9 @@ class PaperOrder(RecordMixin):
     qty: int
     limit_price: float
     status: str
+    prediction_id: str | None = None
+    signal_id: str | None = None
+    target_id: str | None = None
 
 
 @dataclass(slots=True)

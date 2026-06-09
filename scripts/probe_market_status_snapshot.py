@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ def main() -> int:
     parser.add_argument("--output-path", default=str(DEFAULT_OUTPUT_PATH))
     parser.add_argument("--symbols", default="")
     parser.add_argument("--symbols-file", default="")
+    parser.add_argument("--checked-at", default="")
     parser.add_argument("--print-symbol-set-hash", action="store_true")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
@@ -39,7 +41,9 @@ def main() -> int:
     project_root = Path(args.project_root).expanduser().resolve()
     snapshot_path = _resolve_inside_repo(args.snapshot_path, project_root, "snapshot_path")
     output_path = _resolve_inside_repo(args.output_path, project_root, "output_path")
+    checked_at: datetime | None = None
     try:
+        checked_at = _parse_optional_datetime(args.checked_at, "--checked-at")
         snapshot_payload = _load_json(snapshot_path)
         symbols = _resolve_symbols(
             explicit_symbols=args.symbols,
@@ -51,10 +55,11 @@ def main() -> int:
             print(compute_symbol_set_hash(symbols))
             return 0
         snapshot = market_status_snapshot_from_payload(snapshot_payload)
-        payload = build_market_status_check(snapshot, symbols=symbols)
+        payload = build_market_status_check(snapshot, symbols=symbols, checked_at=checked_at)
     except Exception as exc:
         payload = failed_market_status_check(
             summary="market status snapshot check failed",
+            checked_at=checked_at,
             error_type=type(exc).__name__,
         )
     payload["probe_context"] = {
@@ -120,6 +125,17 @@ def _resolve_inside_repo(value: str, repo_root: Path, label: str) -> Path:
     except ValueError as exc:
         raise SystemExit(f"{label} must stay inside repository root: {resolved}") from exc
     return resolved
+
+
+def _parse_optional_datetime(value: str, label: str) -> datetime | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    normalized = stripped[:-1] + "+00:00" if stripped.endswith("Z") else stripped
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{label} must include timezone")
+    return parsed
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

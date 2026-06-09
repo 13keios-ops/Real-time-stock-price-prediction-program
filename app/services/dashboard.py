@@ -1086,6 +1086,140 @@ def _signal_view(rows: list[dict[str, Any]], symbol_names: dict[str, str]) -> li
     return rendered
 
 
+def _prediction_flow_model_text(row: dict[str, Any]) -> str:
+    confidence_text = _ratio_pct(row.get("top_confidence"), 2)
+    return (
+        f"{row.get('horizon_min')}분 {row.get('model_version')}: "
+        f"{row.get('top_label_text')} {confidence_text}"
+    )
+
+
+def _prediction_flow_actual_text(row: dict[str, Any]) -> str:
+    return (
+        f"{row.get('horizon_min')}분 실제 {row.get('actual_label_text')} / "
+        f"{row.get('actual_change_text')} / {row.get('success_text')}"
+    )
+
+
+def _prediction_flow_order_text(order: dict[str, Any]) -> str:
+    order_kind = "청산" if "close" in str(order.get("order_id") or "") else "진입"
+    return (
+        f"{order_kind} {_translate_signal_side(str(order.get('side') or ''))} "
+        f"{order.get('qty')}주 @ {_money(order.get('limit_price'))} / {order.get('status')}"
+    )
+
+
+def _prediction_flow_fill_text(fills: list[dict[str, Any]]) -> str:
+    if not fills:
+        return "체결 없음"
+    total_qty = sum(int(row.get("fill_qty", 0) or 0) for row in fills)
+    notional = sum(float(row.get("fill_price", 0.0) or 0.0) * int(row.get("fill_qty", 0) or 0) for row in fills)
+    total_fee_tax = sum(float(row.get("commission", 0.0) or 0.0) + float(row.get("tax", 0.0) or 0.0) for row in fills)
+    avg_price = (notional / total_qty) if total_qty else None
+    return f"{len(fills)}건 / {total_qty}주 / 평균 {_money(avg_price)} / 비용 {_money(total_fee_tax)}"
+
+
+def _prediction_flow_view(
+    prediction_views: list[dict[str, Any]],
+    signal_views: list[dict[str, Any]],
+    order_rows: list[dict[str, Any]],
+    fill_rows: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    predictions_by_key: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in prediction_views:
+        predictions_by_key[(str(row.get("symbol") or ""), str(row.get("event_time") or ""))].append(row)
+
+    signals_by_key: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in signal_views:
+        signals_by_key[(str(row.get("symbol") or ""), str(row.get("event_time") or ""))].append(row)
+
+    orders_by_key: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    orders_by_prediction_id: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    orders_by_signal_id: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in order_rows:
+        orders_by_key[(str(row.get("symbol") or ""), str(row.get("event_time") or ""))].append(row)
+        prediction_id = str(row.get("prediction_id") or "")
+        signal_id = str(row.get("signal_id") or "")
+        if prediction_id:
+            orders_by_prediction_id[prediction_id].append(row)
+        if signal_id:
+            orders_by_signal_id[signal_id].append(row)
+
+    fills_by_order: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in fill_rows:
+        fills_by_order[str(row.get("order_id") or "")].append(row)
+
+    flow_rows: list[dict[str, Any]] = []
+    for (symbol, event_time), prediction_group in predictions_by_key.items():
+        predictions = sorted(prediction_group, key=lambda item: int(item.get("horizon_min", 0) or 0))
+        primary = next((row for row in predictions if int(row.get("horizon_min", 0) or 0) == 15), predictions[0])
+        signals = signals_by_key.get((symbol, event_time), [])
+        signal = signals[0] if signals else None
+        exact_orders: dict[str, dict[str, Any]] = {}
+        prediction_id = str(primary.get("prediction_id") or "")
+        if prediction_id:
+            for order in orders_by_prediction_id.get(prediction_id, []):
+                exact_orders[str(order.get("order_id") or "")] = order
+        signal_ids = {str(row.get("signal_id") or "") for row in signals if row.get("signal_id")}
+        for signal_id in signal_ids:
+            for order in orders_by_signal_id.get(signal_id, []):
+                exact_orders[str(order.get("order_id") or "")] = order
+        fallback_orders = orders_by_key.get((symbol, event_time), [])
+        orders_source = "id" if exact_orders else "time"
+        orders = sorted(
+            exact_orders.values() if exact_orders else fallback_orders,
+            key=lambda item: str(item.get("order_id") or ""),
+        )
+        related_fills: list[dict[str, Any]] = []
+        for order in orders:
+            related_fills.extend(fills_by_order.get(str(order.get("order_id") or ""), []))
+
+        model_text = " / ".join(_prediction_flow_model_text(row) for row in predictions) or "-"
+        actual_text = " / ".join(_prediction_flow_actual_text(row) for row in predictions) or "-"
+        if signal is None:
+            signal_text = "신호 없음"
+        else:
+            signal_text = (
+                f"{signal.get('side_label')} / {signal.get('allowed_text')} / "
+                f"신뢰도 {_ratio_pct(signal.get('confidence'), 2)} / {signal.get('signal_summary')}"
+            )
+        order_text = " / ".join(_prediction_flow_order_text(order) for order in orders) if orders else "주문 없음"
+        fill_text = _prediction_flow_fill_text(related_fills) if orders else "주문 없음"
+        link_text = "예측-신호: 동일 종목/시각"
+        if orders:
+            if orders_source == "id":
+                link_text += " / 주문: prediction_id 또는 signal_id"
+            else:
+                link_text += " / 주문: 동일 종목/시각"
+        if related_fills:
+            link_text += " / 체결: 주문ID"
+        if not orders:
+            link_text += " / 주문 없음"
+
+        flow_rows.append(
+            {
+                "event_time": event_time,
+                "symbol": symbol,
+                "symbol_label": primary.get("symbol_label") or symbol,
+                "prediction_id": primary.get("prediction_id"),
+                "model_prediction_text": model_text,
+                "actual_result_text": actual_text,
+                "signal_text": signal_text,
+                "order_text": order_text,
+                "fill_text": fill_text,
+                "link_text": link_text,
+            }
+        )
+
+    flow_rows.sort(key=lambda row: (str(row.get("event_time") or ""), str(row.get("symbol") or "")), reverse=True)
+    limited = flow_rows[:limit] if limit > 0 else flow_rows
+    for index, row in enumerate(limited, start=1):
+        row["flow_no"] = index
+    return limited
+
+
 def _summarize_runtime_from_rows(
     *,
     raw_market_ticks: list[dict[str, Any]],
@@ -1760,6 +1894,13 @@ def collect_dashboard_payload(
     recent_fills = _reverse_recent(fill_rows, recent_limit)
     recent_bars = _reverse_recent(minute_bar_rows, recent_limit)
     recent_broker_order_submissions = _reverse_recent(broker_submission_rows, recent_limit)
+    prediction_flow_rows = _prediction_flow_view(
+        prediction_views,
+        signal_views,
+        order_rows,
+        fill_rows,
+        limit=recent_limit,
+    )
 
     prediction_summary = _build_prediction_summary(prediction_views)
     signal_order_summary = _build_signal_order_summary(signal_rows, order_rows, fill_rows)
@@ -2152,6 +2293,7 @@ def collect_dashboard_payload(
         "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
         "prediction_details": prediction_details,
+        "prediction_flow_rows": prediction_flow_rows,
         "recent_signals": recent_signals,
         "recent_orders": recent_orders,
         "recent_fills": recent_fills,
@@ -3076,6 +3218,20 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             row.get("success_text"),
         ]
         for row in payload.get("recent_predictions", [])
+    ]
+    prediction_flow_rows = [
+        [
+            row.get("flow_no"),
+            row.get("event_time"),
+            row.get("symbol_label"),
+            row.get("model_prediction_text"),
+            row.get("actual_result_text"),
+            row.get("signal_text"),
+            row.get("order_text"),
+            row.get("fill_text"),
+            row.get("link_text"),
+        ]
+        for row in payload.get("prediction_flow_rows", [])
     ]
     signal_rows = [
         [row.get("event_time"), row.get("symbol"), row.get("symbol_name"), row.get("signal_horizon_text"), row.get("side_label"), row.get("allowed_text"), row.get("signal_summary")]
@@ -4321,9 +4477,23 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 ),
             ),
             (
+                "predictions-flow",
+                "예측 흐름",
+                _section_card(
+                    "예측 흐름",
+                    _table(
+                        ["번호", "시각", "종목", "모델별 예측", "실제 결과", "신호", "주문", "체결", "연결 방식"],
+                        prediction_flow_rows,
+                        "현재 범위에 예측 흐름 기록이 없습니다.",
+                        scroll_height=520,
+                    ),
+                    note="신규 paper 주문은 prediction_id 또는 signal_id로 우선 연결합니다. 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각 기준으로 보조 연결하고, 체결은 주문 ID 기준으로 연결합니다.",
+                ),
+            ),
+            (
                 "predictions-detail",
                 "예측 상세",
-                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다."), note="예측 상세는 선택한 기간의 예측을 최신 순으로 모두 보여줍니다. 기본 오늘 화면에서는 당일 예측 전체가 표시됩니다."),
+                _section_card("예측 상세", _table(["시각", "종목", "수평선", "모델", "기준가", "예측 결과 및 예상 변동", "실제 결과", "성공 여부"], prediction_rows, "현재 범위에 예측 기록이 없습니다."), note="예측 상세는 선택한 기간의 최근 예측을 최신 순으로 보여줍니다. 전체 원장은 SQLite와 날짜별 JSONL에 보관됩니다."),
             ),
             (
                 "predictions-notes",
