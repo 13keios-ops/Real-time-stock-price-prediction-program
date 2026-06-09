@@ -14,6 +14,7 @@ from app.services.dashboard import (
     _apply_current_challenger_dashboard_guards,
     _build_account_sync_status,
     _challenger_decision_label,
+    _prediction_flow_view,
     build_dashboard_snapshot,
     collect_dashboard_payload,
     prepare_dashboard_server,
@@ -75,6 +76,130 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(candidate["report_promotable"])
         self.assertEqual(candidate["artifact_training_status"], "artifact_missing_training_run_id")
         self.assertEqual(guarded["current_guard_status"], "artifact_lineage_guard_applied")
+
+    def test_prediction_flow_separates_close_orders_and_shows_profit(self) -> None:
+        event_time = "2026-06-09T09:02:00+09:00"
+        prediction_views = [
+            {
+                "prediction_id": "pred-flow-h15",
+                "symbol": "005930",
+                "symbol_label": "005930 삼성전자",
+                "event_time": event_time,
+                "horizon_min": 15,
+                "model_version": "baseline-h15-v1",
+                "top_label_text": "상승",
+                "top_confidence": 0.72,
+                "predicted_change_text": "상승 우세 / +1,000원 (+1.00%)",
+                "actual_label_text": "상승",
+                "actual_change_text": "+1,200원 (+1.20%)",
+                "success_text": "성공",
+            },
+            {
+                "prediction_id": "pred-flow-h60",
+                "symbol": "005930",
+                "symbol_label": "005930 삼성전자",
+                "event_time": event_time,
+                "horizon_min": 60,
+                "model_version": "baseline-h60-v1",
+                "top_label_text": "상승",
+                "top_confidence": 0.64,
+                "predicted_change_text": "상승 우세 / +2,000원 (+2.00%)",
+                "actual_label_text": "결과 없음",
+                "actual_change_text": "대기 중",
+                "success_text": "대기 중",
+            },
+        ]
+        signal_views = [
+            {
+                "signal_id": "signal-flow-buy",
+                "symbol": "005930",
+                "event_time": event_time,
+                "side": "buy",
+                "side_label": "매수",
+                "allowed": True,
+                "allowed_text": "허용",
+                "confidence": 0.72,
+                "reason": "model=baseline-h15-v1;time_gate=within_window;spread_gate=spread_ok",
+                "signal_summary": "전략 조건을 통과해 주문 후보로 인정",
+            }
+        ]
+        order_rows = [
+            {
+                "order_id": "paper-order-entry-prev",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:01:00+09:00",
+                "side": "buy",
+                "qty": 1,
+                "limit_price": 100000.0,
+                "status": "filled",
+                "prediction_id": None,
+                "signal_id": None,
+                "target_id": None,
+            },
+            {
+                "order_id": "paper-order-close-flow",
+                "symbol": "005930",
+                "event_time": event_time,
+                "side": "sell",
+                "qty": 1,
+                "limit_price": 120000.0,
+                "status": "filled",
+                "prediction_id": None,
+                "signal_id": None,
+                "target_id": None,
+            },
+        ]
+        fill_rows = [
+            {
+                "fill_id": "fill-entry-prev",
+                "order_id": "paper-order-entry-prev",
+                "event_time": "2026-06-09T09:01:00+09:00",
+                "fill_price": 100000.0,
+                "fill_qty": 1,
+                "commission": 0.0,
+                "tax": 0.0,
+            },
+            {
+                "fill_id": "fill-close-flow",
+                "order_id": "paper-order-close-flow",
+                "event_time": event_time,
+                "fill_price": 120000.0,
+                "fill_qty": 1,
+                "commission": 0.0,
+                "tax": 0.0,
+            },
+        ]
+        risk_event_rows = [
+            {
+                "risk_event_id": "risk-flow",
+                "symbol": "005930",
+                "event_time": event_time,
+                "gate": "online_signal_policy",
+                "detail": "signal_allowed=True;open_reason=max_open_positions_reached",
+            }
+        ]
+
+        rows = _prediction_flow_view(
+            prediction_views,
+            signal_views,
+            order_rows,
+            fill_rows,
+            risk_event_rows,
+            limit=0,
+            latest_first=False,
+        )
+
+        self.assertEqual(len(rows), 1)
+        flow = rows[0]
+        self.assertIn("15분", flow["model_prediction_text"])
+        self.assertIn("60분", flow["model_prediction_text"])
+        self.assertIn("Baseline: 상승", flow["model_prediction_text"])
+        self.assertIn("LightGBM: 저장된 serving 예측 없음", flow["model_prediction_text"])
+        self.assertIn("실행: 최대 보유종목 수 도달", flow["signal_text"])
+        self.assertNotIn("신호 주문", flow["order_text"])
+        self.assertIn("별도 청산", flow["order_text"])
+        self.assertIn("+20,000원 (+20.00%)", flow["profit_text"])
+        self.assertIn("별도 청산: 포지션 관리 주문", flow["link_text"])
 
     def _mock_account_report(self) -> MagicMock:
         report = MagicMock()

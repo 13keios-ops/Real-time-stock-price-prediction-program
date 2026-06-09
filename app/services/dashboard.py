@@ -629,15 +629,24 @@ def _effective_active_model_entry(
 def _signal_reason_summary(row: dict[str, Any]) -> str:
     reason_text = str(row.get("reason", ""))
     tokens = [item.strip() for item in reason_text.split(";") if item.strip()]
+    token_map = dict(item.split("=", 1) for item in tokens if "=" in item)
     summaries: list[str] = []
     if "long_only_policy" in tokens and str(row.get("side")) == "sell":
         summaries.append("하락 예측이었지만 현재 전략이 매수 전용이라 차단")
     if "spread_gate=spread_too_wide" in tokens:
         summaries.append("호가 스프레드가 넓어 차단")
+    if "spread_gate=spread_ok" in tokens:
+        summaries.append("호가 스프레드 통과")
     if "confidence_below_threshold" in tokens:
         summaries.append("신뢰도가 기준치보다 낮음")
     if "time_gate=outside_window" in tokens:
         summaries.append("허용 시간대 밖이라 차단")
+    if "time_gate=after_new_entry_window" in tokens:
+        summaries.append("신규 진입 허용 시간 종료")
+    if "time_gate=within_window" in tokens:
+        summaries.append("신규 진입 시간 통과")
+    if token_map.get("model"):
+        summaries.append(f"모델 {token_map['model']}")
     if not summaries and row.get("allowed"):
         return "전략 조건을 통과해 주문 후보로 인정"
     if not summaries:
@@ -1090,7 +1099,7 @@ def _prediction_flow_model_text(row: dict[str, Any]) -> str:
     confidence_text = _ratio_pct(row.get("top_confidence"), 2)
     return (
         f"{row.get('horizon_min')}분 {row.get('model_version')}: "
-        f"{row.get('top_label_text')} {confidence_text}"
+        f"{row.get('top_label_text')} {confidence_text} / {row.get('predicted_change_text') or '-'}"
     )
 
 
@@ -1119,11 +1128,241 @@ def _prediction_flow_fill_text(fills: list[dict[str, Any]]) -> str:
     return f"{len(fills)}건 / {total_qty}주 / 평균 {_money(avg_price)} / 비용 {_money(total_fee_tax)}"
 
 
+def _prediction_model_family(model_version: Any) -> str:
+    normalized = str(model_version or "").strip().lower()
+    if "lightgbm" in normalized:
+        return "LightGBM"
+    if "baseline" in normalized:
+        return "Baseline"
+    return str(model_version or "기타 모델")
+
+
+def _prediction_flow_model_block(predictions: list[dict[str, Any]]) -> str:
+    if not predictions:
+        return "-"
+    horizons = sorted({int(row.get("horizon_min", 0) or 0) for row in predictions})
+    ordered_horizons = [horizon for horizon in (15, 60) if horizon in horizons]
+    ordered_horizons.extend(horizon for horizon in horizons if horizon not in {15, 60})
+    blocks: list[str] = []
+    for horizon in ordered_horizons:
+        rows = [row for row in predictions if int(row.get("horizon_min", 0) or 0) == horizon]
+        lines = [f"{horizon}분"]
+        families_seen: set[str] = set()
+        for row in sorted(rows, key=lambda item: str(item.get("model_version") or "")):
+            family = _prediction_model_family(row.get("model_version"))
+            families_seen.add(family)
+            confidence_text = _ratio_pct(row.get("top_confidence"), 2)
+            lines.append(
+                f"- {family}: {row.get('top_label_text') or '-'} {confidence_text} / "
+                f"{row.get('predicted_change_text') or '-'}"
+            )
+        for family in ("Baseline", "LightGBM"):
+            if family not in families_seen:
+                lines.append(f"- {family}: 저장된 serving 예측 없음")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def _prediction_flow_actual_block(predictions: list[dict[str, Any]]) -> str:
+    if not predictions:
+        return "-"
+    horizons = sorted({int(row.get("horizon_min", 0) or 0) for row in predictions})
+    ordered_horizons = [horizon for horizon in (15, 60) if horizon in horizons]
+    ordered_horizons.extend(horizon for horizon in horizons if horizon not in {15, 60})
+    blocks: list[str] = []
+    for horizon in ordered_horizons:
+        rows = [row for row in predictions if int(row.get("horizon_min", 0) or 0) == horizon]
+        primary = rows[0]
+        blocks.append(
+            "\n".join(
+                [
+                    f"{horizon}분",
+                    f"- 실제: {primary.get('actual_label_text') or '-'} / {primary.get('actual_change_text') or '-'}",
+                    f"- 판정: {primary.get('success_text') or '-'}",
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def _semicolon_fields(value: Any) -> tuple[dict[str, str], set[str]]:
+    fields: dict[str, str] = {}
+    flags: set[str] = set()
+    for token in [item.strip() for item in str(value or "").split(";") if item.strip()]:
+        if "=" in token:
+            key, raw_value = token.split("=", 1)
+            fields[key.strip()] = raw_value.strip()
+        else:
+            flags.add(token)
+    return fields, flags
+
+
+def _prediction_flow_strategy_summary(signal: dict[str, Any]) -> str:
+    fields, flags = _semicolon_fields(signal.get("reason"))
+    reasons: list[str] = []
+    if str(signal.get("side") or "") == "sell" and "long_only_policy" in flags:
+        reasons.append("매수전용 정책으로 매도 차단")
+    if fields.get("time_gate") == "after_new_entry_window":
+        reasons.append("신규 진입 시간 종료")
+    elif fields.get("time_gate") == "outside_window":
+        reasons.append("허용 시간대 밖")
+    elif fields.get("time_gate") == "within_window":
+        reasons.append("진입 시간 통과")
+    if fields.get("spread_gate") == "spread_too_wide":
+        reasons.append("호가 스프레드 과다")
+    elif fields.get("spread_gate") == "spread_ok":
+        reasons.append("호가 스프레드 통과")
+    if "confidence_below_threshold" in flags:
+        reasons.append("신뢰도 기준 미달")
+    if not reasons and signal.get("allowed"):
+        reasons.append("신호 게이트 통과")
+    return ", ".join(reasons[:3]) if reasons else str(signal.get("signal_summary") or "-")
+
+
+def _prediction_flow_execution_summary(risk_event: dict[str, Any] | None) -> str:
+    if not risk_event:
+        return "실행 게이트 기록 없음"
+    fields, flags = _semicolon_fields(risk_event.get("detail"))
+    open_reason = fields.get("open_reason")
+    reason_labels = {
+        "ok": "실행 조건 통과",
+        "max_open_positions_reached": "최대 보유종목 수 도달",
+        "broker_order_pending": "브로커 미체결/조회 대기",
+        "recently_closed": "직전 청산 후 재진입 대기",
+        "position_already_open": "이미 보유 중",
+        "invalid_target": "목표 포지션 없음",
+    }
+    if open_reason:
+        return reason_labels.get(open_reason, open_reason)
+    if "signal_allowed=False" in flags or fields.get("signal_allowed") == "False":
+        return "신호 차단으로 주문 없음"
+    detail = str(risk_event.get("detail") or "").strip()
+    return detail[:80] if detail else "실행 게이트 기록 있음"
+
+
+def _prediction_flow_signal_text(signal: dict[str, Any] | None, risk_event: dict[str, Any] | None) -> str:
+    if signal is None:
+        return "신호 없음"
+    side_text = signal.get("side_label") or _translate_signal_side(str(signal.get("side") or ""))
+    allowed_text = signal.get("allowed_text") or ("허용" if signal.get("allowed") else "차단")
+    return "\n".join(
+        [
+            f"신호: {side_text} {allowed_text} / 신뢰도 {_ratio_pct(signal.get('confidence'), 2)}",
+            f"판단: {_prediction_flow_strategy_summary(signal)}",
+            f"실행: {_prediction_flow_execution_summary(risk_event)}",
+        ]
+    )
+
+
+def _is_close_order(order: dict[str, Any]) -> bool:
+    return "close" in str(order.get("order_id") or "").lower()
+
+
+def _order_filled_summary(order: dict[str, Any], fills_by_order: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    fills = fills_by_order.get(str(order.get("order_id") or ""), [])
+    total_qty = sum(int(row.get("fill_qty", 0) or 0) for row in fills)
+    notional = sum(float(row.get("fill_price", 0.0) or 0.0) * int(row.get("fill_qty", 0) or 0) for row in fills)
+    total_cost = sum(float(row.get("commission", 0.0) or 0.0) + float(row.get("tax", 0.0) or 0.0) for row in fills)
+    return {
+        "filled_qty": total_qty,
+        "avg_price": (notional / total_qty) if total_qty else None,
+        "notional": notional,
+        "cost": total_cost,
+    }
+
+
+def _build_paper_order_profit_texts(order_rows: list[dict[str, Any]], fill_rows: list[dict[str, Any]]) -> dict[str, str]:
+    fills_by_order: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in fill_rows:
+        fills_by_order[str(row.get("order_id") or "")].append(row)
+
+    lot_book: defaultdict[str, list[dict[str, float]]] = defaultdict(list)
+    profit_texts: dict[str, str] = {}
+    for order in sorted(order_rows, key=lambda item: (str(item.get("event_time") or ""), str(item.get("order_id") or ""))):
+        order_id = str(order.get("order_id") or "")
+        if not order_id:
+            continue
+        summary = _order_filled_summary(order, fills_by_order)
+        filled_qty = int(summary["filled_qty"] or 0)
+        avg_price = summary["avg_price"]
+        if filled_qty <= 0 or avg_price is None:
+            profit_texts[order_id] = "체결 없음"
+            continue
+        symbol = str(order.get("symbol") or "")
+        side = str(order.get("side") or "")
+        if side == "buy":
+            lot_book[symbol].append(
+                {
+                    "qty": float(filled_qty),
+                    "avg_price": float(avg_price),
+                    "cost": float(summary["cost"] or 0.0),
+                }
+            )
+            profit_texts[order_id] = "진입 체결 / 실현손익 대기"
+            continue
+        if side != "sell":
+            profit_texts[order_id] = "손익 계산 대상 아님"
+            continue
+
+        remaining = float(filled_qty)
+        matched_qty = 0.0
+        basis = 0.0
+        gross_profit = 0.0
+        buy_cost_used = 0.0
+        lots = lot_book[symbol]
+        while remaining > 0 and lots:
+            lot = lots[0]
+            use_qty = min(remaining, lot["qty"])
+            basis += lot["avg_price"] * use_qty
+            gross_profit += (float(avg_price) - lot["avg_price"]) * use_qty
+            matched_qty += use_qty
+            cost_ratio = use_qty / lot["qty"] if lot["qty"] else 0.0
+            buy_cost_used += lot["cost"] * cost_ratio
+            lot["qty"] -= use_qty
+            lot["cost"] -= lot["cost"] * cost_ratio
+            remaining -= use_qty
+            if lot["qty"] <= 0:
+                lots.pop(0)
+        if matched_qty <= 0 or basis <= 0:
+            profit_texts[order_id] = "청산 손익 계산 불가"
+            continue
+        sell_cost_used = float(summary["cost"] or 0.0) * (matched_qty / filled_qty)
+        net_profit = gross_profit - buy_cost_used - sell_cost_used
+        profit_pct = (net_profit / basis) * 100.0
+        profit_texts[order_id] = f"청산 {_format_signed_change(net_profit, profit_pct)}"
+    return profit_texts
+
+
+def _prediction_flow_order_block(signal_orders: list[dict[str, Any]], close_orders: list[dict[str, Any]]) -> str:
+    blocks: list[str] = []
+    if signal_orders:
+        blocks.append("신호 주문\n" + "\n".join(f"- {_prediction_flow_order_text(order)}" for order in signal_orders))
+    if close_orders:
+        blocks.append("별도 청산\n" + "\n".join(f"- {_prediction_flow_order_text(order)}" for order in close_orders))
+    return "\n\n".join(blocks) if blocks else "주문 없음"
+
+
+def _prediction_flow_profit_text(orders: list[dict[str, Any]], profit_by_order: dict[str, str]) -> str:
+    if not orders:
+        return "주문 없음"
+    lines = []
+    for order in orders:
+        order_id = str(order.get("order_id") or "")
+        prefix = "청산" if _is_close_order(order) else "진입"
+        text = profit_by_order.get(order_id, "손익 계산 불가")
+        if text.startswith(prefix):
+            lines.append(text)
+        else:
+            lines.append(f"{prefix}: {text}")
+    return "\n".join(lines)
+
+
 def _prediction_flow_view(
     prediction_views: list[dict[str, Any]],
     signal_views: list[dict[str, Any]],
     order_rows: list[dict[str, Any]],
     fill_rows: list[dict[str, Any]],
+    risk_event_rows: list[dict[str, Any]],
     *,
     limit: int,
     latest_first: bool = True,
@@ -1152,6 +1391,12 @@ def _prediction_flow_view(
     for row in fill_rows:
         fills_by_order[str(row.get("order_id") or "")].append(row)
 
+    risk_events_by_key: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in risk_event_rows:
+        risk_events_by_key[(str(row.get("symbol") or ""), str(row.get("event_time") or ""))].append(row)
+
+    profit_by_order = _build_paper_order_profit_texts(order_rows, fill_rows)
+
     flow_rows: list[dict[str, Any]] = []
     for (symbol, event_time), prediction_group in predictions_by_key.items():
         predictions = sorted(prediction_group, key=lambda item: int(item.get("horizon_min", 0) or 0))
@@ -1169,31 +1414,44 @@ def _prediction_flow_view(
                 exact_orders[str(order.get("order_id") or "")] = order
         fallback_orders = orders_by_key.get((symbol, event_time), [])
         orders_source = "id" if exact_orders else "time"
-        orders = sorted(
-            exact_orders.values() if exact_orders else fallback_orders,
+        if exact_orders:
+            signal_orders = list(exact_orders.values())
+            close_orders = [
+                order
+                for order in fallback_orders
+                if _is_close_order(order) and str(order.get("order_id") or "") not in exact_orders
+            ]
+        else:
+            signal_orders = [order for order in fallback_orders if not _is_close_order(order)]
+            close_orders = [order for order in fallback_orders if _is_close_order(order)]
+        signal_orders = sorted(
+            signal_orders,
             key=lambda item: str(item.get("order_id") or ""),
         )
+        close_orders = sorted(close_orders, key=lambda item: str(item.get("order_id") or ""))
+        orders = signal_orders + close_orders
         related_fills: list[dict[str, Any]] = []
         for order in orders:
             related_fills.extend(fills_by_order.get(str(order.get("order_id") or ""), []))
 
-        model_text = " / ".join(_prediction_flow_model_text(row) for row in predictions) or "-"
-        actual_text = " / ".join(_prediction_flow_actual_text(row) for row in predictions) or "-"
-        if signal is None:
-            signal_text = "신호 없음"
-        else:
-            signal_text = (
-                f"{signal.get('side_label')} / {signal.get('allowed_text')} / "
-                f"신뢰도 {_ratio_pct(signal.get('confidence'), 2)} / {signal.get('signal_summary')}"
-            )
-        order_text = " / ".join(_prediction_flow_order_text(order) for order in orders) if orders else "주문 없음"
+        model_text = _prediction_flow_model_block(predictions)
+        actual_text = _prediction_flow_actual_block(predictions)
+        risk_events = risk_events_by_key.get((symbol, event_time), [])
+        risk_event = next((row for row in risk_events if str(row.get("gate") or "") == "online_signal_policy"), None)
+        if risk_event is None and risk_events:
+            risk_event = risk_events[0]
+        signal_text = _prediction_flow_signal_text(signal, risk_event)
+        order_text = _prediction_flow_order_block(signal_orders, close_orders)
         fill_text = _prediction_flow_fill_text(related_fills) if orders else "주문 없음"
+        profit_text = _prediction_flow_profit_text(orders, profit_by_order)
         link_text = "예측-신호: 동일 종목/시각"
-        if orders:
+        if signal_orders:
             if orders_source == "id":
-                link_text += " / 주문: prediction_id 또는 signal_id"
+                link_text += " / 신호 주문: prediction_id 또는 signal_id"
             else:
-                link_text += " / 주문: 동일 종목/시각"
+                link_text += " / 신호 주문: 동일 종목/시각 보조"
+        if close_orders:
+            link_text += " / 별도 청산: 포지션 관리 주문"
         if related_fills:
             link_text += " / 체결: 주문ID"
         if not orders:
@@ -1210,6 +1468,7 @@ def _prediction_flow_view(
                 "signal_text": signal_text,
                 "order_text": order_text,
                 "fill_text": fill_text,
+                "profit_text": profit_text,
                 "link_text": link_text,
             }
         )
@@ -1785,6 +2044,7 @@ def collect_dashboard_payload(
     signal_rows = _filtered_rows(sqlite_store, "serving_trade_signals", "event_time", scope, period_filter)
     order_rows = _filtered_rows(sqlite_store, "paper_orders", "event_time", scope, period_filter)
     fill_rows = _filtered_rows(sqlite_store, "paper_fills", "event_time", scope, period_filter)
+    risk_event_rows = _filtered_rows(sqlite_store, "ops_risk_events", "event_time", scope, period_filter)
     broker_submission_rows = _filtered_rows(
         sqlite_store,
         "broker_paper_order_submissions",
@@ -1904,6 +2164,7 @@ def collect_dashboard_payload(
         signal_views,
         order_rows,
         fill_rows,
+        risk_event_rows,
         limit=0 if prediction_flow_full_day else recent_limit,
         latest_first=not prediction_flow_full_day,
     )
@@ -2529,15 +2790,23 @@ def _scroll_box(content: str, *, max_height: int = 380, css_class: str = "data-s
     return f'<div class="{css_class}" style="max-height:{max_height}px;">{content}</div>'
 
 
-def _table(headers: list[str], rows: list[list[Any]], empty_text: str, *, scroll_height: int = 380) -> str:
+def _table(
+    headers: list[str],
+    rows: list[list[Any]],
+    empty_text: str,
+    *,
+    scroll_height: int = 380,
+    table_class: str | None = None,
+) -> str:
     if not rows:
         return f'<div class="empty">{_esc(empty_text)}</div>'
     header_html = "".join(f"<th>{_esc(header)}</th>" for header in headers)
     row_html = []
     for row in rows:
         row_html.append("<tr>" + "".join(f"<td>{_esc(cell)}</td>" for cell in row) + "</tr>")
+    class_attr = f' class="{_esc(table_class)}"' if table_class else ""
     return _scroll_box(
-        f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>",
+        f"<table{class_attr}><thead><tr>{header_html}</tr></thead><tbody>{''.join(row_html)}</tbody></table>",
         max_height=scroll_height,
     )
 
@@ -3237,6 +3506,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             row.get("signal_text"),
             row.get("order_text"),
             row.get("fill_text"),
+            row.get("profit_text"),
             row.get("link_text"),
         ]
         for row in payload.get("prediction_flow_rows", [])
@@ -4490,17 +4760,18 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 _section_card(
                     "예측 흐름",
                     _table(
-                        ["번호", "시각", "종목", "모델별 예측", "실제 결과", "신호", "주문", "체결", "연결 방식"],
+                        ["번호", "시각", "종목", "모델별 예측", "실제 결과", "신호", "주문", "체결", "수익", "연결 방식"],
                         prediction_flow_rows,
                         "현재 범위에 예측 흐름 기록이 없습니다.",
                         scroll_height=520,
+                        table_class="prediction-flow-table",
                     ),
                     note=(
                         "일자 선택 화면에서는 하루 전체 흐름을 장 시작 시각부터 순서대로 보여줍니다. "
                         if prediction_flow_full_day
                         else "여러 날/전체 기간 화면에서는 화면 부하를 줄이기 위해 최신 흐름만 보여줍니다. "
                     )
-                    + "신규 paper 주문은 prediction_id 또는 signal_id로 우선 연결합니다. 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각 기준으로 보조 연결하고, 체결은 주문 ID 기준으로 연결합니다.",
+                    + "신규 paper 주문은 prediction_id 또는 signal_id로 우선 연결합니다. 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각 기준으로 보조 연결하되, 포지션 관리용 청산 주문은 신호 주문과 별도로 표시합니다. 체결은 주문 ID 기준으로 연결합니다.",
                 ),
             ),
             (
@@ -4787,6 +5058,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     th, td {{ text-align:left; padding:9px 8px; border-top:1px solid var(--line-soft); vertical-align:top; line-height:1.35; }}
     thead th {{ position:sticky; top:0; z-index:1; background:#f8fafc; color:#64748b; border-top:0; font-size:11px; font-weight:850; }}
     tbody tr:hover {{ background:#f8fafc; }}
+    .prediction-flow-table {{ min-width:1420px; }}
+    .prediction-flow-table th, .prediction-flow-table td {{ white-space:pre-line; overflow-wrap:anywhere; }}
+    .prediction-flow-table th:nth-child(4), .prediction-flow-table td:nth-child(4),
+    .prediction-flow-table th:nth-child(5), .prediction-flow-table td:nth-child(5) {{ min-width:210px; }}
+    .prediction-flow-table th:nth-child(6), .prediction-flow-table td:nth-child(6) {{ width:190px; max-width:210px; }}
+    .prediction-flow-table th:nth-child(7), .prediction-flow-table td:nth-child(7),
+    .prediction-flow-table th:nth-child(8), .prediction-flow-table td:nth-child(8),
+    .prediction-flow-table th:nth-child(9), .prediction-flow-table td:nth-child(9) {{ min-width:160px; }}
     .empty {{ color:var(--muted); font-size:13px; padding:8px 0; }}
     ul {{ margin:0; padding-left:18px; }}
     li {{ margin:7px 0; }}

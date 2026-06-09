@@ -1,5 +1,56 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 예측 흐름 표 의미/수익 표시 개선
+
+- 사용자 지시:
+  - `예측 흐름` 표에서 baseline/LightGBM 모델별 예측 방향과 예상 변동 금액을 함께 보고 싶다.
+  - 모델별 예측과 실제 결과를 15분/60분 단락으로 나눠 보고 싶다.
+  - 신호 설명 폭을 줄이고 3줄 정도로 요약하고 싶다.
+  - 2026-06-09 예측흐름에서 `매도 차단`인데 매도가 보이거나, `매수 허용`인데 매수가 없고 매도가 보이는 행의 원인을 설명하고 개선한다.
+  - 체결 옆에 주문으로 인한 수익 금액과 수익률을 `+/-`로 표시한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장중 보호 모드가 아니므로 dashboard 코드, 테스트, snapshot 재생성을 진행했다.
+- 원인:
+  - 과거 `paper_orders`에는 `prediction_id/signal_id`가 없어서 예측흐름이 동일 종목/동일 시각 주문을 보조 연결했다.
+  - 이때 `paper-order-close-*` 포지션 관리용 청산 주문까지 신호 주문처럼 같은 칸에 붙어, `매도 차단인데 매도 체결`, `매수 허용인데 매도 주문`처럼 보였다.
+  - 2026-06-09 기준 `serving_predictions`에는 baseline h15/h60 예측만 있고 LightGBM serving 예측 row는 없었다. 따라서 LightGBM 값은 생성된 것처럼 보이지 않게 `저장된 serving 예측 없음`으로 명시한다.
+- 조치:
+  - `app/services/dashboard.py`의 예측흐름 표를 15분/60분 단락형으로 바꿨다.
+    - 모델별 예측: Baseline/LightGBM별 방향, 신뢰도, 예상 변동 금액/수익률 표시.
+    - 실제 결과: 15분/60분별 실제 방향, 실제 변동 금액/수익률, 성공/실패/대기 표시.
+  - `ops_risk_events`를 함께 읽어 신호 칸을 3줄 요약으로 바꿨다.
+    - `신호`: 매수/매도, 허용/차단, 신뢰도.
+    - `판단`: 시간 게이트, 스프레드 게이트, 매수전용 정책 등 전략 판단.
+    - `실행`: 최대 보유종목 수, 브로커 미체결/조회 대기, 직전 청산 후 재진입 대기 등 주문 미발생 이유.
+  - 예측흐름 주문 연결을 `신호 주문`과 `별도 청산`으로 분리했다.
+    - `prediction_id/signal_id`가 있으면 우선 사용.
+    - 추적 ID가 없는 과거 기록은 동일 종목/동일 시각 보조 연결하되, `paper-order-close-*`는 포지션 관리 청산 주문으로 따로 표시한다.
+  - 체결 옆에 `수익` 열을 추가했다.
+    - 같은 종목의 매수/매도 체결을 FIFO 기준으로 맞춰 paper 표시용 실현손익과 수익률을 계산한다.
+    - 미체결/거절 주문은 `체결 없음`, 매수 진입은 `실현손익 대기`로 표시한다.
+  - 예측흐름 표 전용 CSS를 추가해 멀티라인 줄바꿈을 보존하고 신호 칸 폭을 좁혔다.
+  - `tests/test_dashboard.py`에 청산 주문이 신호 주문으로 오인되지 않고 수익이 표시되는 회귀 테스트를 추가했다.
+- 실제 2026-06-09 확인:
+  - `LG에너지솔루션 (373220)` 15:19 행은 `매수 차단`, `주문 없음`, `실행: 브로커 미체결/조회 대기`로 표시된다.
+  - 09:39 같은 청산 행은 `신호: 매수 허용`, `실행: 직전 청산 후 재진입 대기`, `주문: 별도 청산`, `수익: 청산 +2,243원 (+0.58%)`로 분리된다.
+  - 10:53 같은 매도 차단 행은 `매수전용 정책으로 매도 차단`과 `별도 청산`이 분리되어, 신호 매도와 포지션 청산 매도가 다른 흐름임을 표시한다.
+- 검증:
+  - `python -m py_compile app/services/dashboard.py tests/test_dashboard.py`: 통과.
+  - `python -m unittest tests.test_dashboard.DashboardTests.test_prediction_flow_separates_close_orders_and_shows_profit`: 통과.
+  - `python -m unittest tests.test_dashboard`: 19개 통과.
+  - `python -m app --build-dashboard`: 통과, `generated_at=2026-06-10T04:03:13.714366+09:00`.
+  - `http://127.0.0.1:8765/api/dashboard.json?range=day&date=2026-06-09`: `prediction_flow_rows=3799`, `first_flow_no=1`, `profit_text` 포함 확인.
+  - dashboard 서버 재시작 후 `./scripts/get_dashboard_status.sh`: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- 운영 상태:
+  - dashboard: `http://127.0.0.1:8765`, 새 PID `29000`.
+  - runtime watchdog: 기존 PID `23954`, `errors=[]`, `heartbeat_stale=false`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 예측 흐름 일자 선택 전체 표시 보정
 
 - 사용자 지시:
