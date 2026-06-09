@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 대시보드 UI/UX 제로베이스 재구성
+
+- 사용자 지시:
+  - 현재 대시보드가 산만하고 찾기 어렵기 때문에, 제로베이스에서 다시 검토해 최대한 단순하게 재구성한다.
+  - 사용자가 봐야 하는 항목은 빠뜨리지 않고, 통화 표시가 필요한 값에는 `원` 표기를 누락하지 않는다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장중 보호 모드는 아니므로 dashboard 렌더링 코드와 테스트를 수정했다.
+- 조치:
+  - `app/services/dashboard.py`의 v2 대시보드 화면을 좌측 내비게이션, 상단 명령 영역, 핵심 KPI 카드, `오늘/계좌/데이터·모델/예측·주문/운영` 탭 구조로 재구성했다.
+  - 첫 화면 `오늘` 탭에 `오늘 해야 할 일`, `상태 요약`, `계좌 정합성 요약`, `모델 판단`, `챌린저 비교`를 배치해 장중/장후 확인 순서대로 볼 수 있게 했다.
+  - 계좌/주문/체결/손익/수수료 등 금액 값은 `_money()`에서 `원`을 붙이도록 통일했고, 거래량은 `_number()`로 분리해 원화처럼 보이지 않게 했다.
+  - 비율 값은 `_pct()`에서 `%`를 붙이도록 정리했다.
+  - `#tab-ops` 같은 기존 해시 URL을 유지하되, 탭 패널 DOM id를 `data-tab-id`로 바꿔 브라우저 기본 앵커 스크롤 때문에 상단이 비어 보이는 문제를 막았다.
+  - dashboard 서버와 runtime watchdog 이 이전 렌더러를 메모리에 들고 있어 스냅샷을 옛 UI로 덮는 현상을 확인했고, 장외 상태에서 둘 다 재시작해 새 코드가 반영되도록 했다.
+  - `tests/test_dashboard.py`의 대시보드 문구/탭 구조 기대값을 새 UI 구조에 맞췄다.
+- 검증:
+  - `python3 -m py_compile app/services/dashboard.py`: 통과.
+  - `python3 -m app --build-dashboard`: 통과, `generated_at=2026-06-10T01:06:05+09:00`.
+  - `python3 -m unittest tests.test_dashboard`: 18개 통과.
+  - Edge headless 로 `http://127.0.0.1:8765/#tab-ops` 데스크톱/모바일 폭을 캡처해 상단 공백 제거, 주요 카드, 금액 `원` 표기를 확인했다.
+  - D드라이브 `D:\CodexData\Real-time-stock-price-prediction-program\qa-temp`에 만든 검증용 스크린샷/브라우저 프로필은 확인 후 삭제했다.
+- 운영 상태:
+  - dashboard: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+  - runtime watchdog: `status=running`, `heartbeat_stale=false`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-09] Codex -> 첨부 KIS 모의계좌 화면 기준 paper/KIS 정합성 조치
 
 - 사용자 지시:

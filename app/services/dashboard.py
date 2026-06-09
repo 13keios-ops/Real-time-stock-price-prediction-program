@@ -2207,7 +2207,16 @@ def _money(value: Any) -> str:
     if value is None:
         return "-"
     try:
-        return format(float(value), ",.0f")
+        return f"{float(value):,.0f}원"
+    except (TypeError, ValueError):
+        return _esc(value)
+
+
+def _number(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):,.0f}"
     except (TypeError, ValueError):
         return _esc(value)
 
@@ -2216,7 +2225,7 @@ def _pct(value: Any, digits: int = 2) -> str:
     if value is None:
         return "-"
     try:
-        return f"{float(value):.{digits}f}"
+        return f"{float(value):.{digits}f}%"
     except (TypeError, ValueError):
         return _esc(value)
 
@@ -2488,9 +2497,9 @@ def _render_subtab_shell(title: str, group: str, sections: list[tuple[str, str, 
             f'data-subtab-panel="{_esc(group)}">{content}</div>'
         )
     return (
-        f'<div class="card"><h2>{_esc(title)}</h2><div class="subtab-shell">'
+        f'<section class="section-shell"><h2>{_esc(title)}</h2><div class="subtab-shell">'
         f'<div class="subtab-nav" role="tablist" aria-label="{_esc(title)} 세부 탭">{"".join(nav_html)}</div>'
-        f'<div>{"".join(panel_html)}</div></div></div>'
+        f'<div>{"".join(panel_html)}</div></div></section>'
     )
 
 
@@ -2593,7 +2602,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
         for row in payload.get("recent_fills", [])
     ]
     bar_rows = [
-        [row["bar_time"], row["symbol"], _money(row.get("close")), _money(row.get("volume"))]
+        [row["bar_time"], row["symbol"], _money(row.get("close")), _number(row.get("volume"))]
         for row in payload.get("recent_minute_bars", [])
     ]
     position_rows = [
@@ -3081,7 +3090,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         for row in payload.get("recent_fills", [])
     ]
     bar_rows = [
-        [row.get("bar_time"), row.get("symbol"), _money(row.get("open")), _money(row.get("high")), _money(row.get("low")), _money(row.get("close")), _money(row.get("volume"))]
+        [row.get("bar_time"), row.get("symbol"), _money(row.get("open")), _money(row.get("high")), _money(row.get("low")), _money(row.get("close")), _number(row.get("volume"))]
         for row in payload.get("recent_minute_bars", [])
     ]
     virtual_position_rows = [
@@ -3682,41 +3691,77 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     live_runtime_label = "실행 중" if live_runtime.get("status") == "running" else "중지"
     watchdog_status = local_setup_watchdog.get("status") or "-"
     session_label = local_setup_watchdog.get("market_session_status") or local_setup_live_runtime.get("session_status") or latest_kis.get("session_status") or "-"
+    runtime_expected = bool(local_setup_watchdog.get("live_runtime_should_run"))
+    runtime_running = live_runtime.get("status") == "running"
+    runtime_position_ok = runtime_running if runtime_expected else not runtime_running
+    watchdog_errors = local_setup_watchdog.get("errors") or []
+    operator_session_tone = "is-ok" if runtime_position_ok and not watchdog_errors else "is-warn"
+    latest_lightgbm_candidate = next(
+        (
+            row
+            for row in latest_challenger.get("candidates", [])
+            if str(row.get("candidate_name") or "") == "latest_lightgbm"
+        ),
+        {},
+    )
+    challenger_action_label = {
+        "keep_active": "유지",
+        "promote": "승격 권장",
+        "review_required": "검토 필요",
+    }.get(str(latest_challenger.get("recommended_action") or ""), latest_challenger.get("recommended_action") or "-")
+    latest_trade_date = latest_kis_quality_recent.get("trade_date") or latest_kis_quality.get("latest_trade_date") or "-"
+    closed_feature_coverage = _ratio_pct(latest_kis_quality_coverage.get("feature_closed_coverage_ratio"), 1)
+    raw_market_coverage = _ratio_pct(latest_kis_quality_coverage.get("raw_market_coverage_ratio"), 1)
+    broker_total_asset = paper_account.get("total_asset_amount")
+    broker_cash = paper_account.get("cash_balance")
+    broker_profit_loss = paper_account.get("total_profit_loss_amount")
     operator_metrics = [
         (
-            "Phase",
-            readiness_phase,
-            "통과" if readiness_passed is True else "차단/미검증" if readiness_passed is False else "기록 없음",
-            _tone_from_bool(readiness_passed),
+            "런타임",
+            live_runtime_label,
+            f"장 {session_label} · watchdog {watchdog_status}",
+            operator_session_tone,
         ),
         (
-            "계좌 정합성",
+            "모의계좌 총자산",
+            _money(broker_total_asset),
+            f"예수금 {_money(broker_cash)} · 손익 {_money(broker_profit_loss)}",
+            _tone_from_status(paper_account.get("status") or paper_account.get("status_text")),
+        ),
+        (
+            "paper/KIS 정합성",
             "일치" if paper_reconciliation_ok else "확인",
-            f"현금 {_money(paper_account_reconciliation.get('cash_gap'))} / 총자산 {_money(paper_account_reconciliation.get('total_asset_gap'))}",
+            f"현금 차이 {_money(paper_account_reconciliation.get('cash_gap'))} · 총자산 차이 {_money(paper_account_reconciliation.get('total_asset_gap'))}",
             "is-ok" if paper_reconciliation_ok else "is-warn",
         ),
         (
             "데이터 품질",
             data_quality_status,
-            f"최근 거래일 {latest_kis_quality_recent.get('trade_date') or latest_kis_quality.get('latest_trade_date') or '-'}",
+            f"{latest_trade_date} · raw {raw_market_coverage} · feature {closed_feature_coverage}",
             _tone_from_status(data_quality_status),
         ),
         (
-            "장후 작업",
-            post_close_status,
-            post_close_maintenance.get("mode") or "기록 없음",
-            _tone_from_status(post_close_status),
-        ),
-        (
-            "예측/신호",
-            f"{runtime.get('predictions', 0)} / {runtime.get('signals', 0)}",
-            f"주문 {runtime.get('orders', 0)} / 체결 {runtime.get('fills', 0)}",
+            "활성 모델",
+            active_model.get("model_version") or "-",
+            f"LightGBM validation {_ratio_pct(lightgbm_status.get('validation_accuracy'), 2)}",
             "is-muted",
         ),
         (
-            "실전 안전",
+            "챌린저 판단",
+            challenger_action_label,
+            f"거래 적중률 {_ratio_pct(latest_lightgbm_candidate.get('trade_hit_rate'), 2)} · 순수익률 {_pct(latest_lightgbm_candidate.get('cumulative_net_return_pct'), 2)}",
+            "is-ok" if latest_challenger.get("recommended_action") == "promote" else "is-warn" if latest_challenger.get("recommended_action") == "review_required" else "is-muted",
+        ),
+        (
+            "예측/주문",
+            f"{runtime.get('predictions', 0)} / {runtime.get('signals', 0)}",
+            f"주문 {runtime.get('orders', 0)} · 체결 {runtime.get('fills', 0)}",
+            "is-muted",
+        ),
+        (
+            "실전 주문",
             live_order_safety_value,
-            f"trading_mode={project.get('trading_mode') or '-'}",
+            f"mode={project.get('trading_mode') or '-'} · ALLOW_LIVE_ORDERS={'false' if live_order_safety_ok else 'true'}",
             "is-ok" if live_order_safety_ok else "is-danger",
         ),
     ]
@@ -3732,11 +3777,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     )
     tab_buttons = "".join(
         [
-            _tab_button("tab-ops", "운영 콘솔", active=True),
+            _tab_button("tab-ops", "오늘", active=True),
             _tab_button("tab-accounts", "계좌"),
-            _tab_button("tab-ml-data", "ML/데이터"),
+            _tab_button("tab-ml-data", "데이터/모델"),
             _tab_button("tab-orders", "예측/주문"),
-            _tab_button("tab-reports-settings", "리포트/설정"),
+            _tab_button("tab-reports-settings", "운영"),
         ]
     )
     paper_compare_rows = [
@@ -4372,71 +4417,109 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             ("other-guide", "안내", _section_card("안내", '<div class="muted">이 화면은 실제 KIS 기반 운용 데이터만 보여줍니다. 샘플, synthetic, demo, replay 데이터는 제외됩니다. 조회 범위를 바꾸면 특정 날짜나 최근 기간 기준으로 데이터를 다시 볼 수 있습니다.</div>')),
         ],
     )
-    runtime_expected = bool(local_setup_watchdog.get("live_runtime_should_run"))
-    runtime_running = live_runtime.get("status") == "running"
-    runtime_position_ok = runtime_running if runtime_expected else not runtime_running
-    watchdog_errors = local_setup_watchdog.get("errors") or []
-    operator_session_tone = "is-ok" if runtime_position_ok and not watchdog_errors else "is-warn"
+    ops_task_rows = [
+        [
+            "높음" if not paper_reconciliation_ok else "낮음",
+            "계좌",
+            "paper/KIS 정합성",
+            "완료" if paper_reconciliation_ok else "확인 필요",
+            f"현금 차이 {_money(paper_account_reconciliation.get('cash_gap'))}, 총자산 차이 {_money(paper_account_reconciliation.get('total_asset_gap'))}",
+        ],
+        [
+            "중간" if data_quality_status == "watch" else "낮음",
+            "데이터",
+            "KIS live 품질",
+            data_quality_status,
+            f"{latest_trade_date} raw {raw_market_coverage}, feature {closed_feature_coverage}",
+        ],
+        [
+            "중간" if post_close_label_status not in {"ok", "completed"} else "낮음",
+            "학습",
+            "장후 label refresh",
+            post_close_label_status,
+            post_close_label_refresh.get("completed_at") or "최신 완료 시각 확인",
+        ],
+        [
+            "높음" if not live_order_safety_ok else "낮음",
+            "실전 안전",
+            "실전 주문 차단",
+            live_order_safety_value,
+            f"trading_mode={project.get('trading_mode') or '-'}, ALLOW_LIVE_ORDERS={'false' if live_order_safety_ok else 'true'}",
+        ],
+        [
+            "중간" if latest_challenger.get("recommended_action") == "review_required" else "낮음",
+            "모델",
+            "챌린저 승격 판단",
+            challenger_action_label,
+            f"워크포워드 {_ratio_pct(latest_walk_forward.get('overall_accuracy'), 2)}, 순수익률 {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 2)}",
+        ],
+    ]
+    ops_health_rows = [
+        ["시장/세션", session_label, "수집기 필요" if runtime_expected else "장외 대기", payload.get("generated_at") or "-"],
+        ["실시간 수집기", live_runtime_label, live_runtime.get("status_note") or "-", system_status.get("latest_market_bar_time") or "-"],
+        ["감시기", watchdog_status, ", ".join(str(item) for item in watchdog_errors) if watchdog_errors else "오류 없음", local_setup_watchdog.get("last_checked_at") or "-"],
+        ["대시보드", "응답 중", dashboard_freshness.get("label") or "미확인", payload.get("generated_at") or "-"],
+        ["KIS 검증", kis_freshness.get("label") or "미확인", latest_kis.get("status_note") or "-", latest_kis.get("verified_at") or "-"],
+        ["장후 ML", post_close_status, post_close_maintenance.get("mode") or "-", post_close_maintenance.get("completed_at") or "-"],
+    ]
+    ops_account_rows = [
+        ["브로커 모의계좌", "예수금", _money(paper_account.get("cash_balance")), paper_account.get("status_text") or "-"],
+        ["브로커 모의계좌", "총자산", _money(paper_account.get("total_asset_amount")), "KIS 조회 기준"],
+        ["브로커 모의계좌", "총손익", _money(paper_account.get("total_profit_loss_amount")), "KIS 조회 기준"],
+        ["로컬 가상계좌", "현재 현금", _money(virtual_account.get("cash_balance")), virtual_account.get("status") or "-"],
+        ["로컬 가상계좌", "평가 금액", _money(virtual_account.get("net_liquidation_value")), "프로그램 내부 장부"],
+        ["정합성", "현금/총자산 차이", f"{_money(paper_account_reconciliation.get('cash_gap'))} / {_money(paper_account_reconciliation.get('total_asset_gap'))}", paper_reconciliation_status],
+    ]
+    ops_model_rows = [
+        ["활성 모델(15분)", active_model.get("model_version") or "-", active_model.get("model_kind") or "-", "장중 신호 기준"],
+        ["최신 LightGBM", lightgbm_status.get("latest_model_version") or "-", _ratio_pct(lightgbm_status.get("validation_accuracy"), 2), f"학습 {lightgbm_status.get('train_rows') or 0}행"],
+        ["워크포워드", latest_walk_forward.get("model_version") or "-", _ratio_pct(latest_walk_forward.get("overall_accuracy"), 2), f"순수익률 {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 2)}"],
+        ["챌린저 권장", challenger_action_label, latest_challenger.get("recommended_model_version") or "-", f"승격 적용 {'예' if latest_challenger.get('promotion_applied') else '아니오'}"],
+    ]
     operator_console_html = f"""
-      <div class="ops-grid">
-        <article class="ops-card {operator_session_tone}">
-          <div class="ops-card-head">
-            <span class="status-dot"></span>
-            <span>운영 세션</span>
+      <section class="ops-layout">
+        <div class="ops-primary">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>오늘 해야 할 일</h2>
+              <span class="panel-meta">{_esc(period_filter.get('label') or '-')}</span>
+            </div>
+            {_table(["우선순위", "영역", "항목", "상태", "근거/권장"], ops_task_rows, "오늘 확인할 항목이 없습니다.", scroll_height=310)}
           </div>
-          <div class="ops-value">{_esc(session_label)}</div>
-          <div class="ops-meta">runtime {_esc(live_runtime_label)} · watchdog {_esc(watchdog_status)}</div>
-          <div class="ops-kv"><span>수집기 필요</span><strong>{'예' if runtime_expected else '아니오'}</strong></div>
-          <div class="ops-kv"><span>대시보드 갱신</span><strong>{_esc(payload.get('generated_at') or '-')}</strong></div>
-        </article>
-        <article class="ops-card {_tone_from_bool(readiness_passed)}">
-          <div class="ops-card-head">
-            <span class="status-dot"></span>
-            <span>Phase readiness</span>
-          </div>
-          <div class="ops-value">{_esc(readiness_phase)}</div>
-          <div class="ops-meta">{_esc(readiness_status)} · {_esc(readiness_key_text)}</div>
-          <div class="ops-kv"><span>차단 사유</span><strong>{_esc(readiness_blocker_text)}</strong></div>
-          <div class="ops-kv"><span>선택 미충족</span><strong>{_esc(readiness_optional_text)}</strong></div>
-        </article>
-        <article class="ops-card {'is-ok' if paper_reconciliation_ok else 'is-warn'}">
-          <div class="ops-card-head">
-            <span class="status-dot"></span>
-            <span>계좌 정합성</span>
-          </div>
-          <div class="ops-value">{'일치' if paper_reconciliation_ok else '확인 필요'}</div>
-          <div class="ops-meta">{_esc(paper_reconciliation_status)}</div>
-          <div class="ops-kv"><span>예수금 차이</span><strong>{_money(paper_account_reconciliation.get('cash_gap'))}</strong></div>
-          <div class="ops-kv"><span>총자산 차이</span><strong>{_money(paper_account_reconciliation.get('total_asset_gap'))}</strong></div>
-        </article>
-        <article class="ops-card {_tone_from_status(post_close_status)}">
-          <div class="ops-card-head">
-            <span class="status-dot"></span>
-            <span>장후 파이프라인</span>
-          </div>
-          <div class="ops-value">{_esc(post_close_status)}</div>
-          <div class="ops-meta">label {_esc(post_close_label_status)} · KIS 품질 {_esc(data_quality_status)}</div>
-          <div class="ops-kv"><span>실행 모드</span><strong>{_esc(post_close_maintenance.get('mode') or '-')}</strong></div>
-          <div class="ops-kv"><span>완료 시각</span><strong>{_esc(post_close_maintenance.get('completed_at') or '-')}</strong></div>
-        </article>
-      </div>
-      <div class="layout-2 ops-lower">
-        <div class="card">
-          <h2>오늘 볼 것</h2>
-          <div class="ops-list">
-            {_list([
-                f"Phase readiness: {_esc(readiness_phase)} / {_esc(readiness_status)} / 점검 {_esc(readiness_checked_at)}",
-                f"계좌 정합성: {_esc(paper_reconciliation_note)}",
-                f"실전 주문 안전: ALLOW_LIVE_ORDERS {'false' if live_order_safety_ok else 'true/확인 필요'}",
-                f"데이터 품질: {_esc(data_quality_status)} / 최근 거래일 {_esc(latest_kis_quality_recent.get('trade_date') or latest_kis_quality.get('latest_trade_date') or '-')}",
-            ], "표시할 운영 요약이 없습니다.", scroll_height=260)}
+          <div class="panel">
+            <div class="panel-head">
+              <h2>계좌 정합성 요약</h2>
+              <span class="panel-meta">{_esc(paper_reconciliation_status)}</span>
+            </div>
+            {_table(["계정", "항목", "금액/값", "메모"], ops_account_rows, "표시할 계좌 요약이 없습니다.", scroll_height=300)}
+            <div class="helper-text">{_esc(paper_reconciliation_note)}</div>
           </div>
         </div>
-        <div class="card">
-          <h2>다음 연결점</h2>
-          {_list(next_actions, "기록된 다음 작업이 없습니다.", scroll_height=260)}
+        <div class="ops-side">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>상태 요약</h2>
+              <span class="panel-meta">{_esc(session_label)}</span>
+            </div>
+            {_table(["영역", "상태", "메모", "시각"], ops_health_rows, "상태 요약이 없습니다.", scroll_height=360)}
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>모델 판단</h2>
+              <span class="panel-meta">{_esc(challenger_action_label)}</span>
+            </div>
+            {_table(["구분", "모델/판단", "정확도", "메모"], ops_model_rows, "표시할 모델 요약이 없습니다.", scroll_height=260)}
+          </div>
         </div>
-      </div>
+      </section>
+      <section class="panel wide-panel">
+        <div class="panel-head">
+          <h2>챌린저 비교</h2>
+          <span class="panel-meta">수익률 단위 % · 금액 단위 원</span>
+        </div>
+        {_table(["순위", "후보", "모델 버전", "정확도", "거래 적중률", "거래 수", "누적 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"], challenger_rows, "챌린저 비교 결과가 없습니다.", scroll_height=280)}
+        <div class="helper-text">{_esc(latest_challenger.get("current_guard_note") or "평가 자격은 독립 holdout/아티팩트 기준입니다. 실제 승격은 권장 조치, 워크포워드 게이트, 수익률을 함께 봅니다.")}</div>
+      </section>
     """
     accounts_tab_html = _stack_cards(virtual_tab_html, paper_tab_html, live_tab_html)
     ml_data_tab_html = ml_tab_html
@@ -4451,122 +4534,123 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
   {refresh_meta}
   <title>실시간 주가 예측 대시보드</title>
   <style>
-    :root {{ color-scheme:light; --bg:#f6f8fb; --surface:#ffffff; --surface-soft:#f8fafc; --line:#d7dee8; --text:#172033; --muted:#64748b; --accent:#0f766e; --accent-strong:#0b5f59; --ok:#15803d; --warn:#b45309; --danger:#b91c1c; --info:#2563eb; }}
+    :root {{ color-scheme:light; --bg:#f4f6f8; --nav:#111827; --nav-soft:#1f2937; --surface:#ffffff; --surface-soft:#f8fafc; --line:#d9e1ea; --line-soft:#edf1f5; --text:#172033; --muted:#64748b; --muted-2:#8a97a8; --accent:#2563eb; --ok:#169443; --warn:#d97706; --danger:#dc2626; --shadow:0 8px 22px rgba(17,24,39,.06); }}
     * {{ box-sizing:border-box; }}
-    body {{ margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI","Malgun Gothic",sans-serif; letter-spacing:0; }}
-    .wrap {{ max-width:1360px; margin:0 auto; padding:16px 18px 36px; }}
-    .card {{ background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:16px 18px; box-shadow:0 8px 22px rgba(23,32,51,.06); }}
-    .hero {{ display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:12px; margin-bottom:12px; }}
-    .hero-title {{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }}
-    .version {{ font-size:14px; font-weight:700; margin-top:8px; white-space:nowrap; color:var(--muted); }}
-    h1 {{ margin:0; font-size:30px; line-height:1.2; letter-spacing:0; }}
-    h2 {{ margin:0 0 12px; font-size:20px; line-height:1.25; }}
-    h3 {{ margin:0 0 10px; font-size:17px; line-height:1.3; }}
-    .muted {{ color:var(--muted); font-size:13px; line-height:1.55; }}
-    .top-kicker {{ color:var(--muted); font-size:13px; font-weight:700; margin-bottom:6px; }}
-    .pillrow {{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 0; }}
-    .pill {{ display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--surface-soft); font-size:13px; color:var(--text); }}
-    .hero-actions {{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; }}
-    .action-button {{ appearance:none; border:none; border-radius:8px; background:var(--accent); color:#fff; padding:10px 14px; font-size:14px; font-weight:800; cursor:pointer; box-shadow:0 8px 18px rgba(15,118,110,.20); }}
+    body {{ margin:0; background:var(--bg); color:var(--text); font-family:"Segoe UI","Malgun Gothic",Arial,sans-serif; letter-spacing:0; }}
+    .app-shell {{ min-height:100vh; display:grid; grid-template-columns:132px minmax(0,1fr); }}
+    .side-nav {{ position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:18px; padding:18px 12px; background:var(--nav); color:#fff; }}
+    .brand {{ display:grid; gap:3px; padding:4px 6px 12px; border-bottom:1px solid rgba(255,255,255,.12); }}
+    .brand-mark {{ width:34px; height:34px; display:grid; place-items:center; border-radius:8px; background:#2563eb; font-weight:900; }}
+    .brand-title {{ font-size:16px; line-height:1.25; font-weight:850; }}
+    .brand-sub {{ color:#a7b0c0; font-size:11px; }}
+    .tabs {{ display:grid; gap:8px; }}
+    .tab-button {{ appearance:none; border:1px solid transparent; border-radius:8px; background:transparent; color:#cbd5e1; min-height:42px; padding:10px 10px; font-size:14px; font-weight:800; text-align:left; cursor:pointer; }}
+    .tab-button:hover {{ background:rgba(255,255,255,.08); color:#fff; }}
+    .tab-button.is-active {{ background:#2563eb; color:#fff; border-color:#3b82f6; }}
+    .side-footer {{ margin-top:auto; color:#9ca3af; font-size:11px; line-height:1.5; padding:10px 6px 0; border-top:1px solid rgba(255,255,255,.12); }}
+    .main {{ min-width:0; padding:18px 22px 32px; }}
+    .topbar {{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:start; margin-bottom:14px; }}
+    .title-row {{ display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap; }}
+    h1 {{ margin:0; font-size:28px; line-height:1.18; font-weight:850; letter-spacing:0; }}
+    h2 {{ margin:0; font-size:18px; line-height:1.25; font-weight:850; letter-spacing:0; }}
+    h3 {{ margin:0 0 10px; font-size:15px; line-height:1.35; font-weight:820; letter-spacing:0; }}
+    .muted, .helper-text {{ color:var(--muted); font-size:12px; line-height:1.55; }}
+    .helper-text {{ margin-top:10px; }}
+    .meta-line {{ margin-top:8px; color:var(--muted); font-size:12px; line-height:1.5; }}
+    .badge-row, .pillrow {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }}
+    .badge, .pill {{ display:inline-flex; align-items:center; gap:6px; min-height:28px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--text); font-size:12px; font-weight:700; }}
+    .badge.is-paper {{ background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }}
+    .badge.is-safe {{ background:#ecfdf5; color:#047857; border-color:#bbf7d0; }}
+    .top-actions {{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; }}
+    .action-button {{ appearance:none; border:0; border-radius:8px; min-height:38px; padding:9px 14px; background:#2563eb; color:#fff; font-size:13px; font-weight:850; cursor:pointer; box-shadow:0 8px 18px rgba(37,99,235,.20); }}
     .action-button:disabled {{ opacity:.7; cursor:wait; }}
-    .alert-list {{ display:grid; gap:8px; margin-top:12px; }}
-    .alert-card {{ border:1px solid rgba(37,99,235,.18); border-radius:8px; background:#eff6ff; padding:10px 12px; }}
-    .alert-card.is-warning {{ border-color:rgba(180,83,9,.25); background:#fff7ed; }}
-    .status-box {{ max-height:126px; overflow:auto; padding-right:8px; }}
-    .filter-form {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; align-items:center; }}
-    .filter-form select, .filter-form input {{ border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; color:var(--text); }}
-    .filter-form button {{ appearance:none; border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px 12px; font-size:13px; cursor:pointer; color:var(--text); }}
-    .metrics {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; margin:0 0 12px; }}
-    .metric-card {{ background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--muted); border-radius:8px; padding:10px 12px; min-height:86px; box-shadow:0 6px 16px rgba(23,32,51,.05); }}
-    .metric-card.is-ok {{ border-left-color:var(--ok); }}
-    .metric-card.is-warn {{ border-left-color:var(--warn); }}
-    .metric-card.is-danger {{ border-left-color:var(--danger); }}
-    .metric-card.is-muted {{ border-left-color:#94a3b8; }}
-    .metric-label {{ color:var(--muted); font-size:12px; font-weight:700; }}
-    .metric-value {{ margin-top:6px; font-size:20px; line-height:1.15; font-weight:850; overflow-wrap:anywhere; }}
-    .metric-note {{ margin-top:6px; color:var(--muted); font-size:11px; line-height:1.3; overflow-wrap:anywhere; }}
-    .tabs {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; padding:4px; border:1px solid var(--line); border-radius:8px; background:#e8eef6; }}
-    .tab-button {{ appearance:none; border:1px solid transparent; border-radius:6px; background:transparent; padding:10px 14px; font-size:14px; font-weight:800; cursor:pointer; color:#334155; }}
-    .tab-button.is-active {{ background:var(--surface); color:var(--accent-strong); border-color:var(--line); box-shadow:0 4px 10px rgba(23,32,51,.06); }}
+    .filter-form {{ display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; align-items:center; }}
+    .filter-form label {{ color:var(--muted); font-size:12px; }}
+    .filter-form select, .filter-form input {{ height:34px; border:1px solid var(--line); border-radius:8px; padding:6px 9px; background:#fff; color:var(--text); font-size:12px; }}
+    .filter-form button {{ height:34px; appearance:none; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text); padding:6px 10px; font-size:12px; font-weight:750; cursor:pointer; }}
+    .alert-list {{ display:grid; gap:8px; margin:0 0 12px; }}
+    .alert-card {{ border:1px solid #bfdbfe; border-left:4px solid var(--accent); border-radius:8px; background:#eff6ff; padding:10px 12px; }}
+    .alert-card.is-warning {{ border-color:#fed7aa; border-left-color:var(--warn); background:#fff7ed; }}
+    .metrics {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 14px; }}
+    .metric-card {{ min-height:104px; background:var(--surface); border:1px solid var(--line); border-top:3px solid #94a3b8; border-radius:8px; padding:12px; box-shadow:var(--shadow); }}
+    .metric-card.is-ok {{ border-top-color:var(--ok); }}
+    .metric-card.is-warn {{ border-top-color:var(--warn); }}
+    .metric-card.is-danger {{ border-top-color:var(--danger); }}
+    .metric-card.is-muted {{ border-top-color:#94a3b8; }}
+    .metric-label {{ color:var(--muted); font-size:12px; font-weight:800; }}
+    .metric-value {{ margin-top:7px; font-size:20px; line-height:1.2; font-weight:900; overflow-wrap:anywhere; }}
+    .metric-note {{ margin-top:6px; color:var(--muted); font-size:11px; line-height:1.35; overflow-wrap:anywhere; }}
     .tab-panel {{ display:none; }}
     .tab-panel.is-active {{ display:block; }}
-    .subtab-shell {{ display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; }}
-    .subtab-nav {{ display:grid; gap:10px; align-content:start; }}
-    .subtab-button {{ appearance:none; width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; font-size:14px; font-weight:750; text-align:left; cursor:pointer; color:var(--text); }}
+    .ops-layout {{ display:grid; grid-template-columns:minmax(0,1.35fr) minmax(380px,.9fr); gap:14px; align-items:start; }}
+    .ops-primary, .ops-side, .stack {{ display:grid; gap:14px; }}
+    .panel, .card, .section-shell {{ background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:var(--shadow); }}
+    .card.card-embedded {{ box-shadow:none; background:#fff; }}
+    .wide-panel {{ margin-top:14px; }}
+    .panel-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
+    .panel-meta {{ color:var(--muted); font-size:12px; font-weight:750; text-align:right; }}
+    .subtab-shell {{ display:grid; grid-template-columns:210px minmax(0,1fr); gap:14px; }}
+    .subtab-nav {{ display:grid; gap:8px; align-content:start; }}
+    .subtab-button {{ appearance:none; width:100%; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text); padding:10px 11px; font-size:13px; font-weight:800; text-align:left; cursor:pointer; }}
     .subtab-button.is-active {{ background:#172033; color:#fff; border-color:#172033; }}
-    .subtab-panel {{ display:none; }}
-    .subtab-panel.is-active {{ display:block; }}
-    .card.card-embedded {{ background:#fff; border-radius:8px; box-shadow:none; }}
-    .data-scroll {{ overflow:auto; padding-right:6px; }}
+    .subtab-panel, .expand-panel {{ display:none; }}
+    .subtab-panel.is-active, .expand-panel.is-active {{ display:block; }}
+    .expand-tabs {{ display:flex; flex-wrap:wrap; gap:7px; margin:8px 0 12px; }}
+    .expand-tabs .subtab-button {{ width:auto; min-height:32px; padding:7px 10px; }}
+    .expand-tabs .subtab-button.is-active {{ background:#2563eb; border-color:#2563eb; color:#fff; }}
+    .data-scroll {{ overflow:auto; padding-right:2px; }}
     .data-scroll table {{ min-width:100%; }}
-    .expand-tabs {{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }}
-    .expand-tabs .subtab-button {{ width:auto; border-radius:999px; padding:8px 12px; font-size:13px; }}
-    .expand-tabs .subtab-button.is-active {{ background:var(--accent); color:#fff; border-color:var(--accent); }}
-    .expand-panel {{ display:none; }}
-    .expand-panel.is-active {{ display:block; }}
-    .layout-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
-    .stack {{ display:grid; gap:16px; }}
-    .ops-grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }}
-    .ops-card {{ background:var(--surface); border:1px solid var(--line); border-top:4px solid #94a3b8; border-radius:8px; padding:13px; min-height:168px; box-shadow:0 8px 20px rgba(23,32,51,.05); }}
-    .ops-card.is-ok {{ border-top-color:var(--ok); }}
-    .ops-card.is-warn {{ border-top-color:var(--warn); }}
-    .ops-card.is-danger {{ border-top-color:var(--danger); }}
-    .ops-card.is-muted {{ border-top-color:#94a3b8; }}
-    .ops-card-head {{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; font-weight:800; }}
-    .status-dot {{ width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block; }}
-    .is-ok .status-dot {{ background:var(--ok); }}
-    .is-warn .status-dot {{ background:var(--warn); }}
-    .is-danger .status-dot {{ background:var(--danger); }}
-    .ops-value {{ margin-top:10px; font-size:22px; line-height:1.2; font-weight:850; overflow-wrap:anywhere; }}
-    .ops-meta {{ margin-top:7px; color:var(--muted); font-size:12px; line-height:1.35; min-height:32px; overflow-wrap:anywhere; }}
-    .ops-kv {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; border-top:1px solid var(--line); padding-top:8px; margin-top:8px; color:var(--muted); font-size:12px; }}
-    .ops-kv strong {{ color:var(--text); text-align:right; font-weight:750; overflow-wrap:anywhere; }}
-    .ops-lower {{ margin-bottom:12px; }}
-    .ops-list .data-scroll {{ max-height:260px; }}
-    table {{ width:100%; border-collapse:collapse; font-size:14px; }}
-    th, td {{ text-align:left; padding:10px 8px; border-top:1px solid rgba(23,32,51,.10); vertical-align:top; }}
-    thead th {{ border-top:none; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0; }}
-    .empty {{ color:var(--muted); font-size:14px; padding:8px 0; }}
+    table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+    th, td {{ text-align:left; padding:9px 8px; border-top:1px solid var(--line-soft); vertical-align:top; line-height:1.35; }}
+    thead th {{ position:sticky; top:0; z-index:1; background:#f8fafc; color:#64748b; border-top:0; font-size:11px; font-weight:850; }}
+    tbody tr:hover {{ background:#f8fafc; }}
+    .empty {{ color:var(--muted); font-size:13px; padding:8px 0; }}
     ul {{ margin:0; padding-left:18px; }}
-    li {{ margin:8px 0; }}
-    @media (max-width: 1200px) {{ .hero,.layout-2,.subtab-shell {{ grid-template-columns:1fr; }} .metrics,.ops-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
-    @media (max-width: 720px) {{ .wrap {{ padding:10px; }} .metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .ops-grid {{ grid-template-columns:1fr; }} .metric-card {{ min-height:82px; padding:9px 10px; }} .metric-value {{ font-size:18px; }} .tab-button {{ flex:1 1 48%; padding:10px 8px; }} h1 {{ font-size:24px; }} }}
+    li {{ margin:7px 0; }}
+    @media (max-width: 1180px) {{ .app-shell {{ grid-template-columns:1fr; }} .side-nav {{ position:relative; height:auto; flex-direction:row; align-items:center; overflow:auto; }} .brand {{ border-bottom:0; border-right:1px solid rgba(255,255,255,.12); padding-right:14px; }} .tabs {{ display:flex; min-width:max-content; }} .tab-button {{ white-space:nowrap; }} .side-footer {{ display:none; }} .topbar, .ops-layout, .subtab-shell {{ grid-template-columns:1fr; }} .top-actions {{ align-items:flex-start; }} .filter-form {{ justify-content:flex-start; }} .metrics {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
+    @media (max-width: 720px) {{ .main {{ padding:12px; }} .side-nav {{ padding:10px; gap:10px; }} .brand-title, .brand-sub {{ display:none; }} .metrics {{ grid-template-columns:1fr; }} .metric-card {{ min-height:88px; }} h1 {{ font-size:23px; }} .panel, .card, .section-shell {{ padding:12px; }} th, td {{ padding:8px 6px; }} }}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <section class="hero">
-      <div class="card">
-        <div class="hero-title">
-          <div>
-            <div class="top-kicker">실시간 주가 예측 대시보드</div>
-            <h1>운영 콘솔</h1>
-            {_pill_row([f"운영 모드: {project.get('trading_mode')}", f"활성 모델(15분): {active_model.get('model_version')}", f"활성 모델(60분): {active_model_h60.get('model_version') or '미설정'}", f"장 상태: {latest_kis.get('session_status')}", f"실시간 수집기: {'실행 중' if live_runtime.get('status') == 'running' else '중지'}", f"자동 새로고침: {refresh_text}"])}
+  <div class="app-shell">
+    <aside class="side-nav">
+      <div class="brand">
+        <div class="brand-mark">RT</div>
+        <div class="brand-title">운영<br>대시보드</div>
+        <div class="brand-sub">paper 검증</div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="대시보드 탭">{tab_buttons}</nav>
+      <div class="side-footer">버전 {_esc(payload.get('version'))}<br>자동 새로고침 {refresh_text}</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="title-row">
+            <h1>운영 대시보드</h1>
+            <span class="badge is-paper">모드 {project.get('trading_mode') or '-'}</span>
+            <span class="badge is-safe">실전 주문 {live_order_safety_value}</span>
           </div>
-          <div class="version">Ver {_esc(payload.get('version'))}</div>
+          <div class="meta-line">
+            업데이트 {_esc(payload.get('generated_at') or '-')} · 장 상태 {_esc(session_label)} · 범위 {_esc(period_filter.get('label') or '-')} · 실제 데이터 기준 {_esc(scope.get('actual_runtime_filter_note') or '-')}
+          </div>
         </div>
-        <form class="filter-form" method="get" action="/">
-          <label>조회 범위 <select name="range">{option_html}</select></label>
-          <label>기준 날짜 <input type="date" name="date" value="{_esc(period_filter.get('selected_date'))}"></label>
-          <button type="submit">범위 적용</button>
-        </form>
-      </div>
-      <div class="card">
-        <div class="hero-actions">
+        <div class="top-actions">
           <button id="refresh-dashboard-button" class="action-button" type="button">상태 업데이트</button>
-          <div class="status-box muted">업데이트 시각: {_esc(payload.get('generated_at'))}<br>상태 요약: {_esc(system_status.get('operation_note'))}<br>실제 데이터 기준: {_esc(scope.get('actual_runtime_filter_note'))}<br>현재 범위: {_esc(period_filter.get('label'))}<br>{_esc(period_filter.get('description'))}<br>예측 수평선: {_esc(', '.join(system_status.get('prediction_horizons') or []))}<br>신호 생성 기준: {_esc(system_status.get('signal_horizon') or '-')}</div>
+          <form class="filter-form" method="get" action="/">
+            <label>조회 범위 <select name="range">{option_html}</select></label>
+            <label>기준 날짜 <input type="date" name="date" value="{_esc(period_filter.get('selected_date'))}"></label>
+            <button type="submit">적용</button>
+          </form>
         </div>
-        {_alert_list(status_alerts)}
-      </div>
-    </section>
-    <section class="metrics">{metrics_html}</section>
-    <section class="tabs" role="tablist" aria-label="대시보드 탭">{tab_buttons}</section>
-
-    <section id="tab-ops" class="tab-panel is-active">{operator_console_html}</section>
-    <section id="tab-accounts" class="tab-panel">{accounts_tab_html}</section>
-    <section id="tab-ml-data" class="tab-panel">{ml_data_tab_html}</section>
-    <section id="tab-orders" class="tab-panel">{orders_tab_html}</section>
-    <section id="tab-reports-settings" class="tab-panel">{reports_settings_tab_html}</section>
+      </header>
+      {_alert_list(status_alerts)}
+      <section class="metrics">{metrics_html}</section>
+      <section data-tab-id="tab-ops" class="tab-panel is-active">{operator_console_html}</section>
+      <section data-tab-id="tab-accounts" class="tab-panel">{accounts_tab_html}</section>
+      <section data-tab-id="tab-ml-data" class="tab-panel">{ml_data_tab_html}</section>
+      <section data-tab-id="tab-orders" class="tab-panel">{orders_tab_html}</section>
+      <section data-tab-id="tab-reports-settings" class="tab-panel">{reports_settings_tab_html}</section>
+    </main>
   </div>
   <script>
     (() => {{
@@ -4575,6 +4659,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       const refreshButton = document.getElementById('refresh-dashboard-button');
       const storageKey = 'realtime-stock-dashboard-active-tab';
       const subtabStoragePrefix = 'realtime-stock-dashboard-subtab-';
+      const resetScroll = () => {{
+        window.requestAnimationFrame(() => window.scrollTo({{ top: 0, left: 0, behavior: 'auto' }}));
+      }};
       const activateSubtabGroup = (group, targetId) => {{
         const buttonsInGroup = Array.from(document.querySelectorAll(`[data-subtab-group="${{group}}"]`));
         const panelsInGroup = Array.from(document.querySelectorAll(`[data-subtab-panel="${{group}}"]`));
@@ -4597,19 +4684,21 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       }};
       const activate = (targetId) => {{
         const fallbackId = 'tab-ops';
-        const nextId = document.getElementById(targetId) ? targetId : fallbackId;
+        const panelIds = new Set(panels.map((panel) => panel.dataset.tabId).filter(Boolean));
+        const nextId = panelIds.has(targetId) ? targetId : fallbackId;
         buttons.forEach((button) => {{
           const active = button.dataset.tabTarget === nextId;
           button.classList.toggle('is-active', active);
           button.setAttribute('aria-selected', active ? 'true' : 'false');
         }});
-        panels.forEach((panel) => panel.classList.toggle('is-active', panel.id === nextId));
+        panels.forEach((panel) => panel.classList.toggle('is-active', panel.dataset.tabId === nextId));
         if (window.location.hash !== `#${{nextId}}`) {{
           history.replaceState(null, '', `#${{nextId}}`);
         }}
         try {{
           window.localStorage.setItem(storageKey, nextId);
         }} catch (error) {{}}
+        resetScroll();
       }};
       buttons.forEach((button) => button.addEventListener('click', () => activate(button.dataset.tabTarget)));
       Array.from(document.querySelectorAll('[data-subtab-group]')).forEach((button) => {{
