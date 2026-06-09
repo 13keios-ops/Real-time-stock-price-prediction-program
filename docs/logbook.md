@@ -1,5 +1,37 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 예측 정확도와 수익률 판단 분리
+
+- 사용자 지시:
+  - 매수 전용 paper 운용에서 매도 신호가 차단되더라도, 수익률 평가는 매수/매도 신호가 실제로 거래됐다고 보는 별도 replay가 필요하다는 권장안을 적용한다.
+  - 예측 정확도만으로 승격 판단을 오해하지 않도록 신호 기준 가상 수익률과 실제 paper 체결 수익률을 분리해 보여준다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장중 보호 모드가 아니므로 dashboard 코드, 테스트, snapshot 재생성, dashboard 서버 재시작을 진행했다.
+- 조치:
+  - `app/services/dashboard.py`에 `long_only_signal_replay` 요약을 추가했다.
+    - `미보유+매수 허용`은 진입으로 계산한다.
+    - `보유+매도 신호`는 현물 포지션 청산으로 계산한다.
+    - `미보유+매도 신호`는 신규 숏이 아니라 진입 회피로 집계한다.
+    - 왕복 슬리피지만 반영한 대시보드용 가상 수익률이며, 세금/수수료 정산 원장은 아니다.
+  - 실제 paper 체결 원장은 FIFO 기준으로 맞춰 청산손익과 수익률을 별도로 집계한다.
+  - 예측현황 요약에 `수익률 해석 분리`와 `신호 replay 기준` 카드를 추가했다.
+  - 운영 콘솔의 모델 판단 카드에도 `신호 replay`와 `실제 paper 체결` 손익을 함께 표시한다.
+  - `tests/test_dashboard.py`에 sell 신호가 신규 숏이 아니라 보유 포지션 청산으로 replay 되는지, 실제 paper fill 손익이 FIFO로 계산되는지 확인하는 회귀 테스트를 추가했다.
+- 실제 2026-06-09 snapshot 확인:
+  - `signal_replay_summary`: 관측 신호 `3799`, 진입 `578`, 청산 `578`, 신호 청산 `577`, 시간 청산 `1`, 미보유 매도 회피 `1526`, 추정 순손익 약 `-63,485원`, 거래합산 순수익률 약 `-9.07%`.
+  - `paper_fill_return_summary`: FIFO 청산 `25건`, 승률 `56.0%`, 실제 paper 청산손익 약 `+10,687원`, basis 기준 수익률 약 `+0.075%`.
+- 검증:
+  - `python -m unittest tests.test_dashboard`: 21개 통과.
+  - `python -m app --build-dashboard`: 통과, `generated_at=2026-06-10T05:20:26.972903+09:00`.
+  - `runtime-data/reports/dashboard/latest-dashboard.json`: `signal_replay_summary`, `paper_fill_return_summary` 블록 존재 확인.
+  - dashboard 서버 재시작 후 `./scripts/get_dashboard_status.sh`: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 예측 흐름 표 의미/수익 표시 개선
 
 - 사용자 지시:

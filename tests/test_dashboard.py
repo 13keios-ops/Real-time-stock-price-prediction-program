@@ -6,6 +6,7 @@ import threading
 import unittest
 import urllib.request
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.config.settings import load_settings
@@ -13,6 +14,8 @@ from app.config.settings import load_settings
 from app.services.dashboard import (
     _apply_current_challenger_dashboard_guards,
     _build_account_sync_status,
+    _build_paper_fill_return_summary,
+    _build_signal_replay_summary,
     _challenger_decision_label,
     _prediction_flow_view,
     build_dashboard_snapshot,
@@ -200,6 +203,122 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("별도 청산", flow["order_text"])
         self.assertIn("+20,000원 (+20.00%)", flow["profit_text"])
         self.assertIn("별도 청산: 포지션 관리 주문", flow["link_text"])
+
+    def test_signal_replay_treats_sell_as_exit_not_new_short(self) -> None:
+        settings = SimpleNamespace(
+            strategy=SimpleNamespace(
+                slippage_bps=3.0,
+                paper_initial_cash=25_000_000.0,
+                max_position_pct=0.08,
+                min_signal_confidence=0.58,
+                max_hold_minutes=20,
+                max_open_positions=5,
+            ),
+            market_calendar=SimpleNamespace(forced_flat_time="15:20"),
+        )
+        minute_rows = [
+            {"symbol": "005930", "bar_time": "2026-06-09T09:00:00+09:00", "close": 100.0},
+            {"symbol": "005930", "bar_time": "2026-06-09T09:10:00+09:00", "close": 105.0},
+            {"symbol": "005930", "bar_time": "2026-06-09T09:20:00+09:00", "close": 101.0},
+            {"symbol": "005930", "bar_time": "2026-06-09T09:30:00+09:00", "close": 100.0},
+            {"symbol": "005930", "bar_time": "2026-06-09T09:50:00+09:00", "close": 90.0},
+        ]
+        signals = [
+            {
+                "signal_id": "sig-buy-1",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:00:00+09:00",
+                "side": "buy",
+                "confidence": 0.7,
+                "allowed": True,
+                "reason": "time_gate=within_window;spread_gate=spread_ok",
+            },
+            {
+                "signal_id": "sig-sell-exit",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:10:00+09:00",
+                "side": "sell",
+                "confidence": 0.8,
+                "allowed": False,
+                "reason": "time_gate=within_window;spread_gate=spread_ok;long_only_policy",
+            },
+            {
+                "signal_id": "sig-sell-avoid",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:20:00+09:00",
+                "side": "sell",
+                "confidence": 0.8,
+                "allowed": False,
+                "reason": "time_gate=within_window;spread_gate=spread_ok;long_only_policy",
+            },
+            {
+                "signal_id": "sig-buy-2",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:30:00+09:00",
+                "side": "buy",
+                "confidence": 0.7,
+                "allowed": True,
+                "reason": "time_gate=within_window;spread_gate=spread_ok",
+            },
+        ]
+
+        summary = _build_signal_replay_summary(signals, minute_rows, settings=settings)
+
+        self.assertEqual(summary["trades_opened"], 2)
+        self.assertEqual(summary["trades_closed"], 2)
+        self.assertEqual(summary["signal_exit_count"], 1)
+        self.assertEqual(summary["time_exit_count"], 1)
+        self.assertEqual(summary["avoided_short_entries"], 1)
+        self.assertAlmostEqual(float(summary["net_return_sum_pct"]), -5.12, places=6)
+        self.assertAlmostEqual(float(summary["estimated_net_pnl"]), -102_400.0, places=2)
+
+    def test_paper_fill_return_summary_uses_fifo_realized_pnl(self) -> None:
+        order_rows = [
+            {
+                "order_id": "paper-order-entry",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:00:00+09:00",
+                "side": "buy",
+                "qty": 1,
+                "limit_price": 100000.0,
+                "status": "filled",
+            },
+            {
+                "order_id": "paper-order-close",
+                "symbol": "005930",
+                "event_time": "2026-06-09T09:10:00+09:00",
+                "side": "sell",
+                "qty": 1,
+                "limit_price": 120000.0,
+                "status": "filled",
+            },
+        ]
+        fill_rows = [
+            {
+                "fill_id": "fill-buy",
+                "order_id": "paper-order-entry",
+                "event_time": "2026-06-09T09:00:00+09:00",
+                "fill_price": 100000.0,
+                "fill_qty": 1,
+                "commission": 0.0,
+                "tax": 0.0,
+            },
+            {
+                "fill_id": "fill-sell",
+                "order_id": "paper-order-close",
+                "event_time": "2026-06-09T09:10:00+09:00",
+                "fill_price": 120000.0,
+                "fill_qty": 1,
+                "commission": 0.0,
+                "tax": 0.0,
+            },
+        ]
+
+        summary = _build_paper_fill_return_summary(order_rows, fill_rows)
+
+        self.assertEqual(summary["closed_trades"], 1)
+        self.assertAlmostEqual(float(summary["net_pnl"]), 20_000.0)
+        self.assertAlmostEqual(float(summary["return_on_basis_pct"]), 20.0)
 
     def _mock_account_report(self) -> MagicMock:
         report = MagicMock()

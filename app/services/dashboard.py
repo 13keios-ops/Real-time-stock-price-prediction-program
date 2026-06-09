@@ -1357,6 +1357,258 @@ def _prediction_flow_profit_text(orders: list[dict[str, Any]], profit_by_order: 
     return "\n".join(lines)
 
 
+def _round_trip_cost_pct(settings) -> float:
+    return max(float(settings.strategy.slippage_bps), 0.0) * 2.0 / 100.0
+
+
+def _bar_close_at_or_after(
+    bar_index: dict[str, dict[str, list[Any]]],
+    *,
+    symbol: str,
+    event_time: datetime,
+) -> float | None:
+    row = _find_first_same_day_bar_at_or_after(bar_index, symbol=symbol, target_time=event_time)
+    if row is None or row.get("close") is None:
+        return None
+    try:
+        return float(row["close"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_signed_pct(value: Any, digits: int = 2) -> str:
+    if value is None:
+        return "-"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return _esc(value)
+    if abs(numeric) < 0.005:
+        return f"{0:.{digits}f}%"
+    return f"{numeric:+.{digits}f}%"
+
+
+def _build_signal_replay_summary(
+    signal_views: list[dict[str, Any]],
+    minute_bar_rows: list[dict[str, Any]],
+    *,
+    settings,
+) -> dict[str, Any]:
+    _, _, bar_index = _build_bar_lookup(minute_bar_rows)
+    round_trip_cost_pct = _round_trip_cost_pct(settings)
+    position_notional = float(settings.strategy.paper_initial_cash) * float(settings.strategy.max_position_pct)
+    forced_flat_clock = _parse_market_clock(settings.market_calendar.forced_flat_time)
+    min_confidence = float(settings.strategy.min_signal_confidence)
+    max_hold_minutes = int(settings.strategy.max_hold_minutes)
+    max_open_positions = int(settings.strategy.max_open_positions)
+
+    positions: dict[str, dict[str, Any]] = {}
+    trades: list[dict[str, Any]] = []
+    skipped_no_price = 0
+    skipped_max_positions = 0
+    skipped_already_open = 0
+    avoided_short_entries = 0
+
+    def close_position(symbol: str, exit_time: datetime, exit_price: float, reason: str) -> None:
+        position = positions.pop(symbol, None)
+        if position is None:
+            return
+        entry_price = float(position["entry_price"])
+        gross_return_pct = ((exit_price / entry_price) - 1.0) * 100.0 if entry_price else 0.0
+        net_return_pct = gross_return_pct - round_trip_cost_pct
+        net_pnl = position_notional * net_return_pct / 100.0
+        trades.append(
+            {
+                "symbol": symbol,
+                "entry_time": position["entry_time"].isoformat(),
+                "exit_time": exit_time.isoformat(),
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "gross_return_pct": gross_return_pct,
+                "net_return_pct": net_return_pct,
+                "net_pnl": net_pnl,
+                "exit_reason": reason,
+                "entry_signal_id": position.get("signal_id"),
+            }
+        )
+
+    def close_due_positions(current_time: datetime) -> None:
+        due_symbols: list[tuple[str, datetime, float, str]] = []
+        for symbol, position in list(positions.items()):
+            entry_time = position["entry_time"]
+            due_time = entry_time + timedelta(minutes=max_hold_minutes)
+            if current_time >= due_time:
+                due_price = _bar_close_at_or_after(bar_index, symbol=symbol, event_time=due_time)
+                if due_price is not None:
+                    due_symbols.append((symbol, due_time, due_price, "time_exit"))
+                    continue
+            if current_time.timetz().replace(tzinfo=None) >= forced_flat_clock:
+                current_price = _bar_close_at_or_after(bar_index, symbol=symbol, event_time=current_time)
+                if current_price is not None:
+                    due_symbols.append((symbol, current_time, current_price, "forced_flat"))
+        for symbol, exit_time, exit_price, reason in due_symbols:
+            close_position(symbol, exit_time, exit_price, reason)
+
+    for signal in sorted(signal_views, key=lambda item: (str(item.get("event_time") or ""), str(item.get("symbol") or ""))):
+        symbol = str(signal.get("symbol") or "")
+        event_time = _parse_iso_datetime(signal.get("event_time"))
+        if not symbol or event_time is None:
+            continue
+        close_due_positions(event_time)
+        price = _bar_close_at_or_after(bar_index, symbol=symbol, event_time=event_time)
+        if price is None:
+            skipped_no_price += 1
+            continue
+        side = str(signal.get("side") or "")
+        confidence = float(signal.get("confidence") or 0.0)
+        fields, _ = _semicolon_fields(signal.get("reason"))
+        spread_ok = fields.get("spread_gate") != "spread_too_wide"
+        entry_allowed = bool(signal.get("allowed")) and side == "buy"
+        exit_signal = side == "sell" and confidence >= min_confidence and spread_ok
+
+        if symbol in positions and exit_signal:
+            close_position(symbol, event_time, price, "sell_signal_exit")
+            continue
+        if side == "sell" and symbol not in positions:
+            avoided_short_entries += 1
+            continue
+        if not entry_allowed:
+            continue
+        if symbol in positions:
+            skipped_already_open += 1
+            continue
+        if len(positions) >= max_open_positions:
+            skipped_max_positions += 1
+            continue
+        positions[symbol] = {
+            "entry_time": event_time,
+            "entry_price": price,
+            "signal_id": signal.get("signal_id"),
+        }
+
+    for symbol, position in list(positions.items()):
+        due_time = position["entry_time"] + timedelta(minutes=max_hold_minutes)
+        due_price = _bar_close_at_or_after(bar_index, symbol=symbol, event_time=due_time)
+        if due_price is not None:
+            close_position(symbol, due_time, due_price, "time_exit")
+
+    closed_trades = len(trades)
+    net_return_sum = sum(float(trade["net_return_pct"]) for trade in trades)
+    gross_return_sum = sum(float(trade["gross_return_pct"]) for trade in trades)
+    net_pnl_sum = sum(float(trade["net_pnl"]) for trade in trades)
+    wins = sum(1 for trade in trades if float(trade["net_return_pct"]) > 0)
+    signal_exit_count = sum(1 for trade in trades if trade.get("exit_reason") == "sell_signal_exit")
+    time_exit_count = sum(1 for trade in trades if trade.get("exit_reason") == "time_exit")
+    forced_flat_count = sum(1 for trade in trades if trade.get("exit_reason") == "forced_flat")
+    return {
+        "model": "long_only_signal_replay",
+        "description": "미보유+매수 허용은 진입, 보유+매도 신호는 청산, 미보유+매도 신호는 신규 숏 없이 진입 회피로 보는 현물 기준 replay입니다.",
+        "cost_model": "round_trip_slippage_only",
+        "round_trip_cost_pct": round_trip_cost_pct,
+        "position_notional": position_notional,
+        "signals_seen": len(signal_views),
+        "trades_opened": closed_trades + len(positions),
+        "trades_closed": closed_trades,
+        "open_positions": len(positions),
+        "wins": wins,
+        "win_rate": (wins / closed_trades) if closed_trades else None,
+        "gross_return_sum_pct": gross_return_sum,
+        "net_return_sum_pct": net_return_sum,
+        "average_net_return_pct": (net_return_sum / closed_trades) if closed_trades else None,
+        "estimated_net_pnl": net_pnl_sum,
+        "signal_exit_count": signal_exit_count,
+        "time_exit_count": time_exit_count,
+        "forced_flat_count": forced_flat_count,
+        "avoided_short_entries": avoided_short_entries,
+        "skipped_max_positions": skipped_max_positions,
+        "skipped_already_open": skipped_already_open,
+        "skipped_no_price": skipped_no_price,
+        "recent_trades": trades[-10:],
+    }
+
+
+def _build_paper_fill_return_summary(
+    order_rows: list[dict[str, Any]],
+    fill_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    fills_by_order: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in fill_rows:
+        fills_by_order[str(row.get("order_id") or "")].append(row)
+
+    lot_book: defaultdict[str, list[dict[str, float]]] = defaultdict(list)
+    closed_trades: list[dict[str, Any]] = []
+    for order in sorted(order_rows, key=lambda item: (str(item.get("event_time") or ""), str(item.get("order_id") or ""))):
+        order_id = str(order.get("order_id") or "")
+        summary = _order_filled_summary(order, fills_by_order)
+        filled_qty = int(summary["filled_qty"] or 0)
+        avg_price = summary["avg_price"]
+        if not order_id or filled_qty <= 0 or avg_price is None:
+            continue
+        symbol = str(order.get("symbol") or "")
+        side = str(order.get("side") or "")
+        if side == "buy":
+            lot_book[symbol].append(
+                {
+                    "qty": float(filled_qty),
+                    "avg_price": float(avg_price),
+                    "cost": float(summary["cost"] or 0.0),
+                }
+            )
+            continue
+        if side != "sell":
+            continue
+        remaining = float(filled_qty)
+        matched_qty = 0.0
+        basis = 0.0
+        gross_profit = 0.0
+        buy_cost_used = 0.0
+        lots = lot_book[symbol]
+        while remaining > 0 and lots:
+            lot = lots[0]
+            use_qty = min(remaining, lot["qty"])
+            basis += lot["avg_price"] * use_qty
+            gross_profit += (float(avg_price) - lot["avg_price"]) * use_qty
+            matched_qty += use_qty
+            cost_ratio = use_qty / lot["qty"] if lot["qty"] else 0.0
+            buy_cost_used += lot["cost"] * cost_ratio
+            lot["qty"] -= use_qty
+            lot["cost"] -= lot["cost"] * cost_ratio
+            remaining -= use_qty
+            if lot["qty"] <= 0:
+                lots.pop(0)
+        if matched_qty <= 0 or basis <= 0:
+            continue
+        sell_cost_used = float(summary["cost"] or 0.0) * (matched_qty / filled_qty)
+        net_pnl = gross_profit - buy_cost_used - sell_cost_used
+        net_return_pct = (net_pnl / basis) * 100.0
+        closed_trades.append(
+            {
+                "symbol": symbol,
+                "order_id": order_id,
+                "event_time": order.get("event_time"),
+                "matched_qty": matched_qty,
+                "basis": basis,
+                "net_pnl": net_pnl,
+                "net_return_pct": net_return_pct,
+            }
+        )
+
+    total_basis = sum(float(trade["basis"]) for trade in closed_trades)
+    total_net_pnl = sum(float(trade["net_pnl"]) for trade in closed_trades)
+    wins = sum(1 for trade in closed_trades if float(trade["net_pnl"]) > 0)
+    return {
+        "model": "actual_paper_fills_fifo",
+        "description": "실제 paper 체결 원장을 FIFO로 맞춘 청산 손익입니다.",
+        "closed_trades": len(closed_trades),
+        "wins": wins,
+        "win_rate": (wins / len(closed_trades)) if closed_trades else None,
+        "total_basis": total_basis,
+        "net_pnl": total_net_pnl,
+        "return_on_basis_pct": (total_net_pnl / total_basis * 100.0) if total_basis else None,
+        "recent_trades": closed_trades[-10:],
+    }
+
+
 def _prediction_flow_view(
     prediction_views: list[dict[str, Any]],
     signal_views: list[dict[str, Any]],
@@ -2171,6 +2423,12 @@ def collect_dashboard_payload(
 
     prediction_summary = _build_prediction_summary(prediction_views)
     signal_order_summary = _build_signal_order_summary(signal_rows, order_rows, fill_rows)
+    signal_replay_summary = _build_signal_replay_summary(
+        signal_views,
+        minute_bar_rows,
+        settings=settings,
+    )
+    paper_fill_return_summary = _build_paper_fill_return_summary(order_rows, fill_rows)
 
     live_runtime_state = _normalize_live_runtime_state(
         _safe_load_json(settings.runtime_data_dir / "reports" / "live-runtime" / "state" / "listener-state.json")
@@ -2527,6 +2785,8 @@ def collect_dashboard_payload(
         "model_rows": model_rows,
         "prediction_summary": prediction_summary,
         "signal_order_summary": signal_order_summary,
+        "signal_replay_summary": signal_replay_summary,
+        "paper_fill_return_summary": paper_fill_return_summary,
         "latest_training": latest_training,
         "latest_evaluation": latest_evaluation,
         "today_training_runs": today_training_runs,
@@ -2620,6 +2880,18 @@ def _money(value: Any) -> str:
         return f"{float(value):,.0f}원"
     except (TypeError, ValueError):
         return _esc(value)
+
+
+def _signed_money(value: Any) -> str:
+    if value is None:
+        return "-"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return _esc(value)
+    if abs(numeric) < 0.5:
+        return "0원"
+    return f"{numeric:+,.0f}원"
 
 
 def _number(value: Any) -> str:
@@ -3469,6 +3741,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
+    signal_replay_summary = payload.get("signal_replay_summary", {}) or {}
+    paper_fill_return_summary = payload.get("paper_fill_return_summary", {}) or {}
     prediction_flow_full_day = bool(payload.get("prediction_flow_full_day"))
     today_report = payload.get("today_report", {}) or {}
     account_views = payload.get("account_views", {}) or {}
@@ -3733,6 +4007,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"결과 없음: {prediction_summary.get('no_result', 0)}",
         f"예측 성공: {prediction_summary.get('success_count', 0)}",
         f"성공률: {_ratio_pct(prediction_summary.get('success_rate'), 1)}",
+        f"신호 replay 손익: {_signed_money(signal_replay_summary.get('estimated_net_pnl'))} / {_format_signed_pct(signal_replay_summary.get('net_return_sum_pct'))}",
+        f"실제 paper 청산손익: {_signed_money(paper_fill_return_summary.get('net_pnl'))} / {_format_signed_pct(paper_fill_return_summary.get('return_on_basis_pct'))}",
     ]
     prediction_session_rows = [
         [
@@ -3766,6 +4042,47 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             _money(value.get("avg_actual_change_amount")),
         ]
         for key, value in (prediction_summary.get("direction_stats") or {}).items()
+    ]
+    return_interpretation_rows = [
+        [
+            "예측 정확도",
+            f"{prediction_summary.get('evaluated', 0)}건 확정",
+            _ratio_pct(prediction_summary.get("success_rate"), 1),
+            "up/down/flat 예측 label이 실제 label과 맞았는지 봅니다. 주문 실행 여부와는 별도입니다.",
+        ],
+        [
+            "신호 replay",
+            f"{signal_replay_summary.get('trades_closed', 0)}건 청산 / {signal_replay_summary.get('trades_opened', 0)}건 진입",
+            f"{_signed_money(signal_replay_summary.get('estimated_net_pnl'))} / {_format_signed_pct(signal_replay_summary.get('net_return_sum_pct'))}",
+            (
+                "미보유+매수 허용은 진입, 보유+매도 신호는 청산, 미보유+매도는 신규 숏 없이 진입 회피로 보는 "
+                "현물 기준 가상 수익률입니다."
+            ),
+        ],
+        [
+            "실제 paper 체결",
+            f"{paper_fill_return_summary.get('closed_trades', 0)}건 청산",
+            f"{_signed_money(paper_fill_return_summary.get('net_pnl'))} / {_format_signed_pct(paper_fill_return_summary.get('return_on_basis_pct'))}",
+            "실제 paper 체결 원장을 FIFO로 맞춘 청산 손익입니다. 시간기반 paper 청산과 브로커 체결 결과가 섞여 있습니다.",
+        ],
+    ]
+    signal_replay_rows = [
+        ["계산 방식", signal_replay_summary.get("model") or "-"],
+        ["거래 비용 모델", signal_replay_summary.get("cost_model") or "-"],
+        ["왕복 비용", _format_signed_pct(signal_replay_summary.get("round_trip_cost_pct"))],
+        ["가정 포지션 금액", _money(signal_replay_summary.get("position_notional"))],
+        ["관측 신호", signal_replay_summary.get("signals_seen", 0)],
+        ["진입", signal_replay_summary.get("trades_opened", 0)],
+        ["청산", signal_replay_summary.get("trades_closed", 0)],
+        ["승률", _ratio_pct(signal_replay_summary.get("win_rate"), 1)],
+        ["신호 청산", signal_replay_summary.get("signal_exit_count", 0)],
+        ["시간 청산", signal_replay_summary.get("time_exit_count", 0)],
+        ["장마감 청산", signal_replay_summary.get("forced_flat_count", 0)],
+        ["미보유 매도 회피", signal_replay_summary.get("avoided_short_entries", 0)],
+        ["최대 보유수 초과 스킵", signal_replay_summary.get("skipped_max_positions", 0)],
+        ["순손익", _signed_money(signal_replay_summary.get("estimated_net_pnl"))],
+        ["거래합산 순수익률", _format_signed_pct(signal_replay_summary.get("net_return_sum_pct"))],
+        ["설명", signal_replay_summary.get("description") or "-"],
     ]
     signal_status_pills = [
         f"매수 신호: {signal_order_summary.get('signal_buy', 0)}",
@@ -4730,6 +5047,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 _stack_cards(
                     _section_card("예측 요약", _pill_row(prediction_status_pills + [f"최근 예측 시각: {prediction_summary.get('latest_prediction_time') or '-'}"]), note="예측 성공률은 실제 결과가 확정된 예측만 기준으로 계산합니다. 선택 기간 전체 기준으로 집계합니다."),
                     _section_card(
+                        "수익률 해석 분리",
+                        _table(["구분", "표본", "결과", "해석"], return_interpretation_rows, "수익률 해석 데이터가 없습니다.", scroll_height=260),
+                        note="승격 판단에서는 예측 정확도, 신호 기준 가상 수익률, 실제 paper 체결 수익률을 분리해서 봅니다.",
+                    ),
+                    _section_card(
+                        "신호 replay 기준",
+                        _table(["항목", "값"], signal_replay_rows, "신호 replay 결과가 없습니다.", scroll_height=330),
+                        note="이 값은 주문 원장을 바꾸지 않는 대시보드용 가상 replay입니다. 미보유 상태의 매도 신호는 신규 숏이 아니라 진입 회피로 봅니다.",
+                    ),
+                    _section_card(
                         "수평선 및 방향별 집계",
                         _pill_row(
                             [f"{key}분: {value}건" for key, value in (prediction_summary.get("horizon_counts") or {}).items()]
@@ -4928,6 +5255,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["활성 모델(15분)", active_model.get("model_version") or "-", active_model.get("model_kind") or "-", "장중 신호 기준"],
         ["최신 LightGBM", lightgbm_status.get("latest_model_version") or "-", _ratio_pct(lightgbm_status.get("validation_accuracy"), 2), f"학습 {lightgbm_status.get('train_rows') or 0}행"],
         ["워크포워드", latest_walk_forward.get("model_version") or "-", _ratio_pct(latest_walk_forward.get("overall_accuracy"), 2), f"순수익률 {_pct(latest_walk_forward.get('cumulative_net_return_pct'), 2)}"],
+        ["신호 replay", _signed_money(signal_replay_summary.get("estimated_net_pnl")), _format_signed_pct(signal_replay_summary.get("net_return_sum_pct")), f"청산 {signal_replay_summary.get('trades_closed', 0)}건"],
+        ["실제 paper 체결", _signed_money(paper_fill_return_summary.get("net_pnl")), _format_signed_pct(paper_fill_return_summary.get("return_on_basis_pct")), f"청산 {paper_fill_return_summary.get('closed_trades', 0)}건"],
         ["챌린저 권장", challenger_action_label, latest_challenger.get("recommended_model_version") or "-", f"승격 적용 {'예' if latest_challenger.get('promotion_applied') else '아니오'}"],
     ]
     operator_console_html = f"""
@@ -4962,7 +5291,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
               <h2>모델 판단</h2>
               <span class="panel-meta">{_esc(challenger_action_label)}</span>
             </div>
-            {_table(["구분", "모델/판단", "정확도", "메모"], ops_model_rows, "표시할 모델 요약이 없습니다.", scroll_height=260)}
+            {_table(["구분", "판단/손익", "지표", "메모"], ops_model_rows, "표시할 모델 요약이 없습니다.", scroll_height=260)}
           </div>
         </div>
       </section>
