@@ -1,5 +1,42 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 예측 흐름 일자 선택 전체 표시 보정
+
+- 사용자 지시:
+  - `예측 흐름`이 마지막 시각 예측만 보여서 모두 `결과 없음`으로 보인다.
+  - 요일/일자를 선택하면 하루치가 모두 보이고, 장 시작 시각부터 순서대로 보이게 한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - `git status --short --branch`: `main...origin/main`.
+- 원인:
+  - `예측 흐름`은 `recent_limit=100`으로 잘린 최신 예측만 표시했고, 정렬도 최신순이었다.
+  - 따라서 2026-06-09 같은 장마감 이후 화면에서는 15:19 예측이 먼저 나오고, 15분/60분 미래 결과가 없는 행이 집중됐다.
+- 조치:
+  - `app/services/dashboard.py`에서 하루 단위 기간(`today`, `day`)이면 `prediction_flow_rows`를 제한 없이 만들고, 장 시작 시각부터 오름차순으로 정렬하게 했다.
+  - 3일/7일/30일/전체 기간은 대시보드 부하를 막기 위해 기존처럼 최신 제한을 유지한다.
+  - `예측 흐름` 안내 문구에 일자 선택 화면은 하루 전체 흐름을 장 시작 시각부터 보여준다고 명시했다.
+  - `tests/test_dashboard.py`에 일자 선택 시 전체 8개 예측 흐름이 10:00부터 10:07까지 오름차순으로 표시되는 회귀 테스트를 추가했다.
+  - dashboard 서버와 runtime watchdog 을 장외 상태에서 재시작해 최신 코드가 반영되게 했다.
+- 검증:
+  - `python3 -m py_compile app/services/dashboard.py`: 통과.
+  - `python3 -m unittest tests.test_dashboard.DashboardTests.test_dashboard_prediction_detail_shows_all_selected_predictions`: 통과.
+  - `python3 -m unittest tests.test_dashboard`: 18개 통과.
+  - `python3 -m app --build-dashboard`: 통과, `generated_at=2026-06-10T03:04:36.299005+09:00`.
+  - 실제 API `range=day&date=2026-06-09` 확인:
+    - `prediction_flow_full_day=true`
+    - `prediction_flow_rows=3799`
+    - 첫 행 `2026-06-09T09:00:00+09:00`
+    - 마지막 행 `2026-06-09T15:19:00+09:00`
+    - 첫 행 실제 결과는 성공/실패 판정이 채워지고, 마지막 장마감 직전 행만 결과 없음으로 남는다.
+- 운영 상태:
+  - dashboard: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+  - runtime watchdog: `status=running`, `heartbeat_stale=false`.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 예측-신호-주문-체결 흐름 추적 보강
 
 - 사용자 지시:

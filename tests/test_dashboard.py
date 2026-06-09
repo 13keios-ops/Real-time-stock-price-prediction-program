@@ -1150,11 +1150,19 @@ class DashboardTests(unittest.TestCase):
             self._seed_dashboard_inputs(runtime_root)
             self._seed_many_actual_predictions_runtime(root, count=8)
             with patch("app.services.dashboard.refresh_kis_account_report", return_value=self._mock_account_report()):
-                snapshot = build_dashboard_snapshot(project_root=root, recent_limit=5, range_key="all")
+                snapshot = build_dashboard_snapshot(
+                    project_root=root,
+                    recent_limit=5,
+                    range_key="day",
+                    selected_date="2026-04-13",
+                )
 
         self.assertEqual(len(snapshot.payload["recent_predictions"]), 5)
         self.assertEqual(len(snapshot.payload["prediction_details"]), 8)
-        self.assertEqual(len(snapshot.payload["prediction_flow_rows"]), 5)
+        self.assertEqual(len(snapshot.payload["prediction_flow_rows"]), 8)
+        self.assertTrue(snapshot.payload["prediction_flow_full_day"])
+        self.assertEqual(snapshot.payload["prediction_flow_rows"][0]["event_time"], "2026-04-13T10:00:00+09:00")
+        self.assertEqual(snapshot.payload["prediction_flow_rows"][-1]["event_time"], "2026-04-13T10:07:00+09:00")
         self.assertEqual(snapshot.payload["prediction_summary"]["total"], 8)
 
 

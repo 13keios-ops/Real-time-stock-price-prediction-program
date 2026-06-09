@@ -1126,6 +1126,7 @@ def _prediction_flow_view(
     fill_rows: list[dict[str, Any]],
     *,
     limit: int,
+    latest_first: bool = True,
 ) -> list[dict[str, Any]]:
     predictions_by_key: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in prediction_views:
@@ -1213,7 +1214,10 @@ def _prediction_flow_view(
             }
         )
 
-    flow_rows.sort(key=lambda row: (str(row.get("event_time") or ""), str(row.get("symbol") or "")), reverse=True)
+    flow_rows.sort(
+        key=lambda row: (str(row.get("event_time") or ""), str(row.get("symbol") or "")),
+        reverse=latest_first,
+    )
     limited = flow_rows[:limit] if limit > 0 else flow_rows
     for index, row in enumerate(limited, start=1):
         row["flow_no"] = index
@@ -1894,12 +1898,14 @@ def collect_dashboard_payload(
     recent_fills = _reverse_recent(fill_rows, recent_limit)
     recent_bars = _reverse_recent(minute_bar_rows, recent_limit)
     recent_broker_order_submissions = _reverse_recent(broker_submission_rows, recent_limit)
+    prediction_flow_full_day = period_filter.range_key in {"today", "day"}
     prediction_flow_rows = _prediction_flow_view(
         prediction_views,
         signal_views,
         order_rows,
         fill_rows,
-        limit=recent_limit,
+        limit=0 if prediction_flow_full_day else recent_limit,
+        latest_first=not prediction_flow_full_day,
     )
 
     prediction_summary = _build_prediction_summary(prediction_views)
@@ -2294,6 +2300,7 @@ def collect_dashboard_payload(
         "recent_predictions": recent_predictions,
         "prediction_details": prediction_details,
         "prediction_flow_rows": prediction_flow_rows,
+        "prediction_flow_full_day": prediction_flow_full_day,
         "recent_signals": recent_signals,
         "recent_orders": recent_orders,
         "recent_fills": recent_fills,
@@ -3193,6 +3200,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     lightgbm_status = payload.get("lightgbm_status", {}) or {}
     prediction_summary = payload.get("prediction_summary", {}) or {}
     signal_order_summary = payload.get("signal_order_summary", {}) or {}
+    prediction_flow_full_day = bool(payload.get("prediction_flow_full_day"))
     today_report = payload.get("today_report", {}) or {}
     account_views = payload.get("account_views", {}) or {}
     virtual_account = account_views.get("virtual_paper", {}) or {}
@@ -4487,7 +4495,12 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "현재 범위에 예측 흐름 기록이 없습니다.",
                         scroll_height=520,
                     ),
-                    note="신규 paper 주문은 prediction_id 또는 signal_id로 우선 연결합니다. 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각 기준으로 보조 연결하고, 체결은 주문 ID 기준으로 연결합니다.",
+                    note=(
+                        "일자 선택 화면에서는 하루 전체 흐름을 장 시작 시각부터 순서대로 보여줍니다. "
+                        if prediction_flow_full_day
+                        else "여러 날/전체 기간 화면에서는 화면 부하를 줄이기 위해 최신 흐름만 보여줍니다. "
+                    )
+                    + "신규 paper 주문은 prediction_id 또는 signal_id로 우선 연결합니다. 과거 주문처럼 추적 ID가 없는 기록은 동일 종목/동일 시각 기준으로 보조 연결하고, 체결은 주문 ID 기준으로 연결합니다.",
                 ),
             ),
             (
