@@ -1,5 +1,60 @@
 # 작업 기록
 
+## [2026-06-09] Codex -> 첨부 KIS 모의계좌 화면 기준 paper/KIS 정합성 조치
+
+- 사용자 지시:
+  - KIS 모의계좌 잔고, 거래내역, 기간별 수익률 화면을 첨부했고 조치할 것이 있으면 조치한다.
+- 시작 상태:
+  - 현재 시각: `2026-06-09T19:39:14+09:00`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`, live runtime 은 `2026-06-09 15:30:47 +0900`에 정상 정지.
+  - `./scripts/get_runtime_watchdog_status.sh`: 재부팅/세션 이후 stale PID 상태였고 실제 프로세스는 없었다.
+  - `./scripts/get_dashboard_status.sh`: stale PID 상태였고 dashboard/API 응답이 없었다.
+  - `git status --short --branch`: `main...origin/main`.
+- 첨부 화면 확인:
+  - 누적 수익률: `-6.98%`, 손익금액 `-698,243원`, 기초자산 `10,000,000원`, 평가시점자산 `9,301,757원`.
+  - 주간 2026-06-09: 수익률 `-0.60%`, 손익금액 `-56,332원`.
+  - 계좌잔고: 보유종목 없음, 예수금총액 `8,009,590원`, 총평가금액/일일정산액/D+2정산액 `9,301,757원`.
+  - 거래내역: 2026-06-09에 `373220` LG에너지솔루션 매도 체결이 여러 건 있으며, 마지막 화면 기준 보유 잔고가 0으로 정리됐다.
+- 자동화 확인:
+  - 장전 readiness: `generated_at=2026-06-09 08:20:01 +0900`, `status=ok`.
+  - 장후 ML maintenance: `completed_at=2026-06-09 16:09:51 +0900`, `status=ok`.
+  - 장후 label refresh: 최신 상태 파일은 `2026-06-08 16:43:21 +0900`, `status=ok`로 남아 있었다.
+  - KIS live data quality: latest trade date `2026-06-09`, `assessment.status=watch`.
+    - intraday coverage 는 raw market `97.6215%`, minute bar/feature `97.3657%`로 정상 범위다.
+    - watch 이유는 당일 h15 label coverage 가 아직 낮다는 신선 데이터 주의다.
+- 조치:
+  - watchdog 과 dashboard 를 재기동했다.
+    - watchdog: `status=running`, `errors=[]`.
+    - dashboard: `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+  - `python3 -m app --sync-broker-paper-orders`를 cooldown 뒤 재실행했으나 KIS `EGW00201` rate limit 이 유지됐고, local 쪽에는 open order 5건이 남아 있었다.
+  - `python3 -m app --reconcile-paper-accounts` 결과 broker 는 보유 0, local 은 5종목 보유로 `needs_review`였다.
+    - broker effective cash/total asset 은 첨부 화면과 같은 `9,301,757원`.
+    - local snapshot 은 `2026-06-09T14:42:59+09:00` 기준이라 장후 실제 계좌 상태를 따라오지 못했다.
+  - broker account snapshot 이 정상/최신이고 첨부 화면상 보유종목이 없으므로, 다음 거래일 기준선 보호를 위해 `-SyncInitialCash` 없이 `python3 -m app --align-local-paper-to-broker` marker-only alignment 를 적용했다.
+  - 조치 후:
+    - `python3 -m app --sync-broker-paper-orders`: `status=no_submissions`, `open_order_count=0`.
+    - `python3 -m app --reconcile-paper-accounts`: `ok=true`, `status=aligned_waiting_first_submission`, mismatch 0, `cash_gap=0`, `total_asset_gap=0`.
+    - `./scripts/verify_paper_dual_account_match.sh -AsJson`: `ok=true`, `status=matched_waiting_first_submission`.
+  - `scripts/wsl_ops.py`의 dual-account 검증에서 marker-only 정렬 상태를 인식하도록 보강했다.
+    - 변경 전: 거래 후 계좌가 flat 이어도 `PAPER_INITIAL_CASH`가 KIS 원시 예수금과 다르면 `initial_cash_mismatch`로 실패했다.
+    - 변경 후: `aligned_to_broker_marker`와 `aligned_waiting_first_submission`이 동시에 확인되고 계좌 비교가 이미 일치하면 초기 예수금 검사를 건너뛰고 사유를 `broker_alignment_marker_active`로 기록한다.
+    - 영향 범위: `scripts/verify_paper_dual_account_match.sh`가 호출하는 WSL 운영 helper의 리포트 판정.
+    - 회귀 위험: marker 파일이 잘못 남아 있으면 초기 예수금 불일치 감지가 약해질 수 있으나, reconciliation 이 `ok`이고 mismatch/cash/total gap 이 모두 일치하는 경우에만 skip 하도록 제한했다.
+  - `python3 -m app --build-runtime-report`는 shell timeout 이 발생했지만 파일은 `2026-06-09 19:56:32 +0900`로 갱신됐고 남은 프로세스는 없었다.
+  - `python3 -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-06-09T20:01:02+09:00`.
+- 검증:
+  - `python3 -m unittest tests.test_wsl_ops`: 16개 통과.
+  - `bash -n scripts/verify_paper_dual_account_match.sh`: 통과.
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`: 통과, `status=matched_waiting_first_submission`.
+- 남은 주의:
+  - KIS order-fill endpoint 는 오늘도 `EGW00201`를 반환했으므로 같은 endpoint 추가 호출은 중단했다.
+  - order-level fill 감사가 완전히 복구된 것은 아니고, 이번 조치는 broker account snapshot 과 첨부 화면을 기준으로 다음 거래일 paper baseline 을 보호한 것이다.
+  - 장후 label refresh 최신 상태 파일이 2026-06-08 기준으로 남아 있어 다음 장후 자동화에서 갱신 여부를 다시 확인한다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-08] Codex -> Daily Ops Check와 paper/KIS 장후 정합성 복구
 
 - 사용자 지시:

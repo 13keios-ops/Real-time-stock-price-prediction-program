@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-04 21:56 KST
+- 마지막 갱신: 2026-06-09 20:05 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중
@@ -33,21 +33,20 @@
   기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-04T21:56:15+09:00`.
+  기준 `generated_at=2026-06-09T20:01:02+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
-  기준 `status=ok`, blockers/warnings 없음.
+  기준 `generated_at=2026-06-09 08:20:01 +0900`, `status=ok`.
 - 최신 장후 ML maintenance:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`
-  기준 `status=ok`, `mode=quick-live-train`.
+  기준 `completed_at=2026-06-09 16:09:51 +0900`, `status=ok`, `mode=quick-live-train`.
 - 최신 장후 label refresh:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`
-  기준 `status=ok`.
+  기준 `completed_at=2026-06-08 16:43:21 +0900`, `status=ok`.
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
-  기준 `status=needs_review`,
-  `cash_gap=41829.05498999916`,
-  `total_asset_gap=41429.05498999916`, 포지션 mismatch 0.
+  기준 `status=aligned_waiting_first_submission`,
+  `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -131,10 +130,30 @@
     `status=matched_waiting_first_submission`이다.
   - 2026-06-08 장후 KIS live data quality 도 latest trade date 는 맞지만
     최신일 coverage 미달로 `assessment.status=watch`다.
+  - 2026-06-09 장전 readiness 와 장후 ML maintenance 는 정상 실행됐다.
+  - 2026-06-09 사용자가 첨부한 KIS 모의계좌 화면 기준 누적 수익률은
+    `-6.98%`, 평가시점자산/총평가금액은 `9,301,757원`, 보유종목은 없음이다.
+  - 2026-06-09 broker paper sync 는 KIS `EGW00201` rate limit 이 유지됐고,
+    장후 broker 계좌는 보유 0인데 local 은 5종목 보유로 남아
+    `needs_review`였다.
+  - broker account snapshot 과 첨부 화면이 정상/최신이고 다음 거래일
+    기준선 보호가 우선이라 `-SyncInitialCash` 없이 marker-only alignment 를
+    적용했다. 이후 broker sync 는 `status=no_submissions`,
+    `open_order_count=0`, dual-account match 는
+    `status=matched_waiting_first_submission`이다.
+  - `scripts/wsl_ops.py`의 dual-account 검증은 marker-only 정렬 후 flat 계좌를
+    `initial_cash_mismatch`로 오탐하지 않도록 보강됐다. 이 경로는
+    reconciliation 이 이미 일치하고 `aligned_to_broker_marker`가 확인될 때만
+    초기 예수금 검사를 건너뛴다.
+  - 2026-06-09 장후 KIS live data quality 는 latest trade date 는 맞고
+    intraday coverage 는 97%대지만, 당일 h15 label coverage 주의로
+    `assessment.status=watch`다.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
   - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
-  - 2026-06-05와 2026-06-08에 반복된 data quality `watch` 원인을 별도 확인한다.
+  - 2026-06-05, 2026-06-08, 2026-06-09에 반복된 data quality `watch` 원인을 별도 확인한다.
+  - 2026-06-09 장후 label refresh 최신 상태 파일이 2026-06-08 기준으로 남아
+    다음 장후 자동화에서 갱신 여부를 다시 확인한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 

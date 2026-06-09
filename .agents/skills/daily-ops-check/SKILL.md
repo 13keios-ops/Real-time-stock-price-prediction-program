@@ -127,6 +127,11 @@ python -m app --reconcile-paper-accounts
   다음 거래일 기준선 보호가 필요한 paper mirroring 수량 mismatch 라면
   `-SyncInitialCash` 없이 broker account 기준 marker-only alignment 를 적용할 수 있다.
   이 경우 order-level fill 감사가 복구되지 않았다는 한계를 logbook 에 반드시 남긴다.
+- marker-only alignment 뒤 broker/local 모두 flat 이고 reconciliation 이
+  `aligned_waiting_first_submission`이면, 현재 예수금과 `PAPER_INITIAL_CASH`가
+  다르다는 이유만으로 `-SyncInitialCash`를 붙이지 않는다. 이때
+  dual-account 리포트의 `initial_cash_check_skipped_reason`이
+  `broker_alignment_marker_active`이면 정상 조치 완료 상태로 본다.
 - 실전 계좌 주문/취소는 하지 않는다.
 
 ### 리포트와 dashboard

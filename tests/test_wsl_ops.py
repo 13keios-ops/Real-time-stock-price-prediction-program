@@ -408,6 +408,80 @@ class WslOpsPaperDualAccountMatchTests(unittest.TestCase):
             self.assertTrue(payload["env"]["initial_cash_check_required"])
             self.assertTrue(payload["env"]["initial_cash_matches_broker_cash"])
 
+    def test_aligned_marker_skips_initial_cash_mismatch_after_flat_realign(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime-data"
+            (root / ".env").write_text("ENABLE_BROKER_PAPER_MIRRORING=true\nPAPER_INITIAL_CASH=500000\n", encoding="utf-8")
+            alignment_dir = runtime / "reports" / "broker-paper"
+            alignment_dir.mkdir(parents=True, exist_ok=True)
+            (alignment_dir / "latest-alignment.json").write_text(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "status": "aligned_to_broker_marker",
+                        "aligned_at": "2026-06-09T19:45:39+09:00",
+                        "broker_position_count": 0,
+                        "baseline_snapshot": {
+                            "cash_balance": 9301757.0,
+                            "net_liquidation_value": 9301757.0,
+                            "gross_market_value": 0.0,
+                        },
+                        "baseline_positions": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if "--kis-account-balance" in cmd:
+                    self._write_account(runtime, cash=8_009_590.0, positions=[])
+                if "--reconcile-paper-accounts" in cmd:
+                    report_dir = runtime / "reports" / "reconciliation"
+                    report_dir.mkdir(parents=True, exist_ok=True)
+                    (report_dir / "latest-paper-account-sync.json").write_text(
+                        json.dumps(
+                            {
+                                "ok": True,
+                                "comparison": {
+                                    "status": "aligned_waiting_first_submission",
+                                    "mismatch_count": 0,
+                                    "cash_gap": 0.0,
+                                    "raw_cash_gap": 1_292_167.0,
+                                    "total_asset_gap": 0.0,
+                                    "balance_match": True,
+                                    "total_asset_match": True,
+                                    "order_mirroring_enabled": True,
+                                    "mirrored_order_count": 0,
+                                },
+                                "local_account": {
+                                    "cash_balance": 9_301_757.0,
+                                    "net_liquidation_value": 9_301_757.0,
+                                    "positions": [],
+                                },
+                                "broker_account": {
+                                    "cash_balance": 8_009_590.0,
+                                    "stock_evaluation_amount": 0.0,
+                                    "total_asset_amount": 9_301_757.0,
+                                    "positions": [],
+                                },
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with patch("scripts.wsl_ops.subprocess.run", side_effect=fake_run):
+                with redirect_stdout(StringIO()):
+                    wsl_ops.verify_paper_dual_account_match(self._args(root, runtime))
+
+            self.assertIn("PAPER_INITIAL_CASH=500000", (root / ".env").read_text(encoding="utf-8"))
+            payload = json.loads((runtime / "reports" / "reconciliation" / "latest-paper-dual-account-match.json").read_text(encoding="utf-8"))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["status"], "matched_waiting_first_submission")
+            self.assertFalse(payload["env"]["initial_cash_check_required"])
+            self.assertEqual(payload["env"]["initial_cash_check_skipped_reason"], "broker_alignment_marker_active")
+
     def test_fail_on_mismatch_exits_after_writing_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

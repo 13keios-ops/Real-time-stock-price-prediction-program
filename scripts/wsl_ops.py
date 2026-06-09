@@ -1395,7 +1395,22 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
     mirrored = int(comp.get("mirrored_order_count") or 0)
     local_positions = local.get("positions") if isinstance(local.get("positions"), list) else []
     local_position_count = len(local_positions)
-    initial_cash_check_required = broker_position_count_from_account == 0 and local_position_count == 0
+    balance_match = bool(comp.get("balance_match")) if comp.get("balance_match") is not None else abs(cash_gap) < 1
+    total_asset_match = bool(comp.get("total_asset_match")) if comp.get("total_asset_match") is not None else abs(total_gap) < 1
+    accounts_match = bool(reconciliation.get("ok")) and mismatch == 0 and balance_match and total_asset_match
+    alignment_marker = read_json(runtime / "reports/broker-paper/latest-alignment.json", {}) or {}
+    broker_alignment_marker_active = (
+        bool(alignment_marker.get("ok"))
+        and alignment_marker.get("status") == "aligned_to_broker_marker"
+        and comp.get("status") == "aligned_waiting_first_submission"
+        and accounts_match
+    )
+    initial_cash_check_required = (
+        broker_position_count_from_account == 0
+        and local_position_count == 0
+        and not broker_alignment_marker_active
+    )
+    initial_cash_check_skipped_reason = "broker_alignment_marker_active" if broker_alignment_marker_active else ""
     initial_cash_matches_broker = True
     if initial_cash_check_required:
         local_initial_cash = number_or_none(initial_cash_after)
@@ -1404,9 +1419,6 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
             and broker_cash_from_account is not None
             and abs(local_initial_cash - broker_cash_from_account) < 1
         )
-    balance_match = bool(comp.get("balance_match")) if comp.get("balance_match") is not None else abs(cash_gap) < 1
-    total_asset_match = bool(comp.get("total_asset_match")) if comp.get("total_asset_match") is not None else abs(total_gap) < 1
-    accounts_match = bool(reconciliation.get("ok")) and mismatch == 0 and balance_match and total_asset_match
     ok = (
         bool(account.get("ok", True))
         and bool(reconciliation.get("ok"))
@@ -1431,6 +1443,7 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
             "paper_initial_cash_before": initial_cash_before,
             "paper_initial_cash_after": initial_cash_after,
             "initial_cash_check_required": initial_cash_check_required,
+            "initial_cash_check_skipped_reason": initial_cash_check_skipped_reason,
             "initial_cash_matches_broker_cash": initial_cash_matches_broker,
             "trading_mode": env_after.get("TRADING_MODE", ""),
             "broker_paper_mirroring_enabled": bool(comp.get("order_mirroring_enabled")),
@@ -1450,6 +1463,7 @@ def verify_paper_dual_account_match(args: argparse.Namespace) -> None:
         f"- local initial cash before: {initial_cash_before}\n"
         f"- local initial cash after: {initial_cash_after}\n"
         f"- initial cash check required: {initial_cash_check_required}\n"
+        f"- initial cash check skipped reason: {initial_cash_check_skipped_reason or '-'}\n"
         f"- cash gap: {cash_gap}\n"
         f"- total asset gap: {total_gap}\n"
         f"- mismatch count: {mismatch}\n",
