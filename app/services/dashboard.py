@@ -1501,6 +1501,26 @@ def _apply_current_challenger_dashboard_guards(
     return guarded
 
 
+def _challenger_decision_label(candidate: dict[str, Any], report: dict[str, Any]) -> str:
+    candidate_version = str(candidate.get("model_version") or "")
+    candidate_name = str(candidate.get("candidate_name") or "")
+    recommended_version = str(report.get("recommended_model_version") or "")
+    promoted_version = str(report.get("promoted_model_version") or "")
+    recommended_action = str(report.get("recommended_action") or "")
+    if bool(report.get("promotion_applied")) and promoted_version and candidate_version == promoted_version:
+        return "승격됨"
+    if recommended_version and candidate_version == recommended_version:
+        if recommended_action == "promote":
+            return "승격 권장"
+        if recommended_action == "review_required":
+            return "검토 필요"
+        if recommended_action == "keep_active" and candidate_name == "active_model":
+            return "유지 권장"
+    if candidate_name == "active_model":
+        return "현재 활성"
+    return "관찰"
+
+
 def _build_today_report(
     *,
     period_filter: DashboardPeriodFilter,
@@ -2887,7 +2907,7 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
           </div>
           <div class="card">
             <h2>챌린저 비교</h2>
-            {_table(['순위','후보','모델 버전','정확도','거래 적중률','누적 순수익률'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
+            {_table(['순위','후보','모델 버전','정확도','거래 적중률','거래 수','누적 순수익률','평가 자격','승격 판단','독립성/아티팩트'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
           </div>
           <div class="card">
             <h2>워크포워드 fold 요약</h2>
@@ -3124,8 +3144,10 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             row.get("model_version"),
             _ratio_pct(row.get("overall_accuracy"), 2),
             _ratio_pct(row.get("trade_hit_rate"), 2),
+            row.get("trades_taken"),
             _pct(row.get("cumulative_net_return_pct"), 2),
-            "예" if row.get("promotable") else "아니오",
+            "있음" if row.get("promotable") else "없음",
+            _challenger_decision_label(row, latest_challenger),
             row.get("artifact_training_status") or row.get("evaluation_independence_status") or "-",
         ]
         for row in latest_challenger.get("candidates", [])
@@ -4157,11 +4179,14 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     _section_card(
                         "챌린저 비교",
                         _table(
-                            ["순위", "후보", "모델 버전", "정확도", "거래 적중률", "누적 순수익률", "승격 가능", "독립성/아티팩트"],
+                            ["순위", "후보", "모델 버전", "정확도", "거래 적중률", "거래 수", "누적 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"],
                             challenger_rows,
                             "챌린저 비교 결과가 없습니다.",
                         ),
-                        note=_esc(latest_challenger.get("current_guard_note") or "현재 코드 기준 가드가 적용된 승격 가능 여부를 표시합니다."),
+                        note=_esc(
+                            latest_challenger.get("current_guard_note")
+                            or "평가 자격은 독립 holdout/아티팩트 기준입니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트를 함께 봅니다."
+                        ),
                     ),
                     _section_card("워크포워드 상세", _table(["fold", "정확도", "거래 수", "거래 적중률", "누적 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),

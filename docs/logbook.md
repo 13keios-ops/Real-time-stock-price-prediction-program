@@ -61,6 +61,35 @@
     `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - NAS 백업 실행 없음.
 
+## [2026-06-09] Codex -> ML dashboard 챌린저 승격 표기 정리
+
+- 사용자 질문:
+  - 장중 점검 필요성, 예수금 미일치 반복 원인, 데이터 품질 `watch` 이유, 모델 정확도 위치, 챌린저 지표 의미, `fresh_centroid` 승격 가능 표기, 학습 상태와 수익률 반영 여부를 확인했다.
+- 확인:
+  - 현재 시각 기준 장 상태는 `post-close`, live runtime 은 `stopped` 정상, watchdog/dashboard 는 `running`.
+  - 최신 paper/KIS dual-account match 는 `ok=true`, `status=matched_waiting_first_submission`.
+    - KIS 원시 예수금과 총평가금액 차이는 KIS 표시 항목 차이이고, reconciliation 은 총평가금액 기준 유효현금으로 `cash_gap=0`, `total_asset_gap=0`이다.
+  - KIS live data quality 는 `assessment.status=watch`.
+    - raw market/분봉/feature coverage 는 97%대라 장중 수집 자체는 정상 범위다.
+    - watch 이유는 최신 거래일의 h15/h60 label 이 아직 닫히지 않은 상태로 남아 있기 때문이다.
+  - 최신 학습 모델은 `lightgbm-h15-v1`, 학습 validation 정확도는 `41.46%`, challenger holdout 에서 latest_lightgbm 정확도는 `39.10%`, 거래 적중률은 `60.00%`, 거래 수는 10건이다.
+  - 실제 활성 모델은 `baseline-h15-v1`이고, challenger report 는 `recommended_action=keep_active`, `promotion_applied=false`다.
+- 조치:
+  - `app/services/dashboard.py`의 챌린저 비교 표에서 `승격 가능`을 `평가 자격`으로 바꾸고, `승격 판단`과 `거래 수`를 별도 표시했다.
+  - `fresh_centroid`처럼 독립 holdout 평가 자격은 있지만 거래 수 0, 거래 적중률 0, 누적 순수익률 0인 후보는 화면에서 `승격 판단=관찰`로 보이게 했다.
+  - 실제 승격/유지 판단은 `recommended_action`, `promotion_applied`, 워크포워드 게이트를 함께 보도록 설명 문구를 보강했다.
+  - dashboard snapshot 을 `generated_at=2026-06-10T00:04:43+09:00`로 재생성했다.
+- 검증:
+  - `python3 -m unittest tests.test_dashboard.DashboardTests.test_challenger_decision_label_distinguishes_eligibility_from_promotion tests.test_dashboard.DashboardTests.test_challenger_dashboard_guard_marks_legacy_lightgbm_not_promotable`: 통과.
+  - `python3 -m app --build-dashboard`: 통과.
+- 남은 주의:
+  - 장중 점검은 필요하다. 권장안은 장중 1회 read-only 점검으로, broker/KIS 정합성, 수집 coverage, dashboard freshness 만 확인하고 code/schema/runtime restart 는 하지 않는 방식이다.
+  - 장후 label refresh 최신 상태 파일은 아직 2026-06-08 기준이라 다음 장후 자동화에서 2026-06-09 라벨 마감 여부를 다시 본다.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-08] Codex -> Daily Ops Check와 paper/KIS 장후 정합성 복구
 
 - 사용자 지시:

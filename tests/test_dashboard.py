@@ -13,6 +13,7 @@ from app.config.settings import load_settings
 from app.services.dashboard import (
     _apply_current_challenger_dashboard_guards,
     _build_account_sync_status,
+    _challenger_decision_label,
     build_dashboard_snapshot,
     collect_dashboard_payload,
     prepare_dashboard_server,
@@ -25,6 +26,30 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class DashboardTests(unittest.TestCase):
+    def test_challenger_decision_label_distinguishes_eligibility_from_promotion(self) -> None:
+        report = {
+            "recommended_action": "keep_active",
+            "recommended_model_version": "baseline-h15-v1",
+            "promotion_applied": False,
+            "promoted_model_version": None,
+        }
+
+        self.assertEqual(
+            _challenger_decision_label({"candidate_name": "active_model", "model_version": "baseline-h15-v1"}, report),
+            "유지 권장",
+        )
+        self.assertEqual(
+            _challenger_decision_label({"candidate_name": "fresh_centroid", "model_version": "centroid-challenger-h15-v1"}, report),
+            "관찰",
+        )
+        self.assertEqual(
+            _challenger_decision_label(
+                {"candidate_name": "latest_lightgbm", "model_version": "lightgbm-h15-v1"},
+                {**report, "recommended_action": "promote", "recommended_model_version": "lightgbm-h15-v1"},
+            ),
+            "승격 권장",
+        )
+
     def test_challenger_dashboard_guard_marks_legacy_lightgbm_not_promotable(self) -> None:
         report = {
             "candidates": [
