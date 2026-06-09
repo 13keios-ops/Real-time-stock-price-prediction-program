@@ -19,7 +19,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-09 20:05 KST
+- 마지막 갱신: 2026-06-09 22:40 KST
 - 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: 실행 중

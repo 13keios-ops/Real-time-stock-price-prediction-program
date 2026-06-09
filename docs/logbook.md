@@ -42,6 +42,12 @@
     - 회귀 위험: marker 파일이 잘못 남아 있으면 초기 예수금 불일치 감지가 약해질 수 있으나, reconciliation 이 `ok`이고 mismatch/cash/total gap 이 모두 일치하는 경우에만 skip 하도록 제한했다.
   - `python3 -m app --build-runtime-report`는 shell timeout 이 발생했지만 파일은 `2026-06-09 19:56:32 +0900`로 갱신됐고 남은 프로세스는 없었다.
   - `python3 -m app --build-dashboard`: 통과, dashboard snapshot `generated_at=2026-06-09T20:01:02+09:00`.
+  - PC 재부팅 후 추가 확인:
+    - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, live runtime 정지 상태 정상.
+    - `./scripts/get_runtime_watchdog_status.sh`와 `./scripts/get_dashboard_status.sh`: 재부팅 전 PID가 남은 `stale` 상태였다.
+    - `./scripts/start_runtime_watchdog_background.sh`와 `./scripts/start_dashboard_background.sh`로 재기동했다.
+    - 재기동 후 watchdog 은 `status=running`, `errors=[]`, dashboard 는 `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+    - 재부팅 전 WSL `git push` timeout 으로 로컬 `main`이 원격보다 1커밋 앞선 상태였고, Windows Git fallback 으로 `3ba6ca9` 푸시를 완료했다.
 - 검증:
   - `python3 -m unittest tests.test_wsl_ops`: 16개 통과.
   - `bash -n scripts/verify_paper_dual_account_match.sh`: 통과.
