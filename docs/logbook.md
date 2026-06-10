@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-06-10] Codex -> 장후 자동화 보고 경로와 운영 blocker 복구
+
+- 사용자 지시:
+  - 장전 자동화만 보이고 장후 자동화가 안 되는 것처럼 보이는 원인을 확인하고 조치한다.
+- 확인:
+  - 현재 시각 기준 장 상태는 `post-close`, live runtime 은 `stopped` 정상.
+  - Windows 작업 스케줄러 `RealTimeStockRuntime_PostCloseOps`: `LastRunTime=2026-06-10 16:40:40`, `LastTaskResult=0`, `NumberOfMissedRuns=0`.
+  - `runtime-data/logs/automation/postclose-ops.log`: `Wed Jun 10 16:40:05 KST 2026` 실행 이력 확인.
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`: `status=ok`, completed `2026-06-10 16:52:36 +0900`.
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`: `status=ok`, completed `2026-06-10 16:57:05 +0900`.
+  - 장후 자동화는 실행됐지만 마지막 local setup check 가 `dashboard_not_running`, `watchdog_not_running` blocker 를 남겼다.
+  - Codex 앱 heartbeat 는 현재 스레드에 1개만 붙일 수 있어 장전 heartbeat 만 active 상태였고, 장후 결과가 이 스레드로 자동 보고되지 않았다.
+- 조치:
+  - `./scripts/start_dashboard_background.sh`와 `./scripts/start_runtime_watchdog_background.sh`로 dashboard 와 runtime watchdog 을 복구했다.
+  - `./scripts/check_local_setup.sh` 재실행 결과 `ok=true`, blockers/warnings 없음.
+  - Codex 앱 heartbeat `automation`을 장전/장후 공용으로 업데이트했다. KST 장전 08:25~08:45, 장후 17:10~17:30 외 교차 실행은 DONT_NOTIFY 로 조용히 종료하도록 prompt 를 바꿨다.
+- 남은 운영 이슈:
+  - `runtime-data/reports/broker-paper/latest-sync.json`: KIS `EGW00201` rate limit 으로 `status=rate_limited`, open order `2`, pending symbols `247540`, `373220`.
+  - `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`: `status=needs_review`.
+    - 브로커 모의계좌 보유: `247540` 4주.
+    - 로컬 paper 보유: `247540` 4주, `373220` 1주.
+    - `373220`은 local only mismatch 이므로 align 으로 덮지 않았다.
+  - KIS order-fill 조회가 반복 rate limit 상태라 추가 KIS 호출은 중지했다. 다음 장전 전 또는 rate limit 이 풀린 뒤 order-fill 조회 복구가 필요하다.
+- 금지/안전:
+  - 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 예측 정확도와 수익률 판단 분리
 
 - 사용자 지시:
