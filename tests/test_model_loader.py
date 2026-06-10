@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.models.baseline import BaselineDirectionModel
-from app.models.loader import load_prediction_model
+from app.models.loader import load_latest_lightgbm_shadow_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.storage.contracts import FeatureSnapshot
 from app.utils.time import now_local
@@ -90,6 +90,35 @@ class ModelLoaderTests(unittest.TestCase):
             model = load_prediction_model(settings, horizon_min=15)
 
             self.assertIsInstance(model, BaselineDirectionModel)
+
+    def test_load_latest_lightgbm_shadow_model_returns_none_without_artifact(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "model-loader-lightgbm-shadow-empty" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+
+        with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
+            settings = load_settings(project_root=root)
+
+            self.assertIsNone(load_latest_lightgbm_shadow_model(settings, horizon_min=15))
+
+    def test_load_latest_lightgbm_shadow_model_uses_latest_artifact(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "model-loader-lightgbm-shadow" / str(uuid.uuid4())
+        model_dir = runtime_root / "ml" / "models"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        older_artifact = model_dir / "lightgbm-h15-v1.joblib"
+        latest_artifact = model_dir / "lightgbm-h15-v2.joblib"
+        older_artifact.write_text("placeholder", encoding="utf-8")
+        latest_artifact.write_text("placeholder", encoding="utf-8")
+        fake_model = object()
+
+        with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
+            settings = load_settings(project_root=root)
+            with patch("app.models.loader.LightGbmDirectionModel.from_path", return_value=fake_model) as from_path:
+                model = load_latest_lightgbm_shadow_model(settings, horizon_min=15)
+
+        self.assertIs(model, fake_model)
+        from_path.assert_called_once_with(latest_artifact)
 
 
 if __name__ == "__main__":

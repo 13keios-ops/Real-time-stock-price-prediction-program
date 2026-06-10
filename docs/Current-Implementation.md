@@ -19,7 +19,7 @@
 - 실전 주문: 기본 비활성화
 - 15분 활성 모델: `baseline-h15-v1`
 - 60분 활성 모델: `baseline-h60-v1`
-- LightGBM: 장후 재학습과 challenger 비교에 사용하되, 검증 통과 전 자동 승격하지 않음
+- LightGBM: 장후 재학습과 challenger 비교에 사용하되, 검증 통과 전 자동 승격하지 않음. 최신 artifact가 있는 horizon 은 장중 같은 종목/시각에 shadow serving 예측으로 추가 저장하지만, 주문 판단에는 쓰지 않음
 - 대시보드 주소: 실행 시 `http://127.0.0.1:8765`
 - runtime 데이터 루트: `runtime-data/`
 - 장 상태 라벨: 일반 거래일의 정규장 시작 60분 전부터 `pre-open` warmup 으로 보고, 그보다 이른 새벽/야간 시간은 `overnight`로 구분한다. `overnight`에서는 live runtime 이 꺼져 있어도 정상일 수 있다.
@@ -648,6 +648,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ## 현재 운영 권장
 
 현재는 `baseline-h15-v1` 을 활성 실시간 모델로 유지하고, `lightgbm-h15-v1` 은 도전자 모델 산출물로 학습/비교한다.
+장중 streaming 경로(`app/services/streaming.py`)는 active 모델 예측으로 신호와 paper 주문을 만들고, `app/models/loader.py`의 최신 LightGBM shadow loader 로 불러온 artifact 예측은 `serving_predictions`에만 추가 저장한다. 따라서 대시보드 `예측 흐름`은 baseline과 LightGBM을 한 종목/시각 라인에서 비교할 수 있지만, LightGBM row가 있어도 active 승격이나 주문 판단 변경을 의미하지 않는다. 현재 저장소에는 15분 LightGBM artifact가 있고, 60분 artifact가 없으면 60분 shadow 저장은 건너뛴다.
 최신 워크포워드 기준이 약하면 검증 구간에서 더 좋아 보여도 자동 승격하지 않는다.
 
 다음 우선순위는 아래와 같다.

@@ -204,6 +204,85 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("+20,000원 (+20.00%)", flow["profit_text"])
         self.assertIn("별도 청산: 포지션 관리 주문", flow["link_text"])
 
+    def test_prediction_flow_prefers_baseline_primary_when_lightgbm_shadow_exists(self) -> None:
+        event_time = "2026-06-09T09:03:00+09:00"
+        prediction_views = [
+            {
+                "prediction_id": "shadow-lightgbm-h15-flow",
+                "symbol": "005930",
+                "symbol_label": "005930 삼성전자",
+                "event_time": event_time,
+                "horizon_min": 15,
+                "model_version": "lightgbm-h15-shadow-test",
+                "top_label_text": "하락",
+                "top_confidence": 0.85,
+                "predicted_change_text": "하락 우세 / -1,000원 (-1.00%)",
+                "actual_label_text": "상승",
+                "actual_change_text": "+500원 (+0.50%)",
+                "success_text": "실패",
+            },
+            {
+                "prediction_id": "pred-h15-baseline-flow",
+                "symbol": "005930",
+                "symbol_label": "005930 삼성전자",
+                "event_time": event_time,
+                "horizon_min": 15,
+                "model_version": "baseline-h15-v1",
+                "top_label_text": "상승",
+                "top_confidence": 0.72,
+                "predicted_change_text": "상승 우세 / +800원 (+0.80%)",
+                "actual_label_text": "상승",
+                "actual_change_text": "+500원 (+0.50%)",
+                "success_text": "성공",
+            },
+        ]
+        signal_views = [
+            {
+                "signal_id": "signal-flow-buy-shadow",
+                "symbol": "005930",
+                "event_time": event_time,
+                "side": "buy",
+                "side_label": "매수",
+                "allowed": True,
+                "allowed_text": "허용",
+                "confidence": 0.72,
+                "reason": "model=baseline-h15-v1;time_gate=within_window;spread_gate=spread_ok",
+                "signal_summary": "전략 조건을 통과해 주문 후보로 인정",
+            }
+        ]
+        order_rows = [
+            {
+                "order_id": "paper-order-baseline-flow",
+                "symbol": "005930",
+                "event_time": event_time,
+                "side": "buy",
+                "qty": 1,
+                "limit_price": 100000.0,
+                "status": "filled",
+                "prediction_id": "pred-h15-baseline-flow",
+                "signal_id": "signal-flow-buy-shadow",
+                "target_id": "target-flow-buy-shadow",
+            }
+        ]
+
+        rows = _prediction_flow_view(
+            prediction_views,
+            signal_views,
+            order_rows,
+            fill_rows=[],
+            risk_event_rows=[],
+            limit=0,
+            latest_first=False,
+        )
+
+        self.assertEqual(len(rows), 1)
+        flow = rows[0]
+        self.assertEqual(flow["prediction_id"], "pred-h15-baseline-flow")
+        self.assertIn("Baseline: 상승", flow["model_prediction_text"])
+        self.assertIn("LightGBM: 하락", flow["model_prediction_text"])
+        self.assertIn("신호 주문", flow["order_text"])
+        self.assertIn("prediction_id 또는 signal_id", flow["link_text"])
+
     def test_signal_replay_treats_sell_as_exit_not_new_short(self) -> None:
         settings = SimpleNamespace(
             strategy=SimpleNamespace(

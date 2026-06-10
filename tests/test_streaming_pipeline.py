@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from app.config.settings import load_settings
 from app.services.broker_paper_sync import BrokerPaperSyncResult
-from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder
+from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, Prediction
 from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
@@ -53,6 +53,61 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertIn("-replay-", str(latest_prediction["prediction_id"]))
             self.assertIn(15, horizons)
             self.assertIn(60, horizons)
+
+    def test_lightgbm_shadow_predictions_are_written_without_driving_orders(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-lightgbm-shadow" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
+        }
+
+        class FakeLightGbmShadow:
+            def predict(self, feature_snapshot, horizon_min: int, prediction_id: str) -> Prediction:
+                return Prediction(
+                    prediction_id=prediction_id,
+                    symbol=feature_snapshot.symbol,
+                    event_time=feature_snapshot.event_time,
+                    horizon_min=horizon_min,
+                    model_version=f"lightgbm-h{horizon_min}-shadow-test",
+                    probability_up=0.05,
+                    probability_flat=0.1,
+                    probability_down=0.85,
+                )
+
+        def fake_shadow_loader(settings, horizon_min: int):
+            return FakeLightGbmShadow() if horizon_min == 15 else None
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            with patch("app.services.streaming.load_latest_lightgbm_shadow_model", side_effect=fake_shadow_loader):
+                result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+            sqlite_store = get_sqlite_store(settings)
+
+            self.assertIsNotNone(sqlite_store)
+            prediction_rows = sqlite_store.fetch_all_rows("serving_predictions", "event_time")
+            order_rows = sqlite_store.fetch_all_rows("paper_orders", "event_time")
+
+        model_versions = {str(row["model_version"]) for row in prediction_rows}
+        shadow_prediction_ids = [
+            str(row["prediction_id"])
+            for row in prediction_rows
+            if str(row["model_version"]).startswith("lightgbm-h15-shadow-test")
+        ]
+        self.assertGreaterEqual(result.predictions_written, 3)
+        self.assertIn("baseline-h15-v1", model_versions)
+        self.assertIn("lightgbm-h15-shadow-test", model_versions)
+        self.assertTrue(shadow_prediction_ids)
+        self.assertTrue(order_rows)
+        for order in order_rows:
+            prediction_id = str(order["prediction_id"] or "")
+            if not prediction_id:
+                continue
+            self.assertIn("pred-h15-", prediction_id)
+            self.assertNotIn("shadow-lightgbm", prediction_id)
 
     def test_replay_can_close_positions_on_short_hold(self) -> None:
         root = Path(__file__).resolve().parents[1]

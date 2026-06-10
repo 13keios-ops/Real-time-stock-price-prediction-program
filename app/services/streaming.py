@@ -25,7 +25,7 @@ from app.collectors.market_data import market_tick_from_kis_ws_record, orderbook
 from app.collectors.market_data import event_time_from_kis_ws_record
 from app.config.settings import AppSettings, load_settings
 from app.features.minute_bars import aggregate_ticks_to_minute_bar, build_feature_snapshot
-from app.models.loader import load_prediction_model
+from app.models.loader import load_latest_lightgbm_shadow_model, load_prediction_model
 from app.observability.logging import configure_logging
 from app.paper_trading.book import PaperPortfolioBook
 from app.paper_trading.engine import PaperTradingEngine
@@ -104,6 +104,7 @@ class OnlinePipelineProcessor:
             horizon: load_prediction_model(settings, horizon_min=horizon)
             for horizon in self.prediction_horizons
         }
+        self.shadow_models = self._load_shadow_models()
         self.id_namespace = id_namespace or self._build_live_id_namespace()
         self.raw_source = raw_source
         self.signal_policy = SignalPolicy(
@@ -156,6 +157,21 @@ class OnlinePipelineProcessor:
     def _build_live_id_namespace(self) -> str:
         timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
         return f"online-{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+    def _load_shadow_models(self) -> dict[int, object]:
+        shadow_models: dict[int, object] = {}
+        for horizon in self.prediction_horizons:
+            try:
+                model = load_latest_lightgbm_shadow_model(self.settings, horizon_min=horizon)
+            except Exception:
+                LOGGER.exception(
+                    "Failed to load LightGBM shadow model for horizon %s; active model remains unchanged.",
+                    horizon,
+                )
+                continue
+            if model is not None:
+                shadow_models[horizon] = model
+        return shadow_models
 
     def _restore_portfolio_state(self) -> None:
         sqlite_store = self.writer.sqlite_store
@@ -352,6 +368,14 @@ class OnlinePipelineProcessor:
             )
             predictions.append(prediction)
             prediction_by_horizon[horizon] = prediction
+            shadow_model = self.shadow_models.get(horizon)
+            if shadow_model is not None and "lightgbm" not in prediction.model_version.lower():
+                shadow_prediction = shadow_model.predict(
+                    feature_snapshot=features,
+                    horizon_min=horizon,
+                    prediction_id=self._next_scoped_id(f"shadow-lightgbm-h{horizon}"),
+                )
+                predictions.append(shadow_prediction)
         prediction = prediction_by_horizon[self.trading_horizon_min]
         time_decision = self.time_gate.evaluate(prediction.event_time)
         spread_decision = self.spread_gate.evaluate(state.latest_orderbook)

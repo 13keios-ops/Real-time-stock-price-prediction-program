@@ -7,7 +7,7 @@ from pathlib import Path
 from app.config.settings import AppSettings
 from app.models.baseline import BaselineDirectionModel
 from app.models.centroid import CentroidDirectionModel
-from app.models.lightgbm_model import LightGbmDirectionModel
+from app.models.lightgbm_model import LightGbmDirectionModel, find_latest_lightgbm_artifact
 from app.models.linear_score import LinearScoreConfig, LinearScoreDirectionModel
 from app.models.registry import ModelRegistry
 
@@ -66,3 +66,10 @@ def load_prediction_model(settings: AppSettings, horizon_min: int = 15):
         if active_entry.artifact_path:
             return CentroidDirectionModel.from_path(Path(active_entry.artifact_path))
     return load_named_builtin_model(settings, horizon_min=horizon_min, builtin_name="baseline")
+
+
+def load_latest_lightgbm_shadow_model(settings: AppSettings, horizon_min: int = 15):
+    artifact_path = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    if artifact_path is None:
+        return None
+    return LightGbmDirectionModel.from_path(Path(artifact_path))

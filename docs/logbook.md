@@ -1,5 +1,37 @@
 # 작업 기록
 
+## [2026-06-11] Codex -> LightGBM shadow serving 예측 저장 적용
+
+- 사용자 지시:
+  - LightGBM을 바로 active로 승격하지 않고, baseline은 주문 판단에 계속 쓰며 LightGBM은 같은 시각/종목의 shadow 예측으로 저장한다.
+  - 대시보드에서 baseline vs LightGBM을 나란히 비교하고, 실제 결과/신호/주문/체결과 함께 판단할 수 있게 한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 장중 수집 보호 모드가 아니므로 코드/문서 변경과 격리 테스트를 진행했다.
+- 조치:
+  - `app/models/loader.py`에 최신 LightGBM artifact를 shadow 모델로만 불러오는 loader를 추가했다.
+  - `app/services/streaming.py`는 active 모델 예측을 먼저 만들고, 최신 LightGBM artifact가 있는 horizon 에 대해 shadow 예측을 `serving_predictions`에 추가 저장한다.
+    - 신호, target, paper 주문은 계속 active 예측 ID를 사용한다.
+    - LightGBM shadow 로딩 실패나 artifact 부재는 런타임 실패가 아니라 shadow 생략으로 처리한다.
+  - `app/services/dashboard.py`의 예측흐름 primary 선택을 15분 baseline 우선으로 고정했다.
+    - LightGBM shadow row가 먼저 조회되어도 주문 연결 기준은 baseline active 예측이다.
+    - 표시 영역은 기존처럼 Baseline/LightGBM 예측을 같은 종목/시각 라인에 나란히 둔다.
+  - `README.md`와 `docs/Current-Implementation.md`에 현재 사실을 반영했다.
+    - 현재 active 모델은 `baseline`.
+    - LightGBM은 최신 artifact가 있는 horizon 에 한해 shadow serving 예측만 저장하며, 승격이나 주문 판단 변경을 의미하지 않는다.
+- 검증:
+  - `python -m unittest tests.test_model_loader tests.test_streaming_pipeline.StreamingPipelineTests.test_lightgbm_shadow_predictions_are_written_without_driving_orders tests.test_dashboard.DashboardTests.test_prediction_flow_prefers_baseline_primary_when_lightgbm_shadow_exists`: 6개 통과.
+  - `python -m unittest tests.test_model_loader tests.test_streaming_pipeline tests.test_dashboard`: 37개 통과.
+  - `python -m app --build-dashboard`: 통과, `generated_at=2026-06-11T07:20:37.842844+09:00`.
+  - dashboard 서버 stop/start 후 `./scripts/get_dashboard_status.sh`: `status=running`, 새 PID `18430`, `dashboard_responding=true`, `dashboard_api_responding=true`.
+  - `python -m unittest discover -s tests -p 'test_*.py'`: 375개 통과.
+  - `git diff --check`: 통과. CRLF/LF 경고만 있고 diff 오류 없음.
+- 금지/안전:
+  - 실전 주문, live account 주문/취소, `app/risk/`, `config/`, `VERSION`,
+    `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-10] Codex -> 장후 자동화 보고 경로와 운영 blocker 복구
 
 - 사용자 지시:

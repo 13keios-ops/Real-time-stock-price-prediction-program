@@ -158,6 +158,8 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - 검증 방식: `backtest + walk-forward + challenger 비교`
 - 차트 분석: `이미지보다 수치 특징화 우선`
 
+현재 실시간 주문 판단은 검증 완료 전까지 active `baseline` 모델이 담당한다. LightGBM은 최신 artifact가 있는 horizon 에 한해 장중 같은 종목/시각의 shadow serving 예측으로 추가 저장하고, 대시보드 `예측 흐름`에서 baseline 예측, 실제 결과, 신호, 주문, 체결과 나란히 비교한다. 이 shadow 예측은 active model 승격이나 주문 판단에 쓰지 않는다.
+
 여기서 `최근 60거래일 + 오늘 데이터`는 과거 데이터를 삭제한다는 뜻이 아니다.
 운영용 학습창은 최근 60거래일 중심으로 쓰되, 더 오래된 데이터는 drift 점검, 구간 비교, 재현, 회귀 검증, challenger 평가를 위해 보관하는 방향을 기본으로 한다.
 
@@ -620,7 +622,7 @@ Codex 운영 보조 job 산출물은 `runtime-data/reports/codex/ops/` 아래에
 
 - 이유 1: 최근 synthetic/runtime 검증에서 active baseline이 가장 안정적이었다.
 - 이유 2: 최신 LightGBM 학습은 정상 동작하지만, 현재 validation accuracy와 challenger 결과가 아직 약하다.
-- 이유 3: 따라서 LightGBM은 월요일 전까지 `shadow challenger`로 계속 학습하고, 검증 통과 전에는 active model로 승격하지 않는다.
+- 이유 3: 따라서 LightGBM은 `shadow challenger`로 계속 학습하고, 최신 artifact가 있는 horizon 은 장중 shadow serving 예측만 저장한다. 검증 통과 전에는 active model로 승격하지 않는다.
 
 ## 기준 문서와 참고 문서
 

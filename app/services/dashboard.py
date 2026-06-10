@@ -1357,6 +1357,36 @@ def _prediction_flow_profit_text(orders: list[dict[str, Any]], profit_by_order: 
     return "\n".join(lines)
 
 
+def _prediction_flow_primary_prediction(predictions: list[dict[str, Any]]) -> dict[str, Any]:
+    preferred_horizon = 15
+    preferred_rows = [
+        row
+        for row in predictions
+        if int(row.get("horizon_min", 0) or 0) == preferred_horizon
+    ]
+    if not preferred_rows:
+        preferred_rows = list(predictions)
+    baseline = next(
+        (
+            row
+            for row in preferred_rows
+            if _prediction_model_family(row.get("model_version")) == "Baseline"
+        ),
+        None,
+    )
+    if baseline is not None:
+        return baseline
+    active_like = next(
+        (
+            row
+            for row in preferred_rows
+            if _prediction_model_family(row.get("model_version")) != "LightGBM"
+        ),
+        None,
+    )
+    return active_like if active_like is not None else preferred_rows[0]
+
+
 def _round_trip_cost_pct(settings) -> float:
     return max(float(settings.strategy.slippage_bps), 0.0) * 2.0 / 100.0
 
@@ -1652,7 +1682,7 @@ def _prediction_flow_view(
     flow_rows: list[dict[str, Any]] = []
     for (symbol, event_time), prediction_group in predictions_by_key.items():
         predictions = sorted(prediction_group, key=lambda item: int(item.get("horizon_min", 0) or 0))
-        primary = next((row for row in predictions if int(row.get("horizon_min", 0) or 0) == 15), predictions[0])
+        primary = _prediction_flow_primary_prediction(predictions)
         signals = signals_by_key.get((symbol, event_time), [])
         signal = signals[0] if signals else None
         exact_orders: dict[str, dict[str, Any]] = {}
