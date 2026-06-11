@@ -30,6 +30,7 @@ from app.services.research import (
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
     rebuild_actual_runtime_ml_state,
+    run_lightgbm_buy_signal_diagnostics_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_cybos_bar_only_experiment_from_sqlite,
     run_cybos_expected_value_review_from_sqlite,
@@ -81,6 +82,8 @@ def main() -> int:
     parser.add_argument("--run-challengers", action="store_true", help="Run multi-model challenger evaluation on the validation split.")
     parser.add_argument("--challenger-max-rows", type=int, default=250000, help="Maximum recent labeled rows loaded for challenger evaluation. Use 0 for full history.")
     parser.add_argument("--challenger-feature-market-source", default="", help="Optional raw market source filter for challenger feature rows.")
+    parser.add_argument("--run-lightgbm-buy-signal-diagnostics", action="store_true", help="Run LightGBM buy-signal threshold diagnostics without adopting thresholds.")
+    parser.add_argument("--lightgbm-buy-signal-thresholds", default="0.40,0.45,0.50,0.55,0.57,0.58,0.60,0.62,0.66,0.70,0.75,0.80", help="Comma-separated probability_up thresholds for LightGBM buy-signal diagnostics.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-expected-value-review", action="store_true", help="Run train-only expected-value threshold review for Cybos LightGBM.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
@@ -278,6 +281,22 @@ def main() -> int:
             feature_market_source=args.challenger_feature_market_source or None,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_buy_signal_diagnostics:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_buy_signal_thresholds.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_buy_signal_diagnostics_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            thresholds=thresholds,
+            max_rows=args.challenger_max_rows if args.challenger_max_rows > 0 else None,
+            feature_market_source=args.challenger_feature_market_source or None,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.run_cybos_bar_only_experiment:
@@ -546,7 +565,7 @@ def main() -> int:
             parser.error(str(exc))
 
     parser.error(
-        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-cybos-bar-only-experiment, --run-cybos-expected-value-review, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --run-cybos-rule-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
+        "Choose one of --demo, --seed-synthetic-data, --run-synthetic-dev-cycle, --run-kis-dev-cycle, --collect-historical-data, --collect-kis-historical, --build-runtime-report, --cleanup-runtime-test-data, --build-dashboard, --serve-dashboard, --replay-sample-ws, --build-minute-bars, --build-feature-dataset, --rebuild-actual-ml, --train-baseline, --train-lightgbm, --set-active-builtin, --run-backtest, --run-walk-forward, --run-challengers, --run-lightgbm-buy-signal-diagnostics, --run-cybos-bar-only-experiment, --run-cybos-expected-value-review, --run-cybos-profitability-review, --run-cybos-label-sensitivity-review, --run-cybos-label-reproducibility-review, --run-cybos-rule-challengers, --kis-snapshot, --kis-watchlist-snapshot, --kis-watchlist-poll, --kis-ws-listen, --verify-kis-ws, --kis-current-price, --kis-orderbook, --kis-account-balance, --reconcile-paper-accounts, --sync-broker-paper-orders, --align-local-paper-to-broker, or --kis-approval-key."
     )
     return 2
 

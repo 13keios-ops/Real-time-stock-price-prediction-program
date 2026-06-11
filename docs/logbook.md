@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> repo 방향성 deep review ver_3 P0 모델 트랙 조치
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review_ver_3.md`를 확인하고 비판적으로 검토한 뒤 조치한다.
+- 시작 상태:
+  - KST 03:06, `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=stale`.
+  - 작업 트리는 `main...origin/main`이었고 cowork review ver_2/ver_3 파일이 untracked였다.
+- cowork 리뷰 비판적 확인:
+  - 타당: 모델 트랙이 P0이고, LightGBM `holdout_window_mismatch`, gate reference 구식 포맷, 매수 신호 0건이 실제 병목이다.
+  - 보정: dashboard/watchdog daemon 유지 문제는 여전히 P0 운영 blocker지만, 이번 라운드의 핵심은 모델 심사 체인 유효화다.
+- 조치:
+  - `app/services/research.py`의 challenger 평가가 최신 LightGBM 학습 run의 challenger holdout 시작 시각을 anchor 로 삼아 `challenger_holdout_training_anchor` 평가 구간을 만들도록 보강했다.
+  - `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15` CLI를 추가해 threshold별 매수 신호 수, 적중률, 비용 차감 수익률을 별도 리포트로 남기게 했다. threshold 는 자동 채택하지 않는다.
+  - snapshot DB `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/gate-ref-h15-20260612-033742.db`를 생성했다. 원본/스냅샷 크기는 `13302407168` bytes, `quick_check=ok`.
+  - snapshot DB를 `DATABASE_URL`로 사용해 gate reference walk-forward를 재생성했다.
+  - 새 gate reference 를 반영해 challenger를 다시 실행했고 dashboard snapshot도 갱신했다.
+- 결과:
+  - 최신 gate reference: `walk-forward-h15-20260612042842731771`, `parameter_profile=gate_reference_v1`, `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`, `virtual_direction_trades_taken=2,675,212`, gate 는 `needs_review`.
+  - 최신 challenger: `challenger-h15-20260612045334514142`, `dataset_scope=challenger_holdout_training_anchor`, `recommended_action=keep_active`.
+  - LightGBM 후보: `evaluation_independence_status=independent_challenger_holdout`, `artifact_training_status=artifact_training_run_match`, `three_class_accuracy=0.366625`, `up_hit_rate=0.168684`, `trades_taken=0`.
+  - LightGBM buy-signal diagnostics: `status=no_positive_expected_value_threshold`. threshold `0.40`에서도 `trades_taken=1845`, `cumulative_net_return_pct=-199.849736`으로 비용 차감 양수 기대값 근거가 없다.
+  - dashboard snapshot: `generated_at=2026-06-12T04:54:41.287826+09:00`.
+- 검증:
+  - `python -m py_compile app/services/research.py app/__main__.py tests/test_research_pipeline.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline`: 10개 통과.
+  - `python -m unittest tests.test_research_pipeline.ResearchPipelineTests.test_sqlite_pipeline_builds_and_trains`: 통과.
+  - `python -m app --run-challengers --horizon-min 15`: 통과, 최신 challenger 갱신.
+  - `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15`: 통과.
+  - `python -m app --build-dashboard`: 통과.
+- 남은 작업:
+  - 모델 쪽 다음 단계는 threshold 조정이 아니라 피처 확장, 라벨 분포/보합 폭 재검토, LightGBM calibration 실험이다.
+  - dashboard/watchdog daemon 장시간 유지 검증은 계속 P0 운영 blocker다.
+  - `373220` local-only mismatch와 KIS `EGW00201` 재발 여부는 다음 거래일 장후에 이어서 본다.
+
 ## [2026-06-12] Codex -> cowork deep review 반영과 대시보드 scope 경량화
 
 - 사용자 지시:

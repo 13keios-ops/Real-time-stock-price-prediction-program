@@ -15,11 +15,13 @@ from app.services.research import (
     _lightgbm_artifact_training_status,
     _resolve_feature_row_source,
     _split_dataset_with_challenger_holdout,
+    _split_dataset_with_training_holdout_anchor,
     _training_run_holdout_status,
     build_feature_dataset_from_sqlite,
     build_minute_bars_from_sqlite,
     run_cybos_expected_value_review_from_sqlite,
     run_cybos_rule_challenger_review_from_sqlite,
+    run_lightgbm_buy_signal_diagnostics_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -66,6 +68,40 @@ class ResearchPipelineTests(unittest.TestCase):
         challenger_keys = {(row["symbol"], row["event_time"]) for row in challenger_rows}
         self.assertFalse(training_keys.intersection(challenger_keys))
 
+    def test_training_holdout_anchor_split_keeps_original_holdout_after_data_growth(self) -> None:
+        kst = get_timezone("Asia/Seoul")
+        base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)
+        labels = ("down", "flat", "up")
+        dataset = []
+        for day_index in range(75):
+            event_time = base_time + timedelta(days=day_index)
+            dataset.append(
+                {
+                    "symbol": "005930",
+                    "event_time": event_time,
+                    "label": labels[day_index % len(labels)],
+                }
+            )
+        anchor_time = dataset[54]["event_time"]
+
+        split_payload = _split_dataset_with_training_holdout_anchor(
+            dataset,
+            horizon_min=15,
+            anchor_first_event_time=anchor_time.isoformat(),
+            anchor_source="test_training_run",
+        )
+
+        self.assertIsNotNone(split_payload)
+        assert split_payload is not None
+        metadata = split_payload["metadata"]
+        challenger_rows = split_payload["challenger_rows"]
+        validation_rows = split_payload["validation_rows"]
+        self.assertEqual(metadata["dataset_scope"], "challenger_holdout_training_anchor")
+        self.assertEqual(metadata["anchor_source"], "test_training_run")
+        self.assertEqual(min(row["event_time"] for row in challenger_rows), anchor_time)
+        self.assertLess(max(row["event_time"] for row in validation_rows), anchor_time)
+        self.assertEqual(len(challenger_rows), 21)
+
     def test_training_run_holdout_status_guards_independence(self) -> None:
         split_metadata = {
             "dataset_scope": "challenger_holdout_tail_10pct",
@@ -87,6 +123,12 @@ class ResearchPipelineTests(unittest.TestCase):
 
         self.assertEqual(
             _training_run_holdout_status(valid_summary, split_metadata),
+            "independent_challenger_holdout",
+        )
+        anchored_metadata = dict(split_metadata)
+        anchored_metadata["dataset_scope"] = "challenger_holdout_training_anchor"
+        self.assertEqual(
+            _training_run_holdout_status(valid_summary, anchored_metadata),
             "independent_challenger_holdout",
         )
         self.assertEqual(
@@ -227,6 +269,11 @@ class ResearchPipelineTests(unittest.TestCase):
                 horizon_min=15,
                 promote_best=False,
             )
+            diagnostics_result = run_lightgbm_buy_signal_diagnostics_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                thresholds=(0.50, 0.60),
+            )
             promoted_challenger_result = run_model_challenger_review_from_sqlite(
                 project_root=root,
                 horizon_min=15,
@@ -289,7 +336,11 @@ class ResearchPipelineTests(unittest.TestCase):
             challenger_payload = json.loads(challenger_result.report_json_path.read_text(encoding="utf-8"))
             self.assertIn(
                 challenger_payload["dataset_scope"],
-                {"challenger_holdout_tail_10pct", "validation_tail_20pct_fallback"},
+                {
+                    "challenger_holdout_tail_10pct",
+                    "challenger_holdout_training_anchor",
+                    "validation_tail_20pct_fallback",
+                },
             )
             self.assertIn("evaluation_split", challenger_payload)
             self.assertTrue(
@@ -326,6 +377,12 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertFalse(challenger_result.promotion_applied)
             self.assertIsNone(challenger_result.promoted_model_version)
             self.assertEqual(challenger_result.active_model_version_after_run, challenger_result.active_model_version)
+            self.assertEqual(diagnostics_result["review"], "lightgbm_buy_signal_diagnostics")
+            self.assertFalse(diagnostics_result["automatic_threshold_adoption"])
+            self.assertIn("threshold_sweep", diagnostics_result)
+            self.assertEqual(len(diagnostics_result["threshold_sweep"]), 2)
+            self.assertTrue(Path(str(diagnostics_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(diagnostics_result["report_markdown_path"])).exists())
             self.assertTrue(promoted_challenger_result.report_markdown_path.exists())
             self.assertIn(promoted_challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
             self.assertIn(promoted_challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})

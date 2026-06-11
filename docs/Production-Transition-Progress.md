@@ -19,14 +19,14 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-12 01:16 KST
+- 마지막 갱신: 2026-06-12 04:55 KST
 - 현재 런타임: `overnight`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: stale. 시작 스크립트는 JSON을 내지만 현재 Codex/WSL 호출 환경에서는 장시간 프로세스가 유지되지 않음.
 - dashboard: stale. snapshot 생성은 정상이나 `http://127.0.0.1:8765` 서버 응답은 현재 유지되지 않음.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-11-repo-goal-and-direction-deep-review.md`
+  `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review_ver_3.md`
 - 최신 통합 리포트:
   `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
 - 최신 Phase readiness:
@@ -36,7 +36,7 @@
   Phase 1b/Phase 2 통과 증거로 재사용하지 않는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-12T01:07:58+09:00`.
+  기준 `generated_at=2026-06-12T04:54:41+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
   기준 `generated_at=2026-06-11 08:20:02 +0900`, `status=ok`.
@@ -54,9 +54,21 @@
   `git diff --check` 통과.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
-  기준 `challenger-h15-20260611212023862868`, active `baseline-h15-v1`,
+  기준 `challenger-h15-20260612045334514142`, active `baseline-h15-v1`,
   `recommended_action=keep_active`.
-  LightGBM은 shadow/관찰 대상이며 `holdout_window_mismatch`로 승격 대상이 아니다.
+  LightGBM은 `independent_challenger_holdout`으로 심사 자격은 회복됐지만
+  매수 신호 0건이고 walk-forward gate가 `needs_review`라 승격 대상이 아니다.
+- 최신 gate reference walk-forward:
+  `runtime-data/reports/backtests/latest-walk-forward-h15.json`
+  기준 `walk-forward-h15-20260612042842731771`,
+  `parameter_profile=gate_reference_v1`, `folds=118`,
+  `three_class_accuracy=0.416342`, `walk_forward_gate_status=needs_review`.
+- 최신 LightGBM buy-signal diagnostics:
+  `runtime-data/reports/challengers/latest-lightgbm-buy-signal-diagnostics-h15.json`
+  기준 `generated_at=2026-06-12T03:35:05+09:00`,
+  `status=no_positive_expected_value_threshold`.
+  threshold `0.40`에서도 `trades_taken=1845`,
+  `cumulative_net_return_pct=-199.849736`라 자동 승격/threshold 채택 근거가 없다.
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
   기준 `status=needs_review`.
@@ -93,7 +105,7 @@
 
 - 상태: 진행 중
 - 현재 기준:
-  - 2026-06-11 deep review 기준, Phase 0은 계속 진행 중이다.
+  - 2026-06-12 deep review ver_3 반영 뒤에도 Phase 0은 계속 진행 중이다.
   - KIS live data quality 최신 리포트는 `assessment.status=ok`로 회복됐지만,
     2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은 별도 추적한다.
   - broker paper sync 최신 리포트는 KIS `EGW00201` rate limit 으로
@@ -252,18 +264,20 @@
 - 현재 판단:
   - 안전·운영 인프라는 Phase 1/2 준비 수준으로 많이 올라왔지만,
     비용 차감 후 양수 예측력은 아직 입증되지 않았다.
-  - 최신 active baseline 3분류 정확도는 무작위 기준보다 낮고,
-    LightGBM은 관찰 성능이 일부 더 낫지만 독립성/holdout 기준 문제로 승격 불가다.
-  - 다음 몇 라운드는 대시보드 편의보다 모델/피처/비용 모델 연구와
-    gate reference 재생성을 우선한다.
+  - 2026-06-12 보강으로 LightGBM `holdout_window_mismatch` 구조 문제는 닫혔다.
+    최신 challenger 는 `dataset_scope=challenger_holdout_training_anchor`이고
+    LightGBM `evaluation_independence_status=independent_challenger_holdout`이다.
+  - gate reference walk-forward 는 새 3분류/가상 방향 지표로 재생성됐지만
+    `three_class_accuracy=0.416342`, gate `needs_review`다.
+  - LightGBM buy-signal diagnostics 는 threshold `0.40~0.80` 전 구간에서
+    비용 차감 순수익률이 양수가 아니었다.
 - 다음 작업:
-  - gate reference 워크포워드 리포트를 새 3분류/가상 방향 지표 포맷으로 재생성한다.
-  - 단, 2026-06-11 시도한 `python -m app --run-gate-walk-forward --horizon-min 15`는
-    약 7분 뒤 실패했고 WSL 일시 불안정이 동반되어 즉시 재시도하지 않는다.
-  - 다음 시도는 snapshot DB 또는 더 작은 검증 wrapper 로 실행하고,
-    실패 원인을 로그/메모리/실행 시간 기준으로 분리한다.
+  - threshold 조정만으로는 부족하므로 피처/라벨/모델 레시피 개선 실험으로 넘어간다.
+  - LightGBM buy-signal diagnostics 를 다음 장후 학습 결과에도 반복해,
+    threshold별 거래 수와 기대값이 개선되는지 비교한다.
 - 권장안:
-  - Phase 2 논의보다 먼저 alpha 연구 스프린트와 gate reference 재생성 문제를 처리한다.
+  - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행한다.
+  - 우선순위는 피처 확장, 라벨 분포/보합 폭 재검토, LightGBM calibration 이다.
 
 ### broker paper sync rate-limit / 373220 mismatch
 

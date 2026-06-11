@@ -43,6 +43,7 @@ CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
 CHALLENGER_HOLDOUT_FRACTION = 0.10
 LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS = 250_000
+LIGHTGBM_BUY_SIGNAL_THRESHOLD_GRID = (0.40, 0.45, 0.50, 0.55, 0.57, 0.58, 0.60, 0.62, 0.66, 0.70, 0.75, 0.80)
 DIRECTION_LABELS = ("down", "flat", "up")
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
@@ -742,7 +743,10 @@ def _split_dataset_with_challenger_holdout(
 
 
 def _is_independent_challenger_scope(split_metadata: dict[str, object]) -> bool:
-    return str(split_metadata.get("dataset_scope")) == "challenger_holdout_tail_10pct"
+    return str(split_metadata.get("dataset_scope")) in {
+        "challenger_holdout_tail_10pct",
+        "challenger_holdout_training_anchor",
+    }
 
 
 def _prediction_label(probability_up: float, probability_flat: float, probability_down: float) -> str:
@@ -803,6 +807,73 @@ def _metadata_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(str(value))
     except ValueError:
         return None
+
+
+def _row_event_datetime(row: dict[str, object]) -> datetime | None:
+    value = row.get("event_time")
+    if isinstance(value, datetime):
+        return value
+    return _metadata_datetime(value)
+
+
+def _split_dataset_with_training_holdout_anchor(
+    dataset: list[dict[str, object]],
+    *,
+    horizon_min: int,
+    anchor_first_event_time: object,
+    anchor_source: str,
+    holdout_fraction: float = CHALLENGER_HOLDOUT_FRACTION,
+) -> dict[str, object] | None:
+    anchor_time = _metadata_datetime(anchor_first_event_time)
+    if anchor_time is None:
+        return None
+    development_rows: list[dict[str, object]] = []
+    challenger_rows: list[dict[str, object]] = []
+    for row in dataset:
+        event_time = _row_event_datetime(row)
+        if event_time is None:
+            continue
+        if event_time < anchor_time:
+            development_rows.append(row)
+        else:
+            challenger_rows.append(row)
+    if not development_rows or not challenger_rows or not _has_complete_direction_labels(development_rows):
+        return None
+
+    development_rows_before_purge = len(development_rows)
+    purged_development_rows = _apply_horizon_purge(
+        development_rows,
+        challenger_rows,
+        horizon_min,
+    )
+    train_rows, validation_rows = _split_dataset(purged_development_rows, horizon_min=horizon_min)
+    if not train_rows or not validation_rows:
+        return None
+
+    metadata = _build_split_metadata(
+        train_rows=train_rows,
+        validation_rows=validation_rows,
+        challenger_rows=challenger_rows,
+        holdout_method="training_holdout_first_event_time",
+        holdout_fraction=holdout_fraction,
+        development_rows_before_purge=development_rows_before_purge,
+        development_rows_after_purge=len(purged_development_rows),
+    )
+    metadata.update(
+        {
+            "dataset_scope": "challenger_holdout_training_anchor",
+            "anchor_first_event_time": anchor_time.isoformat(),
+            "anchor_source": anchor_source,
+            "anchor_note": "Challenger evaluation uses the latest LightGBM training holdout boundary.",
+        }
+    )
+    return {
+        "train_rows": train_rows,
+        "validation_rows": validation_rows,
+        "development_rows": purged_development_rows,
+        "challenger_rows": challenger_rows,
+        "metadata": metadata,
+    }
 
 
 def _training_run_holdout_status(
@@ -5508,6 +5579,37 @@ def run_model_challenger_review_from_sqlite(
         max_rows=max_rows,
     )
     split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    latest_lightgbm_model: LightGbmDirectionModel | None = None
+    lightgbm_training_row = None
+    lightgbm_training_summary: dict[str, object] | None = None
+    if latest_lightgbm_artifact is not None:
+        latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+        lightgbm_training_row = _resolve_latest_training_run_row(
+            sqlite_store,
+            latest_lightgbm_model.artifact.model_version,
+            horizon_min,
+        )
+        lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
+        anchor_first_event_time: object | None = None
+        anchor_source = "lightgbm_artifact"
+        if isinstance(lightgbm_training_summary, dict):
+            training_split = lightgbm_training_summary.get("challenger_holdout_split")
+            if isinstance(training_split, dict):
+                training_holdout = training_split.get("challenger_holdout")
+                if isinstance(training_holdout, dict):
+                    anchor_first_event_time = training_holdout.get("first_event_time")
+                    anchor_source = "lightgbm_training_run"
+        if anchor_first_event_time in (None, ""):
+            anchor_first_event_time = latest_lightgbm_model.artifact.challenger_holdout_first_event_time
+        anchored_split_payload = _split_dataset_with_training_holdout_anchor(
+            dataset,
+            horizon_min=horizon_min,
+            anchor_first_event_time=anchor_first_event_time,
+            anchor_source=anchor_source,
+        )
+        if anchored_split_payload is not None:
+            split_payload = anchored_split_payload
     train_rows = list(split_payload["train_rows"])
     development_rows = list(split_payload["development_rows"])
     evaluation_rows = list(split_payload["challenger_rows"])
@@ -5620,13 +5722,9 @@ def run_model_challenger_review_from_sqlite(
         }
     )
 
-    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
-    if latest_lightgbm_artifact is not None:
-        latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+    if latest_lightgbm_artifact is not None and latest_lightgbm_model is not None:
         latest_lightgbm_version = latest_lightgbm_model.artifact.model_version
         if latest_lightgbm_version != str(active_candidate["model_version"]):
-            lightgbm_training_row = _resolve_latest_training_run_row(sqlite_store, latest_lightgbm_version, horizon_min)
-            lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
             lightgbm_independence_status = _training_run_holdout_status(
                 lightgbm_training_summary,
                 split_metadata,
@@ -5953,3 +6051,204 @@ def run_model_challenger_review_from_sqlite(
         leaderboard_json_path=leaderboard_path,
         candidates=candidate_results,
     )
+
+
+def _numeric_distribution(values: list[float]) -> dict[str, float | int]:
+    if not values:
+        return {"count": 0}
+    ordered = sorted(values)
+
+    def percentile(pct: float) -> float:
+        if len(ordered) == 1:
+            return ordered[0]
+        index = (len(ordered) - 1) * pct
+        lower = math.floor(index)
+        upper = math.ceil(index)
+        if lower == upper:
+            return ordered[int(index)]
+        weight = index - lower
+        return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+    return {
+        "count": len(ordered),
+        "min": round(ordered[0], 6),
+        "p10": round(percentile(0.10), 6),
+        "p25": round(percentile(0.25), 6),
+        "p50": round(percentile(0.50), 6),
+        "p75": round(percentile(0.75), 6),
+        "p90": round(percentile(0.90), 6),
+        "max": round(ordered[-1], 6),
+        "average": round(sum(ordered) / len(ordered), 6),
+    }
+
+
+def _lightgbm_buy_signal_status(threshold_rows: list[dict[str, object]]) -> tuple[str, str]:
+    if not threshold_rows:
+        return "no_thresholds", "No threshold grid was provided."
+    if all(int(row.get("trades_taken", 0)) == 0 for row in threshold_rows):
+        return "no_buy_signals_at_threshold_grid", "No up predictions passed any reviewed threshold."
+    positive_rows = [
+        row
+        for row in threshold_rows
+        if int(row.get("trades_taken", 0)) > 0 and float(row.get("cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    if positive_rows:
+        return (
+            "positive_threshold_candidate_requires_review",
+            "At least one threshold produced positive simple-sum net return; this is research evidence only.",
+        )
+    return "no_positive_expected_value_threshold", "Reviewed thresholds produced buy signals but no positive net return."
+
+
+def run_lightgbm_buy_signal_diagnostics_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    thresholds: tuple[float, ...] = LIGHTGBM_BUY_SIGNAL_THRESHOLD_GRID,
+    max_rows: int | None = LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS,
+    feature_market_source: str | None = None,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM buy-signal diagnostics.")
+
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    if latest_lightgbm_artifact is None:
+        raise ValueError("No LightGBM artifact is available for buy-signal diagnostics.")
+    lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+    lightgbm_training_row = _resolve_latest_training_run_row(
+        sqlite_store,
+        lightgbm_model.artifact.model_version,
+        horizon_min,
+    )
+    lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
+
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    anchor_first_event_time: object | None = None
+    anchor_source = "lightgbm_artifact"
+    if isinstance(lightgbm_training_summary, dict):
+        training_split = lightgbm_training_summary.get("challenger_holdout_split")
+        if isinstance(training_split, dict):
+            training_holdout = training_split.get("challenger_holdout")
+            if isinstance(training_holdout, dict):
+                anchor_first_event_time = training_holdout.get("first_event_time")
+                anchor_source = "lightgbm_training_run"
+    if anchor_first_event_time in (None, ""):
+        anchor_first_event_time = lightgbm_model.artifact.challenger_holdout_first_event_time
+    anchored_split_payload = _split_dataset_with_training_holdout_anchor(
+        dataset,
+        horizon_min=horizon_min,
+        anchor_first_event_time=anchor_first_event_time,
+        anchor_source=anchor_source,
+    )
+    if anchored_split_payload is not None:
+        split_payload = anchored_split_payload
+
+    evaluation_rows = list(split_payload["challenger_rows"])
+    split_metadata = dict(split_payload["metadata"])
+    scored_rows = _score_rows_with_model(
+        rows=evaluation_rows,
+        model=lightgbm_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="lightgbm-buy-signal-diagnostics",
+    )
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    threshold_rows: list[dict[str, object]] = []
+    for threshold in sorted(set(float(item) for item in thresholds)):
+        metrics = _metrics_from_scored_predictions(
+            scored_rows=scored_rows,
+            settings=settings,
+            trade_cost_pct=trade_cost_pct,
+            signal_confidence_threshold=threshold,
+        )
+        threshold_rows.append(
+            {
+                "threshold": round(threshold, 6),
+                "trades_taken": int(metrics["trades_taken"]),
+                "buy_signal_hit_rate": round(float(metrics["buy_signal_hit_rate"]), 6),
+                "win_rate": round(float(metrics["win_rate"]), 6),
+                "average_net_return_pct": round(float(metrics["average_net_return_pct"]), 6),
+                "cumulative_net_return_pct": round(float(metrics["cumulative_net_return_pct"]), 6),
+                "average_confidence": round(float(metrics["average_confidence"]), 6),
+            }
+        )
+
+    status, status_reason = _lightgbm_buy_signal_status(threshold_rows)
+    probability_up_values = [float(row["probability_up"]) for row in scored_rows]
+    predicted_label_counts = dict(Counter(str(row["predicted_label"]) for row in scored_rows))
+    actual_label_counts = dict(Counter(str(row["actual_label"]) for row in scored_rows))
+    training_status = _training_run_holdout_status(lightgbm_training_summary, split_metadata)
+    artifact_status = _lightgbm_artifact_training_status(lightgbm_model.artifact, lightgbm_training_row)
+    generated_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-buy-signal-diagnostics-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-buy-signal-diagnostics-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_buy_signal_diagnostics",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "model_version": lightgbm_model.artifact.model_version,
+        "training_run_id": lightgbm_model.artifact.training_run_id,
+        "artifact_path": str(latest_lightgbm_artifact),
+        "artifact_training_status": artifact_status,
+        "evaluation_independence_status": training_status,
+        "dataset_scope": split_metadata.get("dataset_scope"),
+        "dataset_load": {
+            "max_rows": max_rows,
+            "loaded_rows": len(dataset),
+            "feature_market_source": feature_market_source,
+            "scope": "recent_labeled_rows" if max_rows else "full_history",
+            "feature_count": len(feature_names),
+        },
+        "evaluation_split": split_metadata,
+        "rows_evaluated": len(scored_rows),
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "automatic_threshold_adoption": False,
+        "status": status,
+        "status_reason": status_reason,
+        "probability_up_distribution": _numeric_distribution(probability_up_values),
+        "predicted_label_counts": predicted_label_counts,
+        "actual_label_counts": actual_label_counts,
+        "threshold_sweep": threshold_rows,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+    markdown_lines = [
+        f"# LightGBM Buy Signal Diagnostics H{horizon_min}",
+        "",
+        f"- `status`: {status}",
+        f"- `status_reason`: {status_reason}",
+        f"- `model_version`: {lightgbm_model.artifact.model_version}",
+        f"- `evaluation_independence_status`: {training_status}",
+        f"- `artifact_training_status`: {artifact_status}",
+        f"- `dataset_scope`: {split_metadata.get('dataset_scope')}",
+        f"- `rows_evaluated`: {len(scored_rows)}",
+        f"- `automatic_threshold_adoption`: false",
+        "",
+        "## Threshold Sweep",
+        "",
+        "| threshold | trades | buy_hit | win_rate | avg_net_pct | cumulative_net_pct |",
+        "|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in threshold_rows:
+        markdown_lines.append(
+            "| "
+            f"{float(row['threshold']):.4f} | "
+            f"{int(row['trades_taken'])} | "
+            f"{float(row['buy_signal_hit_rate']):.4f} | "
+            f"{float(row['win_rate']):.4f} | "
+            f"{float(row['average_net_return_pct']):.4f} | "
+            f"{float(row['cumulative_net_return_pct']):.4f} |"
+        )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload

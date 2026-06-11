@@ -206,8 +206,9 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - 장후 heavy research: snapshot DB에서 특징 / 라벨 재생성, 백테스트, 워크포워드, 도전자 모델 비교
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
-- LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 `challenger_holdout_tail_10pct`를 기본으로 쓰며, candidate별 `evaluation_independence_status`를 리포트에 남긴다. LightGBM artifact에는 `training_run_id`와 holdout metadata를 저장하고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다. 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행한다.
+- LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 최신 LightGBM artifact의 학습 시점 holdout 시작 시각을 우선 anchor 로 사용해 `challenger_holdout_training_anchor` 평가 구간을 만든다. 이렇게 하면 장후 label refresh 로 데이터가 추가되어도 LightGBM 학습 때 예약한 holdout 경계가 유지된다. candidate별 `evaluation_independence_status`를 리포트에 남기고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다.
 - 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 독립 holdout/아티팩트 기준의 평가 자격일 뿐 실제 승격 적용이 아니며, 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 수익률, 운영자 승인까지 함께 봐야 한다.
+- LightGBM 매수 신호 0건 원인은 `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15`로 진단한다. 이 명령은 threshold별 매수 신호 수, 적중률, 비용 차감 평균/누적 순수익률을 `runtime-data/reports/challengers/latest-lightgbm-buy-signal-diagnostics-h15.json`과 `.md`에 남기며, threshold 를 자동 채택하지 않는다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.
@@ -216,6 +217,12 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - Cybos 라벨 민감도 진단은 threshold별 결과를 비교하되, 가장 좋은 threshold를 자동 채택하지 않는다.
 - Cybos 라벨 재현성 진단은 민감도 진단에서 양수였던 threshold를 다른 fold 설계와 기간 샘플로 다시 검증한다.
 - Cybos expected-value review는 각 walk-forward fold 안에서 train tail calibration 구간으로만 `probability_up` threshold를 선택하고 test 구간에 적용한다. 선택 기준은 비용 차감 평균 기대값 양수 여부이며, 수동 필터를 사후 튜닝하거나 자동 승격하지 않는다.
+
+변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+변경 전에는 LightGBM 학습 뒤 label refresh 등으로 labeled row가 추가되면 challenger holdout tail 이 뒤로 밀려 `holdout_window_mismatch`가 반복될 수 있었다.
+변경 후에는 최신 LightGBM 학습 run 의 holdout 시작 시각을 anchor 로 삼아 challenger 평가 구간을 재구성한다.
+영향 범위는 `app/services/research.py`의 challenger 평가와 LightGBM buy-signal diagnostics CLI, `app/__main__.py`의 CLI 옵션, 관련 research 테스트다.
+회귀 위험은 artifact metadata 가 없는 legacy 모델에서는 anchor 를 만들 수 없어 기존 tail split/fail-safe 로 돌아간다는 점이다. 이 경우 자동 승격하지 않고 상태를 리포트에 남긴다.
 - Cybos expected-value review는 거래별 퍼센트 손익 합산과 별도로 `fixed_fraction_per_signal_horizon_proxy` 포트폴리오 프록시를 기록한다. 기본 해석은 `5% 고정 비중`, `총 익스포저 100% 제한`, `horizon 기반 청산`이며 실제 paper 계좌 수익률이 아니라 승격 전 진단값이다.
 - Cybos 연구 suite 요약은 기존 `latest-cybos-*` 리포트를 재학습 없이 묶어 `latest-cybos-research-suite-summary.{json,md}`로 남긴다. 이 요약은 후보 승격이 아니라 다음 실험 우선순위를 정하는 진단표다.
 - KIS live data quality 요약은 `raw_market_ticks`, `raw_orderbook_ticks`, 실제 KIS 분봉, feature, h15/h60 label coverage 를 최근 거래일별로 묶어 `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`로 남긴다. 이 요약은 월요일 장전/장중 수집률 점검과 장후 label 닫힘 여부 확인에 쓴다.
