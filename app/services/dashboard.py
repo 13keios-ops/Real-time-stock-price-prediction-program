@@ -3046,6 +3046,14 @@ def _build_walk_forward_setup_status(report: dict[str, Any] | None) -> dict[str,
         "max_train_rows": max_train_rows,
         "overall_accuracy": report.get("overall_accuracy"),
         "trade_hit_rate": report.get("trade_hit_rate"),
+        "buy_signal_hit_rate": report.get("buy_signal_hit_rate", report.get("trade_hit_rate")),
+        "three_class_accuracy": report.get("three_class_accuracy", report.get("overall_accuracy")),
+        "up_hit_rate": report.get("up_hit_rate"),
+        "flat_hit_rate": report.get("flat_hit_rate"),
+        "down_hit_rate": report.get("down_hit_rate"),
+        "virtual_direction_trades_taken": report.get("virtual_direction_trades_taken"),
+        "virtual_direction_hit_rate": report.get("virtual_direction_hit_rate"),
+        "virtual_direction_cumulative_net_return_pct": report.get("virtual_direction_cumulative_net_return_pct"),
         "cumulative_net_return_pct": report.get("cumulative_net_return_pct"),
         "reference_path": "runtime-data/reports/backtests/latest-walk-forward-h15.json",
     }
@@ -3058,6 +3066,31 @@ def _ratio_pct(value: Any, digits: int = 1) -> str:
         return f"{float(value) * 100:.{digits}f}%"
     except (TypeError, ValueError):
         return _esc(value)
+
+
+def _candidate_class_hit_rates(row: dict[str, Any]) -> str:
+    class_rates = row.get("class_hit_rates") if isinstance(row.get("class_hit_rates"), dict) else {}
+    up_rate = row.get("up_hit_rate", class_rates.get("up"))
+    flat_rate = row.get("flat_hit_rate", class_rates.get("flat"))
+    down_rate = row.get("down_hit_rate", class_rates.get("down"))
+    return (
+        f"상승 {_ratio_pct(up_rate, 1)} / "
+        f"보합 {_ratio_pct(flat_rate, 1)} / "
+        f"하락 {_ratio_pct(down_rate, 1)}"
+    )
+
+
+def _candidate_confusion_matrix_text(row: dict[str, Any]) -> str:
+    matrix = row.get("confusion_matrix") if isinstance(row.get("confusion_matrix"), dict) else {}
+    labels = ("up", "flat", "down")
+    label_text = {"up": "상승", "flat": "보합", "down": "하락"}
+    parts = []
+    for actual in labels:
+        actual_row = matrix.get(actual) if isinstance(matrix.get(actual), dict) else {}
+        total = sum(int(actual_row.get(predicted, 0) or 0) for predicted in labels)
+        correct = int(actual_row.get(actual, 0) or 0)
+        parts.append(f"실제 {label_text[actual]} {correct}/{total}")
+    return " / ".join(parts) if parts else "-"
 
 
 def _refresh_interval_text(refresh_seconds: int) -> str:
@@ -3636,11 +3669,11 @@ def _render_dashboard_html(payload: dict[str, Any], *, refresh_seconds: int, liv
           </div>
           <div class="card">
             <h2>챌린저 비교</h2>
-            {_table(['순위','후보','모델 버전','정확도','거래 적중률','거래 수','누적 순수익률','평가 자격','승격 판단','독립성/아티팩트'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
+            {_table(['순위','후보','모델 버전','3분류 정확도','매수 신호 적중률','거래 수','누적 순수익률','평가 자격','승격 판단','독립성/아티팩트'], challenger_rows, '챌린저 비교 결과가 없습니다.')}
           </div>
           <div class="card">
             <h2>워크포워드 fold 요약</h2>
-            {_table(['fold','정확도','거래 수','거래 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 fold 요약이 없습니다.')}
+            {_table(['fold','3분류 정확도','거래 수','매수 신호 적중률','누적 순수익률'], walk_forward_rows, '워크포워드 fold 요약이 없습니다.')}
           </div>
         </div>
       </section>
@@ -3889,8 +3922,13 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             row.get("rank"),
             row.get("candidate_name"),
             row.get("model_version"),
-            _ratio_pct(row.get("overall_accuracy"), 2),
-            _ratio_pct(row.get("trade_hit_rate"), 2),
+            _ratio_pct(row.get("three_class_accuracy", row.get("overall_accuracy")), 2),
+            _candidate_class_hit_rates(row),
+            _ratio_pct(row.get("buy_signal_hit_rate", row.get("trade_hit_rate")), 2),
+            row.get("virtual_direction_trades_taken", "-"),
+            _ratio_pct(row.get("virtual_direction_hit_rate"), 2),
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+            _candidate_confusion_matrix_text(row),
             row.get("trades_taken"),
             _pct(row.get("cumulative_net_return_pct"), 2),
             "있음" if row.get("promotable") else "없음",
@@ -3900,7 +3938,17 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         for row in latest_challenger.get("candidates", [])
     ]
     walk_forward_rows = [
-        [row.get("fold"), _ratio_pct(row.get("overall_accuracy"), 2), row.get("trades_taken"), _ratio_pct(row.get("trade_hit_rate"), 2), _pct(row.get("cumulative_net_return_pct"), 2)]
+        [
+            row.get("fold"),
+            _ratio_pct(row.get("three_class_accuracy", row.get("overall_accuracy")), 2),
+            _candidate_class_hit_rates(row),
+            row.get("trades_taken"),
+            _ratio_pct(row.get("buy_signal_hit_rate", row.get("trade_hit_rate")), 2),
+            row.get("virtual_direction_trades_taken", "-"),
+            _ratio_pct(row.get("virtual_direction_hit_rate"), 2),
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+            _pct(row.get("cumulative_net_return_pct"), 2),
+        ]
         for row in latest_walk_forward.get("fold_summaries", [])
     ]
     status_rows = [
@@ -4356,7 +4404,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["gap 행", latest_walk_forward_setup.get("gap_rows") or "-"],
         ["최대 학습 행", latest_walk_forward_setup.get("max_train_rows") or "-"],
         ["정확도", _ratio_pct(latest_walk_forward_setup.get("overall_accuracy"), 2)],
-        ["거래 적중률", _ratio_pct(latest_walk_forward_setup.get("trade_hit_rate"), 2)],
+        ["매수 신호 적중률", _ratio_pct(latest_walk_forward_setup.get("buy_signal_hit_rate", latest_walk_forward_setup.get("trade_hit_rate")), 2)],
         ["거래합산 순수익률", _pct(latest_walk_forward_setup.get("trade_sum_net_return_pct", latest_walk_forward_setup.get("cumulative_net_return_pct")), 2)],
         ["비용 차감 합계", _pct(latest_walk_forward_setup.get("estimated_cost_drag_pct"), 2)],
         ["수익률 집계 방식", latest_walk_forward_setup.get("return_aggregation") or "-"],
@@ -4530,7 +4578,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         (
             "챌린저 판단",
             challenger_action_label,
-            f"거래 적중률 {_ratio_pct(latest_lightgbm_candidate.get('trade_hit_rate'), 2)} · 순수익률 {_pct(latest_lightgbm_candidate.get('cumulative_net_return_pct'), 2)}",
+            f"매수 신호 적중률 {_ratio_pct(latest_lightgbm_candidate.get('buy_signal_hit_rate', latest_lightgbm_candidate.get('trade_hit_rate')), 2)} · 가상 방향 순수익률 {_pct(latest_lightgbm_candidate.get('virtual_direction_cumulative_net_return_pct'), 2)}",
             "is-ok" if latest_challenger.get("recommended_action") == "promote" else "is-warn" if latest_challenger.get("recommended_action") == "review_required" else "is-muted",
         ),
         (
@@ -5005,16 +5053,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     _section_card(
                         "챌린저 비교",
                         _table(
-                            ["순위", "후보", "모델 버전", "정확도", "거래 적중률", "거래 수", "누적 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"],
+                            ["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"],
                             challenger_rows,
                             "챌린저 비교 결과가 없습니다.",
                         ),
                         note=_esc(
                             latest_challenger.get("current_guard_note")
-                            or "평가 자격은 독립 holdout/아티팩트 기준입니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트를 함께 봅니다."
+                            or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트와 수익률을 함께 봅니다."
                         ),
                     ),
-                    _section_card("워크포워드 상세", _table(["fold", "정확도", "거래 수", "거래 적중률", "누적 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
+                    _section_card("워크포워드 상세", _table(["fold", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 수", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "매수 신호 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),
             ),
         ],
@@ -5330,8 +5378,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
           <h2>챌린저 비교</h2>
           <span class="panel-meta">수익률 단위 % · 금액 단위 원</span>
         </div>
-        {_table(["순위", "후보", "모델 버전", "정확도", "거래 적중률", "거래 수", "누적 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"], challenger_rows, "챌린저 비교 결과가 없습니다.", scroll_height=280)}
-        <div class="helper-text">{_esc(latest_challenger.get("current_guard_note") or "평가 자격은 독립 holdout/아티팩트 기준입니다. 실제 승격은 권장 조치, 워크포워드 게이트, 수익률을 함께 봅니다.")}</div>
+        {_table(["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"], challenger_rows, "챌린저 비교 결과가 없습니다.", scroll_height=280)}
+        <div class="helper-text">{_esc(latest_challenger.get("current_guard_note") or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격은 권장 조치, 워크포워드 게이트, 수익률을 함께 봅니다.")}</div>
       </section>
     """
     accounts_tab_html = _stack_cards(virtual_tab_html, paper_tab_html, live_tab_html)

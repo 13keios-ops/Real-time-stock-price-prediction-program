@@ -113,6 +113,7 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `장후 label refresh 상태` 카드는 quick maintenance 뒤 live DB에서 feature/label rebuild 와 진단/대시보드 갱신을 수행한 최신 상태를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
+- 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 모델 자체 평가와 실행 제약을 분리해서 보여준다. 챌린저 표의 기본 정확도는 상승/보합/하락 전체를 보는 `3분류 정확도`이고, 기존 `trade_hit_rate`는 과거 호환 키로 유지하되 화면에서는 `매수 신호 적중률`로 표시한다. `가상 방향 거래`는 상승 예측을 가상 매수, 하락 예측을 가상 매도, 보합 예측을 거래 없음으로 계산하는 연구용 지표이며, 실제 현물 paper 주문·보유한도·강제청산 성과와 분리해서 본다. 학습 자체는 이미 상승/보합/하락 3분류였고, 이번 기준은 평가/표시/거래지표 해석을 바로잡은 것이다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
@@ -200,6 +201,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 `challenger_holdout_tail_10pct`를 기본으로 쓰며, candidate별 `evaluation_independence_status`를 리포트에 남긴다. LightGBM artifact에는 `training_run_id`와 holdout metadata를 저장하고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다. 재학습 뒤 live 데이터가 추가되어 holdout 경계가 바뀌면 fail-safe로 promotable이 막히므로, LightGBM 승격 검토는 재학습 직후 같은 데이터 경계에서 challenger를 이어서 실행한다.
+- 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 독립 holdout/아티팩트 기준의 평가 자격일 뿐 실제 승격 적용이 아니며, 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 수익률, 운영자 승인까지 함께 봐야 한다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.

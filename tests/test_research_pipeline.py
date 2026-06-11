@@ -275,6 +275,13 @@ class ResearchPipelineTests(unittest.TestCase):
                 walk_forward_payload["cumulative_net_return_pct"],
             )
             self.assertIn("estimated_cost_drag_pct", walk_forward_payload)
+            self.assertIn("three_class_accuracy", walk_forward_payload)
+            self.assertIn("class_hit_rates", walk_forward_payload)
+            self.assertIn("confusion_matrix", walk_forward_payload)
+            self.assertIn("buy_signal_hit_rate", walk_forward_payload)
+            self.assertIn("virtual_direction_trades_taken", walk_forward_payload)
+            self.assertIn("virtual_direction_hit_rate", walk_forward_payload)
+            self.assertIn("virtual_direction_cumulative_net_return_pct", walk_forward_payload)
             self.assertIsNone(walk_forward_payload["portfolio_return_pct"])
             self.assertTrue(challenger_result.report_markdown_path.exists())
             self.assertTrue(challenger_result.report_json_path.exists())
@@ -287,6 +294,13 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertIn("evaluation_split", challenger_payload)
             self.assertTrue(
                 all("evaluation_independence_status" in candidate for candidate in challenger_payload["candidates"])
+            )
+            self.assertTrue(all("three_class_accuracy" in candidate for candidate in challenger_payload["candidates"]))
+            self.assertTrue(all("class_hit_rates" in candidate for candidate in challenger_payload["candidates"]))
+            self.assertTrue(all("confusion_matrix" in candidate for candidate in challenger_payload["candidates"]))
+            self.assertTrue(all("buy_signal_hit_rate" in candidate for candidate in challenger_payload["candidates"]))
+            self.assertTrue(
+                all("virtual_direction_cumulative_net_return_pct" in candidate for candidate in challenger_payload["candidates"])
             )
             if challenger_payload["dataset_scope"] == "challenger_holdout_tail_10pct":
                 holdout_first = datetime.fromisoformat(

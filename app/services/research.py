@@ -43,6 +43,7 @@ CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
 CHALLENGER_HOLDOUT_FRACTION = 0.10
 LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS = 250_000
+DIRECTION_LABELS = ("down", "flat", "up")
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
     "range_expansion",
@@ -253,6 +254,17 @@ class ChallengerCandidateResult:
     evaluation_independence_status: str
     artifact_training_status: str | None = None
     artifact_training_run_id: str | None = None
+    buy_signal_hit_rate: float = 0.0
+    three_class_accuracy: float = 0.0
+    up_hit_rate: float = 0.0
+    flat_hit_rate: float = 0.0
+    down_hit_rate: float = 0.0
+    virtual_direction_trades_taken: int = 0
+    virtual_direction_hit_rate: float = 0.0
+    virtual_direction_win_rate: float = 0.0
+    virtual_direction_cumulative_net_return_pct: float = 0.0
+    class_hit_rates: dict[str, float] | None = None
+    confusion_matrix: dict[str, dict[str, int]] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -273,6 +285,20 @@ class ChallengerCandidateResult:
             "evaluation_independence_status": self.evaluation_independence_status,
             "artifact_training_status": self.artifact_training_status,
             "artifact_training_run_id": self.artifact_training_run_id,
+            "buy_signal_hit_rate": round(self.buy_signal_hit_rate, 6),
+            "three_class_accuracy": round(self.three_class_accuracy, 6),
+            "up_hit_rate": round(self.up_hit_rate, 6),
+            "flat_hit_rate": round(self.flat_hit_rate, 6),
+            "down_hit_rate": round(self.down_hit_rate, 6),
+            "class_hit_rates": self.class_hit_rates or {},
+            "confusion_matrix": self.confusion_matrix or {},
+            "virtual_direction_trades_taken": self.virtual_direction_trades_taken,
+            "virtual_direction_hit_rate": round(self.virtual_direction_hit_rate, 6),
+            "virtual_direction_win_rate": round(self.virtual_direction_win_rate, 6),
+            "virtual_direction_cumulative_net_return_pct": round(
+                self.virtual_direction_cumulative_net_return_pct,
+                6,
+            ),
         }
 
 
@@ -964,6 +990,151 @@ def _prediction_directional_return_pct(predicted_label: str, future_return_pct: 
     return 0.0
 
 
+def _new_confusion_matrix() -> dict[str, dict[str, int]]:
+    return {actual: {predicted: 0 for predicted in DIRECTION_LABELS} for actual in DIRECTION_LABELS}
+
+
+def _new_virtual_direction_group_bucket() -> dict[str, float]:
+    return {
+        "trades": 0.0,
+        "hits": 0.0,
+        "wins": 0.0,
+        "gross_return_sum": 0.0,
+        "net_return_sum": 0.0,
+    }
+
+
+def _add_virtual_direction_group_stat(
+    buckets: dict[str, dict[str, float]],
+    predicted_label: str,
+    *,
+    gross_return_pct: float,
+    net_return_pct: float,
+    is_hit: bool,
+    is_win: bool,
+) -> None:
+    bucket = buckets.setdefault(predicted_label, _new_virtual_direction_group_bucket())
+    bucket["trades"] += 1
+    bucket["hits"] += 1 if is_hit else 0
+    bucket["wins"] += 1 if is_win else 0
+    bucket["gross_return_sum"] += gross_return_pct
+    bucket["net_return_sum"] += net_return_pct
+
+
+def _finalize_virtual_direction_groups(
+    buckets: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float | int]]:
+    finalized: dict[str, dict[str, float | int]] = {}
+    for label in ("up", "down"):
+        bucket = buckets.get(label, _new_virtual_direction_group_bucket())
+        trades = int(bucket["trades"])
+        finalized[label] = {
+            "trades": trades,
+            "hit_rate": (bucket["hits"] / trades) if trades else 0.0,
+            "win_rate": (bucket["wins"] / trades) if trades else 0.0,
+            "average_gross_return_pct": (bucket["gross_return_sum"] / trades) if trades else 0.0,
+            "average_net_return_pct": (bucket["net_return_sum"] / trades) if trades else 0.0,
+            "cumulative_gross_return_pct": bucket["gross_return_sum"],
+            "cumulative_net_return_pct": bucket["net_return_sum"],
+        }
+    return finalized
+
+
+def _classification_metric_payload(
+    *,
+    rows_evaluated: int,
+    overall_correct: int,
+    actual_counter: Counter[str],
+    class_correct_counter: Counter[str],
+    confusion_matrix: dict[str, dict[str, int]],
+    trade_hit_rate: float,
+    virtual_direction_trades_taken: int,
+    virtual_direction_correct: int,
+    virtual_direction_wins: int,
+    virtual_direction_gross_return_sum: float,
+    virtual_direction_net_return_sum: float,
+    virtual_direction_buckets: dict[str, dict[str, float]],
+    trade_cost_pct: float,
+) -> dict[str, object]:
+    class_hit_rates = {
+        label: (
+            class_correct_counter[label] / actual_counter[label]
+            if actual_counter[label]
+            else 0.0
+        )
+        for label in DIRECTION_LABELS
+    }
+    return {
+        "three_class_accuracy": (overall_correct / rows_evaluated) if rows_evaluated else 0.0,
+        "class_hit_rates": class_hit_rates,
+        "down_hit_rate": class_hit_rates["down"],
+        "flat_hit_rate": class_hit_rates["flat"],
+        "up_hit_rate": class_hit_rates["up"],
+        "confusion_matrix_labels": list(DIRECTION_LABELS),
+        "confusion_matrix": confusion_matrix,
+        "buy_signal_hit_rate": trade_hit_rate,
+        "buy_signal_hit_rate_definition": (
+            "predicted_label=up and probability_up >= signal_confidence_threshold"
+        ),
+        "virtual_direction_policy": "up=virtual_long, down=virtual_short, flat=no_trade",
+        "virtual_direction_trades_taken": virtual_direction_trades_taken,
+        "virtual_direction_hit_rate": (
+            virtual_direction_correct / virtual_direction_trades_taken
+            if virtual_direction_trades_taken
+            else 0.0
+        ),
+        "virtual_direction_win_rate": (
+            virtual_direction_wins / virtual_direction_trades_taken
+            if virtual_direction_trades_taken
+            else 0.0
+        ),
+        "virtual_direction_average_gross_return_pct": (
+            virtual_direction_gross_return_sum / virtual_direction_trades_taken
+            if virtual_direction_trades_taken
+            else 0.0
+        ),
+        "virtual_direction_average_net_return_pct": (
+            virtual_direction_net_return_sum / virtual_direction_trades_taken
+            if virtual_direction_trades_taken
+            else 0.0
+        ),
+        "virtual_direction_cumulative_gross_return_pct": virtual_direction_gross_return_sum,
+        "virtual_direction_cumulative_net_return_pct": virtual_direction_net_return_sum,
+        "virtual_direction_trade_cost_pct": trade_cost_pct,
+        "virtual_direction_by_predicted_label": _finalize_virtual_direction_groups(virtual_direction_buckets),
+    }
+
+
+def _merge_confusion_matrix(
+    target: dict[str, dict[str, int]],
+    source: dict[str, object],
+) -> None:
+    for actual_label, row in source.items():
+        if not isinstance(row, dict):
+            continue
+        target.setdefault(str(actual_label), {label: 0 for label in DIRECTION_LABELS})
+        for predicted_label, count in row.items():
+            target[str(actual_label)][str(predicted_label)] = (
+                int(target[str(actual_label)].get(str(predicted_label), 0)) + int(count)
+            )
+
+
+def _merge_virtual_direction_groups(
+    target: dict[str, dict[str, float]],
+    finalized: dict[str, object],
+) -> None:
+    for label, stats in finalized.items():
+        if not isinstance(stats, dict):
+            continue
+        bucket = target.setdefault(str(label), _new_virtual_direction_group_bucket())
+        trades = int(stats.get("trades", 0))
+        bucket["trades"] += trades
+        bucket["hits"] += float(stats.get("hit_rate", 0.0)) * trades
+        bucket["wins"] += float(stats.get("win_rate", 0.0)) * trades
+        bucket["gross_return_sum"] += float(stats.get("cumulative_gross_return_pct", 0.0))
+        bucket["net_return_sum"] += float(stats.get("cumulative_net_return_pct", 0.0))
+
+
 def _confidence_bin(confidence: float) -> str:
     if confidence < 0.60:
         return "0.58-0.60"
@@ -1475,7 +1646,15 @@ def _evaluate_rows_with_model(
     confidence_sum = 0.0
     actual_counter: Counter[str] = Counter()
     predicted_counter: Counter[str] = Counter()
+    class_correct_counter: Counter[str] = Counter()
+    confusion_matrix = _new_confusion_matrix()
     prediction_direction_buckets: dict[str, dict[str, float]] = {}
+    virtual_direction_buckets: dict[str, dict[str, float]] = {}
+    virtual_direction_trades_taken = 0
+    virtual_direction_correct = 0
+    virtual_direction_wins = 0
+    virtual_direction_gross_return_sum = 0.0
+    virtual_direction_net_return_sum = 0.0
 
     model_version = getattr(getattr(model, "artifact", None), "model_version", None)
     if model_version is None:
@@ -1514,6 +1693,9 @@ def _evaluate_rows_with_model(
         future_return_pct = float(row["future_return_pct"])
         actual_counter[actual_label] += 1
         predicted_counter[predicted_label] += 1
+        confusion_matrix.setdefault(actual_label, {label: 0 for label in DIRECTION_LABELS})
+        confusion_matrix[actual_label].setdefault(predicted_label, 0)
+        confusion_matrix[actual_label][predicted_label] += 1
         confidence_sum += confidence
         if collect_prediction_stats:
             _add_prediction_direction_stat(
@@ -1525,6 +1707,28 @@ def _evaluate_rows_with_model(
 
         if predicted_label == actual_label:
             overall_correct += 1
+            class_correct_counter[actual_label] += 1
+
+        if predicted_label in {"up", "down"} and confidence >= min_signal_confidence:
+            virtual_direction_trades_taken += 1
+            virtual_gross_return_pct = _prediction_directional_return_pct(predicted_label, future_return_pct)
+            virtual_net_return_pct = virtual_gross_return_pct - trade_cost_pct
+            virtual_direction_gross_return_sum += virtual_gross_return_pct
+            virtual_direction_net_return_sum += virtual_net_return_pct
+            virtual_is_hit = predicted_label == actual_label
+            virtual_is_win = virtual_net_return_pct > 0
+            if virtual_is_hit:
+                virtual_direction_correct += 1
+            if virtual_is_win:
+                virtual_direction_wins += 1
+            _add_virtual_direction_group_stat(
+                virtual_direction_buckets,
+                predicted_label,
+                gross_return_pct=virtual_gross_return_pct,
+                net_return_pct=virtual_net_return_pct,
+                is_hit=virtual_is_hit,
+                is_win=virtual_is_win,
+            )
 
         if predicted_label != "up" or prediction.probability_up < min_signal_confidence:
             continue
@@ -1571,6 +1775,21 @@ def _evaluate_rows_with_model(
         "overall_accuracy": (overall_correct / rows_evaluated) if rows_evaluated else 0.0,
         "trade_hit_rate": (trade_correct / trades_taken) if trades_taken else 0.0,
         "win_rate": (wins / trades_taken) if trades_taken else 0.0,
+        **_classification_metric_payload(
+            rows_evaluated=rows_evaluated,
+            overall_correct=overall_correct,
+            actual_counter=actual_counter,
+            class_correct_counter=class_correct_counter,
+            confusion_matrix=confusion_matrix,
+            trade_hit_rate=(trade_correct / trades_taken) if trades_taken else 0.0,
+            virtual_direction_trades_taken=virtual_direction_trades_taken,
+            virtual_direction_correct=virtual_direction_correct,
+            virtual_direction_wins=virtual_direction_wins,
+            virtual_direction_gross_return_sum=virtual_direction_gross_return_sum,
+            virtual_direction_net_return_sum=virtual_direction_net_return_sum,
+            virtual_direction_buckets=virtual_direction_buckets,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "average_confidence": (confidence_sum / rows_evaluated) if rows_evaluated else 0.0,
         "average_gross_return_pct": (gross_return_sum / trades_taken) if trades_taken else 0.0,
         "average_net_return_pct": (net_return_sum / trades_taken) if trades_taken else 0.0,
@@ -1667,7 +1886,15 @@ def _metrics_from_scored_predictions(
     confidence_sum = 0.0
     actual_counter: Counter[str] = Counter()
     predicted_counter: Counter[str] = Counter()
+    class_correct_counter: Counter[str] = Counter()
+    confusion_matrix = _new_confusion_matrix()
     prediction_direction_buckets: dict[str, dict[str, float]] = {}
+    virtual_direction_buckets: dict[str, dict[str, float]] = {}
+    virtual_direction_trades_taken = 0
+    virtual_direction_correct = 0
+    virtual_direction_wins = 0
+    virtual_direction_gross_return_sum = 0.0
+    virtual_direction_net_return_sum = 0.0
     model_version = "unknown-model"
 
     for record in scored_rows:
@@ -1679,6 +1906,9 @@ def _metrics_from_scored_predictions(
         future_return_pct = float(record["future_return_pct"])
         actual_counter[actual_label] += 1
         predicted_counter[predicted_label] += 1
+        confusion_matrix.setdefault(actual_label, {label: 0 for label in DIRECTION_LABELS})
+        confusion_matrix[actual_label].setdefault(predicted_label, 0)
+        confusion_matrix[actual_label][predicted_label] += 1
         confidence_sum += confidence
         _add_prediction_direction_stat(
             prediction_direction_buckets,
@@ -1688,6 +1918,27 @@ def _metrics_from_scored_predictions(
         )
         if predicted_label == actual_label:
             overall_correct += 1
+            class_correct_counter[actual_label] += 1
+        if predicted_label in {"up", "down"} and confidence >= signal_confidence_threshold:
+            virtual_direction_trades_taken += 1
+            virtual_gross_return_pct = _prediction_directional_return_pct(predicted_label, future_return_pct)
+            virtual_net_return_pct = virtual_gross_return_pct - trade_cost_pct
+            virtual_direction_gross_return_sum += virtual_gross_return_pct
+            virtual_direction_net_return_sum += virtual_net_return_pct
+            virtual_is_hit = predicted_label == actual_label
+            virtual_is_win = virtual_net_return_pct > 0
+            if virtual_is_hit:
+                virtual_direction_correct += 1
+            if virtual_is_win:
+                virtual_direction_wins += 1
+            _add_virtual_direction_group_stat(
+                virtual_direction_buckets,
+                predicted_label,
+                gross_return_pct=virtual_gross_return_pct,
+                net_return_pct=virtual_net_return_pct,
+                is_hit=virtual_is_hit,
+                is_win=virtual_is_win,
+            )
         if predicted_label != "up" or probability_up < signal_confidence_threshold:
             continue
         trades_taken += 1
@@ -1721,6 +1972,21 @@ def _metrics_from_scored_predictions(
         "overall_accuracy": (overall_correct / rows_evaluated) if rows_evaluated else 0.0,
         "trade_hit_rate": (trade_correct / trades_taken) if trades_taken else 0.0,
         "win_rate": (wins / trades_taken) if trades_taken else 0.0,
+        **_classification_metric_payload(
+            rows_evaluated=rows_evaluated,
+            overall_correct=overall_correct,
+            actual_counter=actual_counter,
+            class_correct_counter=class_correct_counter,
+            confusion_matrix=confusion_matrix,
+            trade_hit_rate=(trade_correct / trades_taken) if trades_taken else 0.0,
+            virtual_direction_trades_taken=virtual_direction_trades_taken,
+            virtual_direction_correct=virtual_direction_correct,
+            virtual_direction_wins=virtual_direction_wins,
+            virtual_direction_gross_return_sum=virtual_direction_gross_return_sum,
+            virtual_direction_net_return_sum=virtual_direction_net_return_sum,
+            virtual_direction_buckets=virtual_direction_buckets,
+            trade_cost_pct=trade_cost_pct,
+        ),
         "average_confidence": (confidence_sum / rows_evaluated) if rows_evaluated else 0.0,
         "average_gross_return_pct": (gross_return_sum / trades_taken) if trades_taken else 0.0,
         "average_net_return_pct": (net_return_sum / trades_taken) if trades_taken else 0.0,
@@ -4870,8 +5136,16 @@ def run_signal_backtest_from_sqlite(project_root: Path, horizon_min: int = 15) -
         f"- `rows_evaluated`: {rows_evaluated}",
         f"- `trades_taken`: {trades_taken}",
         f"- `overall_accuracy`: {overall_accuracy:.4f}",
-        f"- `trade_hit_rate`: {trade_hit_rate:.4f}",
+        f"- `three_class_accuracy`: {float(metrics['three_class_accuracy']):.4f}",
+        f"- `up_hit_rate`: {float(metrics['up_hit_rate']):.4f}",
+        f"- `flat_hit_rate`: {float(metrics['flat_hit_rate']):.4f}",
+        f"- `down_hit_rate`: {float(metrics['down_hit_rate']):.4f}",
+        f"- `buy_signal_hit_rate`: {float(metrics['buy_signal_hit_rate']):.4f}",
+        f"- `trade_hit_rate_legacy`: {trade_hit_rate:.4f}",
         f"- `win_rate`: {win_rate:.4f}",
+        f"- `virtual_direction_trades_taken`: {int(metrics['virtual_direction_trades_taken'])}",
+        f"- `virtual_direction_hit_rate`: {float(metrics['virtual_direction_hit_rate']):.4f}",
+        f"- `virtual_direction_cumulative_net_return_pct`: {float(metrics['virtual_direction_cumulative_net_return_pct']):.4f}",
         f"- `average_net_return_pct`: {average_net_return_pct:.4f}",
         f"- `cumulative_net_return_pct`: {net_return_sum:.4f}",
         f"- `trade_cost_pct`: {float(metrics['trade_cost_pct']):.4f}",
@@ -4950,6 +5224,14 @@ def run_walk_forward_backtest_from_sqlite(
     aggregate_net = 0.0
     aggregate_actual: Counter[str] = Counter()
     aggregate_predicted: Counter[str] = Counter()
+    aggregate_class_correct: Counter[str] = Counter()
+    aggregate_confusion_matrix = _new_confusion_matrix()
+    aggregate_virtual_direction_groups: dict[str, dict[str, float]] = {}
+    aggregate_virtual_direction_trades = 0
+    aggregate_virtual_direction_hits = 0.0
+    aggregate_virtual_direction_wins = 0.0
+    aggregate_virtual_direction_gross = 0.0
+    aggregate_virtual_direction_net = 0.0
 
     fold_count = 0
     max_train_end = len(dataset) - gap_rows - test_window_rows
@@ -4993,6 +5275,32 @@ def run_walk_forward_backtest_from_sqlite(
         aggregate_net += float(fold_metrics["cumulative_net_return_pct"])
         aggregate_actual.update(fold_metrics["actual_label_counts"])
         aggregate_predicted.update(fold_metrics["predicted_label_counts"])
+        for label in DIRECTION_LABELS:
+            aggregate_class_correct[label] += int(
+                (fold_metrics.get("confusion_matrix", {}) or {}).get(label, {}).get(label, 0)
+            )
+        _merge_confusion_matrix(
+            aggregate_confusion_matrix,
+            fold_metrics.get("confusion_matrix", {}) or {},
+        )
+        virtual_direction_trades = int(fold_metrics.get("virtual_direction_trades_taken", 0))
+        aggregate_virtual_direction_trades += virtual_direction_trades
+        aggregate_virtual_direction_hits += (
+            float(fold_metrics.get("virtual_direction_hit_rate", 0.0)) * virtual_direction_trades
+        )
+        aggregate_virtual_direction_wins += (
+            float(fold_metrics.get("virtual_direction_win_rate", 0.0)) * virtual_direction_trades
+        )
+        aggregate_virtual_direction_gross += float(
+            fold_metrics.get("virtual_direction_cumulative_gross_return_pct", 0.0)
+        )
+        aggregate_virtual_direction_net += float(
+            fold_metrics.get("virtual_direction_cumulative_net_return_pct", 0.0)
+        )
+        _merge_virtual_direction_groups(
+            aggregate_virtual_direction_groups,
+            fold_metrics.get("virtual_direction_by_predicted_label", {}) or {},
+        )
         fold_summaries.append(
             {
                 "fold": fold_index,
@@ -5007,9 +5315,22 @@ def run_walk_forward_backtest_from_sqlite(
                 "test_start_event_time": test_rows[0]["event_time"].isoformat(),
                 "test_end_event_time": test_rows[-1]["event_time"].isoformat(),
                 "overall_accuracy": overall_accuracy,
+                "three_class_accuracy": float(fold_metrics["three_class_accuracy"]),
+                "up_hit_rate": float(fold_metrics["up_hit_rate"]),
+                "flat_hit_rate": float(fold_metrics["flat_hit_rate"]),
+                "down_hit_rate": float(fold_metrics["down_hit_rate"]),
+                "class_hit_rates": dict(fold_metrics["class_hit_rates"]),
+                "confusion_matrix": dict(fold_metrics["confusion_matrix"]),
                 "trades_taken": trades_taken,
                 "trade_hit_rate": trade_hit_rate,
+                "buy_signal_hit_rate": float(fold_metrics["buy_signal_hit_rate"]),
                 "win_rate": win_rate,
+                "virtual_direction_trades_taken": virtual_direction_trades,
+                "virtual_direction_hit_rate": float(fold_metrics["virtual_direction_hit_rate"]),
+                "virtual_direction_win_rate": float(fold_metrics["virtual_direction_win_rate"]),
+                "virtual_direction_cumulative_net_return_pct": float(
+                    fold_metrics["virtual_direction_cumulative_net_return_pct"]
+                ),
                 "average_net_return_pct": float(fold_metrics["average_net_return_pct"]),
                 "cumulative_net_return_pct": float(fold_metrics["cumulative_net_return_pct"]),
             }
@@ -5036,6 +5357,21 @@ def run_walk_forward_backtest_from_sqlite(
         "overall_accuracy": overall_accuracy,
         "trade_hit_rate": trade_hit_rate,
         "win_rate": win_rate,
+        **_classification_metric_payload(
+            rows_evaluated=aggregate_rows,
+            overall_correct=aggregate_correct,
+            actual_counter=aggregate_actual,
+            class_correct_counter=aggregate_class_correct,
+            confusion_matrix=aggregate_confusion_matrix,
+            trade_hit_rate=trade_hit_rate,
+            virtual_direction_trades_taken=aggregate_virtual_direction_trades,
+            virtual_direction_correct=int(round(aggregate_virtual_direction_hits)),
+            virtual_direction_wins=int(round(aggregate_virtual_direction_wins)),
+            virtual_direction_gross_return_sum=aggregate_virtual_direction_gross,
+            virtual_direction_net_return_sum=aggregate_virtual_direction_net,
+            virtual_direction_buckets=aggregate_virtual_direction_groups,
+            trade_cost_pct=_estimate_trade_cost_pct(settings),
+        ),
         "average_confidence": (aggregate_confidence_weighted / aggregate_rows) if aggregate_rows else 0.0,
         "average_gross_return_pct": (aggregate_gross / aggregate_trades) if aggregate_trades else 0.0,
         "average_net_return_pct": average_net_return_pct,
@@ -5094,8 +5430,16 @@ def run_walk_forward_backtest_from_sqlite(
         f"- `rows_evaluated`: {aggregate_rows}",
         f"- `trades_taken`: {aggregate_trades}",
         f"- `overall_accuracy`: {overall_accuracy:.4f}",
-        f"- `trade_hit_rate`: {trade_hit_rate:.4f}",
+        f"- `three_class_accuracy`: {float(metrics['three_class_accuracy']):.4f}",
+        f"- `up_hit_rate`: {float(metrics['up_hit_rate']):.4f}",
+        f"- `flat_hit_rate`: {float(metrics['flat_hit_rate']):.4f}",
+        f"- `down_hit_rate`: {float(metrics['down_hit_rate']):.4f}",
+        f"- `buy_signal_hit_rate`: {float(metrics['buy_signal_hit_rate']):.4f}",
+        f"- `trade_hit_rate_legacy`: {trade_hit_rate:.4f}",
         f"- `win_rate`: {win_rate:.4f}",
+        f"- `virtual_direction_trades_taken`: {int(metrics['virtual_direction_trades_taken'])}",
+        f"- `virtual_direction_hit_rate`: {float(metrics['virtual_direction_hit_rate']):.4f}",
+        f"- `virtual_direction_cumulative_net_return_pct`: {float(metrics['virtual_direction_cumulative_net_return_pct']):.4f}",
         f"- `average_net_return_pct`: {average_net_return_pct:.4f}",
         f"- `cumulative_net_return_pct`: {aggregate_net:.4f}",
         f"- `return_aggregation`: sum_of_trade_pct_not_portfolio",
@@ -5391,7 +5735,20 @@ def run_model_challenger_review_from_sqlite(
                     "promotable": bool(candidate["promotable"]),
                     "trade_cost_pct": float(candidate["trade_cost_pct"]),
                     "trade_hit_rate": float(candidate["trade_hit_rate"]),
+                    "buy_signal_hit_rate": float(candidate["buy_signal_hit_rate"]),
                     "win_rate": float(candidate["win_rate"]),
+                    "three_class_accuracy": float(candidate["three_class_accuracy"]),
+                    "up_hit_rate": float(candidate["up_hit_rate"]),
+                    "flat_hit_rate": float(candidate["flat_hit_rate"]),
+                    "down_hit_rate": float(candidate["down_hit_rate"]),
+                    "class_hit_rates": dict(candidate["class_hit_rates"]),
+                    "confusion_matrix": dict(candidate["confusion_matrix"]),
+                    "virtual_direction_trades_taken": int(candidate["virtual_direction_trades_taken"]),
+                    "virtual_direction_hit_rate": float(candidate["virtual_direction_hit_rate"]),
+                    "virtual_direction_win_rate": float(candidate["virtual_direction_win_rate"]),
+                    "virtual_direction_cumulative_net_return_pct": float(
+                        candidate["virtual_direction_cumulative_net_return_pct"]
+                    ),
                     "average_confidence": float(candidate["average_confidence"]),
                     "average_net_return_pct": float(candidate["average_net_return_pct"]),
                     "cumulative_net_return_pct": float(candidate["cumulative_net_return_pct"]),
@@ -5428,6 +5785,19 @@ def run_model_challenger_review_from_sqlite(
                 ),
                 artifact_training_run_id=(
                     str(candidate["artifact_training_run_id"]) if candidate.get("artifact_training_run_id") else None
+                ),
+                buy_signal_hit_rate=float(candidate["buy_signal_hit_rate"]),
+                three_class_accuracy=float(candidate["three_class_accuracy"]),
+                up_hit_rate=float(candidate["up_hit_rate"]),
+                flat_hit_rate=float(candidate["flat_hit_rate"]),
+                down_hit_rate=float(candidate["down_hit_rate"]),
+                class_hit_rates=dict(candidate["class_hit_rates"]),
+                confusion_matrix=dict(candidate["confusion_matrix"]),
+                virtual_direction_trades_taken=int(candidate["virtual_direction_trades_taken"]),
+                virtual_direction_hit_rate=float(candidate["virtual_direction_hit_rate"]),
+                virtual_direction_win_rate=float(candidate["virtual_direction_win_rate"]),
+                virtual_direction_cumulative_net_return_pct=float(
+                    candidate["virtual_direction_cumulative_net_return_pct"]
                 ),
             )
         )
@@ -5550,7 +5920,12 @@ def run_model_challenger_review_from_sqlite(
         markdown_lines.append(
             f"- `rank {candidate.rank}` {candidate.candidate_name} "
             f"model={candidate.model_version} kind={candidate.model_kind} "
-            f"trades={candidate.trades_taken} accuracy={candidate.overall_accuracy:.4f} "
+            f"trades={candidate.trades_taken} three_class_accuracy={candidate.three_class_accuracy:.4f} "
+            f"up={candidate.up_hit_rate:.4f} flat={candidate.flat_hit_rate:.4f} down={candidate.down_hit_rate:.4f} "
+            f"buy_hit={candidate.buy_signal_hit_rate:.4f} "
+            f"virtual_trades={candidate.virtual_direction_trades_taken} "
+            f"virtual_hit={candidate.virtual_direction_hit_rate:.4f} "
+            f"virtual_net={candidate.virtual_direction_cumulative_net_return_pct:.4f} "
             f"net={candidate.cumulative_net_return_pct:.4f} score={candidate.ranking_score:.4f} "
             f"independence={candidate.evaluation_independence_status}{artifact_status}"
         )

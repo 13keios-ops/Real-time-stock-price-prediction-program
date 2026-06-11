@@ -1,5 +1,42 @@
 # 작업 기록
 
+## [2026-06-11] Codex -> 챌린저 3분류 지표와 가상 방향 거래 평가 분리
+
+- 사용자 지시:
+  - 상승/보합/하락을 모두 예측·학습·평가 기준으로 보고, 대시보드도 이 기준으로 보여준다.
+  - 기존 `거래 적중률`이 보유종목 한도, 매수 전용 운용, 강제청산과 섞여 보이는 문제를 바로잡는다.
+  - 재학습부터 하지 않고 기존 LightGBM artifact를 새 지표로 재평가한다.
+- 시작 상태:
+  - PC 재부팅 뒤 `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: process false인 stale 상태였고, `./scripts/get_dashboard_status.sh`도 stale 상태였다.
+  - 장후이고 live runtime 이 꺼져 있어 코드/대시보드/테스트 작업을 진행했다.
+- 조치:
+  - `app/services/research.py`의 모델 평가 metrics에 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 추가했다.
+  - 기존 `trade_hit_rate`는 호환용 legacy key로 유지하되, 의미는 `predicted_label=up`이고 신뢰도 기준을 넘긴 매수 후보의 적중률로 문서화했다.
+  - 가상 방향 거래는 상승 예측=가상 매수, 하락 예측=가상 매도, 보합 예측=거래 없음으로 계산한다. 이 값은 연구용 방향 성과이며 실제 현물 paper 주문, 보유한도, 미체결, 포지션 관리 청산과 분리한다.
+  - `app/services/dashboard.py`의 챌린저 표와 운영 콘솔을 `3분류 정확도`, `상승/보합/하락 적중률`, `매수 신호 적중률`, `가상 방향 거래 수`, `가상 방향 적중률`, `가상 방향 순수익률`, `혼동행렬` 중심으로 바꿨다.
+  - `평가 자격`은 독립 holdout/아티팩트 기준일 뿐 승격 가능 표시가 아니라고 대시보드 설명을 고정했다.
+  - 기존 LightGBM artifact를 재학습 없이 `python -m app --run-challengers --horizon-min 15`로 재평가했다.
+- 재평가 결과:
+  - 최신 challenger run: `challenger-h15-20260611212023862868`.
+  - 활성 모델은 계속 `baseline-h15-v1`, `recommended_action=keep_active`.
+  - LightGBM 후보는 `three_class_accuracy=0.360671`, `up_hit_rate=0.167514`, `flat_hit_rate=0.290851`, `down_hit_rate=0.651619`, `virtual_direction_cumulative_net_return_pct=111.03129`.
+  - LightGBM은 `evaluation_independence_status=holdout_window_mismatch`라 승격 대상이 아니며 shadow/관찰 후보로만 본다.
+  - 기존 게이트 기준 워크포워드 리포트는 오래된 포맷이므로 fold별 새 3분류/가상 방향 지표 일부는 대시보드에서 `-`로 보인다. 게이트 참고 리포트를 임의 ad-hoc 설정으로 덮지 않기 위해 이번 작업에서는 워크포워드 재생성을 보류했다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/services/dashboard.py`: 통과.
+  - `python -m unittest tests.test_dashboard`: 22개 통과.
+  - `python -m unittest tests.test_research_pipeline`: 9개 통과.
+  - `python -m app --run-challengers --horizon-min 15`: 통과, 최신 challenger 리포트 갱신.
+  - `python -m app --build-dashboard`: 통과, `generated_at=2026-06-11T21:23:04.845728+09:00`.
+  - `python -m unittest discover -s tests -p 'test_*.py'`: 375개 통과.
+  - `git diff --check`: 통과. CRLF/LF 경고만 있고 diff 오류 없음.
+  - 재부팅 뒤 stale였던 runtime watchdog은 재시작 후 `status=running`, `heartbeat_stale=false`.
+  - dashboard는 재시작 후 `status=running`, `dashboard_responding=true`, `dashboard_api_responding=true`, URL `http://127.0.0.1:8765`.
+- 금지/안전:
+  - 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-11] Codex -> LightGBM shadow serving 예측 저장 적용
 
 - 사용자 지시:
