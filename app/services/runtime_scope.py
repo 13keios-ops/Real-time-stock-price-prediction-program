@@ -70,30 +70,57 @@ def _regular_session_timestamp_checker(settings: AppSettings):
     return check
 
 
-def build_runtime_scope(sqlite_store: SQLiteRuntimeStore, settings: AppSettings) -> RuntimeScope:
+def build_runtime_scope(
+    sqlite_store: SQLiteRuntimeStore,
+    settings: AppSettings,
+    *,
+    start_at: str | None = None,
+    end_at: str | None = None,
+    source: str = "raw",
+) -> RuntimeScope:
     symbol_minute_sources: dict[tuple[str, str], set[str]] = {}
     raw_counts_by_table: dict[str, dict[tuple[str, str], int]] = {
         "raw_market_ticks": {},
         "raw_orderbook_ticks": {},
     }
     is_regular_session_timestamp = _regular_session_timestamp_checker(settings)
-    for table_name in ("raw_market_ticks", "raw_orderbook_ticks"):
-        for raw_row in sqlite_store.fetch_raw_symbol_minute_source_counts(table_name, sources=ACTUAL_RAW_SOURCES):
-            row = dict(raw_row)
-            if not is_regular_session_timestamp(str(row.get("sample_time", ""))):
+    if source == "curated_minute_bars":
+        if start_at is not None and end_at is not None:
+            minute_bar_rows = sqlite_store.fetch_rows_between("curated_minute_bars", "bar_time", start_at, end_at, "bar_time")
+        else:
+            minute_bar_rows = sqlite_store.fetch_all_rows("curated_minute_bars", "bar_time")
+        for minute_row in minute_bar_rows:
+            row = dict(minute_row)
+            if not is_regular_session_timestamp(str(row.get("bar_time", ""))):
                 continue
-            minute = str(row.get("minute_key") or "")
+            minute = minute_key(str(row.get("bar_time", ""))) or ""
             if not minute:
                 continue
             key = (str(row["symbol"]), minute)
-            source = str(row.get("source", "")).lower()
-            symbol_minute_sources.setdefault(key, set()).add(source)
-            raw_counts_by_table[table_name][key] = raw_counts_by_table[table_name].get(key, 0) + int(row.get("row_count", 0) or 0)
+            symbol_minute_sources.setdefault(key, set()).add("curated_minute_bars")
+    else:
+        for table_name in ("raw_market_ticks", "raw_orderbook_ticks"):
+            for raw_row in sqlite_store.fetch_raw_symbol_minute_source_counts(
+                table_name,
+                sources=ACTUAL_RAW_SOURCES,
+                start_at=start_at,
+                end_at=end_at,
+            ):
+                row = dict(raw_row)
+                if not is_regular_session_timestamp(str(row.get("sample_time", ""))):
+                    continue
+                minute = str(row.get("minute_key") or "")
+                if not minute:
+                    continue
+                key = (str(row["symbol"]), minute)
+                row_source = str(row.get("source", "")).lower()
+                symbol_minute_sources.setdefault(key, set()).add(row_source)
+                raw_counts_by_table[table_name][key] = raw_counts_by_table[table_name].get(key, 0) + int(row.get("row_count", 0) or 0)
 
     actual_symbol_minutes = {
         key
         for key, sources in symbol_minute_sources.items()
-        if sources and sources.issubset(ACTUAL_RAW_SOURCES)
+        if sources and (sources.issubset(ACTUAL_RAW_SOURCES) or sources == {"curated_minute_bars"})
     }
     actual_global_minutes = {minute for _, minute in actual_symbol_minutes}
     actual_raw_counts_by_table = {

@@ -1910,16 +1910,25 @@ class SQLiteRuntimeStore:
         table_name: str,
         *,
         sources: Iterable[str] | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
     ) -> list[sqlite3.Row]:
         if table_name not in {"raw_market_ticks", "raw_orderbook_ticks"}:
             raise ValueError(f"Unsupported raw table for minute counts: {table_name}")
-        params: tuple[Any, ...] = ()
-        where_clause = ""
+        conditions: list[str] = []
+        params_list: list[Any] = []
         if sources:
             normalized_sources = tuple(str(source).lower() for source in sources)
             placeholders = ", ".join("?" for _ in normalized_sources)
-            where_clause = f"WHERE source IN ({placeholders})"
-            params = normalized_sources
+            conditions.append(f"source IN ({placeholders})")
+            params_list.extend(normalized_sources)
+        if start_at is not None:
+            conditions.append("event_time >= ?")
+            params_list.append(start_at)
+        if end_at is not None:
+            conditions.append("event_time < ?")
+            params_list.append(end_at)
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
             SELECT
                 symbol,
@@ -1932,7 +1941,7 @@ class SQLiteRuntimeStore:
             GROUP BY symbol, minute_key, source
             ORDER BY symbol, minute_key
         """
-        rows = self._run_safe_read_query(query, params, missing_tables=(table_name,))
+        rows = self._run_safe_read_query(query, tuple(params_list), missing_tables=(table_name,))
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_recent_rows(self, table_name: str, order_by_column: str, limit: int = 10) -> list[sqlite3.Row]:

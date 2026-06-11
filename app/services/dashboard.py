@@ -359,6 +359,23 @@ def _resolve_default_dashboard_date_from_scope(settings, scope) -> str | None:
     return None
 
 
+def _resolve_default_dashboard_date_from_data_quality(settings) -> str | None:
+    data_quality = _safe_load_json(settings.runtime_data_dir / "reports" / "data-quality" / "latest-kis-live-data-quality.json")
+    latest_trade_date = ""
+    if isinstance(data_quality, dict):
+        latest_trade_date = str(data_quality.get("latest_trade_date") or "").strip()
+    if not latest_trade_date:
+        return None
+    try:
+        latest_local_date = date.fromisoformat(latest_trade_date)
+    except ValueError:
+        return None
+    today_local = now_local(settings.timezone).date()
+    if latest_local_date < today_local:
+        return latest_local_date.isoformat()
+    return None
+
+
 def _period_filter_from_runtime_scope(settings, scope) -> DashboardPeriodFilter | None:
     minutes = sorted(getattr(scope, "actual_global_minutes", set()) or [])
     if not minutes:
@@ -2287,18 +2304,23 @@ def collect_dashboard_payload(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for the dashboard.")
 
-    scope = build_runtime_scope(sqlite_store, settings)
-    symbol_names = load_symbol_names(project_root)
-    runtime_summary_all = _summarize_runtime(sqlite_store, scope, settings)
-
     default_dashboard_date = None
     if (range_key or "today").strip().lower() == "today" and not selected_date:
-        default_dashboard_date = _resolve_default_dashboard_date_from_scope(settings, scope)
+        default_dashboard_date = _resolve_default_dashboard_date_from_data_quality(settings)
     period_filter = _build_period_filter(
         settings,
         range_key=range_key,
         selected_date_text=selected_date or default_dashboard_date,
     )
+    scope = build_runtime_scope(
+        sqlite_store,
+        settings,
+        start_at=period_filter.start_at.isoformat() if period_filter.start_at is not None else None,
+        end_at=period_filter.end_at.isoformat() if period_filter.end_at is not None else None,
+        source="curated_minute_bars",
+    )
+    symbol_names = load_symbol_names(project_root)
+    runtime_summary_all = _summarize_runtime(sqlite_store, scope, settings)
     calendar_today_filter = _build_period_filter(
         settings,
         range_key="day",
@@ -4578,7 +4600,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         (
             "챌린저 판단",
             challenger_action_label,
-            f"매수 신호 적중률 {_ratio_pct(latest_lightgbm_candidate.get('buy_signal_hit_rate', latest_lightgbm_candidate.get('trade_hit_rate')), 2)} · 가상 방향 순수익률 {_pct(latest_lightgbm_candidate.get('virtual_direction_cumulative_net_return_pct'), 2)}",
+            f"매수 신호 적중률 {_ratio_pct(latest_lightgbm_candidate.get('buy_signal_hit_rate', latest_lightgbm_candidate.get('trade_hit_rate')), 2)} · 가상 방향 단순합산(연구용) {_pct(latest_lightgbm_candidate.get('virtual_direction_cumulative_net_return_pct'), 2)}",
             "is-ok" if latest_challenger.get("recommended_action") == "promote" else "is-warn" if latest_challenger.get("recommended_action") == "review_required" else "is-muted",
         ),
         (
@@ -5053,16 +5075,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                     _section_card(
                         "챌린저 비교",
                         _table(
-                            ["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"],
+                            ["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률(단순합산)", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"],
                             challenger_rows,
                             "챌린저 비교 결과가 없습니다.",
                         ),
                         note=_esc(
                             latest_challenger.get("current_guard_note")
-                            or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트와 수익률을 함께 봅니다."
+                            or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트와 수익률을 함께 봅니다. 가상 방향 수익률은 거래별 퍼센트 손익 단순합산 연구 지표이며 복리·실거래·포트폴리오 수익률이 아닙니다."
                         ),
                     ),
-                    _section_card("워크포워드 상세", _table(["fold", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 수", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "매수 신호 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
+                    _section_card("워크포워드 상세", _table(["fold", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 수", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률(단순합산)", "매수 신호 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),
             ),
         ],
@@ -5376,10 +5398,10 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       <section class="panel wide-panel">
         <div class="panel-head">
           <h2>챌린저 비교</h2>
-          <span class="panel-meta">수익률 단위 % · 금액 단위 원</span>
+          <span class="panel-meta">수익률 단위 % · 가상 방향은 거래별 % 단순합산</span>
         </div>
-        {_table(["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"], challenger_rows, "챌린저 비교 결과가 없습니다.", scroll_height=280)}
-        <div class="helper-text">{_esc(latest_challenger.get("current_guard_note") or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격은 권장 조치, 워크포워드 게이트, 수익률을 함께 봅니다.")}</div>
+        {_table(["순위", "후보", "모델 버전", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률(단순합산)", "혼동행렬", "매수 신호 수", "매수 신호 순수익률", "평가 자격", "승격 판단", "독립성/아티팩트"], challenger_rows, "챌린저 비교 결과가 없습니다.", scroll_height=280)}
+        <div class="helper-text">{_esc(latest_challenger.get("current_guard_note") or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격은 권장 조치, 워크포워드 게이트, 수익률을 함께 봅니다. 가상 방향 수익률은 거래별 퍼센트 손익 단순합산 연구 지표이며 복리·실거래·포트폴리오 수익률이 아닙니다.")}</div>
       </section>
     """
     accounts_tab_html = _stack_cards(virtual_tab_html, paper_tab_html, live_tab_html)

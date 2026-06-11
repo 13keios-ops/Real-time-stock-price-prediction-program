@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> cowork deep review 반영과 대시보드 scope 경량화
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-06-11-repo-goal-and-direction-deep-review.md`를 확인하고 비판적으로 검토한 뒤 조치한다.
+  - C드라이브는 꼭 필요한 앱 내부 상태 외에는 사용하지 않고, 프로젝트 산출물·테스트 로그·캐시·대용량 출력은 D/WSL 저장소 내부에 둔다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=overnight`, `trading_mode=paper`.
+  - dashboard 와 runtime watchdog 은 중지 상태였다.
+  - 작업 트리에는 cowork deep review 파일이 untracked 로 있었다.
+- cowork 리뷰 비판적 확인:
+  - 타당: alpha/model predictive power 부족, `virtual_direction_cumulative_net_return_pct` 오독 위험, stale readiness/progress, KIS `EGW00201` 반복, `373220` local-only mismatch.
+  - 보정: 최신 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`은 latest trade date `2026-06-11`, `assessment.status=ok`라 현재 blocker 는 아니고 과거 반복 watch 원인 추적 항목이다.
+- 조치:
+  - dashboard 챌린저 표와 운영 콘솔에서 가상 방향 수익률을 `가상 방향 순수익률(단순합산)` / `가상 방향 단순합산(연구용)`으로 표시하고, 복리·실거래·포트폴리오 수익률이 아니라는 경고를 고정했다.
+  - `README.md`의 월 `+50%` 문구를 장기 stretch target 으로 낮추고, 1차 검증 목표를 비용 반영 후 양수 기대값·구간 분리 재현성·최대 낙폭·연속 손실·paper 안정성으로 명확히 했다.
+  - `app/services/broker_paper_sync.py`에 KIS order-fill rate-limit cooldown guard 를 추가했다. 최근 `rate_limited` 리포트가 30분 안이면 같은 endpoint 를 재호출하지 않고 `cooldown_active=true`, `skipped_broker_call=true`, `retry_after_seconds`를 남긴다.
+  - `app/services/runtime_scope.py`와 `app/services/dashboard.py`를 보강해 기본 대시보드가 raw tick 전체를 직접 그룹화하지 않도록 했다. 최신 거래일은 data-quality 리포트의 `latest_trade_date`를 쓰고, 대시보드 scope 는 기간 내 `curated_minute_bars`로 만든다.
+  - `docs/Production-Transition-Progress.md`를 2026-06-12 기준으로 갱신하고, stale readiness 와 최신 challenger/paper-KIS 상태를 분리했다.
+- 관측:
+  - 기존 대시보드 빌드는 `build_runtime_scope()`가 raw tick 전체를 `symbol × minute × source`로 그룹화하다가 WSL 명령 세션이 끊기는 형태로 실패했다.
+  - scope 를 minute bar 기반으로 바꾼 뒤 `python -m app --build-dashboard`가 통과했고, 최신 snapshot 은 `generated_at=2026-06-12T01:07:58.385467+09:00`이다.
+- 검증:
+  - `python -m py_compile app/storage/sqlite_store.py app/services/runtime_scope.py app/services/dashboard.py app/services/broker_paper_sync.py`: 통과.
+  - `python -m unittest tests.test_runtime_scope tests.test_broker_paper_sync`: 11개 통과.
+  - `python -m unittest tests.test_dashboard`: 22개 통과.
+  - `python -m app --build-dashboard`: 통과.
+  - `python -m unittest discover -s tests -p "test_*.py"`: 378개 통과.
+  - `git diff --check`: 통과. CRLF/LF 경고만 있고 diff 오류 없음.
+  - dashboard 재기동 스크립트는 시작 JSON을 냈지만, 후속 `./scripts/get_dashboard_status.sh`에서 `status=stale`, `dashboard_responding=false`로 돌아왔다. snapshot 생성은 정상이나 장시간 서버 유지 문제는 별도 P0로 남긴다.
+  - runtime watchdog 재기동 스크립트도 시작 JSON을 냈지만, 후속 `./scripts/get_runtime_watchdog_status.sh`에서 `status=stale`로 돌아왔다. live runtime 은 `overnight`라 정지 상태가 정상이고, watchdog daemon 유지 문제는 별도 P0로 남긴다.
+  - live runtime 은 `overnight`라 `status=stopped`가 정상이다.
+- 남은 작업:
+  - gate reference walk-forward 새 3분류 포맷 재생성은 이전 시도에서 WSL 불안정이 있어 snapshot/경량 wrapper 로 별도 진행한다.
+  - `373220` local-only mismatch 는 자동 alignment 로 덮기 전에 주문/체결/청산 원장 원인을 추적한다.
+
 ## [2026-06-11] Codex -> 챌린저 3분류 지표와 가상 방향 거래 평가 분리
 
 - 사용자 지시:

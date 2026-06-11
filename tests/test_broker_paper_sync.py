@@ -175,6 +175,74 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertIsNotNone(latest_order)
         self.assertEqual(str(latest_order["status"]), "submitted")
 
+    def test_recent_rate_limit_report_skips_broker_call_during_cooldown(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        fixed_now = datetime.fromisoformat("2026-04-17T10:05:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            report_dir = settings.runtime_data_dir / "reports" / "broker-paper"
+            report_dir.mkdir(parents=True, exist_ok=True)
+            (report_dir / "latest-sync.json").write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "synced_at": "2026-04-17T10:00:00+09:00",
+                        "status": "rate_limited",
+                        "rate_limited_at": "2026-04-17T10:00:00+09:00",
+                        "error": "EGW00201",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=fixed_now):
+                with patch(
+                    "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                    side_effect=AssertionError("broker call should be skipped during cooldown"),
+                ):
+                    result = sync_broker_paper_orders(
+                        project_root=root,
+                        rate_limit_cooldown_seconds=30 * 60,
+                    )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "rate_limited")
+        self.assertTrue(result.cooldown_active)
+        self.assertTrue(result.skipped_broker_call)
+        self.assertEqual(result.retry_after_seconds, 25 * 60)
+        self.assertEqual(result.open_order_count, 1)
+        self.assertEqual(result.pending_symbols, ["005930"])
+
     def test_sync_expires_prior_day_unfilled_open_order(self) -> None:
         root, env = self._prepare_runtime()
         event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")

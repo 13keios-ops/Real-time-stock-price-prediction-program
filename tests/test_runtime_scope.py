@@ -122,6 +122,88 @@ class RuntimeScopeTests(unittest.TestCase):
         self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"][("005930", "2026-04-13T10:43")], 1)
         self.assertEqual([row["bar_time"] for row in filtered_rows], ["2026-04-13T10:43:00+09:00"])
 
+    def test_runtime_scope_can_limit_raw_counts_to_period(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "runtime-scope" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{runtime_root / 'dev.db'}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            sqlite_store = get_sqlite_store(settings)
+
+            assert sqlite_store is not None
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-04-13T10:43:58+09:00"),
+                    price=203000.0,
+                    volume=470,
+                    source="kis-ws",
+                )
+            )
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-04-14T10:43:58+09:00"),
+                    price=204000.0,
+                    volume=120,
+                    source="kis-ws",
+                )
+            )
+
+            scope = build_runtime_scope(
+                sqlite_store,
+                settings,
+                start_at="2026-04-14T00:00:00+09:00",
+                end_at="2026-04-15T00:00:00+09:00",
+            )
+
+        self.assertNotIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
+        self.assertIn(("005930", "2026-04-14T10:43"), scope.actual_symbol_minutes)
+        self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"][("005930", "2026-04-14T10:43")], 1)
+
+    def test_runtime_scope_can_use_curated_minute_bars_for_dashboard_scope(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "runtime-scope" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{runtime_root / 'dev.db'}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            sqlite_store = get_sqlite_store(settings)
+
+            assert sqlite_store is not None
+            sqlite_store.upsert_minute_bar(
+                MinuteBar(
+                    symbol="005930",
+                    bar_time=datetime.fromisoformat("2026-04-13T10:43:00+09:00"),
+                    open=203000.0,
+                    high=203000.0,
+                    low=202750.0,
+                    close=203000.0,
+                    volume=470,
+                    trade_count=14,
+                )
+            )
+
+            scope = build_runtime_scope(
+                sqlite_store,
+                settings,
+                start_at="2026-04-13T00:00:00+09:00",
+                end_at="2026-04-14T00:00:00+09:00",
+                source="curated_minute_bars",
+            )
+
+        self.assertIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
+        self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

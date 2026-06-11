@@ -19,34 +19,52 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-09 22:40 KST
-- 현재 런타임: `post-close`
+- 마지막 갱신: 2026-06-12 01:16 KST
+- 현재 런타임: `overnight`
 - live runtime: 정지 상태가 정상
-- runtime watchdog: 실행 중
-- dashboard: 실행 중, 첫 화면은 `운영 콘솔`
+- runtime watchdog: stale. 시작 스크립트는 JSON을 내지만 현재 Codex/WSL 호출 환경에서는 장시간 프로세스가 유지되지 않음.
+- dashboard: stale. snapshot 생성은 정상이나 `http://127.0.0.1:8765` 서버 응답은 현재 유지되지 않음.
 - trading mode: `paper`
-- 최신 cowork 기준: `review_ver_15` 반영
+- 최신 cowork 기준:
+  `docs/cowork-reports/2026-06-11-repo-goal-and-direction-deep-review.md`
 - 최신 통합 리포트:
   `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
-  기준 `phase1a_paper_readonly`, `status=ok`, `passed=true`.
+  기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`.
+  단, `generated_at=2026-05-28T05:12:29+09:00`라 현재 freshness 증거로는 만료 상태이며
+  Phase 1b/Phase 2 통과 증거로 재사용하지 않는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-09T20:01:02+09:00`.
+  기준 `generated_at=2026-06-12T01:07:58+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
-  기준 `generated_at=2026-06-09 08:20:01 +0900`, `status=ok`.
+  기준 `generated_at=2026-06-11 08:20:02 +0900`, `status=ok`.
 - 최신 장후 ML maintenance:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`
-  기준 `completed_at=2026-06-09 16:09:51 +0900`, `status=ok`, `mode=quick-live-train`.
+  기준 `completed_at=2026-06-11 16:10:08 +0900`, `status=ok`, `mode=quick-live-train`.
 - 최신 장후 label refresh:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`
-  기준 `completed_at=2026-06-08 16:43:21 +0900`, `status=ok`.
+  기준 `completed_at=2026-06-11 16:45:07 +0900`, `status=ok`.
+- 최신 KIS live data quality:
+  `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
+  기준 latest trade date `2026-06-11`, `assessment.status=ok`.
+- 최신 검증:
+  `python -m unittest discover -s tests -p "test_*.py"` 378개 통과,
+  `git diff --check` 통과.
+- 최신 challenger:
+  `runtime-data/reports/challengers/latest-challengers-h15.json`
+  기준 `challenger-h15-20260611212023862868`, active `baseline-h15-v1`,
+  `recommended_action=keep_active`.
+  LightGBM은 shadow/관찰 대상이며 `holdout_window_mismatch`로 승격 대상이 아니다.
 - 최신 paper/KIS 정합성:
-  `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
-  기준 `status=aligned_waiting_first_submission`,
-  `cash_gap=0`, `total_asset_gap=0`, 포지션 mismatch 0.
+  `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
+  기준 `status=needs_review`.
+  브로커는 `247540` 4주, 로컬은 `247540` 4주와 `373220` 1주가 남아
+  `373220` local-only mismatch가 남아 있다.
+- 최신 broker paper sync:
+  `runtime-data/reports/broker-paper/latest-sync.json`
+  기준 `status=rate_limited`, KIS `EGW00201`, open order 5건.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -54,8 +72,7 @@
   앞으로 Codex는 주간/강제 NAS 백업을 자율 실행하지 않고,
   사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
 - 다음 cowork 리뷰 권장 시점:
-  Phase 1b 실전 계좌 read-only shape 또는 Phase 2 submit readiness 정책을
-  구체화한 뒤.
+  6월 누적 변경 통합본과 이번 deep review 반영 결과를 묶어 전달한다.
 
 관련 문서/코드 경로:
 `scripts/get_live_runtime_status.sh`,
@@ -76,6 +93,18 @@
 
 - 상태: 진행 중
 - 현재 기준:
+  - 2026-06-11 deep review 기준, Phase 0은 계속 진행 중이다.
+  - KIS live data quality 최신 리포트는 `assessment.status=ok`로 회복됐지만,
+    2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은 별도 추적한다.
+  - broker paper sync 최신 리포트는 KIS `EGW00201` rate limit 으로
+    `status=rate_limited`, open order 5건이다.
+  - dual-account match 최신 리포트는 `status=needs_review`이고,
+    `373220` 1주가 local-only position 으로 남아 있다.
+  - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
+    30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 재호출하지 않고
+    `cooldown_active=true`, `skipped_broker_call=true`를 남기도록 보강했다.
+  - 2026-06-11 최신 challenger 기준 active 는 `baseline-h15-v1`,
+    권장은 `keep_active`다. LightGBM은 shadow/관찰 대상이며 승격되지 않았다.
   - 2026-05-28 장후 `initial_cash_mismatch`는 `-SyncInitialCash -AlignToBroker`로 조치했다.
   - 2026-05-29 장후 stale local snapshot 문제는 `rowid DESC` tie-break로 보강했다.
   - 2026-06-01 장후 정합성은 `status=matched_waiting_first_submission`이다.
@@ -216,6 +245,53 @@
   - 손실/슬리피지/체결/감사 안정.
 
 ## 4. 현재 P0 보드
+
+### alpha/model predictive power
+
+- 상태: 진행 중
+- 현재 판단:
+  - 안전·운영 인프라는 Phase 1/2 준비 수준으로 많이 올라왔지만,
+    비용 차감 후 양수 예측력은 아직 입증되지 않았다.
+  - 최신 active baseline 3분류 정확도는 무작위 기준보다 낮고,
+    LightGBM은 관찰 성능이 일부 더 낫지만 독립성/holdout 기준 문제로 승격 불가다.
+  - 다음 몇 라운드는 대시보드 편의보다 모델/피처/비용 모델 연구와
+    gate reference 재생성을 우선한다.
+- 다음 작업:
+  - gate reference 워크포워드 리포트를 새 3분류/가상 방향 지표 포맷으로 재생성한다.
+  - 단, 2026-06-11 시도한 `python -m app --run-gate-walk-forward --horizon-min 15`는
+    약 7분 뒤 실패했고 WSL 일시 불안정이 동반되어 즉시 재시도하지 않는다.
+  - 다음 시도는 snapshot DB 또는 더 작은 검증 wrapper 로 실행하고,
+    실패 원인을 로그/메모리/실행 시간 기준으로 분리한다.
+- 권장안:
+  - Phase 2 논의보다 먼저 alpha 연구 스프린트와 gate reference 재생성 문제를 처리한다.
+
+### broker paper sync rate-limit / 373220 mismatch
+
+- 상태: 진행 중
+- 현재 판단:
+  - 최신 broker paper sync 는 KIS `EGW00201`로 `rate_limited`다.
+  - 최신 dual-account match 는 `373220` 1주 local-only mismatch 때문에 `needs_review`다.
+  - 2026-06-11 보강은 같은 KIS order-fill endpoint 반복 호출을 줄이는 1차 방어이며,
+    373220 mismatch 자체를 자동으로 덮지 않는다.
+- 다음 작업:
+  - rate-limit 이 풀린 뒤 order-fill 상태를 1회 확인한다.
+  - 브로커 계좌와 local paper 의 `373220` 원장 차이를 주문/체결/강제청산 흐름으로 추적한다.
+- 권장안:
+  - mismatch 는 marker-only alignment 로 덮기 전에 원장 원인을 먼저 확인한다.
+
+### dashboard/watchdog daemon 유지
+
+- 상태: 진행 중
+- 현재 판단:
+  - `python -m app --build-dashboard`는 정상 통과하고 최신 snapshot도 생성된다.
+  - `start_dashboard_background.sh`와 `start_runtime_watchdog_background.sh`는 시작 JSON을 내지만,
+    현재 Codex/WSL 호출 환경에서는 후속 상태가 `stale`로 돌아온다.
+  - stderr/stdout 로그에는 최신 traceback이 없어 앱 예외보다는 백그라운드 프로세스 유지 방식 문제로 본다.
+- 다음 작업:
+  - Windows 작업 스케줄러/재부팅 자동 시작 경로와 Codex 수동 호출 경로를 분리해 검증한다.
+  - 필요한 경우 `scripts/wsl_ops.py`의 daemon 시작/상태 확인 방식을 보강한다.
+- 권장안:
+  - 장중 전에는 dashboard/watchdog 장시간 유지 확인을 별도 운영 blocker로 다룬다.
 
 ### read-only 구조적 차단
 

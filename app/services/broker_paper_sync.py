@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable
@@ -30,6 +31,7 @@ EXPIRED_BROKER_ORDER_STATUSES = {"expired", "expired_partial"}
 FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"} | EXPIRED_BROKER_ORDER_STATUSES
 OPEN_BROKER_ORDER_STATUSES = {"submitted", "pending_lookup", "open", "partially_filled"}
 BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (10.0, 30.0, 60.0, 120.0)
+BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS = 30.0 * 60.0
 
 
 @dataclass(slots=True)
@@ -48,6 +50,10 @@ class BrokerPaperSyncResult:
     report_markdown_path: Path
     report_json_path: Path
     error: str | None = None
+    rate_limited_at: str | None = None
+    cooldown_active: bool = False
+    skipped_broker_call: bool = False
+    retry_after_seconds: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -67,6 +73,14 @@ class BrokerPaperSyncResult:
         }
         if self.error:
             payload["error"] = self.error
+        if self.rate_limited_at:
+            payload["rate_limited_at"] = self.rate_limited_at
+        if self.cooldown_active:
+            payload["cooldown_active"] = self.cooldown_active
+        if self.skipped_broker_call:
+            payload["skipped_broker_call"] = self.skipped_broker_call
+        if self.retry_after_seconds is not None:
+            payload["retry_after_seconds"] = self.retry_after_seconds
         return payload
 
 
@@ -177,12 +191,53 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
     ]
     if payload.get("error"):
         lines.insert(10, f"- `error`: {payload.get('error')}")
+    if payload.get("cooldown_active"):
+        lines.insert(11, f"- `cooldown_active`: {payload.get('cooldown_active')}")
+        lines.insert(12, f"- `skipped_broker_call`: {payload.get('skipped_broker_call')}")
+        lines.insert(13, f"- `retry_after_seconds`: {payload.get('retry_after_seconds')}")
     if pending_symbols:
         lines.extend(f"- `{symbol}`" for symbol in pending_symbols)
     else:
         lines.append("- none")
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _parse_report_datetime(value: Any, fallback_tz: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None and fallback_tz is not None:
+        return parsed.replace(tzinfo=fallback_tz)
+    return parsed
+
+
+def _load_previous_rate_limit(
+    json_path: Path,
+    *,
+    synced_at: datetime,
+    cooldown_seconds: float,
+) -> tuple[str, int] | None:
+    if cooldown_seconds <= 0 or not json_path.exists():
+        return None
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("status") != "rate_limited":
+        return None
+    rate_limited_at_text = str(payload.get("rate_limited_at") or payload.get("synced_at") or "")
+    rate_limited_at = _parse_report_datetime(rate_limited_at_text, synced_at.tzinfo)
+    if rate_limited_at is None:
+        return None
+    elapsed_seconds = (synced_at - rate_limited_at).total_seconds()
+    if elapsed_seconds >= cooldown_seconds:
+        return None
+    retry_after_seconds = max(int(math.ceil(cooldown_seconds - elapsed_seconds)), 0)
+    return rate_limited_at_text, retry_after_seconds
 
 
 class BrokerPaperExecutionSync:
@@ -255,6 +310,7 @@ class BrokerPaperExecutionSync:
         *,
         lookback_days: int = 3,
         retry_delays_seconds: tuple[float, ...] | None = None,
+        rate_limit_cooldown_seconds: float = BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS,
     ) -> BrokerPaperSyncResult:
         synced_at = now_local(self.settings.timezone)
         markdown_path, json_path = _report_paths(self.settings.runtime_data_dir)
@@ -336,14 +392,14 @@ class BrokerPaperExecutionSync:
         for row in sqlite_store.fetch_all_rows("broker_paper_order_status_snapshots", "synced_at"):
             latest_status_by_order[str(row["local_order_id"])] = dict(row)
 
-        try:
-            broker_rows = self.broker_mirror.fetch_recent_order_fills(
-                lookback_days=lookback_days,
-                retry_delays_seconds=retry_delays_seconds,
-            )
-        except KisApiError as exc:
-            if not is_kis_rate_limit_error(exc):
-                raise
+        def build_rate_limited_payload(
+            *,
+            error: str,
+            rate_limited_at: str,
+            cooldown_active: bool = False,
+            skipped_broker_call: bool = False,
+            retry_after_seconds: int | None = None,
+        ) -> dict[str, Any]:
             pending_symbols: set[str] = set()
             open_order_count = 0
             final_order_count = 0
@@ -366,11 +422,12 @@ class BrokerPaperExecutionSync:
                 open_order_count += 1
                 pending_symbols.add(str(submission.get("symbol") or paper_order.get("symbol") or ""))
             pending_symbols.discard("")
-            payload = {
+            payload: dict[str, Any] = {
                 "ok": False,
                 "synced_at": synced_at.isoformat(),
                 "status": "rate_limited",
-                "error": str(exc),
+                "error": error,
+                "rate_limited_at": rate_limited_at,
                 "total_submissions": len(submission_rows),
                 "matched_orders": 0,
                 "updated_orders": 0,
@@ -380,6 +437,47 @@ class BrokerPaperExecutionSync:
                 "final_order_count": final_order_count,
                 "pending_symbols": sorted(pending_symbols),
             }
+            if cooldown_active:
+                payload["cooldown_active"] = True
+            if skipped_broker_call:
+                payload["skipped_broker_call"] = True
+            if retry_after_seconds is not None:
+                payload["retry_after_seconds"] = retry_after_seconds
+            return payload
+
+        previous_rate_limit = _load_previous_rate_limit(
+            json_path,
+            synced_at=synced_at,
+            cooldown_seconds=rate_limit_cooldown_seconds,
+        )
+        if previous_rate_limit is not None:
+            rate_limited_at, retry_after_seconds = previous_rate_limit
+            payload = build_rate_limited_payload(
+                error="KIS order-fill query skipped because rate-limit cooldown is active.",
+                rate_limited_at=rate_limited_at,
+                cooldown_active=True,
+                skipped_broker_call=True,
+                retry_after_seconds=retry_after_seconds,
+            )
+            _write_report(markdown_path, json_path, payload)
+            return BrokerPaperSyncResult(
+                report_markdown_path=markdown_path,
+                report_json_path=json_path,
+                **payload,
+            )
+
+        try:
+            broker_rows = self.broker_mirror.fetch_recent_order_fills(
+                lookback_days=lookback_days,
+                retry_delays_seconds=retry_delays_seconds,
+            )
+        except KisApiError as exc:
+            if not is_kis_rate_limit_error(exc):
+                raise
+            payload = build_rate_limited_payload(
+                error=str(exc),
+                rate_limited_at=synced_at.isoformat(),
+            )
             _write_report(markdown_path, json_path, payload)
             return BrokerPaperSyncResult(
                 report_markdown_path=markdown_path,
@@ -560,6 +658,7 @@ def sync_broker_paper_orders(
     *,
     lookback_days: int = 3,
     retry_delays_seconds: tuple[float, ...] | None = None,
+    rate_limit_cooldown_seconds: float = BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS,
 ) -> BrokerPaperSyncResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -572,4 +671,5 @@ def sync_broker_paper_orders(
     return service.sync_recent_orders(
         lookback_days=lookback_days,
         retry_delays_seconds=effective_retry_delays,
+        rate_limit_cooldown_seconds=rate_limit_cooldown_seconds,
     )

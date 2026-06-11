@@ -110,10 +110,16 @@ python -m app --build-dashboard
 - 원시 체결/호가 행은 화면에 직접 표시하지 않고 분 단위 집계 카운트만 사용해 대시보드 재생성 부하를 낮춘다.
 - 원시 체결/호가의 actual source 분 단위 집계는 `source, symbol, event_time` 인덱스를 사용해 Cybos 5년치 데이터가 섞인 DB에서도 대시보드 재생성 시간을 낮춘다.
 - 기본 날짜 조회처럼 기간 필터가 있는 대시보드 생성은 대형 테이블 전체를 읽지 않고 SQL 시간 범위로 먼저 좁힌 뒤 실제 runtime 필터를 적용한다.
+- 기본 `오늘` 대시보드는 raw tick 전체를 직접 그룹화하지 않는다. `latest-kis-live-data-quality.json`의 `latest_trade_date`로 마지막 실제 거래일을 먼저 정하고, 대시보드용 runtime scope는 이미 압축된 `curated_minute_bars` 기간 범위로 만든다. raw tick coverage 는 별도 `KIS live 데이터 품질` 카드가 담당한다.
+- 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+  변경 전에는 기본 대시보드 생성도 `raw_market_ticks`와 `raw_orderbook_ticks` 전체를 `symbol × minute × source`로 그룹화해 DB가 커진 뒤 WSL 명령 세션이 종료될 수 있었다.
+  변경 후에는 기본 날짜를 data-quality 리포트에서 정하고, dashboard scope 는 선택 기간의 `curated_minute_bars`로 만든다.
+  영향 범위는 dashboard payload 수집, runtime scope 생성, SQLite raw count helper 의 기간 조건에 한정된다.
+  회귀 위험은 dashboard 의 raw tick 총량 숫자가 scope 기반 직접 집계 대신 data-quality 카드 중심 해석으로 분리되는 점이며, raw coverage 판단은 `latest-kis-live-data-quality.json`을 기준으로 계속 확인한다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `장후 label refresh 상태` 카드는 quick maintenance 뒤 live DB에서 feature/label rebuild 와 진단/대시보드 갱신을 수행한 최신 상태를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
-- 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 모델 자체 평가와 실행 제약을 분리해서 보여준다. 챌린저 표의 기본 정확도는 상승/보합/하락 전체를 보는 `3분류 정확도`이고, 기존 `trade_hit_rate`는 과거 호환 키로 유지하되 화면에서는 `매수 신호 적중률`로 표시한다. `가상 방향 거래`는 상승 예측을 가상 매수, 하락 예측을 가상 매도, 보합 예측을 거래 없음으로 계산하는 연구용 지표이며, 실제 현물 paper 주문·보유한도·강제청산 성과와 분리해서 본다. 학습 자체는 이미 상승/보합/하락 3분류였고, 이번 기준은 평가/표시/거래지표 해석을 바로잡은 것이다.
+- 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 모델 자체 평가와 실행 제약을 분리해서 보여준다. 챌린저 표의 기본 정확도는 상승/보합/하락 전체를 보는 `3분류 정확도`이고, 기존 `trade_hit_rate`는 과거 호환 키로 유지하되 화면에서는 `매수 신호 적중률`로 표시한다. `가상 방향 거래`는 상승 예측을 가상 매수, 하락 예측을 가상 매도, 보합 예측을 거래 없음으로 계산하는 연구용 지표이며, 실제 현물 paper 주문·보유한도·강제청산 성과와 분리해서 본다. 이 수익률은 거래별 퍼센트 손익을 단순 합산한 값이며 복리 수익률, 포트폴리오 수익률, 실제 체결 가능 수익률이 아니다. 학습 자체는 이미 상승/보합/하락 3분류였고, 이번 기준은 평가/표시/거래지표 해석을 바로잡은 것이다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
@@ -321,6 +327,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 
 수동 브로커 주문/체결 조회가 KIS `EGW00201` rate-limit 에 걸리면 짧게 재시도한다.
 계속 막히면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
+최근 `rate_limited` 리포트가 30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 다시 호출하지 않고 `cooldown_active=true`, `skipped_broker_call=true`를 남긴다.
 실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 즉시 재시도하지 않은 뒤 5분 동안 추가 조회를 쉬어 KIS 호출 제한, 지연, 로그 증가를 줄인다.
 
 브로커 status snapshot 이 이미 있는 주문이 과거 주문일의 미체결 잔량으로 남아 있으면 다음 거래일에 새 체결로 이어질 수 없으므로 paper sync 는 이를 active open 으로 계속 세지 않는다.
@@ -332,6 +339,12 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 변경 후에는 이미 조회된 과거 주문일 open snapshot 만 만료 상태로 해석해 open count 를 부풀리지 않는다.
 영향 범위는 `app/services/broker_paper_sync.py`의 KIS 모의계좌 paper sync 해석과 관련 테스트에 한정된다.
 회귀 위험은 당일 open 주문을 잘못 만료 처리하는 경우인데, snapshot 이 없는 주문은 제외하고 주문일이 동기화일보다 이전인 snapshot 에만 적용해 줄였다.
+
+변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+변경 전에는 `python -m app --sync-broker-paper-orders`나 장전/장후 점검이 짧은 시간 안에 반복 실행되면, 직전 실행에서 `EGW00201`가 났어도 같은 KIS order-fill endpoint 를 다시 호출할 수 있었다.
+변경 후에는 최근 rate-limit 리포트의 `rate_limited_at`이 30분 안이면 KIS 호출을 생략하고 cooldown 상태 리포트만 갱신한다.
+영향 범위는 `app/services/broker_paper_sync.py`의 브로커 모의계좌 order-fill 조회 진입 전 guard 와 관련 테스트에 한정된다.
+회귀 위험은 rate-limit 이 빨리 풀렸는데도 최대 30분 동안 체결 동기화를 늦추는 경우이며, 이 경우 안전 측으로 pending 상태를 유지하고 실제 주문/계좌 원장은 KIS 계좌 조회와 다음 sync 에서 다시 확인한다.
 
 ## KIS 계좌 설정 메모
 
