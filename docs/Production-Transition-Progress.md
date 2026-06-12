@@ -102,6 +102,12 @@
   flat hit rate 가 `0.0061`, `0.0119`, `0.0074`로 붕괴했다. 이 기간들은 분봉 변동성도
   `0.44~0.50%` 수준으로 높아 `보합 라벨 우세 + 고변동 + flat 판별 실패`가 우선 원인 후보로 남았다.
   이 리포트는 원인 가설이며 label/gate 기준값 자동 변경 근거가 아니다.
+- watchlist 확대 검토:
+  `runtime-data/reports/data-quality/latest-kis-live-data-quality.json` 기준 최신 거래일 `2026-06-12`의
+  watchlist 10종목 coverage assessment 는 `ok`다. 최근 h15 label 분포는 `down=9,665`,
+  `flat=16,935`, `up=9,433`으로 flat 비중이 큰 편이다. 따라서 현 시점의 watchlist 확대는
+  수집 누락 보완이 아니라 데이터 다양성/장세 다양성 확보 목적의 후보 검토이며,
+  Phase 2 실전 canary 종목 수나 주문 한도 확대와 연결하지 않는다.
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
   기준 `status=needs_review`.

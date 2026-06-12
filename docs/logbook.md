@@ -31,6 +31,7 @@
   - `docs/Execution-Plan.md`에 plan B, KIS live 데이터 축적 최소 기준, mismatch 시간 격상 기준, lineage 용량/아카이브 설계를 보강했다.
   - `docs/Current-Implementation.md`, `README.md`, `docs/Production-Transition-Progress.md`에 새 리포트와 현재 해석을 연결했다.
   - KIS Developers 포털과 공식 GitHub 공개 HTML을 2026-06-13 기준으로 재확인했고, `docs/KIS-Connection-Runbook.md`에 `초당 호출 제한 공지 존재는 확인`, `구체 수치는 로그인/동적 UI 또는 지원 채널 확인 필요` 상태를 최신화했다.
+  - `runtime-data/reports/data-quality/latest-kis-live-data-quality.json` 기준 최신 거래일 `2026-06-12` watchlist 10종목 coverage 는 `ok`라, watchlist 확대는 수집 누락 보완이 아니라 데이터 다양성 확보 목적으로만 검토한다고 정리했다.
   - 전체 테스트 중 주말 날짜에서 post-close holiday 테스트가 weekend skip으로 먼저 분기되는 날짜 의존 실패를 확인했다.
   - `scripts/common_process_helpers.sh`의 `market_session_status`에서 명시 holiday를 weekend보다 먼저 판정하도록 바꿔, calendar에 명시된 휴장 사유가 skip_reason에 보존되게 했다.
 - 검증:
