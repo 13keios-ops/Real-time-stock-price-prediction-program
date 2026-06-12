@@ -22,18 +22,24 @@
   - `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.{json,md}`를 생성했다. 118개 fold 중 정확도 0.20 미만 fold가 3개, 최저 정확도는 0.11842다.
   - `scripts/summarize_lightgbm_defensive_signal_candidates.py`를 추가해 기존 LightGBM 성능 진단과 calibration 결과에서 하락/회피 방어 신호 후보를 추렸다.
   - `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.{json,md}`를 생성했다. 이 리포트는 live short 또는 매수 승격 근거가 아니라 buy-avoid / early-exit paper shadow 검증 후보를 고르는 자료다.
+  - `scripts/summarize_lightgbm_defensive_shadow.py`를 추가해 baseline 매수 허용 신호와 같은 시각의 `lightgbm-h15-v1` shadow 예측, 닫힌 h15 label, closed paper lot 을 read-only 로 비교했다.
+  - `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.{json,md}`를 생성했다.
+  - 첫 결과는 `buy-avoid` 쪽에만 후보성이 있다. down threshold `0.40`은 baseline 매수 신호 `3,130`건 중 `1,147`건을 회피했을 때 비용 차감 누적 순수익률 delta `+114.8758%p`였고, 조기 청산 shadow 는 best threshold `0.58`에서도 delta `-48.7958%p`, cash delta `-178,007원`으로 악화됐다.
   - `docs/Execution-Plan.md`에 plan B, KIS live 데이터 축적 최소 기준, mismatch 시간 격상 기준, lineage 용량/아카이브 설계를 보강했다.
   - `docs/Current-Implementation.md`, `README.md`, `docs/Production-Transition-Progress.md`에 새 리포트와 현재 해석을 연결했다.
+  - KIS Developers 포털과 공식 GitHub 공개 HTML을 2026-06-13 기준으로 재확인했고, `docs/KIS-Connection-Runbook.md`에 `초당 호출 제한 공지 존재는 확인`, `구체 수치는 로그인/동적 UI 또는 지원 채널 확인 필요` 상태를 최신화했다.
   - 전체 테스트 중 주말 날짜에서 post-close holiday 테스트가 weekend skip으로 먼저 분기되는 날짜 의존 실패를 확인했다.
   - `scripts/common_process_helpers.sh`의 `market_session_status`에서 명시 holiday를 weekend보다 먼저 판정하도록 바꿔, calendar에 명시된 휴장 사유가 skip_reason에 보존되게 했다.
 - 검증:
   - `python3 scripts/trace_paper_kis_mismatch.py`: 통과.
   - `python3 scripts/summarize_walk_forward_extreme_folds.py`: 통과.
   - `python3 scripts/summarize_lightgbm_defensive_signal_candidates.py`: 통과.
-  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py scripts/summarize_walk_forward_extreme_folds.py scripts/summarize_lightgbm_defensive_signal_candidates.py`: 통과.
+  - `python3 scripts/summarize_lightgbm_defensive_shadow.py`: 통과.
+  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py scripts/summarize_walk_forward_extreme_folds.py scripts/summarize_lightgbm_defensive_signal_candidates.py scripts/summarize_lightgbm_defensive_shadow.py`: 통과.
+  - `python3 -m unittest tests.test_lightgbm_defensive_shadow -q`: 1개 통과.
   - `bash -n scripts/common_process_helpers.sh scripts/run_post_close_label_refresh.sh scripts/run_post_close_ml_maintenance.sh`: 통과.
   - `python3 -m unittest tests.test_post_close_label_refresh_script tests.test_post_close_maintenance_script -q`: 7개 통과.
-  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 380개 통과.
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 381개 통과.
 - 금지/안전:
   - read-only 분석과 문서 보강만 수행했다.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.

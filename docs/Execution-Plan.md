@@ -233,6 +233,8 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 비교 항목은 손실 거래 감소, 최대 낙폭, 연속 손실, 기회비용, 거래 수 감소, 비용 차감 순손익이다.
 - 방어 신호가 좋아 보여도 active model 교체나 gate 기준값 변경 없이 별도 후보로만 둔다.
 - 기존 진단에서 후보를 추릴 때는 `scripts/summarize_lightgbm_defensive_signal_candidates.py`로 하락 예측 양수 후보를 먼저 요약한다.
+- 실제 baseline 매수 신호에 적용한 첫 비교는 `scripts/summarize_lightgbm_defensive_shadow.py`로 수행한다.
+- 같은 하락/회피 단서라도 `buy-avoid`와 `early-exit`은 분리해서 판정한다. 2026-06-13 기준 첫 shadow 결과는 `buy-avoid`는 손실 축소 후보지만, 조기 청산은 실제 paper 청산보다 악화되어 보류다.
 
 ### 이유
 
@@ -257,12 +259,15 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - baseline 단독과 baseline+방어 필터를 같은 기간에서 비교한 리포트가 있다.
 - 방어 필터가 비용 차감 후 손실 거래, 최대 낙폭, 연속 손실 중 최소 하나를 의미 있게 줄인다.
 - 수익 기회 감소가 허용 범위 안인지 별도로 표시된다.
+- 조기 청산 후보는 실제 closed paper lot 기준 delta 가 양수로 바뀌기 전까지 적용하지 않는다.
 
 관련 문서/코드 경로:
 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`,
 `runtime-data/reports/challengers/latest-lightgbm-calibration-experiment-h15.json`,
 `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.json`,
+`runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`,
 `scripts/summarize_lightgbm_defensive_signal_candidates.py`,
+`scripts/summarize_lightgbm_defensive_shadow.py`,
 `app/services/research.py`,
 `app/services/reporting.py`
 

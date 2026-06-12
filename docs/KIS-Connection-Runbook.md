@@ -5,13 +5,14 @@
 
 ## 1. 공식 원천 확인 결과
 
-확인일: 2026-06-12.
+확인일: 2026-06-12. 2026-06-13에 공개 HTML 기준으로 재확인했다.
 
 - KIS Developers 포털 `https://apiportal.koreainvestment.com/intro`
   - 공식 진입점이다.
   - 포털은 API 문서, API 가이드 문서, FAQ/오류코드, 공식 GitHub 샘플 코드, 테스트베드를 제공한다.
   - 메인 공지 영역에 `[중요] 한국투자증권 Open API 신규 고객 초당 호출 제한 안내`가 노출된다.
   - 포털 상세 공지와 오류코드 본문은 웹 UI/로그인/동적 로딩 영향으로 CLI 텍스트 수집에서 완전 확인되지 않을 수 있다.
+  - 2026-06-13 공개 HTML 재확인에서도 공지 제목 노출은 확인됐지만, 구체 초당/분당 수치는 공개 텍스트로 내려오지 않았다.
 - KIS API 가이드 문서 `https://apiportal.koreainvestment.com/apiservice-apiservice`
   - OAuth 인증, 접근토큰 발급/폐기, 실시간 웹소켓 접속키 발급을 별도 항목으로 제공한다.
   - 국내주식 주문/계좌 항목에 주식일별주문체결조회, 주식잔고조회, 매수가능조회, 매도가능수량조회가 있다.
@@ -23,6 +24,7 @@
   - 문제 해결 가이드에서 토큰 재발급은 1분당 1회라고 안내한다.
   - WebSocket `No close frame received`류 오류는 HTS ID 정확성 확인 대상으로 안내한다.
   - `EGW00201`은 초당 거래건수 초과이며, 모의투자 계좌는 REST API 호출 제한이 낮다고 안내한다.
+  - 2026-06-13 재확인 기준 공식 GitHub README도 구체 수치 대신 모의투자 REST 제한이 낮다는 방향만 제공한다.
 
 관련 문서/코드 경로: `docs/KIS-Integration-Plan.md`, `docs/Runtime-Configuration.md`, `app/brokers/kis_auth.py`, `app/brokers/kis_quote_rest.py`, `app/brokers/kis_quote_ws.py`
 

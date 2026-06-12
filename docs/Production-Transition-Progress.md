@@ -79,6 +79,14 @@
   기준 하락/회피 후보 `111`개가 추려졌고, 상위 후보는 하락 예측 구간에서
   비용 차감 양수 단서를 보인다. 단, 이 결과는 live short 또는 매수 승격 근거가 아니라
   buy-avoid / early-exit paper shadow 검증 후보로만 본다.
+- 최신 LightGBM 방어 shadow:
+  `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`
+  기준 `2026-06-11T09:15:00+09:00`~`2026-06-12T15:00:00+09:00`의
+  baseline 매수 허용 신호 `3,130`건을 같은 시각 LightGBM 하락확률로 걸러 봤다.
+  down threshold `0.40`은 매수 회피 `1,147`건, 비용 차감 누적 순수익률 delta
+  `+114.8758%p`로 손실 축소 후보였지만, closed paper lot `1,029`건 기준 조기청산 shadow 는
+  best threshold `0.58`에서도 delta `-48.7958%p`, cash delta `-178,007원`으로 악화됐다.
+  따라서 현재 권장안은 `buy-avoid 후보 유지`, `early-exit 적용 보류`다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch `5`종목 모두 `close_order_fill_unknown_due_rate_limit` 후보로 분류됐다.
