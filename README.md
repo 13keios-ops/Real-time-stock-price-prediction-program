@@ -64,7 +64,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - LightGBM 성능 진단, feature source, feature profile, label band, label band 재현성, probability calibration 연구 리포트
 - LightGBM 하락/회피 방어 신호 후보 요약 리포트
 - LightGBM 하락/회피 신호의 baseline 매수 회피 / 조기청산 shadow 비교 리포트
-- paper/KIS mismatch trace 리포트와 gate walk-forward 극단 fold 요약 리포트
+- paper/KIS mismatch trace 리포트와 gate walk-forward 극단 fold 요약/장세 분석 리포트
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket 연결 준비와 검증 리포트
 - 실행 / 백테스트 / 워크포워드 리포트 생성

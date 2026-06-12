@@ -183,7 +183,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 6. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
 7. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
 8. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-9. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+9. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+10. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
@@ -277,6 +278,8 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 
 - LightGBM 학습 시점의 holdout 경계를 challenger 평가 anchor로 유지한다.
 - gate reference walk-forward는 새 3분류 지표와 가상 방향 지표를 포함한 최신 포맷으로 유지한다.
+- 극단 저성능 fold는 `scripts/summarize_walk_forward_extreme_folds.py`로 먼저 고르고, `scripts/analyze_walk_forward_extreme_fold_regimes.py`로 label imbalance, prediction bias, 기간 수익률, 분봉 변동성을 확인한다.
+- 2026-06-13 기준 최저 fold 후보는 flat 라벨 비중이 높지만 flat 적중률이 붕괴한 고변동 구간이다. 따라서 단순 label/gate threshold 변경보다 보합 regime 분리와 변동성 피처 검증을 먼저 본다.
 - `promotable=true`는 실제 승격이 아니라 심사 자격으로만 표시한다.
 - 실제 승격은 아래 모두가 충족될 때만 검토한다.
   - 독립 holdout 유효.
@@ -300,7 +303,9 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `runtime-data/reports/challengers/latest-challengers-h15.json`,
 `runtime-data/reports/backtests/latest-walk-forward-h15.json`,
 `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`,
+`runtime-data/reports/backtests/latest-walk-forward-extreme-fold-regimes-h15.json`,
 `scripts/summarize_walk_forward_extreme_folds.py`,
+`scripts/analyze_walk_forward_extreme_fold_regimes.py`,
 `app/models/`,
 `app/services/research.py`
 

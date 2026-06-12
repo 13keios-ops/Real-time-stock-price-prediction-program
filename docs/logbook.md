@@ -20,6 +20,9 @@
   - 5종목 모두 최신 local/broker 청산 주문이 `submitted`이고 broker order-fill 회수가 `EGW00201`로 막혀 `close_order_fill_unknown_due_rate_limit` 후보로 분류됐다.
   - `scripts/summarize_walk_forward_extreme_folds.py`를 추가해 최신 gate walk-forward 에서 극단 저성능 fold를 요약했다.
   - `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.{json,md}`를 생성했다. 118개 fold 중 정확도 0.20 미만 fold가 3개, 최저 정확도는 0.11842다.
+  - `scripts/analyze_walk_forward_extreme_fold_regimes.py`를 추가해 극단 fold 기간을 h15 label 분포와 분봉 장세로 read-only 분석했다.
+  - `runtime-data/reports/backtests/latest-walk-forward-extreme-fold-regimes-h15.{json,md}`를 생성했다.
+  - 최저 fold `5`, `12`, `11`은 flat 라벨 비중이 각각 약 `0.77`, `0.74`, `0.72`인데 flat hit rate 가 `0.0061`, `0.0119`, `0.0074`로 붕괴했고, 분봉 변동성도 높은 구간이었다. 우선 가설은 `보합 라벨 우세 + 고변동 + flat 판별 실패`이며 label/gate 기준값은 바꾸지 않는다.
   - `scripts/summarize_lightgbm_defensive_signal_candidates.py`를 추가해 기존 LightGBM 성능 진단과 calibration 결과에서 하락/회피 방어 신호 후보를 추렸다.
   - `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.{json,md}`를 생성했다. 이 리포트는 live short 또는 매수 승격 근거가 아니라 buy-avoid / early-exit paper shadow 검증 후보를 고르는 자료다.
   - `scripts/summarize_lightgbm_defensive_shadow.py`를 추가해 baseline 매수 허용 신호와 같은 시각의 `lightgbm-h15-v1` shadow 예측, 닫힌 h15 label, closed paper lot 을 read-only 로 비교했다.
@@ -33,20 +36,22 @@
 - 검증:
   - `python3 scripts/trace_paper_kis_mismatch.py`: 통과.
   - `python3 scripts/summarize_walk_forward_extreme_folds.py`: 통과.
+  - `python3 scripts/analyze_walk_forward_extreme_fold_regimes.py`: 통과.
   - `python3 scripts/summarize_lightgbm_defensive_signal_candidates.py`: 통과.
   - `python3 scripts/summarize_lightgbm_defensive_shadow.py`: 통과.
-  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py scripts/summarize_walk_forward_extreme_folds.py scripts/summarize_lightgbm_defensive_signal_candidates.py scripts/summarize_lightgbm_defensive_shadow.py`: 통과.
+  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py scripts/summarize_walk_forward_extreme_folds.py scripts/analyze_walk_forward_extreme_fold_regimes.py scripts/summarize_lightgbm_defensive_signal_candidates.py scripts/summarize_lightgbm_defensive_shadow.py`: 통과.
+  - `python3 -m unittest tests.test_walk_forward_extreme_fold_regime_analysis -q`: 1개 통과.
   - `python3 -m unittest tests.test_lightgbm_defensive_shadow -q`: 1개 통과.
   - `bash -n scripts/common_process_helpers.sh scripts/run_post_close_label_refresh.sh scripts/run_post_close_ml_maintenance.sh`: 통과.
   - `python3 -m unittest tests.test_post_close_label_refresh_script tests.test_post_close_maintenance_script -q`: 7개 통과.
-  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 381개 통과.
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 382개 통과.
 - 금지/안전:
   - read-only 분석과 문서 보강만 수행했다.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - 실전 주문/취소, NAS 백업 없음.
 - 다음 작업:
   - 다음 거래일 장중 watchdog heartbeat 유지와 장후 `EGW00201` 재발 여부를 실측한다.
-  - baseline 매수 회피 필터와 조기 청산 후보로 하락/회피 신호의 paper shadow 검증 리포트를 설계한다.
+  - KIS live 데이터가 더 쌓이면 보합 regime 분리와 변동성 피처 후보가 worst fold에서 개선되는지 재검증한다.
 
 ## [2026-06-12] Codex -> 전체 실행 계획 문서화
 

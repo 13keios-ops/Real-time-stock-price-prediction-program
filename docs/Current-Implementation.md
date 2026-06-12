@@ -191,6 +191,7 @@ python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15
 python -m app --run-lightgbm-calibration-experiment --horizon-min 15
 python scripts/trace_paper_kis_mismatch.py
 python scripts/summarize_walk_forward_extreme_folds.py
+python scripts/analyze_walk_forward_extreme_fold_regimes.py
 python scripts/summarize_lightgbm_defensive_signal_candidates.py
 python scripts/summarize_lightgbm_defensive_shadow.py
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
@@ -229,6 +230,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - LightGBM probability calibration 실험은 `python -m app --run-lightgbm-calibration-experiment --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 의 확률을 온도 보정과 prior blending 후보로 후처리해 NLL, Brier score, ECE, 3분류 정확도, 가상 방향 순수익률을 비교하고 `runtime-data/reports/challengers/latest-lightgbm-calibration-experiment-h15.json`과 `.md`에 남긴다. calibration 결과는 자동 채택하지 않는다.
 - paper/KIS mismatch trace 는 `python scripts/trace_paper_kis_mismatch.py`로 실행한다. 이 명령은 최신 reconciliation, broker sync, SQLite 원장을 read-only로 묶어 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`과 `.md`에 남긴다. 계좌를 정렬하거나 주문/체결 상태를 변경하지 않는다.
 - gate walk-forward 극단 fold 요약은 `python scripts/summarize_walk_forward_extreme_folds.py`로 실행한다. 이 명령은 최신 `latest-walk-forward-h15.json`에서 정확도가 낮은 fold를 추려 `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`과 `.md`에 남긴다. 원인 판정이 아니라 후속 장세/데이터 품질 분석 후보를 고르는 진단이다.
+- gate walk-forward 극단 fold 장세 분석은 `python scripts/analyze_walk_forward_extreme_fold_regimes.py`로 실행한다. 이 명령은 최신 gate fold 기간을 `feature_labels`, `curated_minute_bars`와 read-only 로 조인해 label imbalance, prediction bias, 기간 수익률, 분봉 변동성 후보를 `runtime-data/reports/backtests/latest-walk-forward-extreme-fold-regimes-h15.json`과 `.md`에 남긴다. 2026-06-13 기준 최저 fold 들은 flat 라벨 비중이 높지만 flat 적중률이 붕괴하고, 분봉 변동성이 높은 구간으로 분류됐다. 이 리포트만으로 label/gate 기준값은 바꾸지 않는다.
 - LightGBM 방어 신호 후보 요약은 `python scripts/summarize_lightgbm_defensive_signal_candidates.py`로 실행한다. 이 명령은 기존 성능 진단과 calibration 실험에서 하락 예측의 비용 차감 양수 후보를 모아 `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.json`과 `.md`에 남긴다. 이 결과는 매수 승격이나 live short 신호가 아니라 buy-avoid / early-exit paper shadow 검증 후보를 고르는 자료다.
 - LightGBM 방어 shadow 비교는 `python scripts/summarize_lightgbm_defensive_shadow.py`로 실행한다. 이 명령은 baseline 매수 허용 신호와 같은 시각의 `lightgbm-h15-v1` shadow 예측, 닫힌 h15 label, closed paper lot 을 read-only 로 조인해 `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`과 `.md`에 남긴다. 2026-06-13 첫 결과는 `buy-avoid`는 손실 축소 후보였지만, 같은 하락 신호를 조기 청산에 쓰는 것은 실제 paper 청산보다 악화되어 보류다. 이 결과는 active model, threshold, paper/live 주문을 바꾸지 않는다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
