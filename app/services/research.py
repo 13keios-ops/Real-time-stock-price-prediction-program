@@ -49,6 +49,8 @@ LIGHTGBM_PERFORMANCE_THRESHOLD_GRID = (0.34, 0.38, 0.42, 0.46, 0.50, 0.54, 0.58,
 LIGHTGBM_SOURCE_EXPERIMENT_CANDIDATES = ("mixed_recent", "kis-ws", "cybos-historical")
 LIGHTGBM_FEATURE_PROFILE_CANDIDATES = ("base", "time", "momentum", "volatility", "time_momentum_volatility")
 LIGHTGBM_LABEL_BAND_GRID = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50)
+LIGHTGBM_LABEL_BAND_REPRO_GRID = (0.35, 0.40, 0.50)
+LIGHTGBM_LABEL_BAND_REPRO_MAX_ROWS = 60_000
 LIGHTGBM_CALIBRATION_TEMPERATURE_GRID = (0.75, 1.00, 1.25, 1.50, 2.00)
 LIGHTGBM_CALIBRATION_PRIOR_BLEND_GRID = (0.00, 0.10, 0.20, 0.35)
 DIRECTION_LABELS = ("down", "flat", "up")
@@ -2438,9 +2440,15 @@ def _run_lightgbm_walk_forward(
     aggregate_wins = 0.0
     aggregate_gross = 0.0
     aggregate_net = 0.0
+    aggregate_virtual_direction_trades = 0
+    aggregate_virtual_direction_hits = 0.0
+    aggregate_virtual_direction_wins = 0.0
+    aggregate_virtual_direction_gross = 0.0
+    aggregate_virtual_direction_net = 0.0
     aggregate_actual: Counter[str] = Counter()
     aggregate_predicted: Counter[str] = Counter()
     aggregate_prediction_direction: dict[str, dict[str, float]] = {}
+    aggregate_virtual_direction: dict[str, dict[str, float]] = {}
     trade_ledger: list[dict[str, object]] = []
     fold_summaries: list[dict[str, object]] = []
     effective_trade_cost_pct = _effective_trade_cost_pct(settings, trade_cost_pct)
@@ -2481,12 +2489,22 @@ def _run_lightgbm_walk_forward(
         aggregate_wins += float(metrics["win_rate"]) * trades_taken
         aggregate_gross += float(metrics["cumulative_gross_return_pct"])
         aggregate_net += float(metrics["cumulative_net_return_pct"])
+        virtual_direction_trades = int(metrics.get("virtual_direction_trades_taken", 0))
+        aggregate_virtual_direction_trades += virtual_direction_trades
+        aggregate_virtual_direction_hits += float(metrics.get("virtual_direction_hit_rate", 0.0)) * virtual_direction_trades
+        aggregate_virtual_direction_wins += float(metrics.get("virtual_direction_win_rate", 0.0)) * virtual_direction_trades
+        aggregate_virtual_direction_gross += float(metrics.get("virtual_direction_cumulative_gross_return_pct", 0.0))
+        aggregate_virtual_direction_net += float(metrics.get("virtual_direction_cumulative_net_return_pct", 0.0))
         aggregate_actual.update(metrics["actual_label_counts"])
         aggregate_predicted.update(metrics["predicted_label_counts"])
         if collect_prediction_stats:
             _merge_prediction_direction_stats(
                 aggregate_prediction_direction,
                 metrics.get("prediction_direction_stats", {}),
+            )
+            _merge_virtual_direction_groups(
+                aggregate_virtual_direction,
+                metrics.get("virtual_direction_by_predicted_label", {}),
             )
         fold_summaries.append(
             {
@@ -2502,6 +2520,11 @@ def _run_lightgbm_walk_forward(
                 "overall_accuracy": float(metrics["overall_accuracy"]),
                 "trades_taken": trades_taken,
                 "trade_hit_rate": float(metrics["trade_hit_rate"]),
+                "virtual_direction_trades_taken": virtual_direction_trades,
+                "virtual_direction_hit_rate": float(metrics.get("virtual_direction_hit_rate", 0.0)),
+                "virtual_direction_cumulative_net_return_pct": float(
+                    metrics.get("virtual_direction_cumulative_net_return_pct", 0.0)
+                ),
                 "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
                 "trade_cost_pct": effective_trade_cost_pct,
                 "signal_confidence_threshold": effective_signal_confidence,
@@ -2520,6 +2543,31 @@ def _run_lightgbm_walk_forward(
         "cumulative_gross_return_pct": aggregate_gross,
         "cumulative_net_return_pct": aggregate_net,
         "average_net_return_pct": aggregate_net / aggregate_trades if aggregate_trades else 0.0,
+        "virtual_direction_policy": "up=virtual_long, down=virtual_short, flat=no_trade",
+        "virtual_direction_trades_taken": aggregate_virtual_direction_trades,
+        "virtual_direction_hit_rate": (
+            aggregate_virtual_direction_hits / aggregate_virtual_direction_trades
+            if aggregate_virtual_direction_trades
+            else 0.0
+        ),
+        "virtual_direction_win_rate": (
+            aggregate_virtual_direction_wins / aggregate_virtual_direction_trades
+            if aggregate_virtual_direction_trades
+            else 0.0
+        ),
+        "virtual_direction_cumulative_gross_return_pct": aggregate_virtual_direction_gross,
+        "virtual_direction_cumulative_net_return_pct": aggregate_virtual_direction_net,
+        "virtual_direction_average_gross_return_pct": (
+            aggregate_virtual_direction_gross / aggregate_virtual_direction_trades
+            if aggregate_virtual_direction_trades
+            else 0.0
+        ),
+        "virtual_direction_average_net_return_pct": (
+            aggregate_virtual_direction_net / aggregate_virtual_direction_trades
+            if aggregate_virtual_direction_trades
+            else 0.0
+        ),
+        "virtual_direction_by_predicted_label": _finalize_virtual_direction_groups(aggregate_virtual_direction),
         "trade_cost_pct": effective_trade_cost_pct,
         **_trade_return_diagnostics(
             gross_return_sum=aggregate_gross,
@@ -6817,6 +6865,242 @@ def run_lightgbm_label_band_experiment_from_sqlite(
     return payload
 
 
+def run_lightgbm_label_band_reproducibility_review_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    label_thresholds: tuple[float, ...] = LIGHTGBM_LABEL_BAND_REPRO_GRID,
+    feature_market_source: str | None = "kis-ws",
+    max_rows: int | None = LIGHTGBM_LABEL_BAND_REPRO_MAX_ROWS,
+    train_rows: int = 20_000,
+    test_rows: int = 3_000,
+    step_rows: int = 10_000,
+    gap_rows: int | None = None,
+    max_folds: int = 4,
+    period_count: int = 3,
+    period_train_rows: int = 8_000,
+    period_test_rows: int = 2_000,
+    period_step_rows: int = 4_000,
+    period_max_folds: int = 2,
+    min_reliable_trades: int = 30,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM label-band reproducibility review.")
+
+    generated_at = now_local(settings.timezone)
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    signal_threshold = _effective_signal_confidence(settings)
+    current_threshold = (
+        float(settings.strategy.label_threshold_60)
+        if horizon_min == 60
+        else float(settings.strategy.label_threshold_15)
+    )
+    grid = tuple(sorted({round(float(value), 6) for value in (*label_thresholds, current_threshold)}))
+    effective_gap_rows = horizon_min if gap_rows is None else int(gap_rows)
+    feature_names, base_dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    period_blocks = _sequential_trade_date_period_blocks(base_dataset, period_count=period_count)
+    threshold_results: list[dict[str, object]] = []
+    for threshold_pct in grid:
+        relabeled_dataset = _relabel_training_rows(base_dataset, threshold_pct)
+        threshold_key = _threshold_key(threshold_pct)
+        candidate: dict[str, object] = {
+            "threshold_pct": threshold_pct,
+            "is_current_threshold": abs(threshold_pct - current_threshold) < 1e-9,
+            "label_counts": _label_counts_for_rows(relabeled_dataset),
+            "status": "pending",
+            "period_results": [],
+        }
+        try:
+            walk_forward = _run_lightgbm_walk_forward(
+                rows=relabeled_dataset,
+                feature_names=feature_names,
+                settings=settings,
+                horizon_min=horizon_min,
+                train_rows=train_rows,
+                test_rows=test_rows,
+                gap_rows=effective_gap_rows,
+                step_rows=step_rows,
+                max_folds=max_folds,
+                feature_set_name=f"kis-label-band-repro-{threshold_key}",
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=signal_threshold,
+                collect_trade_ledger=False,
+                collect_prediction_stats=True,
+            )
+            candidate["walk_forward"] = _label_band_repro_metric_view(walk_forward)
+        except ValueError as exc:
+            candidate["walk_forward"] = {"status": "failed", "error": str(exc)}
+
+        period_results: list[dict[str, object]] = []
+        for period in period_blocks:
+            period_rows = _relabel_training_rows(list(period["rows"]), threshold_pct)
+            period_result: dict[str, object] = {
+                "period_name": period["name"],
+                "first_event_time": period["first_event_time"],
+                "last_event_time": period["last_event_time"],
+                "rows": len(period_rows),
+                "trade_dates": period["trade_dates"],
+                "label_counts": _label_counts_for_rows(period_rows),
+            }
+            try:
+                period_metrics = _run_lightgbm_walk_forward(
+                    rows=period_rows,
+                    feature_names=feature_names,
+                    settings=settings,
+                    horizon_min=horizon_min,
+                    train_rows=period_train_rows,
+                    test_rows=period_test_rows,
+                    gap_rows=effective_gap_rows,
+                    step_rows=period_step_rows,
+                    max_folds=period_max_folds,
+                    feature_set_name=f"kis-label-band-repro-{threshold_key}-{period['name']}",
+                    trade_cost_pct=trade_cost_pct,
+                    signal_confidence_threshold=signal_threshold,
+                    collect_trade_ledger=False,
+                    collect_prediction_stats=True,
+                )
+                period_result.update(_label_band_repro_metric_view(period_metrics))
+            except ValueError as exc:
+                period_result.update({"status": "failed", "error": str(exc)})
+            period_results.append(period_result)
+        candidate["period_results"] = period_results
+        candidate.update(
+            _label_band_reproducibility_decision(
+                candidate,
+                min_reliable_trades=min_reliable_trades,
+            )
+        )
+        threshold_results.append(candidate)
+
+    ranked = sorted(
+        threshold_results,
+        key=lambda row: (
+            int(row.get("reproducible_positive_periods", 0)),
+            float((row.get("walk_forward") or {}).get("virtual_direction_cumulative_net_return_pct", 0.0))
+            if isinstance(row.get("walk_forward"), dict)
+            else 0.0,
+            float((row.get("walk_forward") or {}).get("three_class_accuracy", 0.0))
+            if isinstance(row.get("walk_forward"), dict)
+            else 0.0,
+        ),
+        reverse=True,
+    )
+    best_candidate = ranked[0] if ranked else None
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-label-band-reproducibility-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-label-band-reproducibility-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_label_band_reproducibility_review",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "feature_market_source": feature_market_source,
+        "current_label_threshold_pct": current_threshold,
+        "label_thresholds": list(grid),
+        "dataset_load": {
+            "max_rows": max_rows,
+            "loaded_rows": len(base_dataset),
+            "scope": "recent_labeled_rows" if max_rows else "full_history",
+            "feature_count": len(feature_names),
+            "first_event_time": base_dataset[0]["event_time"].isoformat() if base_dataset else None,
+            "last_event_time": base_dataset[-1]["event_time"].isoformat() if base_dataset else None,
+        },
+        "walk_forward_design": {
+            "train_rows": train_rows,
+            "test_rows": test_rows,
+            "gap_rows": effective_gap_rows,
+            "step_rows": step_rows,
+            "max_folds": max_folds,
+            "period_count": period_count,
+            "period_train_rows": period_train_rows,
+            "period_test_rows": period_test_rows,
+            "period_step_rows": period_step_rows,
+            "period_max_folds": period_max_folds,
+        },
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "signal_confidence_threshold": round(signal_threshold, 6),
+        "min_reliable_trades": min_reliable_trades,
+        "selection_policy": "research_only_no_label_threshold_adoption",
+        "automatic_label_threshold_adoption": False,
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": "completed" if threshold_results else "no_thresholds",
+        "best_by_reproducible_periods": (
+            float(best_candidate.get("threshold_pct")) if isinstance(best_candidate, dict) else None
+        ),
+        "threshold_results": threshold_results,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+    markdown_lines = [
+        f"# LightGBM Label Band Reproducibility Review H{horizon_min}",
+        "",
+        "- label band 후보의 기간 분리 재현성 리뷰입니다. label threshold, active model, gate, 주문 판단을 바꾸지 않습니다.",
+        f"- `status`: {payload['status']}",
+        f"- `feature_market_source`: {feature_market_source}",
+        f"- `current_label_threshold_pct`: {current_threshold:.6f}",
+        f"- `best_by_reproducible_periods`: {payload['best_by_reproducible_periods']}",
+        f"- `automatic_label_threshold_adoption`: false",
+        "",
+        "| threshold | current | decision | wf_folds | wf_3class | wf_vdir_trades | wf_vdir_net | positive_periods | reliable_periods |",
+        "|---:|:---:|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in threshold_results:
+        walk_forward = row.get("walk_forward") if isinstance(row.get("walk_forward"), dict) else {}
+        markdown_lines.append(
+            "| "
+            f"{float(row.get('threshold_pct', 0.0)):.4f} | "
+            f"{'yes' if row.get('is_current_threshold') else 'no'} | "
+            f"{row.get('decision_label', '')} | "
+            f"{int(walk_forward.get('folds', 0))} | "
+            f"{float(walk_forward.get('three_class_accuracy', 0.0)):.6f} | "
+            f"{int(walk_forward.get('virtual_direction_trades_taken', 0))} | "
+            f"{float(walk_forward.get('virtual_direction_cumulative_net_return_pct', 0.0)):.6f} | "
+            f"{int(row.get('reproducible_positive_periods', 0))} | "
+            f"{int(row.get('reliable_periods', 0))} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Period Details",
+            "",
+            "| threshold | period | status | rows | folds | vdir_trades | vdir_net | 3class |",
+            "|---:|---|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in threshold_results:
+        for period in row.get("period_results", []):
+            if not isinstance(period, dict):
+                continue
+            markdown_lines.append(
+                "| "
+                f"{float(row.get('threshold_pct', 0.0)):.4f} | "
+                f"{period.get('period_name')} | "
+                f"{period.get('status')} | "
+                f"{int(period.get('rows', 0))} | "
+                f"{int(period.get('folds', 0))} | "
+                f"{int(period.get('virtual_direction_trades_taken', 0))} | "
+                f"{float(period.get('virtual_direction_cumulative_net_return_pct', 0.0)):.6f} | "
+                f"{float(period.get('three_class_accuracy', 0.0)):.6f} |"
+            )
+    markdown_lines.extend(
+        [
+            "",
+            "Note: This review is diagnostic only. A positive candidate still requires longer period, walk-forward gate, and paper shadow review.",
+        ]
+    )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
 def run_lightgbm_probability_calibration_experiment_from_sqlite(
     project_root: Path,
     horizon_min: int = 15,
@@ -7442,6 +7726,112 @@ def _apply_feature_profile(
         row["features"] = [float(row["values"][name]) for name in final_feature_names]
     pending_rows.sort(key=lambda item: (str(item["event_time"]), str(item["symbol"])))
     return final_feature_names, pending_rows, sorted(added_names)
+
+
+def _sequential_trade_date_period_blocks(
+    dataset: list[dict[str, object]],
+    *,
+    period_count: int,
+) -> list[dict[str, object]]:
+    if not dataset:
+        return []
+    trade_dates = sorted({row["event_time"].date() for row in dataset})
+    total_periods = max(1, min(int(period_count), len(trade_dates)))
+    blocks: list[dict[str, object]] = []
+    for index in range(total_periods):
+        start = math.floor((len(trade_dates) * index) / total_periods)
+        end = math.floor((len(trade_dates) * (index + 1)) / total_periods)
+        selected_dates = trade_dates[start:end]
+        if not selected_dates:
+            continue
+        selected_date_set = set(selected_dates)
+        rows = [row for row in dataset if row["event_time"].date() in selected_date_set]
+        if not rows:
+            continue
+        blocks.append(
+            {
+                "name": f"period_{index + 1}",
+                "rows": rows,
+                "trade_dates": len(selected_dates),
+                "first_event_time": rows[0]["event_time"].isoformat(),
+                "last_event_time": rows[-1]["event_time"].isoformat(),
+            }
+        )
+    return blocks
+
+
+def _label_band_repro_metric_view(metrics: dict[str, object]) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "folds": int(metrics.get("folds", 0)),
+        "rows_evaluated": int(metrics.get("rows_evaluated", 0)),
+        "three_class_accuracy": float(metrics.get("three_class_accuracy", metrics.get("overall_accuracy", 0.0))),
+        "class_hit_rates": metrics.get("class_hit_rates", {}),
+        "actual_label_counts": metrics.get("actual_label_counts", {}),
+        "predicted_label_counts": metrics.get("predicted_label_counts", {}),
+        "buy_signal_trades_taken": int(metrics.get("trades_taken", 0)),
+        "buy_signal_hit_rate": float(metrics.get("trade_hit_rate", metrics.get("buy_signal_hit_rate", 0.0))),
+        "buy_signal_cumulative_net_return_pct": float(metrics.get("cumulative_net_return_pct", 0.0)),
+        "virtual_direction_policy": metrics.get("virtual_direction_policy", "up=virtual_long, down=virtual_short, flat=no_trade"),
+        "virtual_direction_trades_taken": int(metrics.get("virtual_direction_trades_taken", 0)),
+        "virtual_direction_hit_rate": float(metrics.get("virtual_direction_hit_rate", 0.0)),
+        "virtual_direction_win_rate": float(metrics.get("virtual_direction_win_rate", 0.0)),
+        "virtual_direction_average_net_return_pct": float(metrics.get("virtual_direction_average_net_return_pct", 0.0)),
+        "virtual_direction_cumulative_net_return_pct": float(
+            metrics.get("virtual_direction_cumulative_net_return_pct", 0.0)
+        ),
+        "virtual_direction_by_predicted_label": metrics.get("virtual_direction_by_predicted_label", {}),
+        "fold_summaries": metrics.get("fold_summaries", []),
+    }
+
+
+def _label_band_reproducibility_decision(
+    candidate: dict[str, object],
+    *,
+    min_reliable_trades: int,
+) -> dict[str, object]:
+    walk_forward = candidate.get("walk_forward") if isinstance(candidate.get("walk_forward"), dict) else {}
+    period_results = [row for row in candidate.get("period_results", []) if isinstance(row, dict)]
+    ok_periods = [row for row in period_results if row.get("status") == "ok"]
+    reliable_periods = [
+        row
+        for row in ok_periods
+        if int(row.get("virtual_direction_trades_taken", 0)) >= min_reliable_trades
+    ]
+    positive_periods = [
+        row
+        for row in reliable_periods
+        if float(row.get("virtual_direction_cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    walk_forward_trades = int(walk_forward.get("virtual_direction_trades_taken", 0))
+    walk_forward_net = float(walk_forward.get("virtual_direction_cumulative_net_return_pct", 0.0))
+    walk_forward_ok = walk_forward.get("status") == "ok"
+    if not walk_forward_ok:
+        label = "failed"
+        conclusion = "walk-forward 평가가 실패해 후보로 볼 수 없습니다."
+    elif walk_forward_trades < min_reliable_trades:
+        label = "insufficient_trades"
+        conclusion = "가상 방향 거래 수가 적어 재현성 판단을 보류합니다."
+    elif walk_forward_net <= 0.0:
+        label = "not_reproducible"
+        conclusion = "전체 walk-forward 기준 비용 차감 방향 수익이 양수가 아닙니다."
+    elif reliable_periods and len(positive_periods) == len(reliable_periods):
+        label = "reproducible_direction_candidate_requires_review"
+        conclusion = "모든 신뢰 가능 기간에서 비용 차감 방향 수익이 양수인 연구 후보입니다."
+    elif positive_periods:
+        label = "mixed_reproducibility_requires_more_data"
+        conclusion = "전체 기준은 양수지만 기간별 결과가 섞여 추가 기간 검증이 필요합니다."
+    else:
+        label = "not_period_reproducible"
+        conclusion = "전체 기준은 양수여도 기간 분리에서 양수 재현이 부족합니다."
+    return {
+        "status": label if label == "failed" else "completed",
+        "decision_label": label,
+        "decision_conclusion": conclusion,
+        "reliable_periods": len(reliable_periods),
+        "reproducible_positive_periods": len(positive_periods),
+        "ok_periods": len(ok_periods),
+    }
 
 
 def _lightgbm_candidate_result(

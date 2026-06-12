@@ -1,5 +1,39 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> LightGBM label band 재현성 리뷰
+
+- 사용자 지시:
+  - 직전 LightGBM 성능개선 트랙의 다음 단계를 진행한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 대시보드는 `http://127.0.0.1:8765`에서 응답 중이었고 작업트리는 clean 상태였다.
+- 조치:
+  - `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15` CLI를 추가했다.
+  - label band 후보 `0.35 / 0.40 / 0.50`을 최근 KIS live labeled row `60,000`건 기준으로 full walk-forward 와 3개 기간 분리 fold 에서 다시 검증한다.
+  - 기존 `_run_lightgbm_walk_forward` 결과에 가상 방향 거래 지표(`virtual_direction_*`)를 추가해 상승=가상 매수, 하락=가상 매도, 보합=거래 없음 기준의 기간별 재현성을 볼 수 있게 했다.
+  - 대시보드 `ML/데이터 > 챌린저 및 워크포워드`에 `LightGBM label band 재현성` 카드를 추가했다.
+  - `README.md`와 `docs/Current-Implementation.md`에 새 명령과 자동 threshold 채택 금지 기준을 반영했다.
+- 결과:
+  - 실행 리포트: `runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json` / `.md`.
+  - 데이터 범위: `2026-05-08T10:18:00+09:00`부터 `2026-06-12T15:04:00+09:00`, KIS live feature `6`개, `60,000` rows.
+  - `0.35`: full walk-forward 3분류 정확도 `0.418417`, 가상 방향 거래 `737건`, 가상 방향 순수익률 `-4.071976%`, 양수 기간 `1/3`, 판정 `not_reproducible`.
+  - `0.40`: full walk-forward 3분류 정확도 `0.435333`, 가상 방향 거래 `684건`, 가상 방향 순수익률 `+12.267219%`, 양수 기간 `0/3`, 판정 `not_period_reproducible`.
+  - `0.50`: full walk-forward 3분류 정확도 `0.446583`, 가상 방향 거래 `776건`, 가상 방향 순수익률 `-16.142871%`, 양수 기간 `1/3`, 판정 `not_reproducible`.
+  - 해석: `0.40`은 단일 전체 walk-forward에서는 좋아 보이지만 기간 분리에서 재현되지 않아 `config`의 label threshold 를 바꾸면 안 된다.
+  - dashboard snapshot 은 `generated_at=2026-06-12T23:02:16.779655+09:00`로 갱신됐다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/__main__.py app/services/dashboard.py tests/test_research_pipeline.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline -q`: 10개 통과.
+  - `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`: 통과.
+  - `python -m app --build-dashboard`: 통과.
+- 금지/안전:
+  - active model, gate 기준값, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 실전 주문 변경 없음.
+  - NAS 백업 실행 없음.
+- 다음 작업:
+  - label band 변경은 보류한다.
+  - 다음 모델 트랙은 `0.40` threshold 적용이 아니라, 하락/회피 신호와 상승 매수 신호를 분리해 feature/profile 후보를 다시 좁히는 방향이 맞다.
+
 ## [2026-06-12] Codex -> LightGBM feature profile / label band / probability calibration 실험
 
 - 사용자 지시:

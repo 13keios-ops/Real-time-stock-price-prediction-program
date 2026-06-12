@@ -34,6 +34,7 @@ from app.services.research import (
     run_lightgbm_feature_profile_experiment_from_sqlite,
     run_lightgbm_feature_source_experiment_from_sqlite,
     run_lightgbm_label_band_experiment_from_sqlite,
+    run_lightgbm_label_band_reproducibility_review_from_sqlite,
     run_lightgbm_performance_diagnostics_from_sqlite,
     run_lightgbm_probability_calibration_experiment_from_sqlite,
     run_model_challenger_review_from_sqlite,
@@ -99,6 +100,13 @@ def main() -> int:
     parser.add_argument("--lightgbm-feature-profile-source", default="kis-ws", help="Market source for feature-profile experiment. Default is kis-ws.")
     parser.add_argument("--run-lightgbm-label-band-experiment", action="store_true", help="Review LightGBM label threshold bands without changing configured thresholds.")
     parser.add_argument("--lightgbm-label-band-thresholds", default="0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.50", help="Comma-separated label threshold pct candidates for label-band experiment.")
+    parser.add_argument("--run-lightgbm-label-band-reproducibility-review", action="store_true", help="Review LightGBM label threshold candidates across walk-forward and period splits without adopting thresholds.")
+    parser.add_argument("--lightgbm-label-band-repro-thresholds", default="0.35,0.40,0.50", help="Comma-separated label threshold pct candidates for reproducibility review.")
+    parser.add_argument("--lightgbm-label-band-repro-max-rows", type=int, default=60000, help="Maximum recent labeled rows for label-band reproducibility review. Use 0 for full history.")
+    parser.add_argument("--lightgbm-label-band-repro-train-rows", type=int, default=20000, help="Train rows per full walk-forward fold for label-band reproducibility review.")
+    parser.add_argument("--lightgbm-label-band-repro-test-rows", type=int, default=3000, help="Test rows per full walk-forward fold for label-band reproducibility review.")
+    parser.add_argument("--lightgbm-label-band-repro-step-rows", type=int, default=10000, help="Step rows for full walk-forward label-band reproducibility review.")
+    parser.add_argument("--lightgbm-label-band-repro-max-folds", type=int, default=4, help="Maximum full walk-forward folds for label-band reproducibility review.")
     parser.add_argument("--run-lightgbm-calibration-experiment", action="store_true", help="Run LightGBM probability calibration diagnostics without adopting calibration.")
     parser.add_argument("--lightgbm-calibration-temperatures", default="0.75,1.00,1.25,1.50,2.00", help="Comma-separated temperature candidates for probability calibration.")
     parser.add_argument("--lightgbm-calibration-prior-alphas", default="0.00,0.10,0.20,0.35", help="Comma-separated prior blend alpha candidates for probability calibration.")
@@ -400,6 +408,28 @@ def main() -> int:
             if args.lightgbm_feature_source_max_rows > 0
             else None,
             thresholds=thresholds,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_label_band_reproducibility_review:
+        label_thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_label_band_repro_thresholds.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_label_band_reproducibility_review_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            label_thresholds=label_thresholds,
+            feature_market_source=args.lightgbm_feature_profile_source or None,
+            max_rows=args.lightgbm_label_band_repro_max_rows
+            if args.lightgbm_label_band_repro_max_rows > 0
+            else None,
+            train_rows=args.lightgbm_label_band_repro_train_rows,
+            test_rows=args.lightgbm_label_band_repro_test_rows,
+            step_rows=args.lightgbm_label_band_repro_step_rows,
+            max_folds=args.lightgbm_label_band_repro_max_folds,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

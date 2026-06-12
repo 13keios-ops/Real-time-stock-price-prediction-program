@@ -2644,6 +2644,9 @@ def collect_dashboard_payload(
     latest_lightgbm_label_band_experiment = _safe_load_json(
         settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-label-band-experiment-h15.json"
     )
+    latest_lightgbm_label_band_reproducibility = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-label-band-reproducibility-h15.json"
+    )
     latest_lightgbm_calibration_experiment = _safe_load_json(
         settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-calibration-experiment-h15.json"
     )
@@ -2868,6 +2871,7 @@ def collect_dashboard_payload(
         "latest_lightgbm_feature_source_experiment": latest_lightgbm_feature_source_experiment,
         "latest_lightgbm_feature_profile_experiment": latest_lightgbm_feature_profile_experiment,
         "latest_lightgbm_label_band_experiment": latest_lightgbm_label_band_experiment,
+        "latest_lightgbm_label_band_reproducibility": latest_lightgbm_label_band_reproducibility,
         "latest_lightgbm_calibration_experiment": latest_lightgbm_calibration_experiment,
         "latest_kis_verification": latest_kis_verification,
         "latest_kis_live_data_quality": latest_kis_live_data_quality,
@@ -3850,6 +3854,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_lightgbm_feature_source_experiment = payload.get("latest_lightgbm_feature_source_experiment", {}) or {}
     latest_lightgbm_feature_profile_experiment = payload.get("latest_lightgbm_feature_profile_experiment", {}) or {}
     latest_lightgbm_label_band_experiment = payload.get("latest_lightgbm_label_band_experiment", {}) or {}
+    latest_lightgbm_label_band_reproducibility = payload.get("latest_lightgbm_label_band_reproducibility", {}) or {}
     latest_lightgbm_calibration_experiment = payload.get("latest_lightgbm_calibration_experiment", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
     latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
@@ -4059,6 +4064,25 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
         ]
         for row in latest_lightgbm_label_band_experiment.get("candidates", [])
+    ]
+    lightgbm_label_band_repro_rows = [
+        [
+            _pct(row.get("threshold_pct"), 2),
+            "현재값" if row.get("is_current_threshold") else "-",
+            row.get("decision_label"),
+            (row.get("walk_forward") or {}).get("folds") if isinstance(row.get("walk_forward"), dict) else 0,
+            _ratio_pct((row.get("walk_forward") or {}).get("three_class_accuracy"), 2)
+            if isinstance(row.get("walk_forward"), dict)
+            else "-",
+            (row.get("walk_forward") or {}).get("virtual_direction_trades_taken")
+            if isinstance(row.get("walk_forward"), dict)
+            else 0,
+            _pct((row.get("walk_forward") or {}).get("virtual_direction_cumulative_net_return_pct"), 2)
+            if isinstance(row.get("walk_forward"), dict)
+            else "-",
+            f"{row.get('reproducible_positive_periods', 0)} / {row.get('reliable_periods', 0)}",
+        ]
+        for row in latest_lightgbm_label_band_reproducibility.get("threshold_results", [])
     ]
     lightgbm_calibration_rows = [
         [
@@ -5226,6 +5250,15 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                             "LightGBM label band 실험 결과가 없습니다.",
                         ),
                         note="라벨 폭 후보를 재점검하는 연구 표입니다. config의 LABEL_THRESHOLD 값은 자동 변경하지 않습니다.",
+                    ),
+                    _section_card(
+                        "LightGBM label band 재현성",
+                        _table(
+                            ["threshold", "현재값", "판정", "folds", "3분류 정확도", "가상 방향 거래", "가상 방향 순수익률", "양수 기간 / 신뢰 기간"],
+                            lightgbm_label_band_repro_rows,
+                            "LightGBM label band 재현성 리뷰 결과가 없습니다.",
+                        ),
+                        note="단일 holdout에서 좋아 보인 label band 후보를 기간 분리와 walk-forward로 다시 보는 연구 표입니다. label threshold는 자동 변경하지 않습니다.",
                     ),
                     _section_card(
                         "LightGBM 확률 보정 실험",

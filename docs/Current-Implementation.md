@@ -120,7 +120,7 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `장후 label refresh 상태` 카드는 quick maintenance 뒤 live DB에서 feature/label rebuild 와 진단/대시보드 갱신을 수행한 최신 상태를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
 - 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 모델 자체 평가와 실행 제약을 분리해서 보여준다. 챌린저 표의 기본 정확도는 상승/보합/하락 전체를 보는 `3분류 정확도`이고, 기존 `trade_hit_rate`는 과거 호환 키로 유지하되 화면에서는 `매수 신호 적중률`로 표시한다. `가상 방향 거래`는 상승 예측을 가상 매수, 하락 예측을 가상 매도, 보합 예측을 거래 없음으로 계산하는 연구용 지표이며, 실제 현물 paper 주문·보유한도·강제청산 성과와 분리해서 본다. 이 수익률은 거래별 퍼센트 손익을 단순 합산한 값이며 복리 수익률, 포트폴리오 수익률, 실제 체결 가능 수익률이 아니다. 학습 자체는 이미 상승/보합/하락 3분류였고, 이번 기준은 평가/표시/거래지표 해석을 바로잡은 것이다.
-- 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 LightGBM 성능 진단, feature source, feature profile, label band, probability calibration 연구 리포트도 함께 보여준다. 이 카드들은 후보 탐색용이며 active model 승격, threshold 변경, 실전 주문 판단 변경을 의미하지 않는다.
+- 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 LightGBM 성능 진단, feature source, feature profile, label band, label band 재현성, probability calibration 연구 리포트도 함께 보여준다. 이 카드들은 후보 탐색용이며 active model 승격, threshold 변경, 실전 주문 판단 변경을 의미하지 않는다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
@@ -187,6 +187,7 @@ python -m app --run-lightgbm-performance-diagnostics --horizon-min 15
 python -m app --run-lightgbm-feature-source-experiment --horizon-min 15
 python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15
 python -m app --run-lightgbm-label-band-experiment --horizon-min 15
+python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15
 python -m app --run-lightgbm-calibration-experiment --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh
@@ -220,6 +221,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - LightGBM feature source 분리 실험은 `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15`로 실행한다. 이 명령은 `mixed_recent`, `kis-ws`, `cybos-historical` 후보를 메모리 안에서만 학습/평가하고 artifact 를 덮어쓰지 않는다. 2026-06-12 기준 결과는 `mixed_recent`이 3개 피처로 소수 하락/회피 방향 양수 후보를 보였고, `kis-ws`는 6개 피처를 쓰지만 비용 차감 방향 기대값은 음수였다. 따라서 다음 단계는 KIS-only artifact 승격이 아니라 피처/라벨/확률 보정 연구다.
 - LightGBM feature profile 실험은 `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`로 실행한다. 이 명령은 KIS live 피처에 시간대, 모멘텀, 최근 변동성 후보를 메모리 안에서만 붙여 `base`, `time`, `momentum`, `volatility`, `time_momentum_volatility` 후보를 비교하고 `runtime-data/reports/challengers/latest-lightgbm-feature-profile-experiment-h15.json`과 `.md`에 남긴다. artifact, active model, gate 기준값은 바꾸지 않는다.
 - LightGBM label band 실험은 `python -m app --run-lightgbm-label-band-experiment --horizon-min 15`로 실행한다. 이 명령은 라벨의 상승/하락 band threshold 후보를 메모리 안에서만 재라벨링해 비교하고 `runtime-data/reports/challengers/latest-lightgbm-label-band-experiment-h15.json`과 `.md`에 남긴다. `config/`, gate 기준값, 실제 라벨 정책은 자동 변경하지 않는다.
+- LightGBM label band 재현성 리뷰는 `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`로 실행한다. 이 명령은 label band 후보를 최근 KIS live labeled row 기준 full walk-forward 와 기간 분리 fold 로 다시 평가하고 `runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json`과 `.md`에 남긴다. 2026-06-12 기준 `0.40` 후보는 전체 walk-forward 가상 방향 순수익은 양수였지만 기간별 양수 재현이 0/3이라 정책 변경 후보가 아니다.
 - LightGBM probability calibration 실험은 `python -m app --run-lightgbm-calibration-experiment --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 의 확률을 온도 보정과 prior blending 후보로 후처리해 NLL, Brier score, ECE, 3분류 정확도, 가상 방향 순수익률을 비교하고 `runtime-data/reports/challengers/latest-lightgbm-calibration-experiment-h15.json`과 `.md`에 남긴다. calibration 결과는 자동 채택하지 않는다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.

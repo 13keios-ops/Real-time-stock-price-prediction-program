@@ -25,6 +25,7 @@ from app.services.research import (
     run_lightgbm_feature_profile_experiment_from_sqlite,
     run_lightgbm_feature_source_experiment_from_sqlite,
     run_lightgbm_label_band_experiment_from_sqlite,
+    run_lightgbm_label_band_reproducibility_review_from_sqlite,
     run_lightgbm_performance_diagnostics_from_sqlite,
     run_lightgbm_probability_calibration_experiment_from_sqlite,
     run_model_challenger_review_from_sqlite,
@@ -304,6 +305,24 @@ class ResearchPipelineTests(unittest.TestCase):
                 feature_market_source="test",
                 thresholds=(0.40, 0.50),
             )
+            label_band_repro_result = run_lightgbm_label_band_reproducibility_review_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                label_thresholds=(0.15, 0.25),
+                feature_market_source="test",
+                max_rows=None,
+                train_rows=18,
+                test_rows=4,
+                step_rows=10,
+                gap_rows=1,
+                max_folds=2,
+                period_count=2,
+                period_train_rows=8,
+                period_test_rows=3,
+                period_step_rows=5,
+                period_max_folds=1,
+                min_reliable_trades=1,
+            )
             calibration_experiment_result = run_lightgbm_probability_calibration_experiment_from_sqlite(
                 project_root=root,
                 horizon_min=15,
@@ -455,6 +474,13 @@ class ResearchPipelineTests(unittest.TestCase):
             )
             self.assertTrue(Path(str(label_band_experiment_result["report_json_path"])).exists())
             self.assertTrue(Path(str(label_band_experiment_result["report_markdown_path"])).exists())
+            self.assertEqual(label_band_repro_result["review"], "lightgbm_label_band_reproducibility_review")
+            self.assertFalse(label_band_repro_result["automatic_label_threshold_adoption"])
+            self.assertFalse(label_band_repro_result["automatic_promotion"])
+            self.assertGreaterEqual(len(label_band_repro_result["threshold_results"]), 2)
+            self.assertIn("best_by_reproducible_periods", label_band_repro_result)
+            self.assertTrue(Path(str(label_band_repro_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(label_band_repro_result["report_markdown_path"])).exists())
             self.assertEqual(calibration_experiment_result["review"], "lightgbm_probability_calibration_experiment")
             self.assertFalse(calibration_experiment_result["automatic_calibration_adoption"])
             self.assertFalse(calibration_experiment_result["automatic_promotion"])
