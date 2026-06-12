@@ -25,6 +25,7 @@
 - live runtime: 정규장 종료 후 정지 상태가 정상이다.
 - runtime watchdog: 실행 중이다.
 - dashboard: `http://127.0.0.1:8765`에서 응답 중이다.
+- 단, watchdog/dashboard가 정규장 중 장시간 유지되는지는 다음 거래일 장중 증거가 필요하다.
 - trading mode: `paper`.
 - active model: 15분/60분 모두 baseline 계열이다.
 - LightGBM: shadow와 연구 대상이며 실전 또는 paper 주문 판단에 쓰지 않는다.
@@ -49,12 +50,13 @@
 1. 장중 수집과 자동화가 정상인지 먼저 확인한다.
 2. Phase 0의 paper/KIS 정합성 blocker를 줄인다.
 3. 모델 성능개선 트랙을 먼저 진행해 실전 운용할 가치가 있는 신호인지 확인한다.
-4. 모델 평가, shadow, 승격 심사 체인을 안정화한다.
-5. 예측, 신호, 주문, 체결, 손익을 한 줄 lineage로 보존한다.
-6. 대시보드는 운영자가 바로 이해할 수 있게 계속 단순화한다.
-7. Phase 1a/1b read-only readiness를 최신 증거로 반복한다.
-8. Phase 2 canary는 모델과 운영 blocker가 닫힌 뒤에만 시작한다.
-9. Phase 3 다종목 운용은 Phase 2 관측 뒤에만 검토한다.
+4. 매수 알파가 없을 때는 하락/회피 신호를 방어적으로 쓰는 plan B를 검증한다.
+5. 모델 평가, shadow, 승격 심사 체인을 안정화한다.
+6. 예측, 신호, 주문, 체결, 손익을 한 줄 lineage로 보존한다.
+7. 대시보드는 운영자가 바로 이해할 수 있게 계속 단순화한다.
+8. Phase 1a/1b read-only readiness를 최신 증거로 반복한다.
+9. Phase 2 canary는 모델과 운영 blocker가 닫힌 뒤에만 시작한다.
+10. Phase 3 다종목 운용은 Phase 2 관측 뒤에만 검토한다.
 
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
@@ -106,6 +108,8 @@ git status --short --branch
 - cooldown 이후 장외에 1회만 재시도하고, 계속 rate limit이면 호출량 자체를 줄이는 설계로 넘어간다.
 - local-only position은 marker-only alignment로 즉시 덮지 않고 주문, 체결, 청산 원장을 먼저 추적한다.
 - 실제 브로커 계좌 스냅샷과 local paper 상태가 일치할 때만 alignment를 고려한다.
+- mismatch가 다음 거래일 장후까지 이어지거나 1회 cooldown 뒤에도 close fill 회수가 안 되면 P0 운영 blocker로 격상한다.
+- mismatch가 남아 있는 동안에는 paper 손익과 모델 성과를 확정값처럼 해석하지 않는다.
 
 ### 이유
 
@@ -129,9 +133,11 @@ git status --short --branch
 - 최신 `latest-sync.json`이 `ok`, `no_submissions`, 또는 이유가 명확한 `rate_limited` 상태다.
 - 최신 `latest-paper-dual-account-match.json`의 mismatch가 없거나, 남은 mismatch에 원장 원인이 붙어 있다.
 - 대시보드 계좌 탭에 현재 상태와 이유가 통화 단위로 표시된다.
+- `scripts/trace_paper_kis_mismatch.py`가 종목별 최신 local order, broker submission, broker status snapshot을 read-only 리포트로 남긴다.
 
 관련 문서/코드 경로:
 `app/services/broker_paper_sync.py`,
+`scripts/trace_paper_kis_mismatch.py`,
 `scripts/reconcile_paper_accounts.sh`,
 `scripts/verify_paper_dual_account_match.sh`,
 `runtime-data/reports/reconciliation/`
@@ -175,13 +181,16 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 4. 시간대, 모멘텀, 최근 변동성, 호가 imbalance 후보를 조합별로 비교한다.
 5. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 6. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-7. 3회 연속 실험에서 개선이 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+7. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+8. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+9. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
 현재 병목은 안전장치보다 예측력이다.
 LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승격 근거는 부족하다.
 따라서 threshold를 낮춰 거래를 늘리는 방식보다, 상승/보합/하락을 실제로 더 잘 구분하는 피처와 라벨을 찾아야 한다.
+현재 KIS live 데이터는 약 1개월, 소수 watchlist, 제한된 피처에서 나온 결과라 모델 부재와 데이터 부족을 분리해 해석해야 한다.
 
 ### 변경 전 / 변경 후 / 영향 범위 / 회귀 위험
 
@@ -212,7 +221,52 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`,
 `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`
 
-## 8. 4단계: 모델 심사와 승격 체인 고정
+## 8. 4단계: 하락/회피 신호 방어적 활용 검증
+
+### 방법
+
+- 현물 매수 알파가 검증되지 않은 동안에는 LightGBM을 매수 모델로 승격하지 않는다.
+- 반복적으로 보이는 하락/회피 단서를 아래 두 용도로 분리해 paper shadow로 검증한다.
+  - baseline 매수 신호를 거르는 회피 필터.
+  - 이미 보유한 paper position을 조기 청산하는 방어 신호.
+- 첫 단계는 실제 주문 로직을 바꾸지 않고 replay/paper shadow 리포트로만 비교한다.
+- 비교 항목은 손실 거래 감소, 최대 낙폭, 연속 손실, 기회비용, 거래 수 감소, 비용 차감 순손익이다.
+- 방어 신호가 좋아 보여도 active model 교체나 gate 기준값 변경 없이 별도 후보로만 둔다.
+- 기존 진단에서 후보를 추릴 때는 `scripts/summarize_lightgbm_defensive_signal_candidates.py`로 하락 예측 양수 후보를 먼저 요약한다.
+
+### 이유
+
+현재 증거는 “언제 사야 하는가”보다 “언제 사면 안 되는가” 쪽에 더 강하다.
+현물 계좌에서 하락 예측은 신규 숏으로 바로 쓸 수 없지만, 잘못된 매수를 줄이거나 손실 포지션을 빨리 닫는 데는 쓸 수 있다.
+이 경로는 실전 주문을 건드리지 않고도 paper shadow에서 검증할 수 있다.
+
+### 변경 전 / 변경 후 / 영향 범위 / 회귀 위험
+
+- 변경 전:
+  - 매수 알파가 없으면 모델 연구가 다시 피처 실험만 반복될 수 있다.
+- 변경 후:
+  - 하락/회피 신호를 방어적 필터와 조기 청산 후보로 별도 검증한다.
+- 영향 범위:
+  - research report, dashboard ML 카드, prediction lineage, paper replay.
+- 회귀 위험:
+  - 회피 필터가 손실을 줄이면서 수익 기회도 과도하게 줄일 수 있다.
+  - 따라서 순손익뿐 아니라 거래 수, missed profit, drawdown을 함께 본다.
+
+### 완료 기준
+
+- baseline 단독과 baseline+방어 필터를 같은 기간에서 비교한 리포트가 있다.
+- 방어 필터가 비용 차감 후 손실 거래, 최대 낙폭, 연속 손실 중 최소 하나를 의미 있게 줄인다.
+- 수익 기회 감소가 허용 범위 안인지 별도로 표시된다.
+
+관련 문서/코드 경로:
+`runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`,
+`runtime-data/reports/challengers/latest-lightgbm-calibration-experiment-h15.json`,
+`runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.json`,
+`scripts/summarize_lightgbm_defensive_signal_candidates.py`,
+`app/services/research.py`,
+`app/services/reporting.py`
+
+## 9. 5단계: 모델 심사와 승격 체인 고정
 
 ### 방법
 
@@ -240,10 +294,12 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 관련 문서/코드 경로:
 `runtime-data/reports/challengers/latest-challengers-h15.json`,
 `runtime-data/reports/backtests/latest-walk-forward-h15.json`,
+`runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`,
+`scripts/summarize_walk_forward_extreme_folds.py`,
 `app/models/`,
 `app/services/research.py`
 
-## 9. 5단계: 예측-신호-주문-체결 lineage 보존
+## 10. 6단계: 예측-신호-주문-체결 lineage 보존
 
 ### 방법
 
@@ -261,6 +317,8 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 최소 6개월은 조회 가능하게 보존한다.
 - 용량이 작고 유용하면 장기 보관한다.
 - 다른 PC로 옮겨도 흐름이 유지되도록 SQLite 원장과 dashboard 조회를 함께 맞춘다.
+- 6개월 이상 보존은 단일 `dev.db` 무한 증가가 아니라 월별 archive 또는 D드라이브 장기 보관 파티션을 기본 후보로 둔다.
+- 운영 dashboard는 최근 기간을 우선 조회하고, 오래된 lineage는 archive 조회로 분리한다.
 
 ### 이유
 
@@ -276,8 +334,9 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 영향 범위:
   - dashboard query, reporting, prediction/order/fill read model.
 - 회귀 위험:
-  - 조인 비용이 커져 dashboard가 느려질 수 있다.
-  - 우선 최근 기간 조회와 인덱스 확인부터 적용한다.
+- 조인 비용이 커져 dashboard가 느려질 수 있다.
+- 우선 최근 기간 조회와 인덱스 확인부터 적용한다.
+- 장기 보관을 단일 DB에 계속 누적하면 backup/recovery 시간이 커질 수 있다.
 
 ### 완료 기준
 
@@ -290,7 +349,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `app/services/reporting.py`,
 `runtime-data/dev.db`
 
-## 10. 6단계: 대시보드 운영 화면 정리
+## 11. 7단계: 대시보드 운영 화면 정리
 
 ### 방법
 
@@ -322,7 +381,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `tests/test_dashboard.py`,
 `runtime-data/reports/dashboard/latest-dashboard.html`
 
-## 11. 7단계: 자동화와 런타임 유지 검증
+## 12. 8단계: 자동화와 런타임 유지 검증
 
 ### 방법
 
@@ -349,7 +408,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`,
 `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
 
-## 12. 8단계: Phase 1a 모의투자 read-only 반복
+## 13. 9단계: Phase 1a 모의투자 read-only 반복
 
 ### 방법
 
@@ -372,7 +431,7 @@ Phase 1a는 주문 없는 리허설이므로 실전 자금 위험 없이 운영 
 `scripts/build_live_readiness_fixture_snapshot.sh`,
 `runtime-data/reports/live-readiness/latest-readiness.json`
 
-## 13. 9단계: Phase 1b 실전 계좌 read-only
+## 14. 10단계: Phase 1b 실전 계좌 read-only
 
 ### 방법
 
@@ -398,7 +457,7 @@ Phase 1a는 주문 없는 리허설이므로 실전 자금 위험 없이 운영 
 `app/services/live_phase_readiness.py`,
 `docs/Production-Architecture.md`
 
-## 14. 10단계: Phase 2 소액 canary 준비
+## 15. 11단계: Phase 2 소액 canary 준비
 
 ### 방법
 
@@ -426,7 +485,7 @@ Phase 2의 목표는 수익 극대화가 아니라 실제 주문 lifecycle과 �
 `app/services/live_order_manager.py`,
 `app/services/live_audit.py`
 
-## 15. 11단계: Phase 3 다종목 일일 한도 운용
+## 16. 12단계: Phase 3 다종목 일일 한도 운용
 
 ### 방법
 
@@ -451,7 +510,7 @@ Phase 2에서 주문 lifecycle과 계좌 정합성을 충분히 관측하지 않
 `docs/Account-Safety.md`,
 목표 경로 확인 필요: `runtime-data/reports/live-risk/`
 
-## 16. 12단계: cowork 리뷰와 문서 관리
+## 17. 13단계: cowork 리뷰와 문서 관리
 
 ### 방법
 
@@ -476,7 +535,7 @@ cowork 토큰이 제한되어 있으므로 매 작은 변경마다 리뷰를 요
 `docs/cowork-reports/`,
 `docs/logbook.md`
 
-## 17. 13단계: 백업과 복구
+## 18. 14단계: 백업과 복구
 
 ### 방법
 
@@ -501,17 +560,19 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 `scripts/run_weekly_nas_backup.sh`,
 `scripts/run_forced_nas_backup.sh`
 
-## 18. 지금 바로 이어갈 권장 순서
+## 19. 지금 바로 이어갈 권장 순서
 
 현재 기준 다음 실제 작업 순서는 아래가 권장안이다.
 
-1. 다음 장후 또는 장외에 KIS live feature 후보를 더 좁히는 모델 실험을 진행한다.
-2. 실험 결과를 `3분류 정확도`, `클래스별 적중률`, `비용 차감 기대값`, `기간별 재현성`으로 평가한다.
-3. 동시에 broker paper sync rate limit과 local-only mismatch 원장을 장후 리포트로 확인한다.
-4. dashboard/watchdog 장시간 유지 상태를 다음 장중에 read-only로 확인한다.
-5. 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
-6. Phase 1a readiness 증거를 최신화한다.
-7. Phase 1b 실전 read-only는 주문 메서드 없는 client 준비와 비밀값 로컬 준비가 끝난 뒤 진행한다.
+1. broker paper sync rate limit과 local-only mismatch 원장을 `scripts/trace_paper_kis_mismatch.py`로 확인한다.
+2. 다음 거래일 장후에도 mismatch가 남으면 P0 운영 blocker로 보고 order-fill 호출량 설계를 줄인다.
+3. KIS live feature 후보를 더 좁히는 모델 실험을 진행하되, 현재 데이터 한계 때문에 provisional 판단으로 둔다.
+4. 하락/회피 신호를 baseline 매수 회피 필터와 조기 청산 후보로 paper shadow 검증한다.
+5. gate walk-forward 극단 저성능 fold를 `scripts/summarize_walk_forward_extreme_folds.py`로 추적하고, 원인 분석 후보 기간을 고른다.
+6. dashboard/watchdog 장시간 유지 상태를 다음 장중에 read-only로 확인한다.
+7. 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
+8. Phase 1a readiness 증거를 최신화한다.
+9. Phase 1b 실전 read-only는 주문 메서드 없는 client 준비와 비밀값 로컬 준비가 끝난 뒤 진행한다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.
@@ -521,7 +582,7 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 `docs/Production-Transition-Progress.md`,
 `runtime-data/reports/challengers/`
 
-## 19. 작업 종료 기준
+## 20. 작업 종료 기준
 
 각 작업은 아래 조건을 만족해야 끝난 것으로 본다.
 

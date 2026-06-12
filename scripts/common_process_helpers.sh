@@ -195,10 +195,10 @@ if calendar.exists():
         holidays = {item.strip().strip("'\"") for item in match.group(1).split(",") if item.strip().strip("'\"")}
 
 now = datetime.now()
-if now.weekday() >= 5:
-    print("weekend")
-elif now.strftime("%Y-%m-%d") in holidays:
+if now.strftime("%Y-%m-%d") in holidays:
     print("holiday")
+elif now.weekday() >= 5:
+    print("weekend")
 else:
     open_h, open_m = [int(x) for x in settings["session_open"].split(":")[:2]]
     close_h, close_m = [int(x) for x in settings["session_close"].split(":")[:2]]

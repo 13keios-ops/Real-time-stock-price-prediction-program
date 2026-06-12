@@ -74,6 +74,20 @@
   `runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json`
   기준 `0.40` 후보는 full walk-forward 가상 방향 순수익률이 양수였지만
   기간별 양수 재현이 `0/3`이라 정책 변경 후보가 아니다.
+- 최신 LightGBM 방어 신호 후보:
+  `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.json`
+  기준 하락/회피 후보 `111`개가 추려졌고, 상위 후보는 하락 예측 구간에서
+  비용 차감 양수 단서를 보인다. 단, 이 결과는 live short 또는 매수 승격 근거가 아니라
+  buy-avoid / early-exit paper shadow 검증 후보로만 본다.
+- 최신 paper/KIS mismatch trace:
+  `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
+  기준 mismatch `5`종목 모두 `close_order_fill_unknown_due_rate_limit` 후보로 분류됐다.
+  2026-06-12 15:07~15:08 청산 주문이 local/broker 모두 submitted 상태이고
+  broker order-fill 회수가 `EGW00201`로 막힌 상태라 자동 alignment로 덮지 않는다.
+- 최신 gate walk-forward 극단 fold 요약:
+  `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`
+  기준 fold `118`개 중 정확도 `0.20` 미만 fold가 `3`개 있으며
+  최저 fold 정확도는 `0.11842`다.
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
   기준 `status=needs_review`.

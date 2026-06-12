@@ -189,6 +189,9 @@ python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15
 python -m app --run-lightgbm-label-band-experiment --horizon-min 15
 python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15
 python -m app --run-lightgbm-calibration-experiment --horizon-min 15
+python scripts/trace_paper_kis_mismatch.py
+python scripts/summarize_walk_forward_extreme_folds.py
+python scripts/summarize_lightgbm_defensive_signal_candidates.py
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh
 ./scripts/run_research_on_snapshot.sh -- python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
@@ -223,6 +226,9 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - LightGBM label band 실험은 `python -m app --run-lightgbm-label-band-experiment --horizon-min 15`로 실행한다. 이 명령은 라벨의 상승/하락 band threshold 후보를 메모리 안에서만 재라벨링해 비교하고 `runtime-data/reports/challengers/latest-lightgbm-label-band-experiment-h15.json`과 `.md`에 남긴다. `config/`, gate 기준값, 실제 라벨 정책은 자동 변경하지 않는다.
 - LightGBM label band 재현성 리뷰는 `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`로 실행한다. 이 명령은 label band 후보를 최근 KIS live labeled row 기준 full walk-forward 와 기간 분리 fold 로 다시 평가하고 `runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json`과 `.md`에 남긴다. 2026-06-12 기준 `0.40` 후보는 전체 walk-forward 가상 방향 순수익은 양수였지만 기간별 양수 재현이 0/3이라 정책 변경 후보가 아니다.
 - LightGBM probability calibration 실험은 `python -m app --run-lightgbm-calibration-experiment --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 의 확률을 온도 보정과 prior blending 후보로 후처리해 NLL, Brier score, ECE, 3분류 정확도, 가상 방향 순수익률을 비교하고 `runtime-data/reports/challengers/latest-lightgbm-calibration-experiment-h15.json`과 `.md`에 남긴다. calibration 결과는 자동 채택하지 않는다.
+- paper/KIS mismatch trace 는 `python scripts/trace_paper_kis_mismatch.py`로 실행한다. 이 명령은 최신 reconciliation, broker sync, SQLite 원장을 read-only로 묶어 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`과 `.md`에 남긴다. 계좌를 정렬하거나 주문/체결 상태를 변경하지 않는다.
+- gate walk-forward 극단 fold 요약은 `python scripts/summarize_walk_forward_extreme_folds.py`로 실행한다. 이 명령은 최신 `latest-walk-forward-h15.json`에서 정확도가 낮은 fold를 추려 `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`과 `.md`에 남긴다. 원인 판정이 아니라 후속 장세/데이터 품질 분석 후보를 고르는 진단이다.
+- LightGBM 방어 신호 후보 요약은 `python scripts/summarize_lightgbm_defensive_signal_candidates.py`로 실행한다. 이 명령은 기존 성능 진단과 calibration 실험에서 하락 예측의 비용 차감 양수 후보를 모아 `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.json`과 `.md`에 남긴다. 이 결과는 매수 승격이나 live short 신호가 아니라 buy-avoid / early-exit paper shadow 검증 후보를 고르는 자료다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.

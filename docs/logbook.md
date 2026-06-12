@@ -1,5 +1,47 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> review_ver_17 비판적 반영과 원장 추적 리포트
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review-review_ver_17.md`를 확인하고 비판적으로 검토한 뒤 모두 진행한다.
+- 시작 상태:
+  - KST 2026-06-13 00:06, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 이었고 cowork review 파일만 untracked 로 들어와 있었다.
+- 비판적 검토:
+  - 타당: 모델 심사 체인은 유효해졌지만 매수 알파는 아직 없고, 하락/회피 단서를 방어적으로 검증하는 plan B가 필요하다.
+  - 타당: paper/KIS mismatch 는 5종목으로 악화됐고, order-fill rate limit 때문에 자동 alignment로 덮으면 위험하다.
+  - 보정: watchdog/dashboard 는 현재 running 이지만 정규장 중 장시간 유지 증거는 다음 거래일 장중에만 확인 가능하다.
+- 조치:
+  - `scripts/trace_paper_kis_mismatch.py`를 추가해 최신 reconciliation, broker sync, SQLite 원장을 read-only로 묶는 mismatch trace 리포트를 생성했다.
+  - `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.{json,md}`를 생성했다.
+  - 5종목 모두 최신 local/broker 청산 주문이 `submitted`이고 broker order-fill 회수가 `EGW00201`로 막혀 `close_order_fill_unknown_due_rate_limit` 후보로 분류됐다.
+  - `scripts/summarize_walk_forward_extreme_folds.py`를 추가해 최신 gate walk-forward 에서 극단 저성능 fold를 요약했다.
+  - `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.{json,md}`를 생성했다. 118개 fold 중 정확도 0.20 미만 fold가 3개, 최저 정확도는 0.11842다.
+  - `scripts/summarize_lightgbm_defensive_signal_candidates.py`를 추가해 기존 LightGBM 성능 진단과 calibration 결과에서 하락/회피 방어 신호 후보를 추렸다.
+  - `runtime-data/reports/challengers/latest-lightgbm-defensive-signal-candidates-h15.{json,md}`를 생성했다. 이 리포트는 live short 또는 매수 승격 근거가 아니라 buy-avoid / early-exit paper shadow 검증 후보를 고르는 자료다.
+  - `docs/Execution-Plan.md`에 plan B, KIS live 데이터 축적 최소 기준, mismatch 시간 격상 기준, lineage 용량/아카이브 설계를 보강했다.
+  - `docs/Current-Implementation.md`, `README.md`, `docs/Production-Transition-Progress.md`에 새 리포트와 현재 해석을 연결했다.
+  - 전체 테스트 중 주말 날짜에서 post-close holiday 테스트가 weekend skip으로 먼저 분기되는 날짜 의존 실패를 확인했다.
+  - `scripts/common_process_helpers.sh`의 `market_session_status`에서 명시 holiday를 weekend보다 먼저 판정하도록 바꿔, calendar에 명시된 휴장 사유가 skip_reason에 보존되게 했다.
+- 검증:
+  - `python3 scripts/trace_paper_kis_mismatch.py`: 통과.
+  - `python3 scripts/summarize_walk_forward_extreme_folds.py`: 통과.
+  - `python3 scripts/summarize_lightgbm_defensive_signal_candidates.py`: 통과.
+  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py scripts/summarize_walk_forward_extreme_folds.py scripts/summarize_lightgbm_defensive_signal_candidates.py`: 통과.
+  - `bash -n scripts/common_process_helpers.sh scripts/run_post_close_label_refresh.sh scripts/run_post_close_ml_maintenance.sh`: 통과.
+  - `python3 -m unittest tests.test_post_close_label_refresh_script tests.test_post_close_maintenance_script -q`: 7개 통과.
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 380개 통과.
+- 금지/안전:
+  - read-only 분석과 문서 보강만 수행했다.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소, NAS 백업 없음.
+- 다음 작업:
+  - 다음 거래일 장중 watchdog heartbeat 유지와 장후 `EGW00201` 재발 여부를 실측한다.
+  - baseline 매수 회피 필터와 조기 청산 후보로 하락/회피 신호의 paper shadow 검증 리포트를 설계한다.
+
 ## [2026-06-12] Codex -> 전체 실행 계획 문서화
 
 - 사용자 지시:
