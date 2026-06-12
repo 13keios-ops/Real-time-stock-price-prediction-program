@@ -2632,6 +2632,12 @@ def collect_dashboard_payload(
     latest_backtest_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-backtest-h15.json")
     latest_walk_forward_report = _safe_load_json(settings.runtime_data_dir / "reports" / "backtests" / "latest-walk-forward-h15.json")
     latest_challenger_report = _safe_load_json(settings.runtime_data_dir / "reports" / "challengers" / "latest-challengers-h15.json")
+    latest_lightgbm_performance_diagnostics = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-performance-diagnostics-h15.json"
+    )
+    latest_lightgbm_feature_source_experiment = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-feature-source-experiment-h15.json"
+    )
     latest_walk_forward_setup_status = _build_walk_forward_setup_status(latest_walk_forward_report)
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
     latest_kis_live_data_quality = _safe_load_json(
@@ -2849,6 +2855,8 @@ def collect_dashboard_payload(
         "latest_walk_forward_report": latest_walk_forward_report,
         "latest_walk_forward_setup_status": latest_walk_forward_setup_status,
         "latest_challenger_report": latest_challenger_report,
+        "latest_lightgbm_performance_diagnostics": latest_lightgbm_performance_diagnostics,
+        "latest_lightgbm_feature_source_experiment": latest_lightgbm_feature_source_experiment,
         "latest_kis_verification": latest_kis_verification,
         "latest_kis_live_data_quality": latest_kis_live_data_quality,
         "latest_feature_source_drift": latest_feature_source_drift,
@@ -3817,6 +3825,8 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_walk_forward = payload.get("latest_walk_forward_report", {}) or {}
     latest_walk_forward_setup = payload.get("latest_walk_forward_setup_status", {}) or {}
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
+    latest_lightgbm_performance_diagnostics = payload.get("latest_lightgbm_performance_diagnostics", {}) or {}
+    latest_lightgbm_feature_source_experiment = payload.get("latest_lightgbm_feature_source_experiment", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
     latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
     latest_feature_source_drift = payload.get("latest_feature_source_drift", {}) or {}
@@ -3972,6 +3982,32 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             _pct(row.get("cumulative_net_return_pct"), 2),
         ]
         for row in latest_walk_forward.get("fold_summaries", [])
+    ]
+    lightgbm_performance_metrics = latest_lightgbm_performance_diagnostics.get("metrics", {}) or {}
+    lightgbm_direction_by_label = lightgbm_performance_metrics.get("virtual_direction_by_predicted_label", {}) or {}
+    lightgbm_up_direction = lightgbm_direction_by_label.get("up", {}) or {}
+    lightgbm_down_direction = lightgbm_direction_by_label.get("down", {}) or {}
+    lightgbm_performance_rows = [
+        ["상태", latest_lightgbm_performance_diagnostics.get("status") or "-", latest_lightgbm_performance_diagnostics.get("status_reason") or "-"],
+        ["평가 구간", latest_lightgbm_performance_diagnostics.get("dataset_scope") or "-", f"{latest_lightgbm_performance_diagnostics.get('rows_evaluated') or 0}행"],
+        ["3분류 정확도", _ratio_pct(lightgbm_performance_metrics.get("three_class_accuracy"), 2), _candidate_class_hit_rates(lightgbm_performance_metrics)],
+        ["매수 신호", f"{lightgbm_performance_metrics.get('trades_taken') or 0}건", f"적중률 {_ratio_pct(lightgbm_performance_metrics.get('buy_signal_hit_rate'), 2)}"],
+        ["가상 방향", f"{lightgbm_performance_metrics.get('virtual_direction_trades_taken') or 0}건", f"순수익률 {_pct(lightgbm_performance_metrics.get('virtual_direction_cumulative_net_return_pct'), 2)}"],
+        ["상승 예측 방향", f"{lightgbm_up_direction.get('trades') or 0}건", f"순수익률 {_pct(lightgbm_up_direction.get('cumulative_net_return_pct'), 2)}"],
+        ["하락 예측 방향", f"{lightgbm_down_direction.get('trades') or 0}건", f"순수익률 {_pct(lightgbm_down_direction.get('cumulative_net_return_pct'), 2)}"],
+    ]
+    lightgbm_source_rows = [
+        [
+            row.get("candidate_name"),
+            row.get("status"),
+            row.get("challenger_rows") or 0,
+            (row.get("dataset_load") or {}).get("feature_count") if isinstance(row.get("dataset_load"), dict) else 0,
+            _ratio_pct(row.get("three_class_accuracy"), 2),
+            _candidate_class_hit_rates(row),
+            row.get("virtual_direction_trades_taken") or 0,
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+        ]
+        for row in latest_lightgbm_feature_source_experiment.get("candidates", [])
     ]
     status_rows = [
         ["운영 모드", project.get("trading_mode")],
@@ -5083,6 +5119,24 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                             latest_challenger.get("current_guard_note")
                             or "평가 자격은 독립 holdout/아티팩트 기준이며 승격 가능 표시가 아닙니다. 실제 승격 여부는 승격 판단, 권장 조치, 워크포워드 게이트와 수익률을 함께 봅니다. 가상 방향 수익률은 거래별 퍼센트 손익 단순합산 연구 지표이며 복리·실거래·포트폴리오 수익률이 아닙니다."
                         ),
+                    ),
+                    _section_card(
+                        "LightGBM 성능 진단",
+                        _table(
+                            ["항목", "값", "해석"],
+                            lightgbm_performance_rows,
+                            "LightGBM 성능 진단 리포트가 없습니다.",
+                        ),
+                        note="연구 진단용입니다. positive_downside_direction_candidate는 하락/회피 신호 연구 후보이지 live 매수 승격이 아닙니다. threshold 자동 채택도 하지 않습니다.",
+                    ),
+                    _section_card(
+                        "LightGBM 원천별 실험",
+                        _table(
+                            ["source", "상태", "평가 행", "특징 수", "3분류 정확도", "상승/보합/하락 적중률", "가상 방향 거래", "가상 방향 순수익률"],
+                            lightgbm_source_rows,
+                            "LightGBM 원천별 실험 결과가 없습니다.",
+                        ),
+                        note="artifact를 저장하지 않는 연구용 비교입니다. KIS-only가 좋아져도 별도 shadow 후보로 고정한 뒤 다시 검증해야 합니다.",
                     ),
                     _section_card("워크포워드 상세", _table(["fold", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 수", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률(단순합산)", "매수 신호 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),

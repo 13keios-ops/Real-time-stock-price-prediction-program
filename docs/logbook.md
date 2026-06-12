@@ -1,5 +1,41 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> LightGBM 성능개선 트랙 1차 진단과 source experiment
+
+- 사용자 지시:
+  - 모델 성능개선 트랙을 진행한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 대시보드 서버는 `http://127.0.0.1:8765`에서 응답 중이었다.
+- 조치:
+  - `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15` CLI를 추가했다.
+  - 최신 LightGBM artifact를 독립 holdout 기준으로 평가해 3분류 정확도, 클래스별 적중률, 혼동행렬, 확률 분포, 방향별 threshold 비용 차감 수익률을 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.{json,md}`로 남기게 했다.
+  - `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15` CLI를 추가했다.
+  - `mixed_recent`, `kis-ws`, `cybos-historical` 후보를 메모리 안에서만 학습/평가하고 artifact를 덮어쓰지 않는 source experiment 리포트를 `runtime-data/reports/challengers/latest-lightgbm-feature-source-experiment-h15.{json,md}`로 남기게 했다.
+  - 대시보드 `ML/데이터 > 챌린저 및 워크포워드`에 `LightGBM 성능 진단`과 `LightGBM 원천별 실험` 요약 카드를 추가했다.
+- 결과:
+  - LightGBM 성능 진단: `status=positive_downside_direction_candidate_requires_review`, `three_class_accuracy=0.358843`, 상승 적중률 `0.264706`, 보합 적중률 `0.278094`, 하락 적중률 `0.577875`.
+  - 기본 threshold `0.58`의 가상 방향 거래는 `344건`, 순수익률 단순합산 `+98.1520%`였지만, 대부분은 하락 예측 쪽이었다. 상승 예측 23건은 순수익률 `-8.2416%`, 하락 예측 321건은 `+106.3936%`였다.
+  - source experiment: `mixed_recent`은 3개 피처, `3class_acc=0.365476`, 방향 순수익률 `+1.049924%`였으나 소수 하락/회피 후보에 치우쳤다.
+  - `kis-ws`는 6개 피처(`mid_price`, `spread_bps`, `bid_ask_imbalance` 포함)를 사용했지만 `3class_acc=0.354458`, 방향 순수익률 `-44.673720%`로 아직 개선 후보가 아니다.
+  - `cybos-historical`은 `3class_acc=0.544328`로 높지만 보합 적중에 치우치고 방향 순수익률 `-1.759200%`라 KIS live 매수 승격 근거가 아니다.
+- 해석:
+  - threshold를 낮추는 단순 조정은 권장하지 않는다.
+  - 현재 유의미한 단서는 `하락/회피/청산 후보 신호`이며, 현물 매수 승격 근거는 아직 부족하다.
+  - 다음 모델 연구는 KIS-only 피처를 그대로 승격하는 것이 아니라 시간대/모멘텀/최근 변동성/라벨 폭/확률 보정 후보를 분리 실험하는 방향이 맞다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/__main__.py tests/test_research_pipeline.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline -q`: 10개 통과.
+  - `python -m py_compile app/services/dashboard.py`: 통과.
+  - `python -m unittest tests.test_dashboard -q`: 22개 통과.
+  - `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15`: 통과.
+  - `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15`: 통과.
+  - `python -m app --build-dashboard`: 통과, `generated_at=2026-06-12T19:45:48.128797+09:00`.
+- 금지/안전:
+  - active model, gate 기준값, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 실전 주문 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-12] Codex -> KIS 연결 장애 공식 문서 확인과 rate limit 대응 보강
 
 - 사용자 지시:

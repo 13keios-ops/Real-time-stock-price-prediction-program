@@ -22,6 +22,8 @@ from app.services.research import (
     run_cybos_expected_value_review_from_sqlite,
     run_cybos_rule_challenger_review_from_sqlite,
     run_lightgbm_buy_signal_diagnostics_from_sqlite,
+    run_lightgbm_feature_source_experiment_from_sqlite,
+    run_lightgbm_performance_diagnostics_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -274,6 +276,17 @@ class ResearchPipelineTests(unittest.TestCase):
                 horizon_min=15,
                 thresholds=(0.50, 0.60),
             )
+            performance_diagnostics_result = run_lightgbm_performance_diagnostics_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                thresholds=(0.40, 0.50),
+            )
+            source_experiment_result = run_lightgbm_feature_source_experiment_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                source_candidates=("mixed_recent", "test"),
+                thresholds=(0.40, 0.50),
+            )
             promoted_challenger_result = run_model_challenger_review_from_sqlite(
                 project_root=root,
                 horizon_min=15,
@@ -383,6 +396,23 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertEqual(len(diagnostics_result["threshold_sweep"]), 2)
             self.assertTrue(Path(str(diagnostics_result["report_json_path"])).exists())
             self.assertTrue(Path(str(diagnostics_result["report_markdown_path"])).exists())
+            self.assertEqual(performance_diagnostics_result["review"], "lightgbm_performance_diagnostics")
+            self.assertFalse(performance_diagnostics_result["automatic_promotion"])
+            self.assertFalse(performance_diagnostics_result["automatic_threshold_adoption"])
+            self.assertIn("probability_diagnostics", performance_diagnostics_result)
+            self.assertIn("direction_threshold_sweep", performance_diagnostics_result)
+            self.assertEqual(len(performance_diagnostics_result["direction_threshold_sweep"]), 2)
+            self.assertTrue(Path(str(performance_diagnostics_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(performance_diagnostics_result["report_markdown_path"])).exists())
+            self.assertEqual(source_experiment_result["review"], "lightgbm_feature_source_experiment")
+            self.assertFalse(source_experiment_result["automatic_promotion"])
+            self.assertFalse(source_experiment_result["automatic_threshold_adoption"])
+            self.assertEqual(len(source_experiment_result["candidates"]), 2)
+            self.assertTrue(
+                any(candidate["status"] != "skipped" for candidate in source_experiment_result["candidates"])
+            )
+            self.assertTrue(Path(str(source_experiment_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(source_experiment_result["report_markdown_path"])).exists())
             self.assertTrue(promoted_challenger_result.report_markdown_path.exists())
             self.assertIn(promoted_challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
             self.assertIn(promoted_challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})

@@ -43,7 +43,10 @@ CYBOS_LABEL_SENSITIVITY_BASE_GRID = (0.13, 0.20, 0.35, 0.50)
 CYBOS_LABEL_REPRODUCIBILITY_THRESHOLD = 0.20
 CHALLENGER_HOLDOUT_FRACTION = 0.10
 LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS = 250_000
+LIGHTGBM_SOURCE_EXPERIMENT_MAX_FEATURE_ROWS = 100_000
 LIGHTGBM_BUY_SIGNAL_THRESHOLD_GRID = (0.40, 0.45, 0.50, 0.55, 0.57, 0.58, 0.60, 0.62, 0.66, 0.70, 0.75, 0.80)
+LIGHTGBM_PERFORMANCE_THRESHOLD_GRID = (0.34, 0.38, 0.42, 0.46, 0.50, 0.54, 0.58, 0.62, 0.66, 0.70)
+LIGHTGBM_SOURCE_EXPERIMENT_CANDIDATES = ("mixed_recent", "kis-ws", "cybos-historical")
 DIRECTION_LABELS = ("down", "flat", "up")
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
@@ -6082,6 +6085,265 @@ def _numeric_distribution(values: list[float]) -> dict[str, float | int]:
     }
 
 
+def _probability_bin_label(value: float) -> str:
+    if value < 0.20:
+        return "0.00-0.20"
+    if value < 0.30:
+        return "0.20-0.30"
+    if value < 0.40:
+        return "0.30-0.40"
+    if value < 0.50:
+        return "0.40-0.50"
+    if value < 0.60:
+        return "0.50-0.60"
+    if value < 0.70:
+        return "0.60-0.70"
+    return "0.70+"
+
+
+def _new_probability_bucket() -> dict[str, float]:
+    return {
+        "rows": 0.0,
+        "actual_hits": 0.0,
+        "predicted_label_rows": 0.0,
+        "probability_sum": 0.0,
+        "future_return_sum": 0.0,
+        "directional_return_sum": 0.0,
+    }
+
+
+def _finalize_probability_buckets(
+    buckets: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float | int]]:
+    finalized: dict[str, dict[str, float | int]] = {}
+    for bucket_name in sorted(buckets):
+        bucket = buckets[bucket_name]
+        rows = int(bucket["rows"])
+        finalized[bucket_name] = {
+            "rows": rows,
+            "actual_hit_rate": (bucket["actual_hits"] / rows) if rows else 0.0,
+            "predicted_label_rate": (bucket["predicted_label_rows"] / rows) if rows else 0.0,
+            "average_probability": (bucket["probability_sum"] / rows) if rows else 0.0,
+            "average_future_return_pct": (bucket["future_return_sum"] / rows) if rows else 0.0,
+            "average_directional_return_pct": (
+                bucket["directional_return_sum"] / rows
+                if rows
+                else 0.0
+            ),
+        }
+    return finalized
+
+
+def _lightgbm_probability_diagnostics(
+    scored_rows: list[dict[str, object]],
+) -> dict[str, object]:
+    by_actual_label: dict[str, dict[str, list[float]]] = {
+        label: {
+            "probability_up": [],
+            "probability_flat": [],
+            "probability_down": [],
+            "confidence": [],
+            "confidence_margin": [],
+            "future_return_pct": [],
+        }
+        for label in DIRECTION_LABELS
+    }
+    by_predicted_label: dict[str, dict[str, float]] = {
+        label: {
+            "rows": 0.0,
+            "hits": 0.0,
+            "confidence_sum": 0.0,
+            "confidence_margin_sum": 0.0,
+            "future_return_sum": 0.0,
+            "directional_return_sum": 0.0,
+        }
+        for label in DIRECTION_LABELS
+    }
+    reliability: dict[str, dict[str, dict[str, float]]] = {
+        label: {} for label in DIRECTION_LABELS
+    }
+    for row in scored_rows:
+        actual_label = str(row["actual_label"])
+        predicted_label = str(row["predicted_label"])
+        future_return_pct = float(row["future_return_pct"])
+        confidence = float(row["confidence"])
+        confidence_margin = float(row["confidence_margin"])
+        for label in DIRECTION_LABELS:
+            probability = float(row[f"probability_{label}"])
+            if actual_label in by_actual_label:
+                by_actual_label[actual_label][f"probability_{label}"].append(probability)
+            bucket_name = _probability_bin_label(probability)
+            bucket = reliability[label].setdefault(bucket_name, _new_probability_bucket())
+            bucket["rows"] += 1
+            bucket["actual_hits"] += 1 if actual_label == label else 0
+            bucket["predicted_label_rows"] += 1 if predicted_label == label else 0
+            bucket["probability_sum"] += probability
+            bucket["future_return_sum"] += future_return_pct
+            bucket["directional_return_sum"] += _prediction_directional_return_pct(label, future_return_pct)
+        if actual_label in by_actual_label:
+            by_actual_label[actual_label]["confidence"].append(confidence)
+            by_actual_label[actual_label]["confidence_margin"].append(confidence_margin)
+            by_actual_label[actual_label]["future_return_pct"].append(future_return_pct)
+        predicted_bucket = by_predicted_label.setdefault(
+            predicted_label,
+            {
+                "rows": 0.0,
+                "hits": 0.0,
+                "confidence_sum": 0.0,
+                "confidence_margin_sum": 0.0,
+                "future_return_sum": 0.0,
+                "directional_return_sum": 0.0,
+            },
+        )
+        predicted_bucket["rows"] += 1
+        predicted_bucket["hits"] += 1 if predicted_label == actual_label else 0
+        predicted_bucket["confidence_sum"] += confidence
+        predicted_bucket["confidence_margin_sum"] += confidence_margin
+        predicted_bucket["future_return_sum"] += future_return_pct
+        predicted_bucket["directional_return_sum"] += _prediction_directional_return_pct(
+            predicted_label,
+            future_return_pct,
+        )
+
+    actual_summary: dict[str, dict[str, object]] = {}
+    for label, values in by_actual_label.items():
+        actual_summary[label] = {
+            "rows": len(values["confidence"]),
+            "probability_up_distribution": _numeric_distribution(values["probability_up"]),
+            "probability_flat_distribution": _numeric_distribution(values["probability_flat"]),
+            "probability_down_distribution": _numeric_distribution(values["probability_down"]),
+            "confidence_distribution": _numeric_distribution(values["confidence"]),
+            "confidence_margin_distribution": _numeric_distribution(values["confidence_margin"]),
+            "future_return_pct_distribution": _numeric_distribution(values["future_return_pct"]),
+        }
+
+    predicted_summary: dict[str, dict[str, float | int]] = {}
+    for label, bucket in by_predicted_label.items():
+        rows = int(bucket["rows"])
+        predicted_summary[label] = {
+            "rows": rows,
+            "hit_rate": (bucket["hits"] / rows) if rows else 0.0,
+            "average_confidence": (bucket["confidence_sum"] / rows) if rows else 0.0,
+            "average_confidence_margin": (bucket["confidence_margin_sum"] / rows) if rows else 0.0,
+            "average_future_return_pct": (bucket["future_return_sum"] / rows) if rows else 0.0,
+            "average_directional_return_pct": (
+                bucket["directional_return_sum"] / rows
+                if rows
+                else 0.0
+            ),
+        }
+
+    return {
+        "by_actual_label": actual_summary,
+        "by_predicted_label": predicted_summary,
+        "probability_reliability_bins": {
+            label: _finalize_probability_buckets(buckets)
+            for label, buckets in reliability.items()
+        },
+    }
+
+
+def _direction_threshold_sweep(
+    *,
+    scored_rows: list[dict[str, object]],
+    thresholds: tuple[float, ...],
+    trade_cost_pct: float,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for threshold in sorted(set(float(item) for item in thresholds)):
+        selected = [
+            row
+            for row in scored_rows
+            if str(row.get("predicted_label")) in {"up", "down"}
+            and float(row.get("confidence", 0.0)) >= threshold
+        ]
+        by_label = {label: _new_virtual_direction_group_bucket() for label in ("up", "down")}
+        hits = 0
+        wins = 0
+        gross_sum = 0.0
+        net_sum = 0.0
+        for row in selected:
+            predicted_label = str(row["predicted_label"])
+            actual_label = str(row["actual_label"])
+            future_return_pct = float(row["future_return_pct"])
+            gross_return_pct = _prediction_directional_return_pct(predicted_label, future_return_pct)
+            net_return_pct = gross_return_pct - trade_cost_pct
+            is_hit = predicted_label == actual_label
+            is_win = net_return_pct > 0.0
+            hits += 1 if is_hit else 0
+            wins += 1 if is_win else 0
+            gross_sum += gross_return_pct
+            net_sum += net_return_pct
+            _add_virtual_direction_group_stat(
+                by_label,
+                predicted_label,
+                gross_return_pct=gross_return_pct,
+                net_return_pct=net_return_pct,
+                is_hit=is_hit,
+                is_win=is_win,
+            )
+        trade_count = len(selected)
+        finalized_by_label = _finalize_virtual_direction_groups(by_label)
+        rows.append(
+            {
+                "threshold": round(threshold, 6),
+                "direction_trades_taken": trade_count,
+                "coverage_rate": (trade_count / len(scored_rows)) if scored_rows else 0.0,
+                "direction_hit_rate": (hits / trade_count) if trade_count else 0.0,
+                "direction_win_rate": (wins / trade_count) if trade_count else 0.0,
+                "average_gross_return_pct": (gross_sum / trade_count) if trade_count else 0.0,
+                "average_net_return_pct": (net_sum / trade_count) if trade_count else 0.0,
+                "cumulative_gross_return_pct": gross_sum,
+                "cumulative_net_return_pct": net_sum,
+                "by_predicted_label": finalized_by_label,
+            }
+        )
+    return rows
+
+
+def _lightgbm_performance_status(
+    *,
+    metrics: dict[str, object],
+    direction_threshold_rows: list[dict[str, object]],
+) -> tuple[str, str]:
+    positive_rows = [
+        row
+        for row in direction_threshold_rows
+        if int(row.get("direction_trades_taken", 0)) > 0
+        and float(row.get("average_net_return_pct", 0.0)) > 0.0
+        and float(row.get("cumulative_net_return_pct", 0.0)) > 0.0
+    ]
+    if positive_rows:
+        best_row = max(
+            positive_rows,
+            key=lambda row: (
+                float(row.get("average_net_return_pct", 0.0)),
+                float(row.get("cumulative_net_return_pct", 0.0)),
+                int(row.get("direction_trades_taken", 0)),
+            ),
+        )
+        by_label = best_row.get("by_predicted_label", {})
+        up_stats = by_label.get("up", {}) if isinstance(by_label, dict) else {}
+        down_stats = by_label.get("down", {}) if isinstance(by_label, dict) else {}
+        up_net = float(up_stats.get("cumulative_net_return_pct", 0.0)) if isinstance(up_stats, dict) else 0.0
+        down_net = float(down_stats.get("cumulative_net_return_pct", 0.0)) if isinstance(down_stats, dict) else 0.0
+        if down_net > 0.0 and down_net > max(up_net, 0.0):
+            return (
+                "positive_downside_direction_candidate_requires_review",
+                "Positive direction return is led by virtual down/sell signals; use as avoid/exit research evidence, not live buy promotion.",
+            )
+        return (
+            "positive_direction_candidate_requires_review",
+            "At least one direction threshold produced positive net return; use as research evidence only.",
+        )
+    if all(int(row.get("direction_trades_taken", 0)) == 0 for row in direction_threshold_rows):
+        return "no_direction_trades_at_threshold_grid", "No up/down predictions passed the reviewed thresholds."
+    up_hit_rate = float(metrics.get("up_hit_rate", 0.0))
+    if up_hit_rate < 0.25:
+        return "weak_up_capture_no_positive_ev", "Up-class capture is weak and direction thresholds are not positive."
+    return "no_positive_direction_expected_value", "Direction thresholds did not produce positive net return."
+
+
 def _lightgbm_buy_signal_status(threshold_rows: list[dict[str, object]]) -> tuple[str, str]:
     if not threshold_rows:
         return "no_thresholds", "No threshold grid was provided."
@@ -6249,6 +6511,452 @@ def run_lightgbm_buy_signal_diagnostics_from_sqlite(
             f"{float(row['average_net_return_pct']):.4f} | "
             f"{float(row['cumulative_net_return_pct']):.4f} |"
         )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
+def run_lightgbm_performance_diagnostics_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    thresholds: tuple[float, ...] = LIGHTGBM_PERFORMANCE_THRESHOLD_GRID,
+    max_rows: int | None = LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS,
+    feature_market_source: str | None = None,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM performance diagnostics.")
+
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    if latest_lightgbm_artifact is None:
+        raise ValueError("No LightGBM artifact is available for performance diagnostics.")
+    lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+    lightgbm_training_row = _resolve_latest_training_run_row(
+        sqlite_store,
+        lightgbm_model.artifact.model_version,
+        horizon_min,
+    )
+    lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
+
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    anchor_first_event_time: object | None = None
+    anchor_source = "lightgbm_artifact"
+    if isinstance(lightgbm_training_summary, dict):
+        training_split = lightgbm_training_summary.get("challenger_holdout_split")
+        if isinstance(training_split, dict):
+            training_holdout = training_split.get("challenger_holdout")
+            if isinstance(training_holdout, dict):
+                anchor_first_event_time = training_holdout.get("first_event_time")
+                anchor_source = "lightgbm_training_run"
+    if anchor_first_event_time in (None, ""):
+        anchor_first_event_time = lightgbm_model.artifact.challenger_holdout_first_event_time
+    anchored_split_payload = _split_dataset_with_training_holdout_anchor(
+        dataset,
+        horizon_min=horizon_min,
+        anchor_first_event_time=anchor_first_event_time,
+        anchor_source=anchor_source,
+    )
+    if anchored_split_payload is not None:
+        split_payload = anchored_split_payload
+
+    evaluation_rows = list(split_payload["challenger_rows"])
+    split_metadata = dict(split_payload["metadata"])
+    scored_rows = _score_rows_with_model(
+        rows=evaluation_rows,
+        model=lightgbm_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="lightgbm-performance-diagnostics",
+    )
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    default_signal_threshold = _effective_signal_confidence(settings)
+    metrics = _metrics_from_scored_predictions(
+        scored_rows=scored_rows,
+        settings=settings,
+        trade_cost_pct=trade_cost_pct,
+        signal_confidence_threshold=default_signal_threshold,
+    )
+    probability_diagnostics = _lightgbm_probability_diagnostics(scored_rows)
+    direction_threshold_rows = _direction_threshold_sweep(
+        scored_rows=scored_rows,
+        thresholds=thresholds,
+        trade_cost_pct=trade_cost_pct,
+    )
+    status, status_reason = _lightgbm_performance_status(
+        metrics=metrics,
+        direction_threshold_rows=direction_threshold_rows,
+    )
+    training_status = _training_run_holdout_status(lightgbm_training_summary, split_metadata)
+    artifact_status = _lightgbm_artifact_training_status(lightgbm_model.artifact, lightgbm_training_row)
+    feature_importance = _lightgbm_feature_importance(lightgbm_model)[:30]
+    generated_at = now_local(settings.timezone)
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-performance-diagnostics-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-performance-diagnostics-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_performance_diagnostics",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "model_version": lightgbm_model.artifact.model_version,
+        "training_run_id": lightgbm_model.artifact.training_run_id,
+        "artifact_path": str(latest_lightgbm_artifact),
+        "artifact_training_status": artifact_status,
+        "evaluation_independence_status": training_status,
+        "dataset_scope": split_metadata.get("dataset_scope"),
+        "dataset_load": {
+            "max_rows": max_rows,
+            "loaded_rows": len(dataset),
+            "feature_market_source": feature_market_source,
+            "scope": "recent_labeled_rows" if max_rows else "full_history",
+            "feature_count": len(feature_names),
+        },
+        "evaluation_split": split_metadata,
+        "rows_evaluated": len(scored_rows),
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "default_signal_confidence_threshold": round(default_signal_threshold, 6),
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": status,
+        "status_reason": status_reason,
+        "metrics": {
+            "three_class_accuracy": round(float(metrics["three_class_accuracy"]), 6),
+            "class_hit_rates": metrics["class_hit_rates"],
+            "confusion_matrix": metrics["confusion_matrix"],
+            "actual_label_counts": metrics["actual_label_counts"],
+            "predicted_label_counts": metrics["predicted_label_counts"],
+            "buy_signal_hit_rate": round(float(metrics["buy_signal_hit_rate"]), 6),
+            "trades_taken": int(metrics["trades_taken"]),
+            "virtual_direction_trades_taken": int(metrics["virtual_direction_trades_taken"]),
+            "virtual_direction_hit_rate": round(float(metrics["virtual_direction_hit_rate"]), 6),
+            "virtual_direction_win_rate": round(float(metrics["virtual_direction_win_rate"]), 6),
+            "virtual_direction_average_net_return_pct": round(
+                float(metrics["virtual_direction_average_net_return_pct"]),
+                6,
+            ),
+            "virtual_direction_cumulative_net_return_pct": round(
+                float(metrics["virtual_direction_cumulative_net_return_pct"]),
+                6,
+            ),
+            "virtual_direction_by_predicted_label": metrics["virtual_direction_by_predicted_label"],
+        },
+        "probability_diagnostics": probability_diagnostics,
+        "direction_threshold_sweep": direction_threshold_rows,
+        "feature_importance_top30": feature_importance,
+        "next_research_recommendation": (
+            "Do not relax thresholds automatically. Review feature set, label threshold, "
+            "and probability calibration before promotion."
+        ),
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+
+    markdown_lines = [
+        f"# LightGBM Performance Diagnostics H{horizon_min}",
+        "",
+        f"- `status`: {status}",
+        f"- `status_reason`: {status_reason}",
+        f"- `model_version`: {lightgbm_model.artifact.model_version}",
+        f"- `evaluation_independence_status`: {training_status}",
+        f"- `artifact_training_status`: {artifact_status}",
+        f"- `dataset_scope`: {split_metadata.get('dataset_scope')}",
+        f"- `rows_evaluated`: {len(scored_rows)}",
+        f"- `automatic_promotion`: false",
+        f"- `automatic_threshold_adoption`: false",
+        "",
+        "## Classification",
+        "",
+        f"- `three_class_accuracy`: {float(metrics['three_class_accuracy']):.4f}",
+        f"- `class_hit_rates`: {metrics['class_hit_rates']}",
+        f"- `actual_label_counts`: {metrics['actual_label_counts']}",
+        f"- `predicted_label_counts`: {metrics['predicted_label_counts']}",
+        f"- `confusion_matrix`: {metrics['confusion_matrix']}",
+        "",
+        "## Direction Threshold Sweep",
+        "",
+        "| threshold | direction_trades | coverage | hit_rate | win_rate | avg_net_pct | cumulative_net_pct | up_trades | down_trades |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in direction_threshold_rows:
+        by_label = row.get("by_predicted_label", {})
+        up_stats = by_label.get("up", {}) if isinstance(by_label, dict) else {}
+        down_stats = by_label.get("down", {}) if isinstance(by_label, dict) else {}
+        markdown_lines.append(
+            "| "
+            f"{float(row['threshold']):.4f} | "
+            f"{int(row['direction_trades_taken'])} | "
+            f"{float(row['coverage_rate']):.4f} | "
+            f"{float(row['direction_hit_rate']):.4f} | "
+            f"{float(row['direction_win_rate']):.4f} | "
+            f"{float(row['average_net_return_pct']):.4f} | "
+            f"{float(row['cumulative_net_return_pct']):.4f} | "
+            f"{int(up_stats.get('trades', 0))} | "
+            f"{int(down_stats.get('trades', 0))} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Probability Diagnostics",
+            "",
+            "이 리포트는 연구 진단용입니다. threshold 를 자동 채택하거나 active model 을 교체하지 않습니다.",
+            "",
+            "### Predicted Label Summary",
+            "",
+            "| label | rows | hit_rate | avg_confidence | avg_margin | avg_directional_return_pct |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    predicted_summary = probability_diagnostics.get("by_predicted_label", {})
+    if isinstance(predicted_summary, dict):
+        for label in DIRECTION_LABELS:
+            row = predicted_summary.get(label, {})
+            if not isinstance(row, dict):
+                continue
+            markdown_lines.append(
+                "| "
+                f"{label} | "
+                f"{int(row.get('rows', 0))} | "
+                f"{float(row.get('hit_rate', 0.0)):.4f} | "
+                f"{float(row.get('average_confidence', 0.0)):.4f} | "
+                f"{float(row.get('average_confidence_margin', 0.0)):.4f} | "
+                f"{float(row.get('average_directional_return_pct', 0.0)):.4f} |"
+            )
+    markdown_lines.extend(
+        [
+            "",
+            "## Feature Importance Top 10",
+            "",
+            "| feature | importance |",
+            "|---|---:|",
+        ]
+    )
+    for row in feature_importance[:10]:
+        markdown_lines.append(f"| {row['feature']} | {int(row['importance'])} |")
+
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
+def _feature_source_candidate_filter(candidate: str) -> str | None:
+    normalized = str(candidate).strip()
+    if normalized in {"", "mixed", "mixed_recent", "all", "none"}:
+        return None
+    return normalized
+
+
+def run_lightgbm_feature_source_experiment_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    source_candidates: tuple[str, ...] = LIGHTGBM_SOURCE_EXPERIMENT_CANDIDATES,
+    max_rows: int | None = LIGHTGBM_SOURCE_EXPERIMENT_MAX_FEATURE_ROWS,
+    thresholds: tuple[float, ...] = LIGHTGBM_PERFORMANCE_THRESHOLD_GRID,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM feature-source experiment.")
+
+    generated_at = now_local(settings.timezone)
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    signal_threshold = _effective_signal_confidence(settings)
+    candidate_results: list[dict[str, object]] = []
+    seen_candidates: set[str] = set()
+
+    for candidate in source_candidates:
+        candidate_name = str(candidate).strip() or "mixed_recent"
+        if candidate_name in seen_candidates:
+            continue
+        seen_candidates.add(candidate_name)
+        feature_market_source = _feature_source_candidate_filter(candidate_name)
+        try:
+            feature_names, dataset = _load_labeled_feature_dataset(
+                sqlite_store,
+                horizon_min=horizon_min,
+                feature_market_source=feature_market_source,
+                max_rows=max_rows,
+            )
+            split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+            train_rows = list(split_payload["train_rows"])
+            validation_rows = list(split_payload["validation_rows"])
+            challenger_rows = list(split_payload["challenger_rows"])
+            if not train_rows or not challenger_rows or not _has_complete_direction_labels(train_rows):
+                raise ValueError("feature source split did not produce complete train/challenger labels")
+            model = _fit_lightgbm_model(
+                train_rows=train_rows,
+                feature_names=feature_names,
+                feature_set_version=f"{settings.feature_set_version}-{candidate_name}-source-experiment",
+                horizon_min=horizon_min,
+                model_version=f"lightgbm-source-{candidate_name.replace('_', '-')}-h{horizon_min}-diagnostic",
+            )
+            metrics = _evaluate_rows_with_model(
+                rows=challenger_rows,
+                model=model,
+                settings=settings,
+                horizon_min=horizon_min,
+                prediction_prefix=f"lightgbm-source-{candidate_name}",
+                min_signal_confidence_override=signal_threshold,
+                trade_cost_pct_override=trade_cost_pct,
+                collect_prediction_stats=True,
+            )
+            scored_rows = _score_rows_with_model(
+                rows=challenger_rows,
+                model=model,
+                settings=settings,
+                horizon_min=horizon_min,
+                prediction_prefix=f"lightgbm-source-{candidate_name}-score",
+            )
+            direction_threshold_rows = _direction_threshold_sweep(
+                scored_rows=scored_rows,
+                thresholds=thresholds,
+                trade_cost_pct=trade_cost_pct,
+            )
+            status, status_reason = _lightgbm_performance_status(
+                metrics=metrics,
+                direction_threshold_rows=direction_threshold_rows,
+            )
+            candidate_results.append(
+                {
+                    "candidate_name": candidate_name,
+                    "feature_market_source": feature_market_source,
+                    "status": status,
+                    "status_reason": status_reason,
+                    "dataset_load": {
+                        "max_rows": max_rows,
+                        "loaded_rows": len(dataset),
+                        "scope": "recent_labeled_rows" if max_rows else "full_history",
+                        "feature_count": len(feature_names),
+                    },
+                    "evaluation_split": split_payload["metadata"],
+                    "train_rows": len(train_rows),
+                    "validation_rows": len(validation_rows),
+                    "challenger_rows": len(challenger_rows),
+                    "three_class_accuracy": round(float(metrics["three_class_accuracy"]), 6),
+                    "class_hit_rates": metrics["class_hit_rates"],
+                    "confusion_matrix": metrics["confusion_matrix"],
+                    "actual_label_counts": metrics["actual_label_counts"],
+                    "predicted_label_counts": metrics["predicted_label_counts"],
+                    "buy_signal_hit_rate": round(float(metrics["buy_signal_hit_rate"]), 6),
+                    "trades_taken": int(metrics["trades_taken"]),
+                    "virtual_direction_trades_taken": int(metrics["virtual_direction_trades_taken"]),
+                    "virtual_direction_hit_rate": round(float(metrics["virtual_direction_hit_rate"]), 6),
+                    "virtual_direction_average_net_return_pct": round(
+                        float(metrics["virtual_direction_average_net_return_pct"]),
+                        6,
+                    ),
+                    "virtual_direction_cumulative_net_return_pct": round(
+                        float(metrics["virtual_direction_cumulative_net_return_pct"]),
+                        6,
+                    ),
+                    "virtual_direction_by_predicted_label": metrics["virtual_direction_by_predicted_label"],
+                    "direction_threshold_sweep": direction_threshold_rows,
+                    "feature_importance_top20": _lightgbm_feature_importance(model)[:20],
+                    "feature_names": feature_names,
+                    "automatic_promotion": False,
+                    "automatic_threshold_adoption": False,
+                }
+            )
+        except Exception as exc:
+            candidate_results.append(
+                {
+                    "candidate_name": candidate_name,
+                    "feature_market_source": feature_market_source,
+                    "status": "skipped",
+                    "status_reason": str(exc),
+                    "automatic_promotion": False,
+                    "automatic_threshold_adoption": False,
+                }
+            )
+
+    valid_candidates = [row for row in candidate_results if row.get("status") != "skipped"]
+    best_by_accuracy = max(
+        valid_candidates,
+        key=lambda row: float(row.get("three_class_accuracy", 0.0)),
+        default=None,
+    )
+    best_by_direction_net = max(
+        valid_candidates,
+        key=lambda row: float(row.get("virtual_direction_cumulative_net_return_pct", 0.0)),
+        default=None,
+    )
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-feature-source-experiment-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-feature-source-experiment-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_feature_source_experiment",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "signal_confidence_threshold": round(signal_threshold, 6),
+        "source_candidates": list(source_candidates),
+        "max_rows": max_rows,
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": "completed" if valid_candidates else "no_valid_candidates",
+        "best_by_three_class_accuracy": (
+            str(best_by_accuracy.get("candidate_name")) if isinstance(best_by_accuracy, dict) else None
+        ),
+        "best_by_virtual_direction_net": (
+            str(best_by_direction_net.get("candidate_name")) if isinstance(best_by_direction_net, dict) else None
+        ),
+        "candidates": candidate_results,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+
+    markdown_lines = [
+        f"# LightGBM Feature Source Experiment H{horizon_min}",
+        "",
+        "- 이 리포트는 연구 실험용입니다. active model, gate 기준값, 주문 판단을 바꾸지 않습니다.",
+        f"- `status`: {payload['status']}",
+        f"- `best_by_three_class_accuracy`: {payload['best_by_three_class_accuracy']}",
+        f"- `best_by_virtual_direction_net`: {payload['best_by_virtual_direction_net']}",
+        f"- `automatic_promotion`: false",
+        f"- `automatic_threshold_adoption`: false",
+        "",
+        "## Candidates",
+        "",
+        "| source | status | rows | features | 3class_acc | up_hit | flat_hit | down_hit | trades | direction_net_pct |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in candidate_results:
+        class_rates = row.get("class_hit_rates", {})
+        if not isinstance(class_rates, dict):
+            class_rates = {}
+        markdown_lines.append(
+            "| "
+            f"{row.get('candidate_name')} | "
+            f"{row.get('status')} | "
+            f"{int(row.get('challenger_rows', 0))} | "
+            f"{int((row.get('dataset_load') or {}).get('feature_count', 0)) if isinstance(row.get('dataset_load'), dict) else 0} | "
+            f"{float(row.get('three_class_accuracy', 0.0)):.4f} | "
+            f"{float(class_rates.get('up', 0.0)):.4f} | "
+            f"{float(class_rates.get('flat', 0.0)):.4f} | "
+            f"{float(class_rates.get('down', 0.0)):.4f} | "
+            f"{int(row.get('virtual_direction_trades_taken', 0))} | "
+            f"{float(row.get('virtual_direction_cumulative_net_return_pct', 0.0)):.4f} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Recommendation",
+            "",
+            "- source별 결과가 좋아도 자동 승격하지 않습니다.",
+            "- KIS-only가 개선되면 다음 단계는 artifact 덮어쓰기 전 별도 shadow 후보로 고정하는 것입니다.",
+            "- mixed_recent이 feature 3개로 제한되면 orderbookless source 혼합이 피처 폭을 줄이는지 계속 점검합니다.",
+        ]
+    )
+
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
     return payload

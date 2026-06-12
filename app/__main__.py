@@ -31,6 +31,8 @@ from app.services.research import (
     build_minute_bars_from_sqlite,
     rebuild_actual_runtime_ml_state,
     run_lightgbm_buy_signal_diagnostics_from_sqlite,
+    run_lightgbm_feature_source_experiment_from_sqlite,
+    run_lightgbm_performance_diagnostics_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_cybos_bar_only_experiment_from_sqlite,
     run_cybos_expected_value_review_from_sqlite,
@@ -84,6 +86,11 @@ def main() -> int:
     parser.add_argument("--challenger-feature-market-source", default="", help="Optional raw market source filter for challenger feature rows.")
     parser.add_argument("--run-lightgbm-buy-signal-diagnostics", action="store_true", help="Run LightGBM buy-signal threshold diagnostics without adopting thresholds.")
     parser.add_argument("--lightgbm-buy-signal-thresholds", default="0.40,0.45,0.50,0.55,0.57,0.58,0.60,0.62,0.66,0.70,0.75,0.80", help="Comma-separated probability_up thresholds for LightGBM buy-signal diagnostics.")
+    parser.add_argument("--run-lightgbm-performance-diagnostics", action="store_true", help="Run LightGBM classification, probability, and direction-EV diagnostics without adopting thresholds.")
+    parser.add_argument("--lightgbm-performance-thresholds", default="0.34,0.38,0.42,0.46,0.50,0.54,0.58,0.62,0.66,0.70", help="Comma-separated confidence thresholds for LightGBM direction diagnostics.")
+    parser.add_argument("--run-lightgbm-feature-source-experiment", action="store_true", help="Compare mixed, KIS-only, and historical LightGBM feature-source candidates without writing artifacts.")
+    parser.add_argument("--lightgbm-feature-source-candidates", default="mixed_recent,kis-ws,cybos-historical", help="Comma-separated feature market sources for LightGBM source experiment. Use mixed_recent for no source filter.")
+    parser.add_argument("--lightgbm-feature-source-max-rows", type=int, default=100000, help="Maximum recent labeled rows per source candidate. Use 0 for full history.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-expected-value-review", action="store_true", help="Run train-only expected-value threshold review for Cybos LightGBM.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
@@ -295,6 +302,45 @@ def main() -> int:
             thresholds=thresholds,
             max_rows=args.challenger_max_rows if args.challenger_max_rows > 0 else None,
             feature_market_source=args.challenger_feature_market_source or None,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_performance_diagnostics:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_performance_thresholds.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_performance_diagnostics_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            thresholds=thresholds,
+            max_rows=args.challenger_max_rows if args.challenger_max_rows > 0 else None,
+            feature_market_source=args.challenger_feature_market_source or None,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_feature_source_experiment:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_performance_thresholds.split(",")
+            if item.strip()
+        )
+        source_candidates = tuple(
+            item.strip()
+            for item in args.lightgbm_feature_source_candidates.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_feature_source_experiment_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            source_candidates=source_candidates,
+            max_rows=args.lightgbm_feature_source_max_rows
+            if args.lightgbm_feature_source_max_rows > 0
+            else None,
+            thresholds=thresholds,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0

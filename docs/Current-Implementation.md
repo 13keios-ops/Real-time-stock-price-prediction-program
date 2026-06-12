@@ -181,6 +181,9 @@ python -m app --run-backtest --horizon-min 15
 python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
 python -m app --run-gate-walk-forward --horizon-min 15
 python -m app --run-challengers --horizon-min 15
+python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15
+python -m app --run-lightgbm-performance-diagnostics --horizon-min 15
+python -m app --run-lightgbm-feature-source-experiment --horizon-min 15
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh
 ./scripts/run_research_on_snapshot.sh -- python -m app --run-cybos-rule-challengers --cybos-profitability-cost-pct 0.13
@@ -209,6 +212,8 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 최신 LightGBM artifact의 학습 시점 holdout 시작 시각을 우선 anchor 로 사용해 `challenger_holdout_training_anchor` 평가 구간을 만든다. 이렇게 하면 장후 label refresh 로 데이터가 추가되어도 LightGBM 학습 때 예약한 holdout 경계가 유지된다. candidate별 `evaluation_independence_status`를 리포트에 남기고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다.
 - 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 독립 holdout/아티팩트 기준의 평가 자격일 뿐 실제 승격 적용이 아니며, 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 수익률, 운영자 승인까지 함께 봐야 한다.
 - LightGBM 매수 신호 0건 원인은 `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15`로 진단한다. 이 명령은 threshold별 매수 신호 수, 적중률, 비용 차감 평균/누적 순수익률을 `runtime-data/reports/challengers/latest-lightgbm-buy-signal-diagnostics-h15.json`과 `.md`에 남기며, threshold 를 자동 채택하지 않는다.
+- LightGBM 성능 진단은 `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 를 저장된 독립 holdout 경계로 평가하고, 3분류 정확도, 클래스별 적중률, 혼동행렬, 확률 분포, 가상 방향 threshold별 비용 차감 수익률을 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`과 `.md`에 남긴다. 자동 승격과 threshold 자동 채택은 하지 않는다.
+- LightGBM feature source 분리 실험은 `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15`로 실행한다. 이 명령은 `mixed_recent`, `kis-ws`, `cybos-historical` 후보를 메모리 안에서만 학습/평가하고 artifact 를 덮어쓰지 않는다. 2026-06-12 기준 결과는 `mixed_recent`이 3개 피처로 소수 하락/회피 방향 양수 후보를 보였고, `kis-ws`는 6개 피처를 쓰지만 비용 차감 방향 기대값은 음수였다. 따라서 다음 단계는 KIS-only artifact 승격이 아니라 피처/라벨/확률 보정 연구다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.
