@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> 전체 실행 계획 문서화
+
+- 사용자 지시:
+  - 모든 계획을 순서대로 방법과 이유를 상세하게 정리해 md로 출력한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `docs/Execution-Plan.md`를 추가했다.
+  - 현재 상태에서 작업을 진행할 순서를 `안전 확인 -> Phase 0 정합성 -> KIS 연결 -> 모델 성능개선 -> 모델 심사 -> 예측 lineage -> dashboard -> 자동화 -> Phase 1a/1b -> Phase 2/3 -> cowork/백업` 순서로 정리했다.
+  - 각 단계에 방법, 이유, 완료 기준, 관련 문서/코드 경로를 적었다.
+  - README와 AGENTS 문서 역할 목록에 새 실행 계획 문서를 연결했다.
+  - `docs/Production-Transition-Progress.md`의 상단 현재 스냅샷을 2026-06-12 23시대 실제 runtime/dashboard/watchdog 상태와 최신 label band 재현성 결과 기준으로 갱신했다.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문과 NAS 백업 실행 없음.
+- 다음 작업:
+  - 다음 장후 또는 장외에는 `docs/Execution-Plan.md`의 권장 순서대로 KIS live feature 후보 모델 실험과 paper/KIS 정합성 확인을 이어간다.
+
 ## [2026-06-12] Codex -> LightGBM label band 재현성 리뷰
 
 - 사용자 지시:

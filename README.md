@@ -36,6 +36,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/Production-Architecture.md`: 실제 자금 자동매매 전환을 위한 목표 구조와 안전 기준
 - `docs/Production-Implementation-Blueprint.md`: 실전 전환을 코드 작업 단위로 나눈 구현 청사진
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
+- `docs/Execution-Plan.md`: 현재 상태에서 다음 작업을 어떤 순서와 방법으로 진행할지 정리한 실행 계획판
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
 - `docs/Codex-Operating-Feedback.md`: 반복 지적 방지 체크리스트와 저장소 전용 skill 후보 관리

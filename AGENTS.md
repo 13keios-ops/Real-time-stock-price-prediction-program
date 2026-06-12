@@ -34,6 +34,7 @@
 - `docs/Production-Architecture.md`: 실제 자금 자동매매 전환 목표 구조와 안전 기준
 - `docs/Production-Implementation-Blueprint.md`: 실전 전환 구현 순서, 상태머신, schema 초안
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
+- `docs/Execution-Plan.md`: 현재 상태 기준 다음 작업 순서, 방법, 이유를 정리한 실행 계획판
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
 - `docs/Codex-Operating-Feedback.md`: 사용자의 반복 지적을 작업 전후 체크리스트와 skill 후보로 정리한 보조 기준

@@ -15,15 +15,16 @@
 관련 문서/코드 경로:
 `docs/Production-Architecture.md`,
 `docs/Production-Implementation-Blueprint.md`,
+`docs/Execution-Plan.md`,
 `docs/logbook.md`
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-12 04:55 KST
-- 현재 런타임: `overnight`
+- 마지막 갱신: 2026-06-12 23:25 KST
+- 현재 런타임: `post-close`
 - live runtime: 정지 상태가 정상
-- runtime watchdog: stale. 시작 스크립트는 JSON을 내지만 현재 Codex/WSL 호출 환경에서는 장시간 프로세스가 유지되지 않음.
-- dashboard: stale. snapshot 생성은 정상이나 `http://127.0.0.1:8765` 서버 응답은 현재 유지되지 않음.
+- runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`.
+- dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review_ver_3.md`
@@ -36,7 +37,7 @@
   Phase 1b/Phase 2 통과 증거로 재사용하지 않는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-12T04:54:41+09:00`.
+  기준 `generated_at=2026-06-12T23:02:16+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
   기준 `generated_at=2026-06-11 08:20:02 +0900`, `status=ok`.
@@ -50,7 +51,7 @@
   `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
   기준 latest trade date `2026-06-11`, `assessment.status=ok`.
 - 최신 검증:
-  `python -m unittest discover -s tests -p "test_*.py"` 378개 통과,
+  `python -m unittest discover -s tests -p "test_*.py"` 380개 통과,
   `git diff --check` 통과.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
@@ -69,6 +70,10 @@
   `status=no_positive_expected_value_threshold`.
   threshold `0.40`에서도 `trades_taken=1845`,
   `cumulative_net_return_pct=-199.849736`라 자동 승격/threshold 채택 근거가 없다.
+- 최신 LightGBM label band 재현성:
+  `runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json`
+  기준 `0.40` 후보는 full walk-forward 가상 방향 순수익률이 양수였지만
+  기간별 양수 재현이 `0/3`이라 정책 변경 후보가 아니다.
 - 최신 paper/KIS 정합성:
   `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
   기준 `status=needs_review`.
