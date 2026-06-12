@@ -47,6 +47,10 @@ LIGHTGBM_SOURCE_EXPERIMENT_MAX_FEATURE_ROWS = 100_000
 LIGHTGBM_BUY_SIGNAL_THRESHOLD_GRID = (0.40, 0.45, 0.50, 0.55, 0.57, 0.58, 0.60, 0.62, 0.66, 0.70, 0.75, 0.80)
 LIGHTGBM_PERFORMANCE_THRESHOLD_GRID = (0.34, 0.38, 0.42, 0.46, 0.50, 0.54, 0.58, 0.62, 0.66, 0.70)
 LIGHTGBM_SOURCE_EXPERIMENT_CANDIDATES = ("mixed_recent", "kis-ws", "cybos-historical")
+LIGHTGBM_FEATURE_PROFILE_CANDIDATES = ("base", "time", "momentum", "volatility", "time_momentum_volatility")
+LIGHTGBM_LABEL_BAND_GRID = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50)
+LIGHTGBM_CALIBRATION_TEMPERATURE_GRID = (0.75, 1.00, 1.25, 1.50, 2.00)
+LIGHTGBM_CALIBRATION_PRIOR_BLEND_GRID = (0.00, 0.10, 0.20, 0.35)
 DIRECTION_LABELS = ("down", "flat", "up")
 CYBOS_RULE_CHALLENGER_STRATEGIES = (
     "opening_momentum",
@@ -6516,6 +6520,530 @@ def run_lightgbm_buy_signal_diagnostics_from_sqlite(
     return payload
 
 
+def run_lightgbm_feature_profile_experiment_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    profile_candidates: tuple[str, ...] = LIGHTGBM_FEATURE_PROFILE_CANDIDATES,
+    feature_market_source: str | None = "kis-ws",
+    max_rows: int | None = LIGHTGBM_SOURCE_EXPERIMENT_MAX_FEATURE_ROWS,
+    thresholds: tuple[float, ...] = LIGHTGBM_PERFORMANCE_THRESHOLD_GRID,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM feature-profile experiment.")
+
+    generated_at = now_local(settings.timezone)
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    signal_threshold = _effective_signal_confidence(settings)
+    base_feature_names, base_dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    candidate_results: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for profile in profile_candidates:
+        profile_name = str(profile).strip() or "base"
+        if profile_name in seen:
+            continue
+        seen.add(profile_name)
+        try:
+            feature_names, dataset, added_features = _apply_feature_profile(
+                feature_names=base_feature_names,
+                dataset=base_dataset,
+                profile_name=profile_name,
+            )
+            result = _lightgbm_candidate_result(
+                candidate_name=f"profile-{profile_name}",
+                feature_names=feature_names,
+                dataset=dataset,
+                settings=settings,
+                horizon_min=horizon_min,
+                thresholds=thresholds,
+                trade_cost_pct=trade_cost_pct,
+                signal_threshold=signal_threshold,
+                extra_fields={
+                    "profile_name": profile_name,
+                    "feature_market_source": feature_market_source,
+                    "dataset_load": {
+                        "max_rows": max_rows,
+                        "loaded_rows": len(base_dataset),
+                        "scope": "recent_labeled_rows" if max_rows else "full_history",
+                        "base_feature_count": len(base_feature_names),
+                        "feature_count": len(feature_names),
+                        "added_feature_count": len(added_features),
+                    },
+                    "added_feature_names": added_features,
+                },
+            )
+            candidate_results.append(result)
+        except Exception as exc:
+            candidate_results.append(
+                {
+                    "candidate_name": f"profile-{profile_name}",
+                    "profile_name": profile_name,
+                    "feature_market_source": feature_market_source,
+                    "status": "skipped",
+                    "status_reason": str(exc),
+                    "automatic_promotion": False,
+                    "automatic_threshold_adoption": False,
+                }
+            )
+
+    valid_candidates = [row for row in candidate_results if row.get("status") != "skipped"]
+    best_by_accuracy = max(valid_candidates, key=lambda row: float(row.get("three_class_accuracy", 0.0)), default=None)
+    best_by_direction_net = max(
+        valid_candidates,
+        key=lambda row: float(row.get("virtual_direction_cumulative_net_return_pct", 0.0)),
+        default=None,
+    )
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-feature-profile-experiment-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-feature-profile-experiment-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_feature_profile_experiment",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "feature_market_source": feature_market_source,
+        "profile_candidates": list(profile_candidates),
+        "max_rows": max_rows,
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "signal_confidence_threshold": round(signal_threshold, 6),
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": "completed" if valid_candidates else "no_valid_candidates",
+        "best_by_three_class_accuracy": (
+            str(best_by_accuracy.get("profile_name")) if isinstance(best_by_accuracy, dict) else None
+        ),
+        "best_by_virtual_direction_net": (
+            str(best_by_direction_net.get("profile_name")) if isinstance(best_by_direction_net, dict) else None
+        ),
+        "candidates": candidate_results,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+    markdown_lines = [
+        f"# LightGBM Feature Profile Experiment H{horizon_min}",
+        "",
+        "- KIS live 전용 feature 후보 실험입니다. active model, artifact, gate, 주문 판단을 바꾸지 않습니다.",
+        f"- `status`: {payload['status']}",
+        f"- `feature_market_source`: {feature_market_source}",
+        f"- `best_by_three_class_accuracy`: {payload['best_by_three_class_accuracy']}",
+        f"- `best_by_virtual_direction_net`: {payload['best_by_virtual_direction_net']}",
+        f"- `automatic_promotion`: false",
+        f"- `automatic_threshold_adoption`: false",
+        "",
+        "| profile | status | rows | features | added | 3class_acc | up_hit | flat_hit | down_hit | direction_trades | direction_net_pct |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in candidate_results:
+        class_rates = row.get("class_hit_rates", {})
+        if not isinstance(class_rates, dict):
+            class_rates = {}
+        dataset_load = row.get("dataset_load", {})
+        if not isinstance(dataset_load, dict):
+            dataset_load = {}
+        markdown_lines.append(
+            "| "
+            f"{row.get('profile_name')} | "
+            f"{row.get('status')} | "
+            f"{int(row.get('challenger_rows', 0))} | "
+            f"{int(dataset_load.get('feature_count', 0))} | "
+            f"{int(dataset_load.get('added_feature_count', 0))} | "
+            f"{float(row.get('three_class_accuracy', 0.0)):.4f} | "
+            f"{float(class_rates.get('up', 0.0)):.4f} | "
+            f"{float(class_rates.get('flat', 0.0)):.4f} | "
+            f"{float(class_rates.get('down', 0.0)):.4f} | "
+            f"{int(row.get('virtual_direction_trades_taken', 0))} | "
+            f"{float(row.get('virtual_direction_cumulative_net_return_pct', 0.0)):.4f} |"
+        )
+    markdown_lines.extend(
+        [
+            "",
+            "## Recommendation",
+            "",
+            "- 좋은 profile 이 있어도 자동 승격하지 않습니다.",
+            "- KIS live 표본이 작으므로 다음 단계는 shadow 후보 고정 전 추가 거래일 누적과 walk-forward 재검증입니다.",
+        ]
+    )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
+def run_lightgbm_label_band_experiment_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    label_thresholds: tuple[float, ...] = LIGHTGBM_LABEL_BAND_GRID,
+    feature_market_source: str | None = "kis-ws",
+    max_rows: int | None = LIGHTGBM_SOURCE_EXPERIMENT_MAX_FEATURE_ROWS,
+    thresholds: tuple[float, ...] = LIGHTGBM_PERFORMANCE_THRESHOLD_GRID,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM label-band experiment.")
+
+    generated_at = now_local(settings.timezone)
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    signal_threshold = _effective_signal_confidence(settings)
+    current_threshold = (
+        float(settings.strategy.label_threshold_60)
+        if horizon_min == 60
+        else float(settings.strategy.label_threshold_15)
+    )
+    grid = tuple(sorted({round(float(value), 6) for value in (*label_thresholds, current_threshold)}))
+    feature_names, base_dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    candidate_results: list[dict[str, object]] = []
+    for threshold_pct in grid:
+        threshold_key = _threshold_key(threshold_pct).replace(".", "p")
+        try:
+            relabeled_dataset = _relabel_training_rows(base_dataset, threshold_pct)
+            result = _lightgbm_candidate_result(
+                candidate_name=f"label-band-{threshold_key}",
+                feature_names=feature_names,
+                dataset=relabeled_dataset,
+                settings=settings,
+                horizon_min=horizon_min,
+                thresholds=thresholds,
+                trade_cost_pct=trade_cost_pct,
+                signal_threshold=signal_threshold,
+                extra_fields={
+                    "threshold_pct": threshold_pct,
+                    "is_current_threshold": abs(threshold_pct - current_threshold) < 1e-9,
+                    "feature_market_source": feature_market_source,
+                    "label_counts": _label_counts_for_rows(relabeled_dataset),
+                    "dataset_load": {
+                        "max_rows": max_rows,
+                        "loaded_rows": len(base_dataset),
+                        "scope": "recent_labeled_rows" if max_rows else "full_history",
+                        "feature_count": len(feature_names),
+                    },
+                },
+            )
+            candidate_results.append(result)
+        except Exception as exc:
+            candidate_results.append(
+                {
+                    "candidate_name": f"label-band-{threshold_key}",
+                    "threshold_pct": threshold_pct,
+                    "is_current_threshold": abs(threshold_pct - current_threshold) < 1e-9,
+                    "feature_market_source": feature_market_source,
+                    "status": "skipped",
+                    "status_reason": str(exc),
+                    "automatic_label_threshold_adoption": False,
+                    "automatic_promotion": False,
+                    "automatic_threshold_adoption": False,
+                }
+            )
+
+    valid_candidates = [row for row in candidate_results if row.get("status") != "skipped"]
+    best_by_accuracy = max(valid_candidates, key=lambda row: float(row.get("three_class_accuracy", 0.0)), default=None)
+    best_by_direction_net = max(
+        valid_candidates,
+        key=lambda row: float(row.get("virtual_direction_cumulative_net_return_pct", 0.0)),
+        default=None,
+    )
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-label-band-experiment-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-label-band-experiment-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_label_band_experiment",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "feature_market_source": feature_market_source,
+        "current_label_threshold_pct": current_threshold,
+        "label_thresholds": list(grid),
+        "max_rows": max_rows,
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "signal_confidence_threshold": round(signal_threshold, 6),
+        "automatic_label_threshold_adoption": False,
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": "completed" if valid_candidates else "no_valid_candidates",
+        "best_by_three_class_accuracy": (
+            float(best_by_accuracy.get("threshold_pct")) if isinstance(best_by_accuracy, dict) else None
+        ),
+        "best_by_virtual_direction_net": (
+            float(best_by_direction_net.get("threshold_pct")) if isinstance(best_by_direction_net, dict) else None
+        ),
+        "candidates": candidate_results,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+    markdown_lines = [
+        f"# LightGBM Label Band Experiment H{horizon_min}",
+        "",
+        "- 라벨 폭 재점검 리포트입니다. LABEL_THRESHOLD 값, gate 기준, active model 을 바꾸지 않습니다.",
+        f"- `status`: {payload['status']}",
+        f"- `current_label_threshold_pct`: {current_threshold:.6f}",
+        f"- `best_by_three_class_accuracy`: {payload['best_by_three_class_accuracy']}",
+        f"- `best_by_virtual_direction_net`: {payload['best_by_virtual_direction_net']}",
+        f"- `automatic_label_threshold_adoption`: false",
+        "",
+        "| threshold_pct | current | status | labels | 3class_acc | up_hit | flat_hit | down_hit | direction_trades | direction_net_pct |",
+        "|---:|---|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in candidate_results:
+        class_rates = row.get("class_hit_rates", {})
+        if not isinstance(class_rates, dict):
+            class_rates = {}
+        markdown_lines.append(
+            "| "
+            f"{float(row.get('threshold_pct', 0.0)):.4f} | "
+            f"{'yes' if row.get('is_current_threshold') else 'no'} | "
+            f"{row.get('status')} | "
+            f"{row.get('label_counts', {})} | "
+            f"{float(row.get('three_class_accuracy', 0.0)):.4f} | "
+            f"{float(class_rates.get('up', 0.0)):.4f} | "
+            f"{float(class_rates.get('flat', 0.0)):.4f} | "
+            f"{float(class_rates.get('down', 0.0)):.4f} | "
+            f"{int(row.get('virtual_direction_trades_taken', 0))} | "
+            f"{float(row.get('virtual_direction_cumulative_net_return_pct', 0.0)):.4f} |"
+        )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
+def run_lightgbm_probability_calibration_experiment_from_sqlite(
+    project_root: Path,
+    horizon_min: int = 15,
+    temperatures: tuple[float, ...] = LIGHTGBM_CALIBRATION_TEMPERATURE_GRID,
+    prior_blend_alphas: tuple[float, ...] = LIGHTGBM_CALIBRATION_PRIOR_BLEND_GRID,
+    max_rows: int | None = LIGHTGBM_DEFAULT_MAX_FEATURE_ROWS,
+    feature_market_source: str | None = None,
+    thresholds: tuple[float, ...] = LIGHTGBM_PERFORMANCE_THRESHOLD_GRID,
+) -> dict[str, object]:
+    settings = load_settings(project_root=project_root)
+    configure_logging(settings)
+    sqlite_store = _get_research_sqlite_store(settings)
+    if sqlite_store is None:
+        raise ValueError("A sqlite database_url is required for LightGBM calibration experiment.")
+
+    feature_names, dataset = _load_labeled_feature_dataset(
+        sqlite_store,
+        horizon_min=horizon_min,
+        feature_market_source=feature_market_source,
+        max_rows=max_rows,
+    )
+    latest_lightgbm_artifact = find_latest_lightgbm_artifact(settings.runtime_data_dir, horizon_min=horizon_min)
+    if latest_lightgbm_artifact is None:
+        raise ValueError("No LightGBM artifact is available for probability calibration experiment.")
+    lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
+    lightgbm_training_row = _resolve_latest_training_run_row(
+        sqlite_store,
+        lightgbm_model.artifact.model_version,
+        horizon_min,
+    )
+    lightgbm_training_summary = _training_run_summary_from_row(lightgbm_training_row)
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    anchor_first_event_time: object | None = None
+    anchor_source = "lightgbm_artifact"
+    if isinstance(lightgbm_training_summary, dict):
+        training_split = lightgbm_training_summary.get("challenger_holdout_split")
+        if isinstance(training_split, dict):
+            training_holdout = training_split.get("challenger_holdout")
+            if isinstance(training_holdout, dict):
+                anchor_first_event_time = training_holdout.get("first_event_time")
+                anchor_source = "lightgbm_training_run"
+    if anchor_first_event_time in (None, ""):
+        anchor_first_event_time = lightgbm_model.artifact.challenger_holdout_first_event_time
+    anchored_split_payload = _split_dataset_with_training_holdout_anchor(
+        dataset,
+        horizon_min=horizon_min,
+        anchor_first_event_time=anchor_first_event_time,
+        anchor_source=anchor_source,
+    )
+    if anchored_split_payload is not None:
+        split_payload = anchored_split_payload
+
+    calibration_rows = list(split_payload["validation_rows"])
+    evaluation_rows = list(split_payload["challenger_rows"])
+    split_metadata = dict(split_payload["metadata"])
+    if not calibration_rows or not evaluation_rows:
+        raise ValueError("Calibration experiment requires validation and challenger rows.")
+    scored_calibration = _score_rows_with_model(
+        rows=calibration_rows,
+        model=lightgbm_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="lightgbm-calibration-fit",
+    )
+    scored_evaluation = _score_rows_with_model(
+        rows=evaluation_rows,
+        model=lightgbm_model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix="lightgbm-calibration-eval",
+    )
+    label_prior = _label_prior_from_rows(scored_calibration)
+    trade_cost_pct = _estimate_trade_cost_pct(settings)
+    signal_threshold = _effective_signal_confidence(settings)
+    candidate_results: list[dict[str, object]] = []
+    seen: set[tuple[float, float]] = set()
+    for temperature in temperatures:
+        for alpha in prior_blend_alphas:
+            candidate_key = (round(float(temperature), 6), round(float(alpha), 6))
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            suffix = f"cal-t{candidate_key[0]:.2f}-a{candidate_key[1]:.2f}".replace(".", "p")
+            calibrated_rows = _calibrate_scored_rows(
+                scored_rows=scored_evaluation,
+                temperature=candidate_key[0],
+                prior_blend_alpha=candidate_key[1],
+                label_prior=label_prior,
+                model_version_suffix=suffix,
+            )
+            metrics = _metrics_from_scored_predictions(
+                scored_rows=calibrated_rows,
+                settings=settings,
+                trade_cost_pct=trade_cost_pct,
+                signal_confidence_threshold=signal_threshold,
+            )
+            direction_threshold_rows = _direction_threshold_sweep(
+                scored_rows=calibrated_rows,
+                thresholds=thresholds,
+                trade_cost_pct=trade_cost_pct,
+            )
+            quality = _probability_quality_metrics(calibrated_rows)
+            status, status_reason = _lightgbm_performance_status(
+                metrics=metrics,
+                direction_threshold_rows=direction_threshold_rows,
+            )
+            candidate_results.append(
+                {
+                    "candidate_name": "raw" if candidate_key == (1.0, 0.0) else suffix,
+                    "temperature": candidate_key[0],
+                    "prior_blend_alpha": candidate_key[1],
+                    "status": status,
+                    "status_reason": status_reason,
+                    "probability_quality": quality,
+                    "three_class_accuracy": round(float(metrics["three_class_accuracy"]), 6),
+                    "class_hit_rates": metrics["class_hit_rates"],
+                    "confusion_matrix": metrics["confusion_matrix"],
+                    "actual_label_counts": metrics["actual_label_counts"],
+                    "predicted_label_counts": metrics["predicted_label_counts"],
+                    "buy_signal_hit_rate": round(float(metrics["buy_signal_hit_rate"]), 6),
+                    "trades_taken": int(metrics["trades_taken"]),
+                    "virtual_direction_trades_taken": int(metrics["virtual_direction_trades_taken"]),
+                    "virtual_direction_hit_rate": round(float(metrics["virtual_direction_hit_rate"]), 6),
+                    "virtual_direction_cumulative_net_return_pct": round(
+                        float(metrics["virtual_direction_cumulative_net_return_pct"]),
+                        6,
+                    ),
+                    "direction_threshold_sweep": direction_threshold_rows,
+                    "automatic_calibration_adoption": False,
+                    "automatic_promotion": False,
+                    "automatic_threshold_adoption": False,
+                }
+            )
+
+    best_by_nll = min(
+        candidate_results,
+        key=lambda row: float((row.get("probability_quality") or {}).get("nll", 999999.0)),
+        default=None,
+    )
+    best_by_brier = min(
+        candidate_results,
+        key=lambda row: float((row.get("probability_quality") or {}).get("brier", 999999.0)),
+        default=None,
+    )
+    best_by_direction_net = max(
+        candidate_results,
+        key=lambda row: float(row.get("virtual_direction_cumulative_net_return_pct", 0.0)),
+        default=None,
+    )
+    generated_at = now_local(settings.timezone)
+    training_status = _training_run_holdout_status(lightgbm_training_summary, split_metadata)
+    artifact_status = _lightgbm_artifact_training_status(lightgbm_model.artifact, lightgbm_training_row)
+    report_dir = settings.runtime_data_dir / "reports" / "challengers"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / f"latest-lightgbm-calibration-experiment-h{horizon_min}.json"
+    markdown_path = report_dir / f"latest-lightgbm-calibration-experiment-h{horizon_min}.md"
+    payload: dict[str, object] = {
+        "review": "lightgbm_probability_calibration_experiment",
+        "generated_at": generated_at.isoformat(),
+        "horizon_min": horizon_min,
+        "model_version": lightgbm_model.artifact.model_version,
+        "training_run_id": lightgbm_model.artifact.training_run_id,
+        "artifact_path": str(latest_lightgbm_artifact),
+        "artifact_training_status": artifact_status,
+        "evaluation_independence_status": training_status,
+        "dataset_scope": split_metadata.get("dataset_scope"),
+        "dataset_load": {
+            "max_rows": max_rows,
+            "loaded_rows": len(dataset),
+            "feature_market_source": feature_market_source,
+            "scope": "recent_labeled_rows" if max_rows else "full_history",
+            "feature_count": len(feature_names),
+        },
+        "evaluation_split": split_metadata,
+        "calibration_rows": len(calibration_rows),
+        "evaluation_rows": len(evaluation_rows),
+        "label_prior_from_calibration_rows": label_prior,
+        "trade_cost_pct": round(trade_cost_pct, 6),
+        "signal_confidence_threshold": round(signal_threshold, 6),
+        "automatic_calibration_adoption": False,
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+        "status": "completed",
+        "best_by_nll": str(best_by_nll.get("candidate_name")) if isinstance(best_by_nll, dict) else None,
+        "best_by_brier": str(best_by_brier.get("candidate_name")) if isinstance(best_by_brier, dict) else None,
+        "best_by_virtual_direction_net": (
+            str(best_by_direction_net.get("candidate_name")) if isinstance(best_by_direction_net, dict) else None
+        ),
+        "candidates": candidate_results,
+        "report_json_path": str(json_path),
+        "report_markdown_path": str(markdown_path),
+    }
+    markdown_lines = [
+        f"# LightGBM Probability Calibration Experiment H{horizon_min}",
+        "",
+        "- 확률 보정 실험입니다. artifact, active model, threshold 를 바꾸지 않습니다.",
+        f"- `status`: {payload['status']}",
+        f"- `evaluation_independence_status`: {training_status}",
+        f"- `best_by_nll`: {payload['best_by_nll']}",
+        f"- `best_by_brier`: {payload['best_by_brier']}",
+        f"- `best_by_virtual_direction_net`: {payload['best_by_virtual_direction_net']}",
+        f"- `automatic_calibration_adoption`: false",
+        "",
+        "| candidate | temp | prior_alpha | nll | brier | ece | 3class_acc | direction_trades | direction_net_pct |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in candidate_results:
+        quality = row.get("probability_quality", {})
+        if not isinstance(quality, dict):
+            quality = {}
+        markdown_lines.append(
+            "| "
+            f"{row.get('candidate_name')} | "
+            f"{float(row.get('temperature', 0.0)):.2f} | "
+            f"{float(row.get('prior_blend_alpha', 0.0)):.2f} | "
+            f"{float(quality.get('nll', 0.0)):.4f} | "
+            f"{float(quality.get('brier', 0.0)):.4f} | "
+            f"{float(quality.get('ece', 0.0)):.4f} | "
+            f"{float(row.get('three_class_accuracy', 0.0)):.4f} | "
+            f"{int(row.get('virtual_direction_trades_taken', 0))} | "
+            f"{float(row.get('virtual_direction_cumulative_net_return_pct', 0.0)):.4f} |"
+        )
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
+    return payload
+
+
 def run_lightgbm_performance_diagnostics_from_sqlite(
     project_root: Path,
     horizon_min: int = 15,
@@ -6751,6 +7279,345 @@ def _feature_source_candidate_filter(candidate: str) -> str | None:
     if normalized in {"", "mixed", "mixed_recent", "all", "none"}:
         return None
     return normalized
+
+
+def _feature_value(values: dict[str, float], name: str) -> float:
+    try:
+        value = float(values.get(name, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value):
+        return 0.0
+    return value
+
+
+def _rolling_mean(series: list[dict[str, float]], name: str, window: int) -> float:
+    if not series:
+        return 0.0
+    selected = series[-max(1, int(window)) :]
+    return sum(_feature_value(row, name) for row in selected) / len(selected)
+
+
+def _rolling_std(series: list[dict[str, float]], name: str, window: int) -> float:
+    if not series:
+        return 0.0
+    selected = series[-max(1, int(window)) :]
+    values = [_feature_value(row, name) for row in selected]
+    if len(values) <= 1:
+        return 0.0
+    average = sum(values) / len(values)
+    variance = sum((value - average) ** 2 for value in values) / len(values)
+    return math.sqrt(max(variance, 0.0))
+
+
+def _intraday_feature_values(event_time: object) -> dict[str, float]:
+    if not isinstance(event_time, datetime):
+        event_time = _metadata_datetime(event_time)
+    if event_time is None:
+        return {
+            "minute_from_open": 0.0,
+            "session_progress": 0.0,
+            "time_sin": 0.0,
+            "time_cos": 1.0,
+            "is_opening_30m": 0.0,
+            "is_closing_30m": 0.0,
+        }
+    regular_open_minute = 9 * 60
+    regular_close_minute = 15 * 60 + 30
+    session_minutes = regular_close_minute - regular_open_minute
+    minute_of_day = event_time.hour * 60 + event_time.minute
+    minute_from_open = min(max(minute_of_day - regular_open_minute, 0), session_minutes)
+    session_progress = minute_from_open / session_minutes if session_minutes else 0.0
+    cycle = 2.0 * math.pi * session_progress
+    return {
+        "minute_from_open": float(minute_from_open),
+        "session_progress": float(session_progress),
+        "time_sin": math.sin(cycle),
+        "time_cos": math.cos(cycle),
+        "is_opening_30m": 1.0 if minute_from_open < 30 else 0.0,
+        "is_closing_30m": 1.0 if minute_from_open >= session_minutes - 30 else 0.0,
+    }
+
+
+def _feature_profile_parts(profile_name: str) -> set[str]:
+    normalized = str(profile_name).strip().lower().replace("-", "_")
+    if normalized in {"", "base", "none"}:
+        return set()
+    if normalized in {"time_momentum_volatility", "kis_live_enhanced", "all"}:
+        return {"time", "momentum", "volatility"}
+    return {part for part in normalized.split("_") if part in {"time", "momentum", "volatility"}}
+
+
+def _apply_feature_profile(
+    *,
+    feature_names: list[str],
+    dataset: list[dict[str, object]],
+    profile_name: str,
+) -> tuple[list[str], list[dict[str, object]], list[str]]:
+    parts = _feature_profile_parts(profile_name)
+    if not parts:
+        copied_rows = []
+        for row in dataset:
+            copied = dict(row)
+            copied["values"] = dict(row["values"])
+            copied["features"] = [float(copied["values"][name]) for name in feature_names]
+            copied_rows.append(copied)
+        return list(feature_names), copied_rows, []
+
+    added_names: set[str] = set()
+    all_feature_names = set(feature_names)
+    pending_rows: list[dict[str, object]] = []
+    history_by_symbol: dict[str, list[dict[str, float]]] = defaultdict(list)
+    sorted_rows = sorted(dataset, key=lambda item: (str(item["symbol"]), item["event_time"]))
+    for row in sorted_rows:
+        symbol = str(row["symbol"])
+        base_values = {str(name): float(value) for name, value in dict(row["values"]).items()}
+        base_values["return_1m_abs_pct"] = abs(_feature_value(base_values, "return_1m_pct"))
+        values = dict(base_values)
+        series = [*history_by_symbol[symbol], base_values]
+        if "time" in parts:
+            for name, value in _intraday_feature_values(row.get("event_time")).items():
+                values[name] = value
+                added_names.add(name)
+        if "momentum" in parts:
+            return_1m = _feature_value(base_values, "return_1m_pct")
+            values["return_1m_abs_pct"] = abs(return_1m)
+            values["return_1m_prev_pct"] = _feature_value(history_by_symbol[symbol][-1], "return_1m_pct") if history_by_symbol[symbol] else 0.0
+            values["return_1m_delta_pct"] = return_1m - values["return_1m_prev_pct"]
+            for window in (3, 5, 10):
+                values[f"return_{window}m_mean_pct"] = _rolling_mean(series, "return_1m_pct", window)
+                values[f"return_{window}m_sum_pct"] = sum(
+                    _feature_value(item, "return_1m_pct") for item in series[-window:]
+                )
+            added_names.update(
+                {
+                    "return_1m_abs_pct",
+                    "return_1m_prev_pct",
+                    "return_1m_delta_pct",
+                    "return_3m_mean_pct",
+                    "return_3m_sum_pct",
+                    "return_5m_mean_pct",
+                    "return_5m_sum_pct",
+                    "return_10m_mean_pct",
+                    "return_10m_sum_pct",
+                }
+            )
+        if "volatility" in parts:
+            for window in (3, 5, 10):
+                values[f"abs_return_{window}m_mean_pct"] = _rolling_mean(series, "return_1m_abs_pct", window)
+                values[f"return_{window}m_std_pct"] = _rolling_std(series, "return_1m_pct", window)
+                values[f"hl_range_{window}m_mean_pct"] = _rolling_mean(series, "hl_range_pct", window)
+            values["spread_bps_5m_mean"] = _rolling_mean(series, "spread_bps", 5)
+            values["spread_bps_10m_mean"] = _rolling_mean(series, "spread_bps", 10)
+            values["bid_ask_imbalance_5m_mean"] = _rolling_mean(series, "bid_ask_imbalance", 5)
+            values["bid_ask_imbalance_10m_mean"] = _rolling_mean(series, "bid_ask_imbalance", 10)
+            added_names.update(
+                {
+                    "abs_return_3m_mean_pct",
+                    "abs_return_5m_mean_pct",
+                    "abs_return_10m_mean_pct",
+                    "return_3m_std_pct",
+                    "return_5m_std_pct",
+                    "return_10m_std_pct",
+                    "hl_range_3m_mean_pct",
+                    "hl_range_5m_mean_pct",
+                    "hl_range_10m_mean_pct",
+                    "spread_bps_5m_mean",
+                    "spread_bps_10m_mean",
+                    "bid_ask_imbalance_5m_mean",
+                    "bid_ask_imbalance_10m_mean",
+                }
+            )
+
+        all_feature_names.update(values.keys())
+        copied = dict(row)
+        copied["values"] = values
+        pending_rows.append(copied)
+        history_by_symbol[symbol].append(base_values)
+
+    final_feature_names = sorted(all_feature_names)
+    for row in pending_rows:
+        values = dict(row["values"])
+        row["values"] = {name: float(values.get(name, 0.0)) for name in final_feature_names}
+        row["features"] = [float(row["values"][name]) for name in final_feature_names]
+    pending_rows.sort(key=lambda item: (str(item["event_time"]), str(item["symbol"])))
+    return final_feature_names, pending_rows, sorted(added_names)
+
+
+def _lightgbm_candidate_result(
+    *,
+    candidate_name: str,
+    feature_names: list[str],
+    dataset: list[dict[str, object]],
+    settings,
+    horizon_min: int,
+    thresholds: tuple[float, ...],
+    trade_cost_pct: float,
+    signal_threshold: float,
+    extra_fields: dict[str, object] | None = None,
+) -> dict[str, object]:
+    split_payload = _split_dataset_with_challenger_holdout(dataset, horizon_min=horizon_min)
+    train_rows = list(split_payload["train_rows"])
+    validation_rows = list(split_payload["validation_rows"])
+    challenger_rows = list(split_payload["challenger_rows"])
+    if not train_rows or not challenger_rows or not _has_complete_direction_labels(train_rows):
+        raise ValueError("candidate split did not produce complete train/challenger labels")
+    model = _fit_lightgbm_model(
+        train_rows=train_rows,
+        feature_names=feature_names,
+        feature_set_version=f"{settings.feature_set_version}-{candidate_name}",
+        horizon_min=horizon_min,
+        model_version=f"lightgbm-{candidate_name.replace('_', '-')}-h{horizon_min}-diagnostic",
+    )
+    metrics = _evaluate_rows_with_model(
+        rows=challenger_rows,
+        model=model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix=f"lightgbm-{candidate_name}",
+        min_signal_confidence_override=signal_threshold,
+        trade_cost_pct_override=trade_cost_pct,
+        collect_prediction_stats=True,
+    )
+    scored_rows = _score_rows_with_model(
+        rows=challenger_rows,
+        model=model,
+        settings=settings,
+        horizon_min=horizon_min,
+        prediction_prefix=f"lightgbm-{candidate_name}-score",
+    )
+    direction_threshold_rows = _direction_threshold_sweep(
+        scored_rows=scored_rows,
+        thresholds=thresholds,
+        trade_cost_pct=trade_cost_pct,
+    )
+    status, status_reason = _lightgbm_performance_status(
+        metrics=metrics,
+        direction_threshold_rows=direction_threshold_rows,
+    )
+    result: dict[str, object] = {
+        "candidate_name": candidate_name,
+        "status": status,
+        "status_reason": status_reason,
+        "evaluation_split": split_payload["metadata"],
+        "train_rows": len(train_rows),
+        "validation_rows": len(validation_rows),
+        "challenger_rows": len(challenger_rows),
+        "three_class_accuracy": round(float(metrics["three_class_accuracy"]), 6),
+        "class_hit_rates": metrics["class_hit_rates"],
+        "confusion_matrix": metrics["confusion_matrix"],
+        "actual_label_counts": metrics["actual_label_counts"],
+        "predicted_label_counts": metrics["predicted_label_counts"],
+        "buy_signal_hit_rate": round(float(metrics["buy_signal_hit_rate"]), 6),
+        "trades_taken": int(metrics["trades_taken"]),
+        "virtual_direction_trades_taken": int(metrics["virtual_direction_trades_taken"]),
+        "virtual_direction_hit_rate": round(float(metrics["virtual_direction_hit_rate"]), 6),
+        "virtual_direction_average_net_return_pct": round(
+            float(metrics["virtual_direction_average_net_return_pct"]),
+            6,
+        ),
+        "virtual_direction_cumulative_net_return_pct": round(
+            float(metrics["virtual_direction_cumulative_net_return_pct"]),
+            6,
+        ),
+        "virtual_direction_by_predicted_label": metrics["virtual_direction_by_predicted_label"],
+        "direction_threshold_sweep": direction_threshold_rows,
+        "feature_importance_top20": _lightgbm_feature_importance(model)[:20],
+        "feature_names": feature_names,
+        "automatic_promotion": False,
+        "automatic_threshold_adoption": False,
+    }
+    if extra_fields:
+        result.update(extra_fields)
+    return result
+
+
+def _probability_quality_metrics(scored_rows: list[dict[str, object]]) -> dict[str, float | int]:
+    if not scored_rows:
+        return {"rows": 0, "nll": 0.0, "brier": 0.0, "ece": 0.0}
+    nll_sum = 0.0
+    brier_sum = 0.0
+    ece_buckets: dict[str, dict[str, float]] = {}
+    for row in scored_rows:
+        actual_label = str(row["actual_label"])
+        probabilities = {label: float(row[f"probability_{label}"]) for label in DIRECTION_LABELS}
+        actual_probability = max(probabilities.get(actual_label, 0.0), 1e-12)
+        nll_sum += -math.log(actual_probability)
+        brier_sum += sum((probabilities[label] - (1.0 if actual_label == label else 0.0)) ** 2 for label in DIRECTION_LABELS)
+        confidence = max(probabilities.values())
+        predicted_label = max(probabilities.items(), key=lambda item: item[1])[0]
+        bucket_name = _probability_bin_label(confidence)
+        bucket = ece_buckets.setdefault(bucket_name, {"rows": 0.0, "confidence_sum": 0.0, "hits": 0.0})
+        bucket["rows"] += 1
+        bucket["confidence_sum"] += confidence
+        bucket["hits"] += 1 if predicted_label == actual_label else 0
+    ece = 0.0
+    total_rows = len(scored_rows)
+    for bucket in ece_buckets.values():
+        rows = int(bucket["rows"])
+        if rows <= 0:
+            continue
+        average_confidence = bucket["confidence_sum"] / rows
+        hit_rate = bucket["hits"] / rows
+        ece += (rows / total_rows) * abs(average_confidence - hit_rate)
+    return {
+        "rows": total_rows,
+        "nll": nll_sum / total_rows,
+        "brier": brier_sum / total_rows,
+        "ece": ece,
+    }
+
+
+def _label_prior_from_rows(scored_rows: list[dict[str, object]]) -> dict[str, float]:
+    counts = Counter(str(row["actual_label"]) for row in scored_rows)
+    total = sum(counts.values())
+    if total <= 0:
+        return {label: 1.0 / len(DIRECTION_LABELS) for label in DIRECTION_LABELS}
+    return {label: counts.get(label, 0) / total for label in DIRECTION_LABELS}
+
+
+def _normalize_probabilities(values: dict[str, float]) -> dict[str, float]:
+    clipped = {label: max(float(values.get(label, 0.0)), 1e-12) for label in DIRECTION_LABELS}
+    total = sum(clipped.values())
+    if total <= 0.0:
+        return {label: 1.0 / len(DIRECTION_LABELS) for label in DIRECTION_LABELS}
+    return {label: clipped[label] / total for label in DIRECTION_LABELS}
+
+
+def _calibrate_scored_rows(
+    *,
+    scored_rows: list[dict[str, object]],
+    temperature: float,
+    prior_blend_alpha: float,
+    label_prior: dict[str, float],
+    model_version_suffix: str,
+) -> list[dict[str, object]]:
+    calibrated_rows: list[dict[str, object]] = []
+    exponent = 1.0 / max(float(temperature), 1e-6)
+    alpha = min(max(float(prior_blend_alpha), 0.0), 1.0)
+    for row in scored_rows:
+        raw = {label: float(row[f"probability_{label}"]) for label in DIRECTION_LABELS}
+        temperature_scaled = _normalize_probabilities(
+            {label: raw[label] ** exponent for label in DIRECTION_LABELS}
+        )
+        blended = _normalize_probabilities(
+            {
+                label: (1.0 - alpha) * temperature_scaled[label] + alpha * float(label_prior.get(label, 0.0))
+                for label in DIRECTION_LABELS
+            }
+        )
+        predicted_label = max(blended.items(), key=lambda item: item[1])[0]
+        ordered = sorted(blended.items(), key=lambda item: item[1], reverse=True)
+        copied = dict(row)
+        copied["predicted_label"] = predicted_label
+        copied["probability_up"] = blended["up"]
+        copied["probability_flat"] = blended["flat"]
+        copied["probability_down"] = blended["down"]
+        copied["confidence"] = ordered[0][1]
+        copied["confidence_margin"] = ordered[0][1] - ordered[1][1]
+        copied["model_version"] = f"{row.get('model_version', 'lightgbm')}-{model_version_suffix}"
+        calibrated_rows.append(copied)
+    return calibrated_rows
 
 
 def run_lightgbm_feature_source_experiment_from_sqlite(

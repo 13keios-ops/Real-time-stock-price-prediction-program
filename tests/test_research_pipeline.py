@@ -22,8 +22,11 @@ from app.services.research import (
     run_cybos_expected_value_review_from_sqlite,
     run_cybos_rule_challenger_review_from_sqlite,
     run_lightgbm_buy_signal_diagnostics_from_sqlite,
+    run_lightgbm_feature_profile_experiment_from_sqlite,
     run_lightgbm_feature_source_experiment_from_sqlite,
+    run_lightgbm_label_band_experiment_from_sqlite,
     run_lightgbm_performance_diagnostics_from_sqlite,
+    run_lightgbm_probability_calibration_experiment_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
@@ -287,6 +290,27 @@ class ResearchPipelineTests(unittest.TestCase):
                 source_candidates=("mixed_recent", "test"),
                 thresholds=(0.40, 0.50),
             )
+            profile_experiment_result = run_lightgbm_feature_profile_experiment_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                profile_candidates=("base", "time_momentum_volatility"),
+                feature_market_source="test",
+                thresholds=(0.40, 0.50),
+            )
+            label_band_experiment_result = run_lightgbm_label_band_experiment_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                label_thresholds=(0.15, 0.25),
+                feature_market_source="test",
+                thresholds=(0.40, 0.50),
+            )
+            calibration_experiment_result = run_lightgbm_probability_calibration_experiment_from_sqlite(
+                project_root=root,
+                horizon_min=15,
+                temperatures=(1.0, 1.25),
+                prior_blend_alphas=(0.0, 0.10),
+                thresholds=(0.40, 0.50),
+            )
             promoted_challenger_result = run_model_challenger_review_from_sqlite(
                 project_root=root,
                 horizon_min=15,
@@ -413,6 +437,31 @@ class ResearchPipelineTests(unittest.TestCase):
             )
             self.assertTrue(Path(str(source_experiment_result["report_json_path"])).exists())
             self.assertTrue(Path(str(source_experiment_result["report_markdown_path"])).exists())
+            self.assertEqual(profile_experiment_result["review"], "lightgbm_feature_profile_experiment")
+            self.assertFalse(profile_experiment_result["automatic_promotion"])
+            self.assertFalse(profile_experiment_result["automatic_threshold_adoption"])
+            self.assertEqual(len(profile_experiment_result["candidates"]), 2)
+            self.assertTrue(
+                any(candidate["status"] != "skipped" for candidate in profile_experiment_result["candidates"])
+            )
+            self.assertTrue(Path(str(profile_experiment_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(profile_experiment_result["report_markdown_path"])).exists())
+            self.assertEqual(label_band_experiment_result["review"], "lightgbm_label_band_experiment")
+            self.assertFalse(label_band_experiment_result["automatic_label_threshold_adoption"])
+            self.assertFalse(label_band_experiment_result["automatic_promotion"])
+            self.assertGreaterEqual(len(label_band_experiment_result["candidates"]), 2)
+            self.assertTrue(
+                any(candidate["status"] != "skipped" for candidate in label_band_experiment_result["candidates"])
+            )
+            self.assertTrue(Path(str(label_band_experiment_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(label_band_experiment_result["report_markdown_path"])).exists())
+            self.assertEqual(calibration_experiment_result["review"], "lightgbm_probability_calibration_experiment")
+            self.assertFalse(calibration_experiment_result["automatic_calibration_adoption"])
+            self.assertFalse(calibration_experiment_result["automatic_promotion"])
+            self.assertEqual(len(calibration_experiment_result["candidates"]), 4)
+            self.assertIn("best_by_nll", calibration_experiment_result)
+            self.assertTrue(Path(str(calibration_experiment_result["report_json_path"])).exists())
+            self.assertTrue(Path(str(calibration_experiment_result["report_markdown_path"])).exists())
             self.assertTrue(promoted_challenger_result.report_markdown_path.exists())
             self.assertIn(promoted_challenger_result.recommended_action, {"promote", "keep_active", "review_required"})
             self.assertIn(promoted_challenger_result.walk_forward_gate_status, {"pass", "needs_review", "missing"})

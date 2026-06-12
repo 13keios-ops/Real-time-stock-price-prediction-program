@@ -2638,6 +2638,15 @@ def collect_dashboard_payload(
     latest_lightgbm_feature_source_experiment = _safe_load_json(
         settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-feature-source-experiment-h15.json"
     )
+    latest_lightgbm_feature_profile_experiment = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-feature-profile-experiment-h15.json"
+    )
+    latest_lightgbm_label_band_experiment = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-label-band-experiment-h15.json"
+    )
+    latest_lightgbm_calibration_experiment = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-calibration-experiment-h15.json"
+    )
     latest_walk_forward_setup_status = _build_walk_forward_setup_status(latest_walk_forward_report)
     latest_kis_verification = _safe_load_json(settings.runtime_data_dir / "reports" / "kis-ws" / "latest-verification.json")
     latest_kis_live_data_quality = _safe_load_json(
@@ -2857,6 +2866,9 @@ def collect_dashboard_payload(
         "latest_challenger_report": latest_challenger_report,
         "latest_lightgbm_performance_diagnostics": latest_lightgbm_performance_diagnostics,
         "latest_lightgbm_feature_source_experiment": latest_lightgbm_feature_source_experiment,
+        "latest_lightgbm_feature_profile_experiment": latest_lightgbm_feature_profile_experiment,
+        "latest_lightgbm_label_band_experiment": latest_lightgbm_label_band_experiment,
+        "latest_lightgbm_calibration_experiment": latest_lightgbm_calibration_experiment,
         "latest_kis_verification": latest_kis_verification,
         "latest_kis_live_data_quality": latest_kis_live_data_quality,
         "latest_feature_source_drift": latest_feature_source_drift,
@@ -2959,6 +2971,15 @@ def _number(value: Any) -> str:
         return "-"
     try:
         return f"{float(value):,.0f}"
+    except (TypeError, ValueError):
+        return _esc(value)
+
+
+def _decimal(value: Any, digits: int = 4) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.{digits}f}"
     except (TypeError, ValueError):
         return _esc(value)
 
@@ -3827,6 +3848,9 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
     latest_lightgbm_performance_diagnostics = payload.get("latest_lightgbm_performance_diagnostics", {}) or {}
     latest_lightgbm_feature_source_experiment = payload.get("latest_lightgbm_feature_source_experiment", {}) or {}
+    latest_lightgbm_feature_profile_experiment = payload.get("latest_lightgbm_feature_profile_experiment", {}) or {}
+    latest_lightgbm_label_band_experiment = payload.get("latest_lightgbm_label_band_experiment", {}) or {}
+    latest_lightgbm_calibration_experiment = payload.get("latest_lightgbm_calibration_experiment", {}) or {}
     latest_kis = payload.get("latest_kis_verification", {}) or {}
     latest_kis_quality = payload.get("latest_kis_live_data_quality", {}) or {}
     latest_feature_source_drift = payload.get("latest_feature_source_drift", {}) or {}
@@ -4008,6 +4032,53 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
         ]
         for row in latest_lightgbm_feature_source_experiment.get("candidates", [])
+    ]
+    lightgbm_profile_rows = [
+        [
+            row.get("profile_name"),
+            row.get("status"),
+            row.get("challenger_rows") or 0,
+            (row.get("dataset_load") or {}).get("feature_count") if isinstance(row.get("dataset_load"), dict) else 0,
+            (row.get("dataset_load") or {}).get("added_feature_count") if isinstance(row.get("dataset_load"), dict) else 0,
+            _ratio_pct(row.get("three_class_accuracy"), 2),
+            _candidate_class_hit_rates(row),
+            row.get("virtual_direction_trades_taken") or 0,
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+        ]
+        for row in latest_lightgbm_feature_profile_experiment.get("candidates", [])
+    ]
+    lightgbm_label_band_rows = [
+        [
+            _pct(row.get("threshold_pct"), 2),
+            "현재값" if row.get("is_current_threshold") else "-",
+            row.get("status"),
+            row.get("label_counts") or {},
+            _ratio_pct(row.get("three_class_accuracy"), 2),
+            _candidate_class_hit_rates(row),
+            row.get("virtual_direction_trades_taken") or 0,
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+        ]
+        for row in latest_lightgbm_label_band_experiment.get("candidates", [])
+    ]
+    lightgbm_calibration_rows = [
+        [
+            row.get("candidate_name"),
+            row.get("temperature"),
+            row.get("prior_blend_alpha"),
+            _decimal((row.get("probability_quality") or {}).get("nll"), 4)
+            if isinstance(row.get("probability_quality"), dict)
+            else "-",
+            _decimal((row.get("probability_quality") or {}).get("brier"), 4)
+            if isinstance(row.get("probability_quality"), dict)
+            else "-",
+            _decimal((row.get("probability_quality") or {}).get("ece"), 4)
+            if isinstance(row.get("probability_quality"), dict)
+            else "-",
+            _ratio_pct(row.get("three_class_accuracy"), 2),
+            row.get("virtual_direction_trades_taken") or 0,
+            _pct(row.get("virtual_direction_cumulative_net_return_pct"), 2),
+        ]
+        for row in latest_lightgbm_calibration_experiment.get("candidates", [])
     ]
     status_rows = [
         ["운영 모드", project.get("trading_mode")],
@@ -5137,6 +5208,33 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                             "LightGBM 원천별 실험 결과가 없습니다.",
                         ),
                         note="artifact를 저장하지 않는 연구용 비교입니다. KIS-only가 좋아져도 별도 shadow 후보로 고정한 뒤 다시 검증해야 합니다.",
+                    ),
+                    _section_card(
+                        "LightGBM KIS feature profile 실험",
+                        _table(
+                            ["profile", "상태", "평가 행", "특징 수", "추가 특징", "3분류 정확도", "상승/보합/하락 적중률", "가상 방향 거래", "가상 방향 순수익률"],
+                            lightgbm_profile_rows,
+                            "LightGBM feature profile 실험 결과가 없습니다.",
+                        ),
+                        note="KIS live 전용 시간대, 모멘텀, 최근 변동성 후보를 메모리 안에서만 비교합니다. 좋은 결과가 있어도 active model 또는 artifact를 바꾸지 않습니다.",
+                    ),
+                    _section_card(
+                        "LightGBM label band 실험",
+                        _table(
+                            ["threshold", "현재값", "상태", "라벨 분포", "3분류 정확도", "상승/보합/하락 적중률", "가상 방향 거래", "가상 방향 순수익률"],
+                            lightgbm_label_band_rows,
+                            "LightGBM label band 실험 결과가 없습니다.",
+                        ),
+                        note="라벨 폭 후보를 재점검하는 연구 표입니다. config의 LABEL_THRESHOLD 값은 자동 변경하지 않습니다.",
+                    ),
+                    _section_card(
+                        "LightGBM 확률 보정 실험",
+                        _table(
+                            ["candidate", "temperature", "prior alpha", "NLL", "Brier", "ECE", "3분류 정확도", "가상 방향 거래", "가상 방향 순수익률"],
+                            lightgbm_calibration_rows,
+                            "LightGBM 확률 보정 실험 결과가 없습니다.",
+                        ),
+                        note="temperature scaling과 prior blend 후보를 비교합니다. calibration이 좋아도 threshold나 serving model에 자동 적용하지 않습니다.",
                     ),
                     _section_card("워크포워드 상세", _table(["fold", "3분류 정확도", "상승/보합/하락 적중률", "매수 신호 수", "매수 신호 적중률", "가상 방향 거래 수", "가상 방향 적중률", "가상 방향 순수익률(단순합산)", "매수 신호 순수익률"], walk_forward_rows, "워크포워드 상세 결과가 없습니다.")),
                 ),

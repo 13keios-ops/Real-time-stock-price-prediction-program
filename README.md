@@ -60,7 +60,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - walk-forward gate를 반영하는 challenger model 비교 보고서
 - 활성 모델 명시 등록부와 내장 기준 모델 예비 처리
 - LightGBM shadow challenger 비교
-- LightGBM 성능 진단 리포트와 feature source 분리 실험 리포트
+- LightGBM 성능 진단, feature source, feature profile, label band, probability calibration 연구 리포트
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket 연결 준비와 검증 리포트
 - 실행 / 백테스트 / 워크포워드 리포트 생성
@@ -162,7 +162,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 
 현재 실시간 주문 판단은 검증 완료 전까지 active `baseline` 모델이 담당한다. LightGBM은 최신 artifact가 있는 horizon 에 한해 장중 같은 종목/시각의 shadow serving 예측으로 추가 저장하고, 대시보드 `예측 흐름`에서 baseline 예측, 실제 결과, 신호, 주문, 체결과 나란히 비교한다. 이 shadow 예측은 active model 승격이나 주문 판단에 쓰지 않는다.
 
-LightGBM 성능개선 트랙은 threshold 를 바로 낮추거나 active model 을 바꾸는 방식이 아니라, `성능 진단 -> 원천별 feature 실험 -> 후보 shadow 고정 -> challenger / walk-forward 재검증` 순서로 진행한다. 현재 진단 기준으로 최신 LightGBM은 하락/회피 방향 연구 신호는 일부 있으나, 현물 매수 승격 근거는 부족하다.
+LightGBM 성능개선 트랙은 threshold 를 바로 낮추거나 active model 을 바꾸는 방식이 아니라, `성능 진단 -> 원천별 feature 실험 -> feature profile 후보 -> label band 재점검 -> probability calibration -> 후보 shadow 고정 -> challenger / walk-forward 재검증` 순서로 진행한다. 현재 진단 기준으로 최신 LightGBM은 하락/회피 방향 연구 신호는 일부 있으나, 현물 매수 승격 근거는 부족하다. feature profile, label band, probability calibration 실험은 모두 연구 전용 리포트이며 active model, gate 기준값, label threshold 를 자동 변경하지 않는다.
 
 여기서 `최근 60거래일 + 오늘 데이터`는 과거 데이터를 삭제한다는 뜻이 아니다.
 운영용 학습창은 최근 60거래일 중심으로 쓰되, 더 오래된 데이터는 drift 점검, 구간 비교, 재현, 회귀 검증, challenger 평가를 위해 보관하는 방향을 기본으로 한다.

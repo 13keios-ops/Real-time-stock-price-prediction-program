@@ -1,5 +1,43 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> LightGBM feature profile / label band / probability calibration 실험
+
+- 사용자 지시:
+  - LightGBM을 바로 승격하지 않고 KIS live 전용 feature 보강, 시간대/모멘텀/최근 변동성 feature 후보, label band 재점검, probability calibration 순서의 성능개선 트랙을 모두 진행한다.
+- 시작 상태:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=post-close`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`.
+  - 대시보드는 `http://127.0.0.1:8765`에서 응답 중이었다.
+- 조치:
+  - `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15` CLI를 추가했다.
+  - KIS live 피처에 시간대, 모멘텀, 최근 변동성 후보를 메모리 안에서만 붙여 `base`, `time`, `momentum`, `volatility`, `time_momentum_volatility` 후보를 비교한다.
+  - `python -m app --run-lightgbm-label-band-experiment --horizon-min 15` CLI를 추가했다.
+  - label band 후보는 메모리 안에서만 재라벨링하고 `config/`, gate 기준값, 실제 label threshold 를 자동 변경하지 않는다.
+  - `python -m app --run-lightgbm-calibration-experiment --horizon-min 15` CLI를 추가했다.
+  - probability calibration 후보는 최신 LightGBM artifact의 확률을 온도 보정과 prior blending 으로 후처리해 비교하고, calibration 결과를 자동 채택하지 않는다.
+  - 대시보드 `ML/데이터 > 챌린저 및 워크포워드`에 feature profile, label band, probability calibration 연구 카드 3개를 추가했다.
+  - `README.md`와 `docs/Current-Implementation.md`에 세 실험의 위치와 자동 승격/자동 threshold 변경 금지 기준을 반영했다.
+- 결과:
+  - feature profile experiment: `status=completed`, 3분류 정확도 기준 최고 후보는 `time_momentum_volatility`, 가상 방향 순수익률 기준 최고 후보는 `volatility`였지만 전체 상태는 `no_positive_direction_expected_value`다.
+  - label band experiment: `status=completed`, 현재 실행 기준 label threshold 는 `0.35`, 3분류 정확도 기준 최고 후보는 `0.5`, 가상 방향 순수익률 기준 최고 후보는 `0.4`다. 결과는 `positive_direction_candidate_requires_review` 연구 후보이며 자동 채택하지 않는다.
+  - probability calibration experiment: `status=completed`, NLL/Brier 기준 최고 후보는 `cal-t2p00-a0p35`, 가상 방향 순수익률 기준 최고 후보는 `cal-t0p75-a0p10`이다. 결과는 하락/회피 쪽 신호가 주도하는 `positive_downside_direction_candidate_requires_review`이며 현물 매수 승격 근거가 아니다.
+  - dashboard snapshot 은 `generated_at=2026-06-12T22:03:30.798142+09:00`로 갱신됐다.
+- 검증:
+  - `python -m py_compile app/services/research.py app/__main__.py app/services/dashboard.py tests/test_research_pipeline.py`: 통과.
+  - `python -m unittest tests.test_research_pipeline -q`: 10개 통과.
+  - `python -m unittest tests.test_dashboard -q`: 22개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 380개 통과.
+  - `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`: 통과.
+  - `python -m app --run-lightgbm-label-band-experiment --horizon-min 15 --lightgbm-feature-source-max-rows 50000`: 통과.
+  - `python -m app --run-lightgbm-calibration-experiment --horizon-min 15 --challenger-max-rows 150000`: 통과.
+  - `python -m app --build-dashboard`: 통과.
+- 금지/안전:
+  - active model, gate 기준값, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 실전 주문 변경 없음.
+  - NAS 백업 실행 없음.
+- 다음 작업:
+  - label band 후보는 바로 정책 변경하지 않고, 기간 분리 재현성 / walk-forward / paper shadow 기준으로 다시 검증한다.
+  - calibration 후보는 하락/회피/청산 연구 신호로 분리해서 보고, 현물 매수 승격과 혼동하지 않는다.
+
 ## [2026-06-12] Codex -> LightGBM 성능개선 트랙 1차 진단과 source experiment
 
 - 사용자 지시:

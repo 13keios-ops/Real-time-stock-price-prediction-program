@@ -31,8 +31,11 @@ from app.services.research import (
     build_minute_bars_from_sqlite,
     rebuild_actual_runtime_ml_state,
     run_lightgbm_buy_signal_diagnostics_from_sqlite,
+    run_lightgbm_feature_profile_experiment_from_sqlite,
     run_lightgbm_feature_source_experiment_from_sqlite,
+    run_lightgbm_label_band_experiment_from_sqlite,
     run_lightgbm_performance_diagnostics_from_sqlite,
+    run_lightgbm_probability_calibration_experiment_from_sqlite,
     run_model_challenger_review_from_sqlite,
     run_cybos_bar_only_experiment_from_sqlite,
     run_cybos_expected_value_review_from_sqlite,
@@ -91,6 +94,14 @@ def main() -> int:
     parser.add_argument("--run-lightgbm-feature-source-experiment", action="store_true", help="Compare mixed, KIS-only, and historical LightGBM feature-source candidates without writing artifacts.")
     parser.add_argument("--lightgbm-feature-source-candidates", default="mixed_recent,kis-ws,cybos-historical", help="Comma-separated feature market sources for LightGBM source experiment. Use mixed_recent for no source filter.")
     parser.add_argument("--lightgbm-feature-source-max-rows", type=int, default=100000, help="Maximum recent labeled rows per source candidate. Use 0 for full history.")
+    parser.add_argument("--run-lightgbm-feature-profile-experiment", action="store_true", help="Run KIS live feature-profile candidates without writing artifacts.")
+    parser.add_argument("--lightgbm-feature-profile-candidates", default="base,time,momentum,volatility,time_momentum_volatility", help="Comma-separated feature profiles for LightGBM feature-profile experiment.")
+    parser.add_argument("--lightgbm-feature-profile-source", default="kis-ws", help="Market source for feature-profile experiment. Default is kis-ws.")
+    parser.add_argument("--run-lightgbm-label-band-experiment", action="store_true", help="Review LightGBM label threshold bands without changing configured thresholds.")
+    parser.add_argument("--lightgbm-label-band-thresholds", default="0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.50", help="Comma-separated label threshold pct candidates for label-band experiment.")
+    parser.add_argument("--run-lightgbm-calibration-experiment", action="store_true", help="Run LightGBM probability calibration diagnostics without adopting calibration.")
+    parser.add_argument("--lightgbm-calibration-temperatures", default="0.75,1.00,1.25,1.50,2.00", help="Comma-separated temperature candidates for probability calibration.")
+    parser.add_argument("--lightgbm-calibration-prior-alphas", default="0.00,0.10,0.20,0.35", help="Comma-separated prior blend alpha candidates for probability calibration.")
     parser.add_argument("--run-cybos-bar-only-experiment", action="store_true", help="Run the Cybos historical bar-only LightGBM experiment.")
     parser.add_argument("--run-cybos-expected-value-review", action="store_true", help="Run train-only expected-value threshold review for Cybos LightGBM.")
     parser.add_argument("--run-cybos-profitability-review", action="store_true", help="Run Cybos F-5 profitability diagnostics, cost baseline, threshold, and H60 review.")
@@ -340,6 +351,82 @@ def main() -> int:
             max_rows=args.lightgbm_feature_source_max_rows
             if args.lightgbm_feature_source_max_rows > 0
             else None,
+            thresholds=thresholds,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_feature_profile_experiment:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_performance_thresholds.split(",")
+            if item.strip()
+        )
+        profile_candidates = tuple(
+            item.strip()
+            for item in args.lightgbm_feature_profile_candidates.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_feature_profile_experiment_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            profile_candidates=profile_candidates,
+            feature_market_source=args.lightgbm_feature_profile_source or None,
+            max_rows=args.lightgbm_feature_source_max_rows
+            if args.lightgbm_feature_source_max_rows > 0
+            else None,
+            thresholds=thresholds,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_label_band_experiment:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_performance_thresholds.split(",")
+            if item.strip()
+        )
+        label_thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_label_band_thresholds.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_label_band_experiment_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            label_thresholds=label_thresholds,
+            feature_market_source=args.lightgbm_feature_profile_source or None,
+            max_rows=args.lightgbm_feature_source_max_rows
+            if args.lightgbm_feature_source_max_rows > 0
+            else None,
+            thresholds=thresholds,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.run_lightgbm_calibration_experiment:
+        thresholds = tuple(
+            float(item.strip())
+            for item in args.lightgbm_performance_thresholds.split(",")
+            if item.strip()
+        )
+        temperatures = tuple(
+            float(item.strip())
+            for item in args.lightgbm_calibration_temperatures.split(",")
+            if item.strip()
+        )
+        prior_alphas = tuple(
+            float(item.strip())
+            for item in args.lightgbm_calibration_prior_alphas.split(",")
+            if item.strip()
+        )
+        result = run_lightgbm_probability_calibration_experiment_from_sqlite(
+            project_root=project_root,
+            horizon_min=args.horizon_min,
+            temperatures=temperatures,
+            prior_blend_alphas=prior_alphas,
+            max_rows=args.challenger_max_rows if args.challenger_max_rows > 0 else None,
+            feature_market_source=args.challenger_feature_market_source or None,
             thresholds=thresholds,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
