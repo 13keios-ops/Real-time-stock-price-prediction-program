@@ -1,5 +1,30 @@
 # 작업 기록
 
+## [2026-06-12] Codex -> KIS 연결 장애 공식 문서 확인과 rate limit 대응 보강
+
+- 사용자 지시:
+  - KIS 연결 문제가 계속되는 것으로 보이므로 공식 문서/가이드를 확인하고 해결 기준을 md에 남긴다.
+  - `https://apiportal.koreainvestment.com/intro`도 확인한다.
+- 공식 원천 확인:
+  - KIS Developers 포털은 API 문서, API 가이드 문서, FAQ/오류코드, 공식 GitHub 샘플 코드, 테스트베드를 제공한다.
+  - 포털 메인 공지에는 `[중요] 한국투자증권 Open API 신규 고객 초당 호출 제한 안내`가 노출된다. 상세 수치/대상은 포털 동적 UI 또는 로그인 확인이 필요하다.
+  - 공식 GitHub 샘플 README는 `EGW00201`을 초당 거래건수 초과로 설명하고, 모의투자 계좌 REST API 호출 제한이 낮다고 안내한다.
+  - 공식 GitHub 샘플 README는 WebSocket `No close frame received`류 문제 해결 후보로 HTS ID 확인을 안내한다.
+- 관측:
+  - 2026-06-12 장후 `python -m app --sync-broker-paper-orders`는 KIS 모의계좌 order-fill 조회에서 `EGW00201`로 실패했다.
+  - `runtime-data/reports/broker-paper/latest-sync.json`: `status=rate_limited`, `open_order_count=5`, `pending_symbols=005380,005930,035420,247540,373220`.
+  - `python -m app --reconcile-paper-accounts`는 계좌 snapshot을 갱신했지만 broker 포지션 0, local 포지션 5라 `needs_review`가 유지됐다.
+  - 장전 WebSocket은 `no close frame received or sent`로 여러 번 재연결됐지만 `storm=false`였고 runtime/watchdog은 유지됐다.
+- 조치:
+  - `app/services/broker_paper_sync.py`의 order-fill rate-limit 기본 cooldown을 30분에서 2시간으로 늘렸다.
+  - `tests/test_broker_paper_sync.py`에 app-level 기본 cooldown이 2시간인지 잠그는 검증을 추가했다.
+  - `docs/KIS-Connection-Runbook.md`를 추가해 공식 원천, 현재 증상, `EGW00201` 대응, WebSocket reconnect 대응, 정상/주의/실패 기준을 정리했다.
+  - `README.md`, `AGENTS.md`, `.agents/skills/daily-ops-check/SKILL.md`에 새 runbook과 2시간 cooldown 기준을 연결했다.
+- 남은 작업:
+  - KIS 포털 공지의 구체 호출 제한 수치는 로그인/동적 UI 또는 KIS 지원 채널에서 확인 필요다.
+  - cooldown 이후 장외에 order-fill sync를 1회만 재시도하고, 계속 `EGW00201`이면 추가 호출을 멈춘다.
+  - `pending_symbols` 5종목 mismatch는 자동 align으로 덮지 않고 order-fill 감사 복구 뒤 판단한다.
+
 ## [2026-06-12] Codex -> repo 방향성 deep review ver_3 P0 모델 트랙 조치
 
 - 사용자 지시:

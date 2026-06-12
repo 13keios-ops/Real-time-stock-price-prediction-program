@@ -432,6 +432,10 @@ class BrokerPaperSyncTests(unittest.TestCase):
             mocked_sync.call_args.kwargs["retry_delays_seconds"],
             BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS,
         )
+        self.assertEqual(
+            mocked_sync.call_args.kwargs["rate_limit_cooldown_seconds"],
+            2 * 60 * 60,
+        )
 
     def test_sync_ignores_submissions_before_alignment_marker(self) -> None:
         root, env = self._prepare_runtime()

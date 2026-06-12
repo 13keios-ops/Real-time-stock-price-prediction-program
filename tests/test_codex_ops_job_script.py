@@ -95,6 +95,76 @@ class CodexOpsJobScriptTests(unittest.TestCase):
         saved = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertEqual(saved["schema_version"], 1)
 
+    def test_premarket_readiness_derives_live_window_from_preopen_session(self) -> None:
+        root = self._root()
+        work_dir = self._work_dir() / "preopen-race"
+        report_path = root / "runtime-data" / "reports" / "codex" / "ops" / "premarket-readiness" / "test-preopen-race.json"
+        live_status = self._write_json(
+            work_dir / "live.json",
+            {
+                "status": "running",
+                "session_status": "pre-open",
+                "process_running": True,
+                "env_file_exists": True,
+                "credentials_ready_for_quotes": True,
+            },
+        )
+        watchdog_status = self._write_json(
+            work_dir / "watchdog.json",
+            {
+                "status": "running",
+                "process_running": True,
+                "market_session_status": "pre-open",
+                "live_runtime_should_run": False,
+                "heartbeat_stale": False,
+            },
+        )
+        dashboard_status = self._write_json(
+            work_dir / "dashboard.json",
+            {"status": "running", "process_running": True},
+        )
+        storage_state = self._write_json(
+            work_dir / "storage.json",
+            {"status": "planned", "apply": False},
+        )
+        database_path = work_dir / "dev.db"
+        SQLiteRuntimeStore(database_path)
+
+        result = subprocess.run(
+            [
+                "bash",
+                "scripts/run_codex_ops_job.sh",
+                "--job-type",
+                "premarket-readiness",
+                "--report-path",
+                str(report_path),
+                "--live-status-path",
+                str(live_status),
+                "--watchdog-status-path",
+                str(watchdog_status),
+                "--dashboard-status-path",
+                str(dashboard_status),
+                "--database-path",
+                str(database_path),
+                "--database-timeout-seconds",
+                "1.5",
+                "--storage-state-path",
+                str(storage_state),
+                "--disk-free-bytes",
+                str(20 * 1024 * 1024 * 1024),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["live_runtime_should_run"])
+        live_runtime_check = next(item for item in payload["checks"] if item["key"] == "live_runtime")
+        self.assertEqual(live_runtime_check["status"], "ok")
+
     def test_execute_mode_is_rejected(self) -> None:
         root = self._root()
 

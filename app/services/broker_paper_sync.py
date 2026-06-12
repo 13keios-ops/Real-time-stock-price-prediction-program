@@ -31,7 +31,7 @@ EXPIRED_BROKER_ORDER_STATUSES = {"expired", "expired_partial"}
 FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"} | EXPIRED_BROKER_ORDER_STATUSES
 OPEN_BROKER_ORDER_STATUSES = {"submitted", "pending_lookup", "open", "partially_filled"}
 BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (10.0, 30.0, 60.0, 120.0)
-BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS = 30.0 * 60.0
+BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS = 2.0 * 60.0 * 60.0
 
 
 @dataclass(slots=True)

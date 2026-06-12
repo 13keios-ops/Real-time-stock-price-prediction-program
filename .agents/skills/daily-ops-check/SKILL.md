@@ -82,8 +82,10 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 ### KIS rate limit
 
 - 같은 endpoint를 계속 반복 호출하지 않는다.
-- cooldown 뒤 1회 재시도한다.
+- `EGW00201`이 나오면 모의투자 REST 제한이 낮은 상황으로 보고, 같은 order-fill endpoint는 기본 2시간 cooldown 뒤 1회만 재시도한다.
+- cooldown 중에는 `runtime-data/reports/broker-paper/latest-sync.json`의 `cooldown_active`, `skipped_broker_call`, `retry_after_seconds`, `pending_symbols`를 보고 추가 KIS 호출을 하지 않는다.
 - 계속 `EGW00201`이면 추가 호출을 멈추고 logbook에 남긴다.
+- 상세 기준은 `docs/KIS-Connection-Runbook.md`를 따른다.
 
 ### paper/KIS 정합성
 

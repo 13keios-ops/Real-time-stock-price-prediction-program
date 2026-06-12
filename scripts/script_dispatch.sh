@@ -1682,9 +1682,10 @@ session_status = (
     or "unknown"
 )
 live_running = bool(live_status.get("process_running")) or live_status.get("status") == "running"
+session_requires_live_runtime = str(session_status) in {"pre-open", "regular-session"}
 context = CodexOpsContext(
     session_status=str(session_status),
-    live_runtime_should_run=bool(watchdog_status.get("live_runtime_should_run")),
+    live_runtime_should_run=bool(watchdog_status.get("live_runtime_should_run")) or session_requires_live_runtime,
     live_runtime_running=live_running,
 )
 policy_path = Path(os.path.relpath(report_path, root))
