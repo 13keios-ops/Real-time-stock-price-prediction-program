@@ -43,9 +43,14 @@ from app.utils.time import now_local
 
 
 DEFAULT_TARGET_SKIP_RATES = (0.20, 0.30, 0.3665, 0.40, 0.50)
+DEFAULT_TARGET_RESCUE_RATES = (0.05, 0.10, 0.20, 0.30)
 COMPARABLE_SKIP_RATE_MIN = 0.20
 COMPARABLE_SKIP_RATE_MAX = 0.50
+COMPARABLE_RESCUE_RATE_MIN = 0.05
+COMPARABLE_RESCUE_RATE_MAX = 0.30
 FOLLOW_UP_FOLD_SHARE_MIN = 2 / 3
+BUY_RESCUE_MIN_TRADES = 500
+FOLD_CONCENTRATION_MAX_SHARE = 0.50
 RUNTIME_BASELINE_REQUIRED_FEATURES = ("return_1m_pct", "bid_ask_imbalance", "spread_bps")
 
 
@@ -100,8 +105,24 @@ def _down_threshold_for_target_skip_rate(down_probabilities: list[float], target
     return _quantile(down_probabilities, 1.0 - target)
 
 
+def _up_threshold_for_target_rescue_rate(up_probabilities: list[float], target_rescue_rate: float) -> float | None:
+    """Return an up-probability threshold that rescues the highest target share."""
+    if not up_probabilities:
+        return None
+    target = min(1.0, max(0.0, float(target_rescue_rate)))
+    if target <= 0:
+        return max(up_probabilities) + 1.0
+    if target >= 1:
+        return min(up_probabilities) - 1.0
+    return _quantile(up_probabilities, 1.0 - target)
+
+
 def _is_buy_candidate(row: dict[str, Any], buy_threshold: float) -> bool:
     return str(row.get("predicted_label")) == "up" and _float(row.get("probability_up")) >= buy_threshold
+
+
+def _is_proxy_no_buy_candidate(row: dict[str, Any], buy_threshold: float) -> bool:
+    return not _is_buy_candidate(row, buy_threshold)
 
 
 def _runtime_baseline_replay_status(row_value_keys: list[str]) -> dict[str, Any]:
@@ -217,6 +238,53 @@ def _buy_avoid_fold_result(
     }
 
 
+def _buy_rescue_fold_result(
+    *,
+    scored_calibration: list[dict[str, Any]],
+    scored_test: list[dict[str, Any]],
+    target_rescue_rates: tuple[float, ...],
+    buy_threshold: float,
+    trade_cost_pct: float,
+) -> dict[str, Any]:
+    calibration_no_buys = [row for row in scored_calibration if _is_proxy_no_buy_candidate(row, buy_threshold)]
+    test_no_buys = [row for row in scored_test if _is_proxy_no_buy_candidate(row, buy_threshold)]
+    target_results: list[dict[str, Any]] = []
+    calibration_up_probs = [_float(row.get("probability_up")) for row in calibration_no_buys]
+    for target_rescue_rate in target_rescue_rates:
+        threshold = _up_threshold_for_target_rescue_rate(calibration_up_probs, target_rescue_rate)
+        if threshold is None:
+            rescued: list[dict[str, Any]] = []
+            untouched = list(test_no_buys)
+            threshold_status = "no_calibration_no_buy_candidates"
+        else:
+            rescued = [row for row in test_no_buys if _float(row.get("probability_up")) >= threshold]
+            untouched = [row for row in test_no_buys if _float(row.get("probability_up")) < threshold]
+            threshold_status = "ok"
+        rescued_metrics = _trade_metrics(rescued, trade_cost_pct)
+        actual_rescue_rate = (len(rescued) / len(test_no_buys)) if test_no_buys else 0.0
+        target_results.append(
+            {
+                "target_rescue_rate": float(target_rescue_rate),
+                "up_probability_threshold": threshold,
+                "threshold_status": threshold_status,
+                "calibration_no_buy_candidates": len(calibration_no_buys),
+                "no_buy_candidates": len(test_no_buys),
+                "rescued_trades": rescued_metrics.trades,
+                "untouched_candidates": len(untouched),
+                "actual_rescue_rate": actual_rescue_rate,
+                "rescued_gross_return_pct": rescued_metrics.gross_return_pct,
+                "rescued_net_return_pct": rescued_metrics.net_return_pct,
+                "rescued_hit_rate": rescued_metrics.hit_rate,
+                "rescued_win_rate": rescued_metrics.win_rate,
+                "net_improvement_pct": rescued_metrics.net_return_pct,
+            }
+        )
+    return {
+        "no_buy_candidates": len(test_no_buys),
+        "target_results": target_results,
+    }
+
+
 def _candidate_conclusion(summary: dict[str, Any]) -> str:
     if _int(summary.get("eligible_folds")) <= 0:
         return "insufficient_baseline_trades"
@@ -227,6 +295,21 @@ def _candidate_conclusion(summary: dict[str, Any]) -> str:
         return "hold_no_net_improvement"
     if _float(summary.get("positive_improvement_fold_share")) < FOLLOW_UP_FOLD_SHARE_MIN:
         return "average_positive_but_fold_inconsistent"
+    return "follow_up_candidate_proxy_only"
+
+
+def _buy_rescue_conclusion(summary: dict[str, Any]) -> str:
+    if _int(summary.get("eligible_folds")) <= 0 or _int(summary.get("rescued_trades")) < BUY_RESCUE_MIN_TRADES:
+        return "sample_insufficient"
+    rescue_rate = _float(summary.get("actual_rescue_rate"))
+    if rescue_rate < COMPARABLE_RESCUE_RATE_MIN or rescue_rate > COMPARABLE_RESCUE_RATE_MAX:
+        return "coverage_out_of_bounds"
+    if _float(summary.get("rescued_net_return_pct")) <= 0:
+        return "diagnostic_only_negative_net"
+    if _float(summary.get("nonnegative_net_fold_share")) < FOLLOW_UP_FOLD_SHARE_MIN:
+        return "average_positive_but_fold_inconsistent"
+    if _float(summary.get("max_positive_fold_net_share")) > FOLD_CONCENTRATION_MAX_SHARE:
+        return "fold_concentration_risk"
     return "follow_up_candidate_proxy_only"
 
 
@@ -267,6 +350,60 @@ def summarize_skip_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[st
             "fold_consistency_min_share": FOLLOW_UP_FOLD_SHARE_MIN,
         }
         summary["conclusion"] = _candidate_conclusion(summary)
+        summaries.append(summary)
+    return summaries
+
+
+def summarize_rescue_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_target: dict[float, list[dict[str, Any]]] = defaultdict(list)
+    for fold in fold_summaries:
+        for row in fold.get("buy_rescue_targets", []):
+            if isinstance(row, dict):
+                by_target[round(_float(row.get("target_rescue_rate")), 6)].append(row)
+
+    summaries: list[dict[str, Any]] = []
+    for target, rows in sorted(by_target.items()):
+        eligible = [row for row in rows if _int(row.get("no_buy_candidates")) > 0]
+        no_buy_candidates = sum(_int(row.get("no_buy_candidates")) for row in rows)
+        rescued_trades = sum(_int(row.get("rescued_trades")) for row in rows)
+        rescued_net = sum(_float(row.get("rescued_net_return_pct")) for row in rows)
+        rescued_gross = sum(_float(row.get("rescued_gross_return_pct")) for row in rows)
+        positive_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) > 0.0)
+        nonnegative_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) >= 0.0)
+        negative_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) < 0.0)
+        positive_fold_nets = [
+            _float(row.get("rescued_net_return_pct"))
+            for row in eligible
+            if _float(row.get("rescued_net_return_pct")) > 0.0
+        ]
+        max_positive_fold_net_share = (
+            max(positive_fold_nets) / sum(positive_fold_nets)
+            if positive_fold_nets and sum(positive_fold_nets) > 0.0
+            else 0.0
+        )
+        summary = {
+            "target_rescue_rate": target,
+            "folds": len(rows),
+            "eligible_folds": len(eligible),
+            "no_buy_candidates": no_buy_candidates,
+            "rescued_trades": rescued_trades,
+            "untouched_candidates": sum(_int(row.get("untouched_candidates")) for row in rows),
+            "actual_rescue_rate": (rescued_trades / no_buy_candidates) if no_buy_candidates else 0.0,
+            "rescued_gross_return_pct": rescued_gross,
+            "rescued_net_return_pct": rescued_net,
+            "net_improvement_pct": rescued_net,
+            "positive_net_folds": positive_folds,
+            "nonnegative_net_folds": nonnegative_folds,
+            "negative_net_folds": negative_folds,
+            "positive_net_fold_share": (positive_folds / len(eligible)) if eligible else 0.0,
+            "nonnegative_net_fold_share": (nonnegative_folds / len(eligible)) if eligible else 0.0,
+            "max_positive_fold_net_share": max_positive_fold_net_share,
+            "coverage_band": f"{COMPARABLE_RESCUE_RATE_MIN:.2f}..{COMPARABLE_RESCUE_RATE_MAX:.2f}",
+            "min_rescued_trades": BUY_RESCUE_MIN_TRADES,
+            "fold_consistency_min_share": FOLLOW_UP_FOLD_SHARE_MIN,
+            "fold_concentration_max_share": FOLD_CONCENTRATION_MAX_SHARE,
+        }
+        summary["conclusion"] = _buy_rescue_conclusion(summary)
         summaries.append(summary)
     return summaries
 
@@ -400,9 +537,10 @@ def build_reports(
     walk_forward_max_folds: int,
     calibration_rows: int,
     target_skip_rates: tuple[float, ...],
+    target_rescue_rates: tuple[float, ...],
     reference_skip_rate: float,
     trade_cost_pct: float | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     sqlite_store = _get_research_sqlite_store(settings)
@@ -484,6 +622,13 @@ def build_reports(
             buy_threshold=buy_threshold,
             trade_cost_pct=effective_trade_cost_pct,
         )
+        buy_rescue = _buy_rescue_fold_result(
+            scored_calibration=scored_calibration,
+            scored_test=scored_test,
+            target_rescue_rates=target_rescue_rates,
+            buy_threshold=buy_threshold,
+            trade_cost_pct=effective_trade_cost_pct,
+        )
         scored_metrics = _fold_scored_metrics(
             scored_test,
             settings=settings,
@@ -505,6 +650,10 @@ def build_reports(
                 "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
                 "baseline": buy_avoid["baseline"],
                 "buy_avoid_targets": buy_avoid["target_results"],
+                "buy_rescue": {
+                    "no_buy_candidates": buy_rescue["no_buy_candidates"],
+                },
+                "buy_rescue_targets": buy_rescue["target_results"],
                 **scored_metrics,
             }
         )
@@ -518,6 +667,7 @@ def build_reports(
         raise ValueError("Cybos buy-avoid proxy did not produce any evaluation folds.")
 
     target_summaries = summarize_skip_targets(fold_summaries)
+    rescue_summaries = summarize_rescue_targets(fold_summaries)
     thresholds = _regime_thresholds(fold_summaries)
     regime_folds: list[dict[str, Any]] = []
     for fold in fold_summaries:
@@ -559,6 +709,7 @@ def build_reports(
             "walk_forward_max_folds": walk_forward_max_folds,
             "calibration_rows": calibration_rows,
             "target_skip_rates": list(target_skip_rates),
+            "target_rescue_rates": list(target_rescue_rates),
             "coverage_band": [COMPARABLE_SKIP_RATE_MIN, COMPARABLE_SKIP_RATE_MAX],
             "follow_up_fold_share_min": FOLLOW_UP_FOLD_SHARE_MIN,
         },
@@ -575,6 +726,78 @@ def build_reports(
         "target_summaries": target_summaries,
         "fold_summaries": fold_summaries,
         "decision": _overall_buy_avoid_decision(target_summaries),
+    }
+    rescue_report = {
+        "review": "cybos_rescue_proxy",
+        "generated_at": generated_at.isoformat(),
+        "source": CYBOS_HISTORICAL_SOURCE,
+        "scope": "research_only_no_model_promotion_no_gate_change_no_order_change",
+        "feature_set_name": feature_set_name,
+        "feature_names": feature_names,
+        "horizon_min": horizon_min,
+        "label_threshold_pct": label_threshold,
+        "trade_cost_pct": effective_trade_cost_pct,
+        "hypothesis_rank": {
+            "buy_avoid": "primary",
+            "buy_rescue": "secondary_exploratory",
+            "hold_rescue": "separate_lifecycle_spec_only",
+        },
+        "multiple_testing_guardrails": {
+            "thresholds_fixed_before_report_review": True,
+            "report_all_thresholds": True,
+            "do_not_promote_from_cybos_proxy_alone": True,
+            "conclusion_labels": [
+                "follow_up_candidate_proxy_only",
+                "sample_insufficient",
+                "coverage_out_of_bounds",
+                "diagnostic_only_negative_net",
+                "average_positive_but_fold_inconsistent",
+                "fold_concentration_risk",
+            ],
+        },
+        "baseline_candidate_policy_name": "lightgbm_self_filter_buy_avoid_proxy",
+        "baseline_policy_scope": "Cybos LightGBM self-filter candidate set, not runtime baseline order decision.",
+        "runtime_baseline_replay": runtime_baseline_replay,
+        "buy_avoid_definition": {
+            "candidate_pool": "predicted_label=up and probability_up >= signal_confidence_threshold",
+            "action": "skip candidates with high probability_down",
+            "target_skip_rates": list(target_skip_rates),
+        },
+        "buy_rescue_definition": {
+            "experiment_mode": runtime_baseline_replay.get("recommended_experiment_mode"),
+            "candidate_pool": "rows not selected by the Cybos LightGBM self-filter buy policy",
+            "action": "virtually buy candidates with high probability_up",
+            "target_rescue_rates": list(target_rescue_rates),
+            "minimum_rescued_trades": BUY_RESCUE_MIN_TRADES,
+            "coverage_band": [COMPARABLE_RESCUE_RATE_MIN, COMPARABLE_RESCUE_RATE_MAX],
+        },
+        "hold_rescue_lifecycle_spec": {
+            "status": "not_executed_in_this_report",
+            "reason": "hold-rescue needs entry/hold/exit lifecycle simulation, not a single-row threshold test.",
+            "required_next_steps": [
+                "define entry policy",
+                "define baseline exit policy",
+                "define rescue hold extension rule",
+                "cap max holding time",
+                "compare drawdown and opportunity cost",
+                "add synthetic lifecycle tests before full Cybos run",
+            ],
+        },
+        "settings": {
+            "train_max_rows": train_max_rows,
+            "walk_forward_test_rows": walk_forward_test_rows,
+            "walk_forward_step_rows": walk_forward_step_rows,
+            "walk_forward_gap_rows": walk_forward_gap_rows,
+            "walk_forward_max_folds": walk_forward_max_folds,
+            "calibration_rows": calibration_rows,
+            "target_skip_rates": list(target_skip_rates),
+            "target_rescue_rates": list(target_rescue_rates),
+        },
+        "dataset": buy_avoid_report["dataset"],
+        "buy_avoid_target_summaries": target_summaries,
+        "buy_rescue_target_summaries": rescue_summaries,
+        "fold_summaries": fold_summaries,
+        "decision": _overall_rescue_decision(target_summaries, rescue_summaries),
     }
     regime_report = {
         "review": "cybos_regime_performance_diagnostic",
@@ -606,7 +829,7 @@ def build_reports(
             for fold in regime_folds
         ],
     }
-    return buy_avoid_report, regime_report
+    return buy_avoid_report, regime_report, rescue_report
 
 
 def _overall_buy_avoid_decision(target_summaries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -643,6 +866,59 @@ def _overall_buy_avoid_decision(target_summaries: list[dict[str, Any]]) -> dict[
         "recommended_action": "Do not change live/paper order policy. Coverage did not land in the practical skip-rate band.",
         "best_target_skip_rate": None,
         "reason": "No comparable skip-rate result.",
+    }
+
+
+def _overall_rescue_decision(
+    target_summaries: list[dict[str, Any]],
+    rescue_summaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    avoid_candidates = [row for row in target_summaries if row.get("conclusion") == "follow_up_candidate_proxy_only"]
+    rescue_candidates = [
+        row
+        for row in rescue_summaries
+        if row.get("conclusion") == "follow_up_candidate_proxy_only"
+    ]
+    if avoid_candidates and rescue_candidates:
+        best_rescue = max(
+            rescue_candidates,
+            key=lambda row: (
+                _float(row.get("rescued_net_return_pct")),
+                _float(row.get("nonnegative_net_fold_share")),
+            ),
+        )
+        return {
+            "status": "buy_avoid_and_buy_rescue_proxy_candidates",
+            "recommended_action": (
+                "Keep KIS buy-avoid shadow sequential. Treat buy-rescue as Cybos proxy follow-up only "
+                "until KIS no-trade decision logging is available."
+            ),
+            "best_buy_rescue_target_rate": best_rescue.get("target_rescue_rate"),
+            "reason": "Both defensive avoid and offensive rescue proxy candidates passed fixed-grid criteria.",
+        }
+    if avoid_candidates:
+        return {
+            "status": "buy_avoid_candidate_only",
+            "recommended_action": "Keep KIS buy-avoid shadow running; do not add KIS buy-rescue shadow yet.",
+            "best_buy_rescue_target_rate": None,
+            "reason": "Buy-avoid has proxy support, but buy-rescue did not pass fixed-grid criteria.",
+        }
+    if rescue_candidates:
+        best_rescue = max(rescue_candidates, key=lambda row: _float(row.get("rescued_net_return_pct")))
+        return {
+            "status": "buy_rescue_proxy_candidate_only",
+            "recommended_action": (
+                "Do not add KIS live buy-rescue yet. Review fold concentration and data leakage risk first "
+                "because this conflicts with the current stronger downside evidence."
+            ),
+            "best_buy_rescue_target_rate": best_rescue.get("target_rescue_rate"),
+            "reason": "Only the secondary exploratory hypothesis passed.",
+        }
+    return {
+        "status": "diagnostic_only_no_rescue_candidate",
+        "recommended_action": "Keep KIS buy-avoid shadow as the only live shadow expansion path for now.",
+        "best_buy_rescue_target_rate": None,
+        "reason": "No buy-rescue fixed-grid candidate passed.",
     }
 
 
@@ -701,6 +977,84 @@ def render_buy_avoid_markdown(report: dict[str, Any]) -> str:
             f"- last_event_time: `{(report.get('dataset') or {}).get('last_event_time')}`",
         ]
     )
+    return "\n".join(lines) + "\n"
+
+
+def render_rescue_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Cybos Rescue Proxy",
+        "",
+        f"- generated_at: `{report.get('generated_at')}`",
+        f"- source: `{report.get('source')}`",
+        f"- scope: `{report.get('scope')}`",
+        f"- feature_set: `{report.get('feature_set_name')}`",
+        f"- horizon_min: `{report.get('horizon_min')}`",
+        f"- trade_cost_pct: `{_float(report.get('trade_cost_pct')):.6f}`",
+        f"- decision: `{(report.get('decision') or {}).get('status')}`",
+        f"- recommended_action: {(report.get('decision') or {}).get('recommended_action')}",
+        "",
+        "## Interpretation Guardrails",
+        "",
+        "- This is a fixed-grid exploratory report.",
+        "- Buy-avoid is the primary hypothesis; buy-rescue is secondary and proxy-only.",
+        "- Runtime baseline replay is not available when orderbook features are missing.",
+        f"- Runtime baseline replay status: `{(report.get('runtime_baseline_replay') or {}).get('status')}`.",
+        f"- Buy-rescue experiment mode: `{(report.get('buy_rescue_definition') or {}).get('experiment_mode')}`.",
+        "- Hold-rescue is not executed here because it requires lifecycle simulation.",
+        "- This report does not promote a model, change a gate, or change paper/live order policy.",
+        "",
+        "## Buy-Avoid Summary",
+        "",
+        "| target_skip | actual_skip | baseline_trades | skipped | baseline_net | kept_net | improvement | fold_share | conclusion |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for row in report.get("buy_avoid_target_summaries", []):
+        lines.append(
+            "| "
+            f"{_float(row.get('target_skip_rate')):.4f} | "
+            f"{_float(row.get('actual_skip_rate')):.4f} | "
+            f"{_int(row.get('baseline_trades'))} | "
+            f"{_int(row.get('skipped_trades'))} | "
+            f"{_float(row.get('baseline_net_return_pct')):.6f} | "
+            f"{_float(row.get('kept_net_return_pct')):.6f} | "
+            f"{_float(row.get('net_improvement_pct')):.6f} | "
+            f"{_float(row.get('positive_improvement_fold_share')):.4f} | "
+            f"{row.get('conclusion')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Buy-Rescue Summary",
+            "",
+            "| target_rescue | actual_rescue | no_buy_candidates | rescued | rescued_net | nonnegative_fold_share | max_positive_fold_share | conclusion |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for row in report.get("buy_rescue_target_summaries", []):
+        lines.append(
+            "| "
+            f"{_float(row.get('target_rescue_rate')):.4f} | "
+            f"{_float(row.get('actual_rescue_rate')):.4f} | "
+            f"{_int(row.get('no_buy_candidates'))} | "
+            f"{_int(row.get('rescued_trades'))} | "
+            f"{_float(row.get('rescued_net_return_pct')):.6f} | "
+            f"{_float(row.get('nonnegative_net_fold_share')):.4f} | "
+            f"{_float(row.get('max_positive_fold_net_share')):.4f} | "
+            f"{row.get('conclusion')} |"
+        )
+    hold_spec = report.get("hold_rescue_lifecycle_spec") or {}
+    lines.extend(
+        [
+            "",
+            "## Hold-Rescue Lifecycle Spec",
+            "",
+            f"- status: `{hold_spec.get('status')}`",
+            f"- reason: {hold_spec.get('reason')}",
+            "- required_next_steps:",
+        ]
+    )
+    for item in hold_spec.get("required_next_steps", []):
+        lines.append(f"  - {item}")
     return "\n".join(lines) + "\n"
 
 
@@ -797,12 +1151,13 @@ def main() -> int:
     parser.add_argument("--walk-forward-max-folds", type=int, default=12)
     parser.add_argument("--calibration-rows", type=int, default=20_000)
     parser.add_argument("--target-skip-rates", default="0.20,0.30,0.3665,0.40,0.50")
+    parser.add_argument("--target-rescue-rates", default="0.05,0.10,0.20,0.30")
     parser.add_argument("--reference-skip-rate", type=float, default=0.3665)
     parser.add_argument("--trade-cost-pct", type=float, default=CYBOS_PROFITABILITY_COST_PCT)
     parser.add_argument("--output-dir", default="runtime-data/reports/backtests")
     args = parser.parse_args()
 
-    buy_avoid_report, regime_report = build_reports(
+    buy_avoid_report, regime_report, rescue_report = build_reports(
         project_root=Path(args.project_root),
         horizon_min=args.horizon_min,
         feature_set_name=args.feature_set_name,
@@ -813,6 +1168,7 @@ def main() -> int:
         walk_forward_max_folds=args.walk_forward_max_folds,
         calibration_rows=args.calibration_rows,
         target_skip_rates=_parse_float_tuple(args.target_skip_rates),
+        target_rescue_rates=_parse_float_tuple(args.target_rescue_rates),
         reference_skip_rate=args.reference_skip_rate,
         trade_cost_pct=args.trade_cost_pct,
     )
@@ -821,18 +1177,24 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     buy_json = output_dir / f"latest-cybos-buy-avoid-proxy-h{args.horizon_min}.json"
     buy_md = output_dir / f"latest-cybos-buy-avoid-proxy-h{args.horizon_min}.md"
+    rescue_json = output_dir / f"latest-cybos-rescue-proxy-h{args.horizon_min}.json"
+    rescue_md = output_dir / f"latest-cybos-rescue-proxy-h{args.horizon_min}.md"
     regime_json = output_dir / f"latest-cybos-regime-performance-h{args.horizon_min}.json"
     regime_md = output_dir / f"latest-cybos-regime-performance-h{args.horizon_min}.md"
     buy_json.write_text(json.dumps(buy_avoid_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     buy_md.write_text(render_buy_avoid_markdown(buy_avoid_report), encoding="utf-8")
+    rescue_json.write_text(json.dumps(rescue_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    rescue_md.write_text(render_rescue_markdown(rescue_report), encoding="utf-8")
     regime_json.write_text(json.dumps(regime_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     regime_md.write_text(render_regime_markdown(regime_report), encoding="utf-8")
     print(
         json.dumps(
             {
                 "buy_avoid_report": str(buy_json),
+                "rescue_report": str(rescue_json),
                 "regime_report": str(regime_json),
-                "decision": buy_avoid_report.get("decision"),
+                "buy_avoid_decision": buy_avoid_report.get("decision"),
+                "rescue_decision": rescue_report.get("decision"),
             },
             ensure_ascii=False,
             indent=2,

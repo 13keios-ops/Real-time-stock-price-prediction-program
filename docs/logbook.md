@@ -31,6 +31,37 @@
   - 실전 주문/취소 없음.
   - NAS 백업 실행 없음.
 
+## [2026-06-14] Codex -> Cybos proxy buy-rescue report 구현
+
+- 사용자 지시:
+  - 장 시작까지 시간이 있으니 급하게 하지 말고, 계획한 Cybos rescue 작업을 꼼꼼하게 계속 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 04:03, 일요일 `weekend`.
+  - live runtime 은 `status=stopped`, `session_status=weekend`, `trading_mode=paper`로 정상 정지 상태였다.
+  - runtime watchdog 과 dashboard 는 실행 중이고 오류가 없었다.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `scripts/summarize_cybos_buy_avoid_proxy.py`에 `proxy_buy_rescue` 계산 경로를 추가했다.
+  - no-buy pool 중 `probability_up` 상위 `0.05`, `0.10`, `0.20`, `0.30` coverage 를 고정 grid 로 rescue 후보로 삼는다.
+  - `summarize_rescue_targets`와 fixed-grid conclusion 을 추가해 최소 rescued trade, coverage, fold consistency, fold concentration 을 함께 본다.
+  - 같은 실행에서 `latest-cybos-rescue-proxy-h15.{json,md}`를 새로 생성하도록 했다.
+  - rescue report 에 `multiple_testing_guardrails`, `runtime_baseline_replay`, `buy_avoid_definition`, `buy_rescue_definition`, `hold_rescue_lifecycle_spec`을 포함했다.
+  - `tests/test_cybos_buy_avoid_proxy.py`에 buy-rescue threshold, no-buy pool rescue, sample 부족, follow-up 후보 판정 테스트를 추가했다.
+  - `docs/Current-Implementation.md`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`, `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`에 구현 상태를 반영했다.
+- 검증:
+  - `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py`: 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy -q`: 9개 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q`: 11개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 395개 통과.
+  - `git diff --check`: 통과.
+  - 1 fold smoke 실행 `python scripts/summarize_cybos_buy_avoid_proxy.py ... --walk-forward-max-folds 1 --output-dir .tmp-tests/cybos-rescue-proxy-smoke`: 완료.
+  - smoke 기준 `latest-cybos-rescue-proxy-h15.json`은 `review=cybos_rescue_proxy`, `decision.status=diagnostic_only_no_rescue_candidate`, `runtime_baseline_replay.status=not_replayed_orderbook_features_missing`, `buy_rescue_definition.experiment_mode=proxy_buy_rescue`, `hold_rescue_lifecycle_spec.status=not_executed_in_this_report`를 출력했다.
+  - full 12 fold 최신 runtime report 재생성은 아직 수행하지 않았다.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos rescue 실험 상세 계획 고정
 
 - 사용자 지시:

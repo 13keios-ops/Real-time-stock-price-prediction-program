@@ -293,9 +293,15 @@ hold-rescue 는 이번 1차 통합 실행에 바로 넣지 않는다.
 
 권장안:
 
-- 1차 작업에서는 hold-rescue 를 코드로 바로 구현하지 않는다.
+- 1차 작업에서는 hold-rescue 를 결과 실험으로 바로 구현하지 않는다.
 - 먼저 `hold_rescue_lifecycle_spec`을 리포트에 설계 섹션으로 넣는다.
 - 그 다음 synthetic test 로 작은 포지션 시퀀스를 재현한 뒤 Cybos 전체 실행을 검토한다.
+
+2026-06-14 구현 상태:
+
+- `latest-cybos-rescue-proxy-h15` report 는 `hold_rescue_lifecycle_spec.status=not_executed_in_this_report`를 출력한다.
+- required next steps 는 entry policy, baseline exit policy, hold extension rule, max holding time, drawdown/opportunity cost 비교, synthetic lifecycle test 순서로 기록한다.
+- 아직 hold-rescue 결과 수익률은 계산하지 않는다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 

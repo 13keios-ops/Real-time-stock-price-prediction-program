@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 03:05 KST
+- 마지막 갱신: 2026-06-14 04:20 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -130,6 +130,13 @@
   KIS live 에서는 `buy-avoid`를 최소 10거래일 순차 검증하고,
   `buy-rescue`는 Cybos 결과와 비매수/차단 로그 가용성 확인 뒤 shadow 후보로만 검토한다.
   `hold-rescue`는 포지션 lifecycle 이 달라 별도 설계와 synthetic test 이후에만 진행한다.
+- 최신 Cybos rescue smoke:
+  `.tmp-tests/cybos-rescue-proxy-smoke/latest-cybos-rescue-proxy-h15.json`
+  기준 `review=cybos_rescue_proxy`, `decision.status=diagnostic_only_no_rescue_candidate`,
+  `runtime_baseline_replay.status=not_replayed_orderbook_features_missing`,
+  `buy_rescue_definition.experiment_mode=proxy_buy_rescue`,
+  `hold_rescue_lifecycle_spec.status=not_executed_in_this_report` 출력까지 확인했다.
+  이는 구현 smoke 이며, 12 fold full 결과가 아니다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
@@ -400,6 +407,8 @@
     `hold-rescue`는 포지션 lifecycle 설계와 synthetic test 를 먼저 둔다.
     Step 0 확인 결과, Cybos 에서는 runtime baseline replay 가 불가능하므로
     다음 코드는 `proxy_buy_rescue`로 구현한다.
+    2026-06-14 기준 `proxy_buy_rescue` 계산과 `latest-cybos-rescue-proxy-h15` report 출력은 구현됐고,
+    1 fold smoke 는 통과했다. full 12 fold 결과는 아직 최신 report 로 재생성하지 않았다.
   - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤에 결정한다.
 - 권장안:
   - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행하되,

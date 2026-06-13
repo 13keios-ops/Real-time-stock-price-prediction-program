@@ -4,8 +4,11 @@ import unittest
 
 from scripts.summarize_cybos_buy_avoid_proxy import (
     _buy_avoid_fold_result,
+    _buy_rescue_fold_result,
     _down_threshold_for_target_skip_rate,
     _runtime_baseline_replay_status,
+    _up_threshold_for_target_rescue_rate,
+    summarize_rescue_targets,
     summarize_skip_targets,
 )
 
@@ -49,6 +52,11 @@ class CybosBuyAvoidProxyTests(unittest.TestCase):
         threshold = _down_threshold_for_target_skip_rate([0.10, 0.20, 0.30, 0.40, 0.50], 0.40)
 
         self.assertAlmostEqual(threshold or 0.0, 0.34)
+
+    def test_up_threshold_matches_top_rescue_share(self) -> None:
+        threshold = _up_threshold_for_target_rescue_rate([0.10, 0.20, 0.30, 0.40, 0.50], 0.20)
+
+        self.assertAlmostEqual(threshold or 0.0, 0.42)
 
     def test_buy_avoid_improvement_requires_fold_consistency(self) -> None:
         fold_summaries = [
@@ -127,6 +135,80 @@ class CybosBuyAvoidProxyTests(unittest.TestCase):
         self.assertEqual(target["baseline_trades"], 2)
         self.assertEqual(target["skipped_trades"], 1)
         self.assertGreater(target["net_improvement_pct"], 0.0)
+
+    def test_buy_rescue_uses_no_buy_pool_and_high_up_probability(self) -> None:
+        calibration = [
+            _row(probability_up=0.60, probability_down=0.10, future_return_pct=0.2, actual_label="up"),
+            _row(probability_up=0.50, probability_down=0.20, future_return_pct=0.2, actual_label="up"),
+            _row(probability_up=0.40, probability_down=0.30, future_return_pct=-0.5, actual_label="down"),
+            _row(probability_up=0.30, probability_down=0.40, future_return_pct=-0.5, actual_label="down"),
+        ]
+        test = [
+            _row(probability_up=0.62, probability_down=0.10, future_return_pct=0.5, actual_label="up"),
+            _row(probability_up=0.52, probability_down=0.20, future_return_pct=0.6, actual_label="up"),
+            _row(probability_up=0.31, probability_down=0.50, future_return_pct=-0.6, actual_label="down"),
+        ]
+
+        result = _buy_rescue_fold_result(
+            scored_calibration=calibration,
+            scored_test=test,
+            target_rescue_rates=(0.5,),
+            buy_threshold=0.58,
+            trade_cost_pct=0.1,
+        )
+
+        target = result["target_results"][0]
+        self.assertEqual(result["no_buy_candidates"], 2)
+        self.assertEqual(target["rescued_trades"], 1)
+        self.assertAlmostEqual(target["rescued_net_return_pct"], 0.5)
+        self.assertGreater(target["net_improvement_pct"], 0.0)
+
+    def test_rescue_summary_requires_sample_size_before_followup_candidate(self) -> None:
+        fold_summaries = [
+            {
+                "buy_rescue_targets": [
+                    {
+                        "target_rescue_rate": 0.1,
+                        "no_buy_candidates": 1000,
+                        "rescued_trades": 100,
+                        "untouched_candidates": 900,
+                        "actual_rescue_rate": 0.1,
+                        "rescued_gross_return_pct": 20.0,
+                        "rescued_net_return_pct": 10.0,
+                    }
+                ]
+            }
+        ]
+
+        summary = summarize_rescue_targets(fold_summaries)[0]
+
+        self.assertEqual(summary["rescued_trades"], 100)
+        self.assertEqual(summary["conclusion"], "sample_insufficient")
+
+    def test_rescue_summary_marks_fixed_grid_candidate_when_consistent(self) -> None:
+        fold_summaries = []
+        for _ in range(6):
+            fold_summaries.append(
+                {
+                    "buy_rescue_targets": [
+                        {
+                            "target_rescue_rate": 0.1,
+                            "no_buy_candidates": 1000,
+                            "rescued_trades": 100,
+                            "untouched_candidates": 900,
+                            "actual_rescue_rate": 0.1,
+                            "rescued_gross_return_pct": 20.0,
+                            "rescued_net_return_pct": 10.0,
+                        }
+                    ]
+                }
+            )
+
+        summary = summarize_rescue_targets(fold_summaries)[0]
+
+        self.assertEqual(summary["rescued_trades"], 600)
+        self.assertAlmostEqual(summary["nonnegative_net_fold_share"], 1.0)
+        self.assertEqual(summary["conclusion"], "follow_up_candidate_proxy_only")
 
 
 def _row(
