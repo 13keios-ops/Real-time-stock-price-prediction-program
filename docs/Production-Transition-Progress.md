@@ -164,8 +164,10 @@
 - 상태: 진행 중
 - 현재 기준:
   - 2026-06-12 deep review ver_3 반영 뒤에도 Phase 0은 계속 진행 중이다.
-  - KIS live data quality 최신 리포트는 `assessment.status=ok`로 회복됐지만,
-    2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은 별도 추적한다.
+  - KIS live data quality 최신 리포트는 `assessment.status=ok`로 회복됐다.
+    2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은
+    2026-06-13 read-only 조회로 1차 정리했고, 현재는 2026-06-08처럼
+    raw market symbol-minute 가 약한 구간이 재발하는지만 다음 거래일에 관찰한다.
   - broker paper sync 최신 리포트는 KIS `EGW00201` rate limit 으로
     `status=rate_limited`, open order 5건이다.
   - 최신 paper-account sync 기준 브로커는 보유 0이고 로컬은
@@ -252,9 +254,10 @@
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
   - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
-  - 2026-06-05, 2026-06-08, 2026-06-09에 반복된 data quality `watch` 원인을 별도 확인한다.
-  - 2026-06-09 장후 label refresh 최신 상태 파일이 2026-06-08 기준으로 남아
-    다음 장후 자동화에서 갱신 여부를 다시 확인한다.
+  - 2026-06-08과 같은 raw market 약한 구간이 다음 거래일에도 반복되는지
+    watchdog heartbeat, KIS WS frame, raw market/orderbook coverage 로 비교한다.
+  - 장후 label refresh 최신 상태 파일은 2026-06-11 기준 `status=ok`로 갱신됐으므로,
+    다음 거래일 장후에도 자동화가 같은 방식으로 갱신되는지만 확인한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
