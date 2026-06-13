@@ -1,5 +1,33 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> Cybos rescue full 12 fold report 생성
+
+- 사용자 지시:
+  - 장 시작까지 시간이 충분하므로 급하게 끝내지 말고 계획한 Cybos rescue 작업을 끝까지 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 04:22, 일요일 `weekend`.
+  - live runtime 은 `status=stopped`, `session_status=weekend`, `trading_mode=paper`로 정상 정지 상태였다.
+  - runtime watchdog 은 실행 중이고 `errors=[]`, `live_runtime_should_run=false`였다.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `python scripts/summarize_cybos_buy_avoid_proxy.py --horizon-min 15 --feature-set-name bar_context_momentum --trade-cost-pct 0.13`을 full 12 fold 기본 설정으로 실행했다.
+  - 실행 시간은 `real 1723.25`초였다.
+  - `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`, `latest-cybos-rescue-proxy-h15.json`, `latest-cybos-regime-performance-h15.json`이 `generated_at=2026-06-14T04:54:30+09:00`로 갱신됐다.
+- 결과:
+  - buy-avoid decision 은 `follow_up_candidate_proxy_only`다.
+  - target skip `0.3665` 기준 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`다.
+  - rescue decision 은 `buy_avoid_candidate_only`다.
+  - `proxy_buy_rescue` target `0.05`, `0.10`, `0.20`, `0.30`은 모두 비용 반영 rescued net 이 음수였다.
+  - target rescue `0.05`도 `rescued_trades=33,135`, `rescued_net_return_pct=-3,526.921975%p`, nonnegative fold share `0/12`였다.
+- 판단:
+  - buy-avoid 는 KIS live shadow 를 계속 볼 근거가 있다.
+  - buy-rescue 는 지금 KIS live shadow 로 추가하지 않는다.
+  - full 결과가 좋아도 모델 승격, gate 변경, paper/live 주문 정책 변경 근거로 쓰지 않는다는 guardrail 은 유지한다.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos runtime baseline replay Step 0 확인
 
 - 사용자 지시:

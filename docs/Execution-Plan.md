@@ -218,7 +218,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - 2026-06-14 Step 0 확인 결과, Cybos bar row 는 `BaselineDirectionModel`이 요구하는 live orderbook 피처 `bid_ask_imbalance`, `spread_bps`를 갖지 않는다.
    - 따라서 1차 Cybos rescue 실험은 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다.
    - `proxy_buy_rescue`는 no-buy pool 중 `probability_up` 상위 `0.05`, `0.10`, `0.20`, `0.30` coverage 를 고정 grid 로 계산하고, 결과는 `latest-cybos-rescue-proxy-h15.{json,md}`에 별도로 쓴다.
-   - 1 fold smoke 기준 새 rescue report 생성과 `runtime_baseline_replay.status=not_replayed_orderbook_features_missing` 출력은 확인했다. 전체 12 fold 최신 runtime report 재생성은 아직 별도 장외 저부하 작업으로 남긴다.
+   - 2026-06-14 04:54 KST full 12 fold report 를 생성했다. `latest-cybos-rescue-proxy-h15.json` 기준 decision 은 `buy_avoid_candidate_only`다.
+   - buy-rescue target `0.05`, `0.10`, `0.20`, `0.30` 모두 비용 `0.13%` 반영 뒤 rescued net 이 음수였고, fold `12/12` 모두 비음수 기준을 만족하지 못했다. 따라서 KIS live 에 buy-rescue shadow 를 추가하지 않는다.
    - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
    - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않고 별도 설계부터 한다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
