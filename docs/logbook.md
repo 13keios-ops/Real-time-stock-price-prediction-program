@@ -1,5 +1,33 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> 모델개선 트랙 순서 보정
+
+- 사용자 지시:
+  - 모델개선시험이 안 되어 있다는 cowork 확인이 맞는지 묻고, 이어서 cowork가 제안한 모델개선 순서 보정 의견을 전달했다.
+- 시작 상태:
+  - KST 2026-06-13 23:45, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` 상태였고 cowork `review_ver_20.md`만 untracked 로 들어와 있었다.
+- 확인:
+  - 모델개선시험이 아예 안 된 것은 아니었다.
+  - 2026-06-12에 LightGBM performance diagnostics, feature source, feature profile, label band, probability calibration, label band reproducibility 실험을 실행했다.
+  - 2026-06-13에는 defensive signal candidates 와 defensive shadow 리포트도 생성했다.
+  - 다만 채택 가능한 active model 개선 결과가 나온 것은 아니며, 다음 실험 순서를 더 보수적으로 잡아야 한다는 cowork 의견은 타당하다고 판단했다.
+- 조치:
+  - `docs/Execution-Plan.md`의 모델 성능개선 스프린트를 새 학습 실험 확대가 아니라 buy-avoid shadow 관측 우선으로 보정했다.
+  - `docs/Production-Transition-Progress.md`의 alpha/model predictive power 다음 작업을 buy-avoid shadow 최소 2주 또는 10거래일 관측으로 바꿨다.
+  - walk-forward 재검증 기준을 KIS live h15 labeled row `60,000`행 이상, KIS live 고유 거래일 `30거래일` 이상, buy-avoid shadow `10거래일` 이상으로 명시했다.
+  - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤 결정하도록 미뤘다.
+  - cowork 전달용 `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_20.md`를 작성했다.
+- 검증:
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-13] Codex -> 종료 전 self-review 항목 확장
 
 - 사용자 지시:

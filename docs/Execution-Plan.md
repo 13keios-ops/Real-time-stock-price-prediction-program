@@ -173,6 +173,12 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 
 ### 방법
 
+2026-06-13 cowork 보정 기준으로, 다음 모델개선은 새 학습 실험을 즉시 늘리지 않고
+`buy-avoid` shadow 관측과 재검증 기준 정의를 먼저 끝낸다.
+현재 KIS live 데이터는 약 1개월 수준이고 label band 재현성에서 이미
+`not_reproducible` 위험이 확인됐으므로, 보합 regime 분리나 변동성 구간별 모델 분리는
+데이터 기준을 채운 뒤 진행한다.
+
 아래 순서로 진행한다.
 
 1. 최신 KIS live 데이터 품질을 확인한다.
@@ -180,14 +186,23 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - raw market coverage 만 약하고 orderbook coverage 는 유지되면, KIS WS 전체 중단보다 체결 tick 기반 분봉 약화 또는 일부 stream 지연 후보로 본다.
    - 같은 약한 구간이 재발하면 `watchdog` heartbeat, KIS WS frame, `latest-kis-live-data-quality.json`의 raw market/orderbook coverage 를 함께 비교한다.
 2. 기존 LightGBM artifact를 재사용해 3분류 정확도, 클래스별 적중률, 혼동행렬, 매수 신호 기대값, 가상 방향 수익률을 재평가한다.
-3. KIS live 전용 feature 후보를 추가 실험한다.
-4. 시간대, 모멘텀, 최근 변동성, 호가 imbalance 후보를 조합별로 비교한다.
-5. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
-6. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-7. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
-8. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-9. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
-10. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+3. 2026-06-12에 완료한 feature source, feature profile, label band, calibration 실험은 1차 개선시험으로 본다. 현재 결과는 채택 후보가 아니라 `관찰 후보`다.
+4. 즉시 다음 단계는 새 학습 실험이 아니라 `buy-avoid` shadow 관측이다.
+   - 기존 LightGBM shadow serving 예측과 baseline 매수 허용 신호를 이용해, 실제 주문 판단은 바꾸지 않고 매수 회피 후보 성과를 누적한다.
+   - 최소 관측 기간은 2주 또는 10거래일이다.
+   - 관측 기간 중 active model, gate 기준값, 주문 판단, `config/` label threshold 는 바꾸지 않는다.
+5. walk-forward 재검증은 아래 조건을 모두 만족할 때 다시 실행한다.
+   - KIS live h15 labeled row 가 최소 `60,000`행 이상이다.
+   - KIS live 고유 거래일이 최소 `30거래일` 이상이다.
+   - buy-avoid shadow 관측이 최소 `10거래일` 이상 쌓였다.
+   - baseline 매수 허용 신호와 LightGBM shadow 예측이 같은 종목/시각으로 충분히 연결되어, 회피/미회피 표본을 비교할 수 있다.
+6. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
+7. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
+8. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
+9. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+10. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+11. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+12. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
@@ -195,6 +210,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승격 근거는 부족하다.
 따라서 threshold를 낮춰 거래를 늘리는 방식보다, 상승/보합/하락을 실제로 더 잘 구분하는 피처와 라벨을 찾아야 한다.
 현재 KIS live 데이터는 약 1개월, 소수 watchlist, 제한된 피처에서 나온 결과라 모델 부재와 데이터 부족을 분리해 해석해야 한다.
+다만 데이터가 적은 상태에서 새 모델 실험을 계속 늘리면 우연히 잘 나온 숫자를 신호로 착각할 위험이 커진다.
+따라서 다음 1순위는 새 모델 학습이 아니라, 이미 가능한 buy-avoid shadow 를 2주 이상 축적해 같은 판단이 반복되는지 확인하는 것이다.
 
 ### 변경 전 / 변경 후 / 영향 범위 / 회귀 위험
 
@@ -202,6 +219,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
   - 모델 후보가 좋아 보이는 단일 지표와 실제 매수 기대값이 섞여 보일 수 있다.
 - 변경 후:
   - 모델 자체 평가, 가상 방향 거래 평가, 실제 paper 실행 평가를 분리한다.
+  - 2026-06-13 이후 새 모델 실험은 buy-avoid shadow 관측과 walk-forward 재검증 기준 충족 뒤로 미룬다.
 - 영향 범위:
   - `app/services/research.py`, `app/__main__.py`, dashboard ML 카드, research tests.
 - 회귀 위험:

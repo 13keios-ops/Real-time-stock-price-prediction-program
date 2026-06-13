@@ -20,16 +20,16 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-13 17:35 KST
+- 마지막 갱신: 2026-06-13 23:55 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_19.md`
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합 리포트:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_19.md`
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_20.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
@@ -90,6 +90,10 @@
   `+114.8758%p`로 손실 축소 후보였지만, closed paper lot `1,029`건 기준 조기청산 shadow 는
   best threshold `0.58`에서도 delta `-48.7958%p`, cash delta `-178,007원`으로 악화됐다.
   따라서 현재 권장안은 `buy-avoid 후보 유지`, `early-exit 적용 보류`다.
+  단, 이 shadow 는 아직 2026-06-11~2026-06-12 2거래일 수준이라 결론으로 쓰지 않는다.
+  2026-06-13 cowork 보정 기준으로 새 모델 학습 실험은 보류하고,
+  기존 LightGBM shadow 예측과 baseline 매수 허용 신호를 이용한 buy-avoid shadow 를
+  최소 2주 또는 10거래일 이상 축적한 뒤 재검증한다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
@@ -341,12 +345,16 @@
   - LightGBM buy-signal diagnostics 는 threshold `0.40~0.80` 전 구간에서
     비용 차감 순수익률이 양수가 아니었다.
 - 다음 작업:
-  - threshold 조정만으로는 부족하므로 피처/라벨/모델 레시피 개선 실험으로 넘어간다.
-  - LightGBM buy-signal diagnostics 를 다음 장후 학습 결과에도 반복해,
-    threshold별 거래 수와 기대값이 개선되는지 비교한다.
+  - 새 모델 학습 실험을 즉시 늘리지 않는다.
+  - 기존 LightGBM shadow serving 예측과 baseline 매수 허용 신호를 이용해
+    `buy-avoid` shadow 를 최소 2주 또는 10거래일 이상 축적한다.
+  - walk-forward 재검증은 KIS live h15 labeled row `60,000`행 이상,
+    KIS live 고유 거래일 `30거래일` 이상, buy-avoid shadow `10거래일` 이상이
+    모두 충족된 뒤 다시 본다.
+  - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤에 결정한다.
 - 권장안:
-  - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행한다.
-  - 우선순위는 피처 확장, 라벨 분포/보합 폭 재검토, LightGBM calibration 이다.
+  - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행하되,
+    지금은 추가 학습 실험보다 buy-avoid shadow 관측과 재검증 기준 충족을 우선한다.
 
 ### broker paper sync rate-limit / local-only mismatch
 
