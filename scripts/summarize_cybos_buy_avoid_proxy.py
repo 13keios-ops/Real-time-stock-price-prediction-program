@@ -285,6 +285,89 @@ def _buy_rescue_fold_result(
     }
 
 
+def _price_from_lifecycle_row(row: dict[str, Any]) -> float:
+    price = _float(row.get("price", row.get("close")))
+    if price <= 0:
+        raise ValueError("hold-rescue lifecycle rows require a positive price or close value.")
+    return price
+
+
+def _simulate_hold_rescue_lifecycle(
+    price_path: list[dict[str, Any]],
+    *,
+    entry_index: int,
+    baseline_exit_index: int,
+    up_probability_threshold: float,
+    max_extension_steps: int,
+    max_loss_pct: float | None = None,
+    trade_cost_pct: float = 0.0,
+) -> dict[str, Any]:
+    """Simulate a single synthetic hold-rescue lifecycle without touching broker state."""
+    if not price_path:
+        raise ValueError("price_path must not be empty.")
+    if entry_index < 0 or baseline_exit_index < 0:
+        raise ValueError("entry_index and baseline_exit_index must be non-negative.")
+    if entry_index > baseline_exit_index:
+        raise ValueError("entry_index must be <= baseline_exit_index.")
+    if baseline_exit_index >= len(price_path):
+        raise ValueError("baseline_exit_index is outside price_path.")
+
+    entry_price = _price_from_lifecycle_row(price_path[entry_index])
+    baseline_exit_price = _price_from_lifecycle_row(price_path[baseline_exit_index])
+    baseline_net_return_pct = ((baseline_exit_price / entry_price) - 1.0) * 100.0 - trade_cost_pct
+    baseline_exit_probability = _float(price_path[baseline_exit_index].get("probability_up"))
+    rescue_applied = False
+    rescue_exit_index = baseline_exit_index
+    rescue_exit_reason = "threshold_not_met"
+    max_loss_limit = abs(max_loss_pct) if max_loss_pct is not None else None
+
+    if baseline_exit_probability >= up_probability_threshold:
+        if max_extension_steps <= 0:
+            rescue_exit_reason = "max_extension_zero"
+        elif baseline_exit_index >= len(price_path) - 1:
+            rescue_exit_reason = "no_future_rows"
+        else:
+            rescue_applied = True
+            max_exit_index = min(len(price_path) - 1, baseline_exit_index + max_extension_steps)
+            rescue_exit_reason = "end_of_path"
+            for idx in range(baseline_exit_index + 1, max_exit_index + 1):
+                rescue_exit_index = idx
+                current_price = _price_from_lifecycle_row(price_path[idx])
+                current_return_pct = ((current_price / entry_price) - 1.0) * 100.0
+                if max_loss_limit is not None and current_return_pct <= -max_loss_limit:
+                    rescue_exit_reason = "max_loss"
+                    break
+                if _float(price_path[idx].get("probability_up")) < up_probability_threshold:
+                    rescue_exit_reason = "probability_dropped"
+                    break
+                if idx == max_exit_index and idx < len(price_path) - 1:
+                    rescue_exit_reason = "max_extension_steps"
+
+    rescue_exit_price = _price_from_lifecycle_row(price_path[rescue_exit_index])
+    rescue_net_return_pct = ((rescue_exit_price / entry_price) - 1.0) * 100.0 - trade_cost_pct
+    drawdown_returns = [
+        ((_price_from_lifecycle_row(row) / entry_price) - 1.0) * 100.0
+        for row in price_path[entry_index : rescue_exit_index + 1]
+    ]
+    return {
+        "entry_index": entry_index,
+        "baseline_exit_index": baseline_exit_index,
+        "rescue_exit_index": rescue_exit_index,
+        "extension_steps": rescue_exit_index - baseline_exit_index,
+        "rescue_applied": rescue_applied,
+        "rescue_exit_reason": rescue_exit_reason,
+        "entry_price": entry_price,
+        "baseline_exit_price": baseline_exit_price,
+        "rescue_exit_price": rescue_exit_price,
+        "baseline_exit_probability_up": baseline_exit_probability,
+        "up_probability_threshold": float(up_probability_threshold),
+        "baseline_net_return_pct": baseline_net_return_pct,
+        "rescue_net_return_pct": rescue_net_return_pct,
+        "rescue_delta_pct": rescue_net_return_pct - baseline_net_return_pct,
+        "max_drawdown_pct": min(drawdown_returns) if drawdown_returns else 0.0,
+    }
+
+
 def _candidate_conclusion(summary: dict[str, Any]) -> str:
     if _int(summary.get("eligible_folds")) <= 0:
         return "insufficient_baseline_trades"

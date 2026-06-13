@@ -250,6 +250,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - `proxy_buy_rescue`는 no-buy pool, 즉 Cybos LightGBM self-filter 기준으로 매수 후보가 아닌 row 중 `probability_up` 상위 `0.05`, `0.10`, `0.20`, `0.30` coverage 를 고정 grid 로 본다. 성공 후보는 최소 rescued trade `500`건, 비용 차감 순손익 양수, fold `2/3` 이상 비음수, 단일 fold 양수 손익 집중도 `0.50` 이하를 모두 만족해야 한다. 이 기준을 만족해도 KIS live buy-rescue shadow 는 별도 비매수/차단 로그 가용성 확인 뒤에만 검토한다.
 - 2026-06-14 기준 Cybos buy-avoid proxy 는 비용 `0.13%` 기준 target skip `0.3665`에서 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`를 기록했다. 이는 buy-avoid shadow 를 계속 볼 근거지만, kept net 이 여전히 음수이므로 단독 매수 전략 또는 active model 승격 근거가 아니다.
 - 2026-06-14 기준 Cybos `proxy_buy_rescue` full 12 fold 는 `decision=buy_avoid_candidate_only`다. target rescue `0.05`, `0.10`, `0.20`, `0.30` 모두 비용 `0.13%` 반영 후 rescued net 이 음수였고, nonnegative fold share 는 `0/12`였다. 따라서 KIS live buy-rescue shadow 는 시작하지 않고, 기존 buy-avoid shadow 순차 관측을 유지한다.
+- 2026-06-14 기준 hold-rescue 는 full Cybos 실험이 아니라 `_simulate_hold_rescue_lifecycle` synthetic helper 와 테스트까지만 구현돼 있다. 이 helper 는 entry, baseline exit, rescue exit, probability drop, max extension, max loss, 거래비용을 단일 synthetic path 에서 검증하기 위한 준비 단계다.
 - Cybos regime performance 진단은 같은 실행에서 생성되며, 방향 regime 과 변동성 regime 별 3분류 정확도, buy signal net, virtual direction net, reference buy-avoid delta 를 비교한다. 2026-06-14 기준 high-vol 구간은 정확도 `0.467210`, buy signal net `-435.709195%p`로 가장 약했다. 이 진단은 새 regime별 모델 학습 결정 전 원인 후보를 좁히는 자료다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:

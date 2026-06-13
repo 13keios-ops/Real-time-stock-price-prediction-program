@@ -7,6 +7,7 @@ from scripts.summarize_cybos_buy_avoid_proxy import (
     _buy_rescue_fold_result,
     _down_threshold_for_target_skip_rate,
     _runtime_baseline_replay_status,
+    _simulate_hold_rescue_lifecycle,
     _up_threshold_for_target_rescue_rate,
     summarize_rescue_targets,
     summarize_skip_targets,
@@ -209,6 +210,86 @@ class CybosBuyAvoidProxyTests(unittest.TestCase):
         self.assertEqual(summary["rescued_trades"], 600)
         self.assertAlmostEqual(summary["nonnegative_net_fold_share"], 1.0)
         self.assertEqual(summary["conclusion"], "follow_up_candidate_proxy_only")
+
+    def test_hold_rescue_extends_position_when_up_probability_stays_high(self) -> None:
+        result = _simulate_hold_rescue_lifecycle(
+            [
+                {"price": 100.0, "probability_up": 0.40},
+                {"price": 101.0, "probability_up": 0.72},
+                {"price": 104.0, "probability_up": 0.70},
+                {"price": 105.0, "probability_up": 0.69},
+                {"price": 106.0, "probability_up": 0.68},
+            ],
+            entry_index=0,
+            baseline_exit_index=1,
+            up_probability_threshold=0.65,
+            max_extension_steps=2,
+            trade_cost_pct=0.1,
+        )
+
+        self.assertTrue(result["rescue_applied"])
+        self.assertEqual(result["rescue_exit_reason"], "max_extension_steps")
+        self.assertEqual(result["rescue_exit_index"], 3)
+        self.assertGreater(result["rescue_delta_pct"], 0.0)
+
+    def test_hold_rescue_does_not_apply_when_exit_probability_is_low(self) -> None:
+        result = _simulate_hold_rescue_lifecycle(
+            [
+                {"price": 100.0, "probability_up": 0.40},
+                {"price": 101.0, "probability_up": 0.50},
+                {"price": 104.0, "probability_up": 0.80},
+            ],
+            entry_index=0,
+            baseline_exit_index=1,
+            up_probability_threshold=0.65,
+            max_extension_steps=2,
+            trade_cost_pct=0.1,
+        )
+
+        self.assertFalse(result["rescue_applied"])
+        self.assertEqual(result["rescue_exit_reason"], "threshold_not_met")
+        self.assertEqual(result["rescue_exit_index"], 1)
+        self.assertAlmostEqual(result["rescue_delta_pct"], 0.0)
+
+    def test_hold_rescue_exits_when_probability_drops(self) -> None:
+        result = _simulate_hold_rescue_lifecycle(
+            [
+                {"price": 100.0, "probability_up": 0.40},
+                {"price": 101.0, "probability_up": 0.72},
+                {"price": 102.0, "probability_up": 0.50},
+                {"price": 105.0, "probability_up": 0.80},
+            ],
+            entry_index=0,
+            baseline_exit_index=1,
+            up_probability_threshold=0.65,
+            max_extension_steps=3,
+            trade_cost_pct=0.1,
+        )
+
+        self.assertTrue(result["rescue_applied"])
+        self.assertEqual(result["rescue_exit_reason"], "probability_dropped")
+        self.assertEqual(result["rescue_exit_index"], 2)
+
+    def test_hold_rescue_max_loss_caps_extension(self) -> None:
+        result = _simulate_hold_rescue_lifecycle(
+            [
+                {"price": 100.0, "probability_up": 0.40},
+                {"price": 101.0, "probability_up": 0.72},
+                {"price": 97.0, "probability_up": 0.80},
+                {"price": 105.0, "probability_up": 0.80},
+            ],
+            entry_index=0,
+            baseline_exit_index=1,
+            up_probability_threshold=0.65,
+            max_extension_steps=3,
+            max_loss_pct=2.0,
+            trade_cost_pct=0.1,
+        )
+
+        self.assertTrue(result["rescue_applied"])
+        self.assertEqual(result["rescue_exit_reason"], "max_loss")
+        self.assertEqual(result["rescue_exit_index"], 2)
+        self.assertLess(result["rescue_delta_pct"], 0.0)
 
 
 def _row(

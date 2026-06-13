@@ -1,5 +1,30 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> hold-rescue lifecycle synthetic helper 추가
+
+- 사용자 지시:
+  - 계획한 작업을 멈추지 말고 장외에 가능한 부분까지 계속 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 05시대, 일요일 `weekend`.
+  - live runtime 은 정지 상태였고 작업트리는 직전 full rescue 결과 문서 commit/push 뒤 clean 상태였다.
+- 조치:
+  - `scripts/summarize_cybos_buy_avoid_proxy.py`에 `_simulate_hold_rescue_lifecycle` helper 를 추가했다.
+  - helper 는 synthetic price path 에서 entry, baseline exit, rescue threshold, max extension, max loss, 거래비용을 받아 baseline 대비 rescue 보유 연장의 손익 차이와 exit reason 을 계산한다.
+  - `tests/test_cybos_buy_avoid_proxy.py`에 보유 연장, threshold 미충족, probability drop, max loss exit 테스트를 추가했다.
+- 검증:
+  - `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py`: 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy -q`: 13개 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q`: 15개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 399개 통과.
+  - `git diff --check`: 통과.
+- 판단:
+  - 이는 Cybos full hold-rescue 결과 실험이 아니라 lifecycle 구현 전제 검증이다.
+  - buy-rescue full 결과가 음수였으므로 KIS live 에는 buy-rescue/hold-rescue shadow 를 추가하지 않는다.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos rescue full 12 fold report 생성
 
 - 사용자 지시:

@@ -221,7 +221,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - 2026-06-14 04:54 KST full 12 fold report 를 생성했다. `latest-cybos-rescue-proxy-h15.json` 기준 decision 은 `buy_avoid_candidate_only`다.
    - buy-rescue target `0.05`, `0.10`, `0.20`, `0.30` 모두 비용 `0.13%` 반영 뒤 rescued net 이 음수였고, fold `12/12` 모두 비음수 기준을 만족하지 못했다. 따라서 KIS live 에 buy-rescue shadow 를 추가하지 않는다.
    - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
-   - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않고 별도 설계부터 한다.
+   - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않는다.
+   - 2026-06-14 기준 `_simulate_hold_rescue_lifecycle` helper 와 synthetic tests 는 추가했다. 아직 Cybos full hold-rescue 결과 수익률은 계산하지 않는다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
 10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.

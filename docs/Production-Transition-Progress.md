@@ -139,6 +139,14 @@
   `recommended_action=Keep KIS buy-avoid shadow running; do not add KIS buy-rescue shadow yet.`,
   `hold_rescue_lifecycle_spec.status=not_executed_in_this_report`다.
   full 12 fold 실행 시간은 약 `1,723`초였으므로 잦은 재실행이 필요하면 성능 최적화를 먼저 검토한다.
+- 최신 hold-rescue lifecycle 준비:
+  2026-06-14 기준 `scripts/summarize_cybos_buy_avoid_proxy.py`에
+  `_simulate_hold_rescue_lifecycle` synthetic helper 를 추가했다.
+  이 helper 는 entry, baseline exit, rescue threshold, 최대 연장 step, 최대 손실 제한,
+  거래비용을 받아 baseline 청산 대비 rescue 보유 연장의 손익 차이와 exit reason 을 계산한다.
+  `tests/test_cybos_buy_avoid_proxy.py`는 보유 연장, threshold 미충족, probability drop,
+  max loss exit 을 합성 경로로 검증한다.
+  이는 Cybos full hold-rescue 결과 실험이 아니라 lifecycle 구현 전제 검증이다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
@@ -411,6 +419,7 @@
     다음 코드는 `proxy_buy_rescue`로 구현한다.
     2026-06-14 기준 `proxy_buy_rescue` 계산과 `latest-cybos-rescue-proxy-h15` full 12 fold report 출력은 완료했다.
     결과는 `buy_avoid_candidate_only`이므로 buy-rescue live shadow 는 아직 시작하지 않는다.
+    hold-rescue 는 synthetic lifecycle helper/test 까지만 완료했고, full Cybos 결과 실험은 아직 하지 않는다.
   - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤에 결정한다.
 - 권장안:
   - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행하되,
