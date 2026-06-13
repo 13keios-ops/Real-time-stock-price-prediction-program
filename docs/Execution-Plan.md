@@ -176,6 +176,9 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 아래 순서로 진행한다.
 
 1. 최신 KIS live 데이터 품질을 확인한다.
+   - feature/bar 비율이 1.0에 가깝고 공백이 15:20~15:29 종가 동시호가에 몰려 있으면 feature pipeline 장애로 단정하지 않는다.
+   - raw market coverage 만 약하고 orderbook coverage 는 유지되면, KIS WS 전체 중단보다 체결 tick 기반 분봉 약화 또는 일부 stream 지연 후보로 본다.
+   - 같은 약한 구간이 재발하면 `watchdog` heartbeat, KIS WS frame, `latest-kis-live-data-quality.json`의 raw market/orderbook coverage 를 함께 비교한다.
 2. 기존 LightGBM artifact를 재사용해 3분류 정확도, 클래스별 적중률, 혼동행렬, 매수 신호 기대값, 가상 방향 수익률을 재평가한다.
 3. KIS live 전용 feature 후보를 추가 실험한다.
 4. 시간대, 모멘텀, 최근 변동성, 호가 imbalance 후보를 조합별로 비교한다.

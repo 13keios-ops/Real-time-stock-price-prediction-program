@@ -116,6 +116,7 @@ python -m app --build-dashboard
   변경 후에는 기본 날짜를 data-quality 리포트에서 정하고, dashboard scope 는 선택 기간의 `curated_minute_bars`로 만든다.
   영향 범위는 dashboard payload 수집, runtime scope 생성, SQLite raw count helper 의 기간 조건에 한정된다.
   회귀 위험은 dashboard 의 raw tick 총량 숫자가 scope 기반 직접 집계 대신 data-quality 카드 중심 해석으로 분리되는 점이며, raw coverage 판단은 `latest-kis-live-data-quality.json`을 기준으로 계속 확인한다.
+- `tests/test_runtime_scope.py`는 raw KIS 이벤트가 더 최신인데 `curated_minute_bars`만 멈춘 상황을 별도로 재현한다. 이 회귀 테스트는 분봉 생성 지연을 raw 수집 중단으로 오해하지 않도록, dashboard scope와 data-quality raw coverage의 역할 분리를 잠근다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `장후 label refresh 상태` 카드는 quick maintenance 뒤 live DB에서 feature/label rebuild 와 진단/대시보드 갱신을 수행한 최신 상태를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
@@ -123,6 +124,7 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 LightGBM 성능 진단, feature source, feature profile, label band, label band 재현성, probability calibration 연구 리포트도 함께 보여준다. 이 카드들은 후보 탐색용이며 active model 승격, threshold 변경, 실전 주문 판단 변경을 의미하지 않는다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
+- 과거 watch 사례는 feature/bar 비율과 시간대 공백을 함께 본다. 2026-06-05와 2026-06-09는 종가 동시호가 구간 공백 영향이 컸고, 2026-06-08은 raw market symbol-minute 가 약한 구간이 길었지만 orderbook 은 비교적 유지됐다. 따라서 같은 패턴이 재발하면 `watchdog` heartbeat, KIS WS frame, raw market/orderbook coverage 를 함께 비교한다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
 - 머신러닝 현황 탭의 `KIS live feature-label 진단` 카드는 `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`을 읽어 KIS live 단일 피처와 h15 label/future return 의 약한 관계를 보여준다. 이 카드는 feature triage 용이며 모델 승격 근거가 아니다.
 - 상태 및 설정 탭의 `장전 readiness` 카드는 `runtime-data/reports/recovery/latest-local-setup-check.json`을 읽어 dashboard, runtime watchdog, live runtime, startup launcher, websockets, lightgbm 상태, KIS 시세 자격정보 준비 여부, 점검 신선도, blockers 를 보여준다. `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, `ENABLE_BROKER_PAPER_MIRRORING=true` 조합은 Phase 0 KIS 모의계좌 검증용 `info` 상태로 표시하고, 이 조합을 벗어난 mirroring enabled 상태는 review 대상 warning 으로 남긴다.

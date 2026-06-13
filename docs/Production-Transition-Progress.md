@@ -20,16 +20,16 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-13 13:35 KST
+- 마지막 갱신: 2026-06-13 16:45 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review-review_ver_17.md`
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_18.md`
 - 최신 통합 리포트:
-  확인 필요: 2026-06 deep review 반영 통합본은 아직 별도 `work_ver_18`로 생성하지 않았다.
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_18.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
@@ -50,9 +50,10 @@
   기준 `completed_at=2026-06-11 16:45:07 +0900`, `status=ok`.
 - 최신 KIS live data quality:
   `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
-  기준 latest trade date `2026-06-11`, `assessment.status=ok`.
+  기준 latest trade date `2026-06-12`, `assessment.status=ok`.
 - 최신 검증:
-  `python -m unittest discover -s tests -p "test_*.py"` 380개 통과,
+  `python -m unittest tests.test_runtime_scope` 4개 통과,
+  `python -m unittest discover -s tests -p "test_*.py"` 385개 통과,
   `git diff --check` 통과.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
@@ -111,6 +112,20 @@
   `flat=16,935`, `up=9,433`으로 flat 비중이 큰 편이다. 따라서 현 시점의 watchlist 확대는
   수집 누락 보완이 아니라 데이터 다양성/장세 다양성 확보 목적의 후보 검토이며,
   Phase 2 실전 canary 종목 수나 주문 한도 확대와 연결하지 않는다.
+- KIS live data quality watch 세부 원인:
+  `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`과 `runtime-data/dev.db` read-only 조회 기준,
+  2026-06-05, 2026-06-08, 2026-06-09 모두 feature/bar 비율은 `1.0`이라
+  분봉 이후 feature 생성 장애 증거는 없다. 2026-06-05는 종가 동시호가와 산발 공백,
+  2026-06-09는 `15:20~15:29` 종가 동시호가 공백을 제외하면 정상에 가깝다.
+  2026-06-08은 raw market symbol-minute `3501`, bars/features `3491/3491`로 약했고,
+  weak 구간이 `09:04~09:33`, `14:37~15:06`에 집중됐다. orderbook symbol-minute 는 `3854`로
+  비교적 유지됐으므로 전 종목 수집 중단으로 단정하지 않고, 다음 거래일 같은 패턴 재발 시
+  watchdog heartbeat 와 KIS WS frame 상태를 함께 비교한다.
+- runtime scope 민감도 점검:
+  `tests/test_runtime_scope.py::RuntimeScopeTests.test_runtime_scope_reveals_minute_bar_builder_lag`를 추가해,
+  raw KIS 이벤트는 들어오지만 `curated_minute_bars`가 멈춘 상황을 격리 DB에서 재현했다.
+  dashboard용 curated scope는 최신 raw minute를 자동 포함하지 않으므로, 분봉 생성기 지연은
+  `최근 분봉 시각` stale과 data-quality raw coverage를 분리해서 해석해야 한다.
 - 최신 paper/KIS 정합성:
   최신 `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
   기준 `status=needs_review`.

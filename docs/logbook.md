@@ -1,5 +1,37 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> review_ver_18 반영과 work_ver_18 통합본
+
+- 사용자 지시:
+  - cowork review ver18을 확인하고 모두 조치한다.
+- 시작 상태:
+  - KST 2026-06-13 16:25, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` 상태였고 `review_ver_18.md`만 untracked 로 들어와 있었다.
+- 조치:
+  - `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_18.md`를 확인했다.
+  - review_ver_18이 지적한 장외 미착수 항목 중 `runtime scope minute-bar 전환 후 수집 장애 감지 민감도 점검`을 테스트로 보강했다.
+  - `tests/test_runtime_scope.py`에 raw KIS 이벤트는 10:44까지 있지만 `curated_minute_bars`는 10:43에서 멈춘 상황을 재현하는 테스트를 추가했다.
+  - 이 테스트는 dashboard용 curated scope와 data-quality raw coverage 역할이 분리되어 있음을 회귀 잠금한다.
+  - 2026-06-05, 2026-06-08, 2026-06-09 data quality watch 사례를 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`과 `runtime-data/dev.db` read-only 조회로 재확인했다.
+  - 세 날짜 모두 feature/bar 비율은 `1.0`이라 feature 생성 장애 증거는 없고, 2026-06-08만 raw market symbol-minute 약한 구간이 길어 다음 거래일 재발 여부를 별도 관찰 대상으로 남겼다.
+  - cowork 전달용 통합본 `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_18.md`를 작성했다.
+  - `docs/Current-Implementation.md`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`에 runtime scope 테스트 목적과 data-quality watch 해석 기준을 반영했다.
+- 검증:
+  - `python -m unittest tests.test_runtime_scope`: 4개 통과.
+  - `python -m unittest discover -s tests -p 'test_*.py' -q`: 385개 통과.
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+- 남은 작업:
+  - 다음 실제 거래일 정규장 중 watchdog heartbeat 장시간 유지 여부를 read-only로 확인한다.
+  - 다음 거래일 장후 broker order-fill 회수와 `EGW00201` 재발 여부를 확인한다.
+  - 2026-06-08과 같은 raw market 약한 구간이 재발하면 watchdog heartbeat, KIS WS frame, raw market/orderbook coverage를 함께 비교한다.
+
 ## [2026-06-13] Codex -> 장외 정합성/Phase 1a readiness 마무리
 
 - 사용자 지시:

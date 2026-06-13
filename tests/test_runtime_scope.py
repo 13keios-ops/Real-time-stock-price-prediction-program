@@ -204,6 +204,69 @@ class RuntimeScopeTests(unittest.TestCase):
         self.assertIn(("005930", "2026-04-13T10:43"), scope.actual_symbol_minutes)
         self.assertEqual(scope.actual_raw_counts_by_table["raw_market_ticks"], {})
 
+    def test_runtime_scope_reveals_minute_bar_builder_lag(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "runtime-scope" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{runtime_root / 'dev.db'}",
+        }
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            sqlite_store = get_sqlite_store(settings)
+
+            assert sqlite_store is not None
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-04-13T10:43:58+09:00"),
+                    price=203000.0,
+                    volume=470,
+                    source="kis-ws",
+                )
+            )
+            sqlite_store.insert_market_tick(
+                MarketTickEvent(
+                    symbol="005930",
+                    event_time=datetime.fromisoformat("2026-04-13T10:44:58+09:00"),
+                    price=203500.0,
+                    volume=510,
+                    source="kis-ws",
+                )
+            )
+            sqlite_store.upsert_minute_bar(
+                MinuteBar(
+                    symbol="005930",
+                    bar_time=datetime.fromisoformat("2026-04-13T10:43:00+09:00"),
+                    open=203000.0,
+                    high=203000.0,
+                    low=202750.0,
+                    close=203000.0,
+                    volume=470,
+                    trade_count=14,
+                )
+            )
+
+            raw_scope = build_runtime_scope(
+                sqlite_store,
+                settings,
+                start_at="2026-04-13T00:00:00+09:00",
+                end_at="2026-04-14T00:00:00+09:00",
+            )
+            curated_scope = build_runtime_scope(
+                sqlite_store,
+                settings,
+                start_at="2026-04-13T00:00:00+09:00",
+                end_at="2026-04-14T00:00:00+09:00",
+                source="curated_minute_bars",
+            )
+
+        self.assertIn(("005930", "2026-04-13T10:44"), raw_scope.actual_symbol_minutes)
+        self.assertNotIn(("005930", "2026-04-13T10:44"), curated_scope.actual_symbol_minutes)
+        self.assertGreater(max(raw_scope.actual_global_minutes), max(curated_scope.actual_global_minutes))
+
 
 if __name__ == "__main__":
     unittest.main()
