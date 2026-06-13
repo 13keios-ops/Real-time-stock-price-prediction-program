@@ -5,11 +5,46 @@ import unittest
 from scripts.summarize_cybos_buy_avoid_proxy import (
     _buy_avoid_fold_result,
     _down_threshold_for_target_skip_rate,
+    _runtime_baseline_replay_status,
     summarize_skip_targets,
 )
 
 
 class CybosBuyAvoidProxyTests(unittest.TestCase):
+    def test_runtime_baseline_replay_is_not_available_without_orderbook_features(self) -> None:
+        status = _runtime_baseline_replay_status(
+            [
+                "avg_trade_size",
+                "hl_range_pct",
+                "return_1m_pct",
+                "close_position_pct",
+                "minute_slot_pct",
+                "log_volume",
+                "prev_return_pct",
+                "prev_hl_range_pct",
+                "log_volume_delta",
+            ]
+        )
+
+        self.assertFalse(status["available"])
+        self.assertEqual(status["status"], "not_replayed_orderbook_features_missing")
+        self.assertEqual(status["recommended_experiment_mode"], "proxy_buy_rescue")
+        self.assertIn("bid_ask_imbalance", status["missing_features"])
+        self.assertIn("spread_bps", status["missing_features"])
+
+    def test_runtime_baseline_replay_is_available_when_required_features_exist(self) -> None:
+        status = _runtime_baseline_replay_status(
+            [
+                "return_1m_pct",
+                "bid_ask_imbalance",
+                "spread_bps",
+            ]
+        )
+
+        self.assertTrue(status["available"])
+        self.assertEqual(status["status"], "replay_available")
+        self.assertEqual(status["recommended_experiment_mode"], "baseline_replay_buy_rescue")
+
     def test_down_threshold_matches_top_skip_share(self) -> None:
         threshold = _down_threshold_for_target_skip_rate([0.10, 0.20, 0.30, 0.40, 0.50], 0.40)
 

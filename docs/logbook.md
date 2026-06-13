@@ -1,5 +1,36 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> Cybos runtime baseline replay Step 0 확인
+
+- 사용자 지시:
+  - cowork 리뷰에서 지적한 대로 `BaselineDirectionModel`이 Cybos bar feature row 에서 바로 예측 가능한지 확인하고, Step 1으로 넘어가기 전 구조를 확정한다.
+- 시작 상태:
+  - KST 2026-06-14 03시대, 일요일 `weekend`.
+  - live runtime 은 weekend 기준 정지 상태가 정상이고, watchdog/dashboard 는 실행 중이었다.
+  - 작업 시작 전 `main...origin/main` clean 상태였다.
+- 확인:
+  - `app/models/baseline.py` 기준 `BaselineDirectionModel`은 `return_1m_pct`, `bid_ask_imbalance`, `spread_bps`를 사용한다.
+  - `app/services/research.py`의 Cybos bar row 생성 경로는 `return_1m_pct` 등 bar 기반 피처는 만들지만 live orderbook 피처 `bid_ask_imbalance`, `spread_bps`는 만들지 않는다.
+  - 따라서 BaselineDirectionModel 호출 자체는 누락 피처 기본값 `0.0` 때문에 가능하지만, runtime baseline replay 로 인정할 수 없다.
+- 조치:
+  - `scripts/summarize_cybos_buy_avoid_proxy.py`에 `runtime_baseline_replay` 메타데이터를 추가했다.
+  - Cybos report 는 앞으로 `available=false`, `status=not_replayed_orderbook_features_missing`, `recommended_experiment_mode=proxy_buy_rescue`를 기록한다.
+  - `tests/test_cybos_buy_avoid_proxy.py`에 orderbook 피처 누락 시 runtime baseline replay 를 금지하는 테스트를 추가했다.
+  - `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`에 Step 0 결과를 반영했다.
+  - cowork 전달용 `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-3.md`를 작성했다.
+- 검증:
+  - `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py`: 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy -q`: 5개 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q`: 7개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 391개 통과.
+  - `git diff --check`: 통과.
+  - 1 fold smoke 실행 `python scripts/summarize_cybos_buy_avoid_proxy.py ... --walk-forward-max-folds 1 --output-dir .tmp-tests/cybos-buy-avoid-proxy-smoke`: 통과, 새 `runtime_baseline_replay` metadata 출력 확인.
+  - 전체 12 fold runtime report 재생성은 10분 제한 안에 끝나지 않아 Codex가 시작한 프로세스를 정리했다. 최신 runtime report 는 아직 2026-06-14 01:38 산출물이다.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos rescue 실험 상세 계획 고정
 
 - 사용자 지시:

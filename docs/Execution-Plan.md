@@ -215,7 +215,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - regime별 모델 분리나 보합 전용 모델은 이 진단과 KIS live shadow / walk-forward 재검증을 함께 본 뒤 결정한다.
 8. Cybos buy-rescue 는 `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로만 진행한다.
    - Cybos 5년 백테스트에서는 `buy-avoid`와 `buy-rescue`를 같은 리포트에서 함께 보되, 사전에 정한 threshold grid 와 성공/실패 기준을 바꾸지 않는다.
-   - 실제 runtime baseline replay 가 가능하면 `baseline_replay_buy_rescue`, 불가능하면 `proxy_buy_rescue`로 이름을 분리한다.
+   - 2026-06-14 Step 0 확인 결과, Cybos bar row 는 `BaselineDirectionModel`이 요구하는 live orderbook 피처 `bid_ask_imbalance`, `spread_bps`를 갖지 않는다.
+   - 따라서 1차 Cybos rescue 실험은 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다.
    - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
    - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않고 별도 설계부터 한다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
@@ -242,11 +243,13 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 변경 후:
   - 모델 자체 평가, 가상 방향 거래 평가, 실제 paper 실행 평가를 분리한다.
   - 2026-06-13 이후 새 모델 실험은 buy-avoid shadow 관측과 walk-forward 재검증 기준 충족 뒤로 미룬다.
+  - Cybos buy-rescue 는 runtime baseline replay 가 아니라 proxy buy-rescue 로 표시한다.
 - 영향 범위:
-  - `app/services/research.py`, `app/__main__.py`, dashboard ML 카드, research tests.
+  - `app/services/research.py`, `app/__main__.py`, `scripts/summarize_cybos_buy_avoid_proxy.py`, dashboard ML 카드, research tests.
 - 회귀 위험:
   - 연구용 지표가 실제 수익률처럼 오해될 수 있다.
   - dashboard 문구에서 `연구용`, `단순합산`, `실제 체결 아님`을 계속 표시한다.
+  - Cybos proxy baseline 을 runtime baseline 으로 오해하지 않도록 report metadata 와 테스트로 잠근다.
 
 ### 완료 기준
 

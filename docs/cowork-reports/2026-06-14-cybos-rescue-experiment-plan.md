@@ -102,6 +102,14 @@
 - 가능하면 baseline prediction 을 Cybos fold test row 마다 함께 산출한다.
 - 불가능하면 이 사실을 리포트 최상단에 `runtime_baseline_not_replayed`로 표시한다.
 
+2026-06-14 Step 0 확인 결과:
+
+- `BaselineDirectionModel`은 `return_1m_pct`, `bid_ask_imbalance`, `spread_bps`를 사용한다.
+- Cybos bar row 는 `return_1m_pct`는 갖지만 live orderbook 피처인 `bid_ask_imbalance`, `spread_bps`를 갖지 않는다.
+- 모델 함수 호출 자체는 누락 피처 기본값 `0.0` 때문에 가능하지만, 이것은 runtime baseline 재현이 아니다.
+- 따라서 Cybos rescue 1차 실험은 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다.
+- `scripts/summarize_cybos_buy_avoid_proxy.py`는 이후 report 에 `runtime_baseline_replay.available=false`, `status=not_replayed_orderbook_features_missing`, `recommended_experiment_mode=proxy_buy_rescue`를 기록한다.
+
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 
 - 변경 전: Cybos proxy 의 `baseline`이 실제 runtime baseline 처럼 오해될 수 있다.
@@ -343,8 +351,9 @@ KIS live 에서는 동시에 늘리지 않는다.
 
 완료 기준:
 
-- `runtime_baseline_replay_available=true/false`가 새 리포트에 들어간다.
+- `runtime_baseline_replay.available=false`와 `recommended_experiment_mode=proxy_buy_rescue`가 새 리포트에 들어간다.
 - proxy baseline 과 runtime baseline 이 문서에서 구분된다.
+- `tests/test_cybos_buy_avoid_proxy.py`가 orderbook 피처 누락 시 runtime baseline replay 를 금지한다.
 
 관련 문서/코드 경로:
 `scripts/summarize_cybos_buy_avoid_proxy.py`,

@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 02:37 KST
+- 마지막 갱신: 2026-06-14 03:05 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -29,7 +29,7 @@
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합 리포트:
-  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-2.md`
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-3.md`
 - 최신 Cybos rescue 실험 계획:
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
@@ -109,6 +109,11 @@
   net 개선 `+367.715205%p`, 개선 fold `12/12`다.
   이 결과는 buy-avoid 구조가 Cybos 5년치에서도 손실 축소 후보라는 근거지만,
   kept net 이 여전히 음수이므로 모델 승격, gate 변경, paper/live 주문 정책 변경 근거가 아니다.
+  2026-06-14 Step 0 코드 보강 뒤 전체 12 fold report 재생성은 10분 제한 안에 끝나지 않아 중단했다.
+  `.tmp-tests/cybos-buy-avoid-proxy-smoke/`의 1 fold smoke report 는
+  `runtime_baseline_replay.status=not_replayed_orderbook_features_missing`와
+  `recommended_experiment_mode=proxy_buy_rescue` 출력까지 확인했다.
+  최신 runtime report 는 다음 장외 재생성 때 새 metadata 를 포함한다.
 - 최신 Cybos regime performance 진단:
   `runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json`
   기준 고변동 구간은 accuracy `0.467210`, buy signal net `-435.709195%p`,
@@ -119,6 +124,9 @@
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로,
   장외 Cybos 에서는 `buy-avoid`와 `buy-rescue`를 같은 리포트에서 함께 보되
   고정 threshold grid 와 다중 검정 guardrail 을 먼저 둔다.
+  2026-06-14 Step 0 확인 결과 Cybos bar row 는 runtime baseline 이 요구하는
+  `bid_ask_imbalance`, `spread_bps`를 갖지 않으므로, 1차 rescue 실험은
+  `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다.
   KIS live 에서는 `buy-avoid`를 최소 10거래일 순차 검증하고,
   `buy-rescue`는 Cybos 결과와 비매수/차단 로그 가용성 확인 뒤 shadow 후보로만 검토한다.
   `hold-rescue`는 포지션 lifecycle 이 달라 별도 설계와 synthetic test 이후에만 진행한다.
@@ -390,6 +398,8 @@
   - Cybos 장외 추가 실험은 `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로 진행한다.
     `buy-avoid`와 `buy-rescue`는 같은 Cybos 리포트에서 비교하되 탐색 리포트로만 해석하고,
     `hold-rescue`는 포지션 lifecycle 설계와 synthetic test 를 먼저 둔다.
+    Step 0 확인 결과, Cybos 에서는 runtime baseline replay 가 불가능하므로
+    다음 코드는 `proxy_buy_rescue`로 구현한다.
   - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤에 결정한다.
 - 권장안:
   - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행하되,

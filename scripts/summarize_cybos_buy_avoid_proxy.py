@@ -46,6 +46,7 @@ DEFAULT_TARGET_SKIP_RATES = (0.20, 0.30, 0.3665, 0.40, 0.50)
 COMPARABLE_SKIP_RATE_MIN = 0.20
 COMPARABLE_SKIP_RATE_MAX = 0.50
 FOLLOW_UP_FOLD_SHARE_MIN = 2 / 3
+RUNTIME_BASELINE_REQUIRED_FEATURES = ("return_1m_pct", "bid_ask_imbalance", "spread_bps")
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,42 @@ def _down_threshold_for_target_skip_rate(down_probabilities: list[float], target
 
 def _is_buy_candidate(row: dict[str, Any], buy_threshold: float) -> bool:
     return str(row.get("predicted_label")) == "up" and _float(row.get("probability_up")) >= buy_threshold
+
+
+def _runtime_baseline_replay_status(row_value_keys: list[str]) -> dict[str, Any]:
+    available = set(row_value_keys)
+    missing = [name for name in RUNTIME_BASELINE_REQUIRED_FEATURES if name not in available]
+    can_call_with_defaults = "return_1m_pct" in available
+    if not missing:
+        status = "replay_available"
+        reason = (
+            "Cybos rows include the features used by app.models.baseline.BaselineDirectionModel, "
+            "so runtime baseline replay can be interpreted directly."
+        )
+    elif can_call_with_defaults:
+        status = "not_replayed_orderbook_features_missing"
+        reason = (
+            "Cybos bar rows include return_1m_pct but do not include live orderbook features "
+            "bid_ask_imbalance and spread_bps. BaselineDirectionModel could be called because it "
+            "defaults missing values to 0.0, but that would not reproduce the runtime baseline."
+        )
+    else:
+        status = "not_replayed_required_features_missing"
+        reason = (
+            "Cybos rows are missing required runtime baseline features, so runtime baseline replay "
+            "is not available."
+        )
+    return {
+        "available": not missing,
+        "status": status,
+        "model": "app.models.baseline.BaselineDirectionModel",
+        "required_features": list(RUNTIME_BASELINE_REQUIRED_FEATURES),
+        "row_value_keys": list(row_value_keys),
+        "missing_features": missing,
+        "can_call_with_missing_defaults": can_call_with_defaults and bool(missing),
+        "reason": reason,
+        "recommended_experiment_mode": "baseline_replay_buy_rescue" if not missing else "proxy_buy_rescue",
+    }
 
 
 def _trade_metrics(rows: list[dict[str, Any]], trade_cost_pct: float) -> TradeMetrics:
@@ -387,6 +424,14 @@ def build_reports(
         list(dataset_payload["train_rows"]) + list(dataset_payload["validation_rows"]),
         key=lambda item: (item["event_time"], str(item["symbol"])),
     )
+    row_value_keys = sorted(
+        {
+            str(key)
+            for row in rows[: min(len(rows), 1_000)]
+            for key in (row.get("values") or {}).keys()
+        }
+    )
+    runtime_baseline_replay = _runtime_baseline_replay_status(row_value_keys)
     if len(rows) < train_max_rows + walk_forward_gap_rows + walk_forward_test_rows:
         raise ValueError("Not enough Cybos rows for buy-avoid proxy diagnostics.")
     train_end_values = list(
@@ -497,7 +542,10 @@ def build_reports(
         "horizon_min": horizon_min,
         "label_threshold_pct": label_threshold,
         "trade_cost_pct": effective_trade_cost_pct,
+        "baseline_candidate_policy_name": "lightgbm_self_filter_buy_avoid_proxy",
+        "baseline_policy_scope": "Cybos LightGBM self-filter candidate set, not runtime baseline order decision.",
         "baseline_buy_policy": "predicted_label=up and probability_up >= signal_confidence_threshold",
+        "runtime_baseline_replay": runtime_baseline_replay,
         "signal_confidence_threshold": buy_threshold,
         "kis_shadow_reference": {
             "down_threshold_0_40_skip_rate": 0.3665,
@@ -616,6 +664,9 @@ def render_buy_avoid_markdown(report: dict[str, Any]) -> str:
         "",
         "- KIS `down_threshold=0.40` is not copied into Cybos.",
         "- Cybos compares by skip-rate coverage, especially the 30-40% band.",
+        "- The `baseline` in this report is a Cybos LightGBM self-filter candidate set, not the runtime baseline order decision.",
+        f"- Runtime baseline replay status: `{(report.get('runtime_baseline_replay') or {}).get('status')}`.",
+        f"- Recommended rescue experiment mode: `{(report.get('runtime_baseline_replay') or {}).get('recommended_experiment_mode')}`.",
         "- This is not a model promotion, gate change, or order policy change.",
         "- Fold consistency requires improvement in at least 2/3 of eligible folds.",
         "",
