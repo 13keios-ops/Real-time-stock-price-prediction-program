@@ -1,5 +1,29 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> Cybos rescue 실험 상세 계획 고정
+
+- 사용자 지시:
+  - Cybos 백테스트에서는 `buy-avoid`와 `buy-rescue`를 같이 보되 사전 기준을 박고 탐색 리포트로만 보며, KIS live 는 `buy-avoid`부터 순차 검증하고 `hold-rescue`는 별도 설계 후 진행하는 상세 계획을 md로 출력한다.
+- 시작 상태:
+  - KST 2026-06-14 02:37, 일요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 새 계획 문서만 untracked 상태였다.
+- 조치:
+  - `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`를 작성했다.
+  - Cybos 에서는 `buy-avoid`와 `buy-rescue`를 같은 리포트에서 비교하되, threshold grid 와 성공/실패 기준을 실행 전 고정하고 다중 검정 guardrail 을 둔다고 명시했다.
+  - `buy-rescue`는 실제 runtime baseline replay 가능 여부에 따라 `baseline_replay_buy_rescue`와 `proxy_buy_rescue`를 구분하도록 계획했다.
+  - KIS live 는 `buy-avoid` 최소 10거래일 순차 검증을 유지하고, `buy-rescue`는 Cybos 결과와 비매수/차단 로그 가용성 확인 뒤 shadow 후보로만 검토한다고 정리했다.
+  - `hold-rescue`는 단일 시점 판단이 아니라 진입, 보유, 청산을 추적하는 lifecycle 문제라 별도 설계와 synthetic test 이후에만 진행하도록 분리했다.
+  - `docs/Execution-Plan.md`와 `docs/Production-Transition-Progress.md`에 새 계획 문서 참조와 다음 실행 기준을 반영했다.
+- 검증:
+  - `git diff --check`: 통과.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos 5년 buy-avoid proxy / regime 진단
 
 - 사용자 지시:

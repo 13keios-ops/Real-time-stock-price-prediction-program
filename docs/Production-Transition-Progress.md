@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 01:40 KST
+- 마지막 갱신: 2026-06-14 02:37 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -30,6 +30,8 @@
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합 리포트:
   `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-2.md`
+- 최신 Cybos rescue 실험 계획:
+  `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
@@ -113,6 +115,13 @@
   reference buy-avoid delta `+220.787918%p`로 가장 취약했다.
   이 리포트는 기존 `latest-walk-forward-extreme-fold-regimes-h15`의 gate 극단 fold 분석과 달리
   Cybos 5년 proxy fold 를 범위로 하며, 새 regime별 모델을 만들기 전 원인 후보를 좁히는 진단이다.
+- 최신 Cybos rescue 계획:
+  `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로,
+  장외 Cybos 에서는 `buy-avoid`와 `buy-rescue`를 같은 리포트에서 함께 보되
+  고정 threshold grid 와 다중 검정 guardrail 을 먼저 둔다.
+  KIS live 에서는 `buy-avoid`를 최소 10거래일 순차 검증하고,
+  `buy-rescue`는 Cybos 결과와 비매수/차단 로그 가용성 확인 뒤 shadow 후보로만 검토한다.
+  `hold-rescue`는 포지션 lifecycle 이 달라 별도 설계와 synthetic test 이후에만 진행한다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
@@ -378,10 +387,14 @@
     종목은 최소 `5`종목, 종목별 `50`건 이상이어야 하며,
     down threshold `0.40`의 회피 후보는 최소 `200`건 이상이고 `5거래일` 이상에 분포해야 한다.
     하나라도 부족하면 성능 실패가 아니라 `표본 부족`으로 보고 관측을 연장한다.
+  - Cybos 장외 추가 실험은 `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로 진행한다.
+    `buy-avoid`와 `buy-rescue`는 같은 Cybos 리포트에서 비교하되 탐색 리포트로만 해석하고,
+    `hold-rescue`는 포지션 lifecycle 설계와 synthetic test 를 먼저 둔다.
   - 보합 regime 분리와 변동성 구간별 모델 분리는 위 재검증 뒤에 결정한다.
 - 권장안:
   - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행하되,
     지금은 추가 학습 실험보다 buy-avoid shadow 관측과 재검증 기준 충족을 우선한다.
+  - 장외 Cybos 에서는 buy-rescue 를 함께 탐색하되, 결과가 좋아도 KIS live 에서는 buy-avoid 순차 검증을 먼저 유지한다.
 
 ### broker paper sync rate-limit / local-only mismatch
 

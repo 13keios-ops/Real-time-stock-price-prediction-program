@@ -213,13 +213,18 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - 최신 `runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json` 기준 고변동 구간은 정확도 `0.467210`, buy signal net `-435.709195%p`로 가장 약하고, reference skip `0.3665`의 buy-avoid delta 는 `+220.787918%p`다.
    - 기존 `latest-walk-forward-extreme-fold-regimes-h15`는 gate reference 의 극단 fold 분석이고, Cybos regime report 는 5년 proxy fold 진단이라 중복 리포트가 아니라 범위가 다르다.
    - regime별 모델 분리나 보합 전용 모델은 이 진단과 KIS live shadow / walk-forward 재검증을 함께 본 뒤 결정한다.
-8. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
-9. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
-10. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-11. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
-12. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-13. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
-14. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+8. Cybos buy-rescue 는 `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md` 기준으로만 진행한다.
+   - Cybos 5년 백테스트에서는 `buy-avoid`와 `buy-rescue`를 같은 리포트에서 함께 보되, 사전에 정한 threshold grid 와 성공/실패 기준을 바꾸지 않는다.
+   - 실제 runtime baseline replay 가 가능하면 `baseline_replay_buy_rescue`, 불가능하면 `proxy_buy_rescue`로 이름을 분리한다.
+   - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
+   - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않고 별도 설계부터 한다.
+9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
+10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
+11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
+12. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+13. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+14. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+15. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
