@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> 종료 전 self-review 항목 확장
+
+- 사용자 지시:
+  - 종료 전 자기검토에 `코드 오류점검`과 `그 외 필요하다고 판단되는 부분에 대한 리뷰`를 추가한다.
+- 시작 상태:
+  - KST 2026-06-13 18:01, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `AGENTS.md` 종료 전 self-review에 코드 오류점검 항목을 추가했다.
+  - `AGENTS.md` 종료 전 self-review에 작업 범위와 맞닿은 dashboard, 자동화, 데이터 오염, KIS/모의계좌, 보안/비밀값, 저장 경로, cowork 전달물, 사용자 운영 흐름 리뷰 항목을 추가했다.
+  - `docs/Codex-Operating-Feedback.md`의 최종 답변/작업 종료 전 체크리스트를 5항목으로 확장했다.
+- 검증:
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-13] Codex -> 종료 전 self-review 기준 고정
 
 - 사용자 지시:
