@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 04:20 KST
+- 마지막 갱신: 2026-06-14 05:25 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -28,8 +28,8 @@
 - trading mode: `paper`
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
-- 최신 통합 리포트:
-  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-3.md`
+- 최신 통합/후속 리포트:
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-8.md`
 - 최신 Cybos rescue 실험 계획:
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
@@ -55,10 +55,12 @@
   기준 latest trade date `2026-06-12`, `assessment.status=ok`.
 - 최신 검증:
   `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py` 통과,
-  `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 5개 통과,
+  `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 15개 통과,
+  `python -m py_compile scripts/summarize_paper_cash_gap.py tests/test_paper_cash_gap_analysis.py` 통과,
+  `python -m unittest tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q` 27개 통과,
   `python -m unittest tests.test_runtime_scope` 4개 통과,
   `python -m unittest tests.test_dashboard -q` 23개 통과,
-  `python -m unittest discover -s tests -p "test_*.py" -q` 389개 통과,
+  `python -m unittest discover -s tests -p "test_*.py" -q` 402개 통과,
   `git diff --check` 통과.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
@@ -426,22 +428,42 @@
     지금은 추가 학습 실험보다 buy-avoid shadow 관측과 재검증 기준 충족을 우선한다.
   - 장외 Cybos 에서는 buy-rescue 를 함께 탐색하되, 결과가 좋아도 KIS live 에서는 buy-avoid 순차 검증을 먼저 유지한다.
 
-### broker paper sync rate-limit / local-only mismatch
+### broker paper sync / initial cash mismatch
 
 - 상태: 진행 중
 - 현재 판단:
-  - 최신 broker paper sync 는 KIS `EGW00201`로 `rate_limited`다.
-  - 최신 paper-account sync 는 `005380`, `035420`, `247540`, `373220`
-    4종목 local-only mismatch 때문에 `needs_review`다.
+  - 2026-06-14 장외 1회 read-only 확인으로 broker paper sync 는 `status=ok`가 됐다.
+  - 최신 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
+    기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.
+  - 최신 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
+    기준 position mismatch 는 `0`, `positions_match=true`다.
+  - 남은 blocker 는 `initial_cash_mismatch`와 현금/총자산 gap 이다.
+    broker effective cash 는 `9,098,995원`, local net liquidation 은 `8,536,028.660760004원`,
+    cash/total asset gap 은 `-562,966.3392399959원`이다.
+  - broker sync 자체는 `ok`지만 `open_order_count=153`, pending symbols 는
+    `005380`, `005930`, `035420`, `068270`, `086520`, `105560`, `247540`, `373220`로 남아
+    과거 제출 주문 backlog 정리가 아직 필요하다.
+  - `.env`의 `PAPER_INITIAL_CASH`는 `8,748,211원`이고, 2026-06-09 marker-only alignment 의
+    baseline snapshot 은 `9,301,757원`이다.
+    최신 브로커 effective cash 는 `9,098,995원`이라 초기 현금 기준이 현재 브로커 계좌와 맞지 않는다.
+  - 2026-06-14 broker sync 는 6월 12일 15:07~15:08 close sell 5건을 fill 로 새로 반영해
+    local position 을 0으로 닫았다. 따라서 남은 현금 gap 은 미회수 포지션 수량 문제가 아니다.
+  - `python scripts/summarize_paper_cash_gap.py --as-json` dry-run 결과:
+    `-SyncInitialCash` target 은 브로커 원시 예수금 `9,128,986원`이고 `.env` delta 는 `+380,775원`이지만,
+    이 조치만으로 최신 local snapshot cash gap `-562,966원`은 닫히지 않는다.
+  - 같은 dry-run 기준 `-AlignToBroker`는 hypothetical marker baseline 을
+    cash/net liquidation `9,098,995원`, open positions `0`으로 만들 수 있지만,
+    `open_order_count=153`이 남아 있어 backlog 검토 전 자동 적용하지 않는다.
   - 2026-06-11 보강은 같은 KIS order-fill endpoint 반복 호출을 줄이는 1차 방어이며,
-    local-only mismatch 자체를 자동으로 덮지 않는다.
-  - 2026-06-13 장외 1회 broker paper sync 재시도는 2분 안에 끝나지 않아
-    Codex가 시작한 프로세스만 정리했다.
+    현재 포지션 mismatch 해소 뒤에도 과거 open order backlog 를 자동 삭제하지 않는다.
 - 다음 작업:
-  - rate-limit 이 풀린 뒤 order-fill 상태를 1회 확인한다.
-  - 브로커 계좌와 local paper 의 4종목 원장 차이를 주문/체결/강제청산 흐름으로 추적한다.
+  - `open_order_count=153` backlog 의 실제 broker 상태와 local 상태를 분리한다.
+  - `-SyncInitialCash` 또는 `-AlignToBroker`는 자동 적용하지 않고, backlog 검토와 당일 감사 메모를 남긴 뒤 실행한다.
+  - open order backlog 는 실제 broker 상태와 local 상태를 구분해, dashboard 경고와 모델 성과 해석에 어떤 영향을 주는지 확인한다.
 - 권장안:
-  - mismatch 는 marker-only alignment 로 덮기 전에 원장 원인을 먼저 확인한다.
+  - 포지션 mismatch 는 닫혔으므로 marker-only alignment 는 하지 않는다.
+  - `SyncInitialCash` 단독 실행은 현 상태에서 권장하지 않는다.
+  - 다음 장외 작업은 open order backlog 정리 기준을 설계하고, 필요하면 `AlignToBroker`를 감사 메모와 함께 별도 적용하는 것이다.
 
 ### dashboard/watchdog daemon 유지
 

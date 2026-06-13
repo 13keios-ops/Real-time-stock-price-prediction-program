@@ -353,6 +353,18 @@ python -m app --align-local-paper-to-broker
 ./scripts/verify_paper_dual_account_match.sh -AsJson
 ```
 
+초기 현금 gap 조치 전 read-only 영향 분석:
+
+```bash
+python scripts/summarize_paper_cash_gap.py --as-json
+```
+
+이 분석은 `.env`, alignment marker, paper ledger 를 변경하지 않는다.
+`-SyncInitialCash`는 코드상 root `.env`의 `PAPER_INITIAL_CASH`만 브로커 원시 예수금(`cash_balance`)으로 바꾸며, 최신 portfolio snapshot, fills, broker order backlog 는 다시 쓰지 않는다.
+따라서 브로커 원시 예수금과 유효현금(`total_asset_amount - stock_evaluation_amount`)이 다르거나 local snapshot cash gap 이 남아 있으면, `-SyncInitialCash`만으로는 정합성 blocker가 닫히지 않을 수 있다.
+`-AlignToBroker`는 marker-only baseline 을 새로 쓰고 과거 paper row 를 현재 view 에서 cutoff 하므로, 원장 보존성은 남지만 paper 기준선이 바뀐다.
+이 명령은 open order backlog 와 당일 감사 메모를 확인한 뒤 적용한다.
+
 브로커 모의계좌 주문 미러링 실행:
 
 ```bash

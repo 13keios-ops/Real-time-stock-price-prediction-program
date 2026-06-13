@@ -1,5 +1,71 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> paper cash gap dry-run 분석 추가
+
+- 사용자 지시:
+  - cowork 리뷰를 반영하고, 장 시작 전 가능한 작업을 계속 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 05시대, 일요일 `weekend`.
+  - live runtime 은 정지 상태였고 watchdog/dashboard 는 실행 중이었다.
+  - 직전 작업에서 position mismatch 는 0으로 닫혔지만 `initial_cash_mismatch`와 open order backlog 가 남아 있었다.
+- 조치:
+  - `scripts/summarize_paper_cash_gap.py`를 추가했다.
+  - 이 스크립트는 `latest-paper-dual-account-match.json`, `latest-paper-account-sync.json`, `latest-sync.json`, `latest-alignment.json`, root `.env`를 읽어 `-SyncInitialCash`와 `-AlignToBroker` 영향만 dry-run으로 계산한다.
+  - `tests/test_paper_cash_gap_analysis.py`로 `SyncInitialCash` 단독 조치가 최신 snapshot gap 을 다시 쓰지 않는다는 점, `AlignToBroker` hypothetical baseline 이 effective cash 를 쓰는 점, 열린 broker position 이 있으면 cash sync 가 막히는 점을 잠갔다.
+  - `python scripts/summarize_paper_cash_gap.py --as-json`을 실행해 `runtime-data/reports/reconciliation/latest-paper-cash-gap-analysis.json/.md`를 생성했다.
+- 결과:
+  - 현재 `.env` PAPER_INITIAL_CASH는 `8,748,211원`, broker raw cash 는 `9,128,986원`, broker effective cash 는 `9,098,995원`, local cash 는 `8,536,028.660760004원`이다.
+  - `SyncInitialCash` target 은 `9,128,986원`, env delta 는 `+380,775원`이다.
+  - 하지만 `SyncInitialCash`는 최신 portfolio snapshot/fills/order backlog 를 다시 쓰지 않으므로 현재 cash gap `-562,966원`을 닫지 못한다.
+  - `AlignToBroker` dry-run 은 cash/net liquidation `9,098,995원`, open positions `0` 기준 marker baseline 후보를 만들 수 있음을 보여준다.
+  - 단 `open_order_count=153`이 남아 있어 `AlignToBroker`도 자동 적용하지 않았다.
+- 검증:
+  - `python -m py_compile scripts/summarize_paper_cash_gap.py tests/test_paper_cash_gap_analysis.py`: 통과.
+  - `python -m unittest tests.test_paper_cash_gap_analysis -q`: 3개 통과.
+  - `python -m unittest tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q`: 27개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 402개 통과.
+  - `git diff --check`: 통과. CRLF/LF 경고만 확인.
+- 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+  - 변경 전: initial cash mismatch 에 대해 `SyncInitialCash`와 `AlignToBroker`의 실제 영향 차이를 리포트로 보기 어려웠다.
+  - 변경 후: 기준선 변경 명령을 실행하기 전에 env delta, snapshot gap 잔존 여부, hypothetical alignment baseline, backlog warning 을 확인할 수 있다.
+  - 영향 범위: read-only 분석 스크립트, reconciliation report 산출물, 문서 기록.
+  - 회귀 위험: dry-run 해석이 실제 alignment 실행 결과와 달라질 수 있으므로, 적용 전에는 최신 계좌 snapshot 으로 다시 실행해야 한다.
+- 금지/안전:
+  - `-SyncInitialCash`, `-AlignToBroker` 실행 없음.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
+## [2026-06-14] Codex -> paper/KIS mismatch trace 최신화
+
+- 사용자 지시:
+  - 장 시작 전 계획한 작업을 계속 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 05시대, 일요일 `weekend`.
+  - live runtime 은 정지 상태였고 watchdog/dashboard 는 실행 중이었다.
+  - 작업트리는 clean 상태였다.
+- 조치:
+  - `python scripts/trace_paper_kis_mismatch.py --limit-per-table 20`으로 기존 mismatch trace 를 read-only 재생성했다.
+  - `./scripts/verify_paper_dual_account_match.sh -AsJson`을 1회 실행해 계좌 snapshot 비교를 갱신했다.
+  - 이후 `python scripts/trace_paper_kis_mismatch.py --limit-per-table 20`을 다시 실행했다.
+- 결과:
+  - broker paper sync 는 `status=ok`, `synced_at=2026-06-14T05:06:42+09:00`로 갱신됐다.
+  - `latest-paper-kis-mismatch-trace.json`은 `assessment.status=ok`, summary `no mismatched symbols`, mismatch count `0`이다.
+  - `latest-paper-dual-account-match.json`은 `status=initial_cash_mismatch`다.
+  - position mismatch 는 `0`, `positions_match=true`로 해소됐다.
+  - broker effective cash 는 `9,098,995원`, local net liquidation 은 `8,536,028.660760004원`, cash/total asset gap 은 `-562,966.3392399959원`이다.
+  - broker sync 는 `ok`지만 `open_order_count=153`, pending symbols 는 `005380`, `005930`, `035420`, `068270`, `086520`, `105560`, `247540`, `373220`로 남았다.
+  - `.env`의 `PAPER_INITIAL_CASH`는 `8,748,211원`이고, 2026-06-09 marker-only alignment baseline snapshot 은 `9,301,757원`이다.
+  - 2026-06-14 broker sync 는 6월 12일 15:07~15:08 close sell 5건을 새 fill 로 반영해 local position 을 0으로 닫았다.
+- 판단:
+  - 이전 4종목 local-only position blocker 는 최신 계좌 기준 해소됐다.
+  - 남은 blocker 는 포지션 수량이 아니라 initial cash / cash gap 과 과거 open order backlog 다.
+  - `-SyncInitialCash` 또는 `-AlignToBroker`는 local paper 기준값을 바꾸는 조치이므로 자동 적용하지 않았다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> hold-rescue lifecycle synthetic helper 추가
 
 - 사용자 지시:
