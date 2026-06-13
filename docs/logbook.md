@@ -1,5 +1,26 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> 종료 전 self-review 기준 고정
+
+- 사용자 지시:
+  - 작업 종료 전 누락한 작업, 잘못 진행한 부분, 결과 판단 오류가 없는지 자기검토 후 조치하도록 md에 고정한다.
+- 시작 상태:
+  - KST 2026-06-13 17:37, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `AGENTS.md` 완료 기준에 종료 전 self-review 3항목을 필수 규칙으로 추가했다.
+  - `docs/Codex-Operating-Feedback.md`의 최종 답변/작업 종료 전 체크리스트에 같은 기준을 보조판으로 추가했다.
+  - 누락이 있으면 답변 전에 먼저 처리하고, 직접 확인하지 못한 결론은 `확인 필요`로 남기도록 명시했다.
+- 검증:
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-13] Codex -> review_ver_19 P1-A dashboard stale 경고 검증
 
 - 사용자 지시:
