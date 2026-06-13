@@ -40,6 +40,7 @@
 - 최신 Cybos buy-avoid proxy 의 `baseline`은 실제 runtime baseline 모델의 주문 판단과 완전히 같은 뜻이 아니다.
 - 현재 Cybos proxy 에서는 Cybos LightGBM 이 만든 매수 후보 집합을 기준 후보로 놓고, 그 안에서 하락확률이 높은 것을 거른다.
 - 따라서 문서와 대시보드에서는 `runtime baseline 매수 판단`과 `Cybos proxy baseline candidate`를 구분해야 한다.
+- 2026-06-14 cowork 재검토 기준으로, 기존 12/12 fold 개선 결과는 `LightGBM이 runtime baseline의 나쁜 매수를 막았다`가 아니라 `LightGBM이 자기 proxy 매수 후보 중 손실 후보를 자체 필터링했다`로만 해석한다.
 
 권장안:
 
@@ -109,6 +110,7 @@
 - 모델 함수 호출 자체는 누락 피처 기본값 `0.0` 때문에 가능하지만, 이것은 runtime baseline 재현이 아니다.
 - 따라서 Cybos rescue 1차 실험은 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다.
 - `scripts/summarize_cybos_buy_avoid_proxy.py`는 이후 report 에 `runtime_baseline_replay.available=false`, `status=not_replayed_orderbook_features_missing`, `recommended_experiment_mode=proxy_buy_rescue`를 기록한다.
+- 이 확인 없이 Step 1 실험으로 넘어가지 않는 것을 고정 gate 로 둔다. 이미 full 12 fold report 를 만들었더라도, 해석은 위 Step 0 결과에 의해 `proxy` 범위로 제한한다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 

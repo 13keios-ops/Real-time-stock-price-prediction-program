@@ -150,6 +150,12 @@ def _derive_broker_status(
     synced_at: datetime | None = None,
 ) -> str:
     if not matched:
+        if order_qty > 0 and filled_qty >= order_qty:
+            return "filled"
+        if remaining_qty <= 0 and order_qty > 0:
+            return "filled"
+        if remaining_qty > 0 and _is_prior_day_order(order_date, synced_at):
+            return "expired_partial" if filled_qty > 0 else "expired"
         return "pending_lookup"
     if reject_qty >= max(order_qty, 1):
         return "rejected"
@@ -502,6 +508,9 @@ class BrokerPaperExecutionSync:
         for submission in submission_rows:
             local_order_id = str(submission["local_order_id"])
             paper_order = paper_orders.get(local_order_id, {})
+            previous_snapshot = latest_status_by_order.get(local_order_id) or {}
+            previous_applied_fill_qty = int(previous_snapshot.get("applied_fill_qty", 0) or 0)
+            previous_status = str(previous_snapshot.get("status") or "")
             order_date_key = _normalize_order_date(str(submission.get("event_time", ""))[:10])
             broker_row = broker_lookup.get(
                 (
@@ -525,32 +534,57 @@ class BrokerPaperExecutionSync:
                 broker_row.side if broker_row is not None else str(submission.get("side") or paper_order.get("side") or ""),
                 fallback_side=str(submission.get("side") or paper_order.get("side") or "buy"),
             )
-            order_qty = int((broker_row.order_qty if broker_row is not None else submission.get("qty")) or 0)
-            filled_qty = int((broker_row.filled_qty if broker_row is not None else 0) or 0)
-            remaining_qty = int((broker_row.remaining_qty if broker_row is not None else order_qty) or 0)
-            avg_fill_price = float((broker_row.avg_fill_price if broker_row is not None else paper_order.get("limit_price") or 0.0) or 0.0)
-            reject_qty = int((broker_row.reject_qty if broker_row is not None else 0) or 0)
-            cancel_confirm_qty = int((broker_row.cancel_confirm_qty if broker_row is not None else 0) or 0)
-            cancel_yn = bool(broker_row.cancel_yn) if broker_row is not None else False
-            status = _derive_broker_status(
-                matched=matched,
-                order_qty=order_qty,
-                filled_qty=filled_qty,
-                remaining_qty=remaining_qty,
-                reject_qty=reject_qty,
-                cancel_yn=cancel_yn,
-                cancel_confirm_qty=cancel_confirm_qty,
-                order_date=(broker_row.order_date if broker_row is not None else order_date_key),
-                synced_at=synced_at,
+            order_qty = int((broker_row.order_qty if broker_row is not None else previous_snapshot.get("order_qty") or submission.get("qty")) or 0)
+            filled_qty = int(
+                (
+                    broker_row.filled_qty
+                    if broker_row is not None
+                    else previous_applied_fill_qty or previous_snapshot.get("filled_qty") or 0
+                )
+                or 0
             )
+            remaining_qty = int(
+                (
+                    broker_row.remaining_qty
+                    if broker_row is not None
+                    else max(order_qty - filled_qty, 0)
+                )
+                or 0
+            )
+            avg_fill_price = float(
+                (
+                    broker_row.avg_fill_price
+                    if broker_row is not None
+                    else previous_snapshot.get("avg_fill_price") or paper_order.get("limit_price") or 0.0
+                )
+                or 0.0
+            )
+            reject_qty = int((broker_row.reject_qty if broker_row is not None else previous_snapshot.get("reject_qty") or 0) or 0)
+            cancel_confirm_qty = int(
+                (broker_row.cancel_confirm_qty if broker_row is not None else previous_snapshot.get("cancel_confirm_qty") or 0)
+                or 0
+            )
+            cancel_yn = bool(broker_row.cancel_yn) if broker_row is not None else bool(previous_snapshot.get("cancel_yn", False))
+            if broker_row is None and previous_status in FINAL_BROKER_ORDER_STATUSES:
+                status = previous_status
+            else:
+                status = _derive_broker_status(
+                    matched=matched,
+                    order_qty=order_qty,
+                    filled_qty=filled_qty,
+                    remaining_qty=remaining_qty,
+                    reject_qty=reject_qty,
+                    cancel_yn=cancel_yn,
+                    cancel_confirm_qty=cancel_confirm_qty,
+                    order_date=(broker_row.order_date if broker_row is not None else previous_snapshot.get("order_date") or order_date_key),
+                    synced_at=synced_at,
+                )
             if status in OPEN_BROKER_ORDER_STATUSES:
                 open_order_count += 1
                 pending_symbols.add(str(submission.get("symbol") or paper_order.get("symbol") or ""))
             if status in FINAL_BROKER_ORDER_STATUSES:
                 final_order_count += 1
 
-            previous_snapshot = latest_status_by_order.get(local_order_id) or {}
-            previous_applied_fill_qty = int(previous_snapshot.get("applied_fill_qty", 0) or 0)
             delta_fill_qty = max(filled_qty - previous_applied_fill_qty, 0)
             next_applied_fill_qty = previous_applied_fill_qty
 

@@ -365,6 +365,14 @@ python scripts/summarize_paper_cash_gap.py --as-json
 `-AlignToBroker`는 marker-only baseline 을 새로 쓰고 과거 paper row 를 현재 view 에서 cutoff 하므로, 원장 보존성은 남지만 paper 기준선이 바뀐다.
 이 명령은 open order backlog 와 당일 감사 메모를 확인한 뒤 적용한다.
 
+브로커 주문 backlog read-only 분석:
+
+```bash
+python scripts/summarize_broker_order_backlog.py --as-json
+```
+
+이 분석은 최신 alignment marker 이후의 브로커 제출 주문과 최신 broker status snapshot 을 읽어 현재 view 에 남은 open order 수, fixed sync 해석 적용 시 닫힐 row 수, 예상 final/open 상태를 보여준다. SQLite 원장과 KIS 계좌를 변경하지 않고 `runtime-data/reports/broker-paper/latest-open-order-backlog-analysis.{json,md}`만 갱신한다.
+
 브로커 모의계좌 주문 미러링 실행:
 
 ```bash
@@ -384,15 +392,17 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 최근 `rate_limited` 리포트가 30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 다시 호출하지 않고 `cooldown_active=true`, `skipped_broker_call=true`를 남긴다.
 실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 즉시 재시도하지 않은 뒤 5분 동안 추가 조회를 쉬어 KIS 호출 제한, 지연, 로그 증가를 줄인다.
 
-브로커 status snapshot 이 이미 있는 주문이 과거 주문일의 미체결 잔량으로 남아 있으면 다음 거래일에 새 체결로 이어질 수 없으므로 paper sync 는 이를 active open 으로 계속 세지 않는다.
-주문일이 동기화일보다 이전이고 `remaining_qty > 0`이면 `expired` 또는 `expired_partial` final 상태로 해석한다.
-단, KIS status snapshot 이 아직 없는 단순 제출 주문은 stale 로 단정하지 않고 기존처럼 pending 으로 유지한다.
+브로커 order-fill 조회가 정상 응답했는데 특정 주문이 최신 KIS lookback 에서 사라지면, paper sync 는 이전 status snapshot 과 이미 적용한 체결 수량을 우선 보존한다.
+이전 적용 체결 수량이 주문 수량 이상이면 `filled`로 유지하고, 잔량이 남은 과거 주문일 row 는 다음 거래일에 새 체결로 이어질 수 없으므로 `expired` 또는 `expired_partial` final 상태로 해석한다.
+이 처리는 KIS 조회가 정상 응답한 경우의 해석이며, `EGW00201` rate-limit 등으로 조회 자체가 실패했을 때는 기존처럼 pending 상태를 안전하게 보존한다.
+2026-06-14 수정 뒤 실제 broker paper sync 를 1회 실행해 marker 이후 현재 view 의 open order backlog 는 0건으로 닫혔다.
+같은 날 `-SyncInitialCash` 없이 marker-only `-AlignToBroker`를 적용한 뒤 최신 dual account match 는 `matched_waiting_first_submission`, effective cash gap 과 total asset gap 은 `0원`이다. 브로커 원시 예수금과 유효현금 차이는 `raw_cash_gap`으로 별도 표시한다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
-변경 전에는 KIS order-fill 조회가 rate-limit 으로 막히면 과거 주문일의 open snapshot 도 계속 active open 으로 세어 장후 정합성 alignment 를 보류했다.
-변경 후에는 이미 조회된 과거 주문일 open snapshot 만 만료 상태로 해석해 open count 를 부풀리지 않는다.
+변경 전에는 KIS lookback 에서 사라진 주문이 이미 full fill 로 적용됐거나 과거 주문일 잔량으로 남아도 다음 sync 에서 `pending_lookup`으로 되돌아가 open count 를 부풀릴 수 있었다.
+변경 후에는 이전 final/applied fill 상태를 보존하고, 정상 조회 후에도 남은 과거 주문일 잔량은 final 만료 상태로 해석해 현재 open backlog 를 부풀리지 않는다.
 영향 범위는 `app/services/broker_paper_sync.py`의 KIS 모의계좌 paper sync 해석과 관련 테스트에 한정된다.
-회귀 위험은 당일 open 주문을 잘못 만료 처리하는 경우인데, snapshot 이 없는 주문은 제외하고 주문일이 동기화일보다 이전인 snapshot 에만 적용해 줄였다.
+회귀 위험은 당일 open 주문을 잘못 final 처리하는 경우인데, 주문일이 동기화일보다 이전인지 확인하고, 조회 실패(rate limit) 경로에서는 final 전환을 하지 않는 방식으로 줄였다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 변경 전에는 `python -m app --sync-broker-paper-orders`나 장전/장후 점검이 짧은 시간 안에 반복 실행되면, 직전 실행에서 `EGW00201`가 났어도 같은 KIS order-fill endpoint 를 다시 호출할 수 있었다.

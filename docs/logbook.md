@@ -1,5 +1,48 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> broker paper open order backlog 해소
+
+- 사용자 지시:
+  - cowork 리뷰를 반영하고, 다음 단계로 넘어가기 전 Step 0 해석 제한과 Phase 0 paper/KIS 정합성 blocker를 끝까지 확인한다.
+- 시작 상태:
+  - KST 2026-06-14 05시대, 일요일 `weekend`.
+  - live runtime 은 정지 상태가 정상이고 watchdog/dashboard 는 실행 중이었다.
+  - 직전 cash-gap dry-run 뒤 broker paper open order backlog 153건과 cash gap 조치 판단이 남아 있었다.
+- cowork 리뷰 반영:
+  - Cybos buy-avoid proxy 의 12/12 fold 개선은 실제 runtime baseline 개선이 아니라 LightGBM 자기 proxy 매수 후보의 self-filter 결과로만 해석한다고 문서에 고정했다.
+  - `BaselineDirectionModel`은 Cybos bar row 에 없는 `bid_ask_imbalance`, `spread_bps`를 쓰므로, Cybos rescue 는 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로만 해석한다.
+- 원인:
+  - broker row 가 KIS lookback 에서 사라졌을 때 기존 sync normal path 가 이전 final/applied fill 상태를 충분히 보존하지 못해 `pending_lookup`처럼 다시 볼 수 있었다.
+  - 이미 적용된 체결이 있거나 과거 주문일 잔량인 row 가 active open count 를 부풀렸다.
+- 조치:
+  - `app/services/broker_paper_sync.py`에서 broker row 가 없을 때 이전 final 상태를 보존하고, 이전 적용 체결이 주문 수량을 덮으면 `filled`, 과거 주문일 잔량은 `expired`/`expired_partial`로 닫도록 보강했다.
+  - `scripts/summarize_broker_order_backlog.py`와 `tests/test_broker_order_backlog_analysis.py`를 추가해 현재 view open order backlog 를 read-only 로 분석한다.
+  - `scripts/summarize_paper_cash_gap.py`는 이미 정합 상태면 `keep_current_alignment`와 `no_cash_gap_action_required`를 내도록 보강했다.
+  - 실제 broker paper sync 를 1회 실행한 뒤 `-SyncInitialCash` 없이 marker-only `-AlignToBroker`를 적용했다.
+  - dashboard snapshot 을 재생성했다.
+- 결과:
+  - sync 실행 출력 기준 기존 153건 backlog 는 `open_order_count=0`, `final_order_count=173`, `pending_symbols=[]`까지 닫혔다.
+  - 최신 dual account match 는 `status=matched_waiting_first_submission`, position mismatch `0`, effective cash gap `0원`, total asset gap `0원`이다.
+  - 최신 broker order backlog analysis 는 marker 이후 현재 view 기준 `submission_rows=0`, `current_open_order_count=0`, `projected_open_order_count=0`, 권고 `backlog_cleared_no_action`이다.
+  - 최신 paper cash gap analysis 는 권고 `keep_current_alignment`, 다음 조치 `no_cash_gap_action_required`다.
+  - 브로커 원시 예수금과 유효현금 차이 `29,991원`은 `raw_cash_gap`으로만 분리한다.
+- 검증:
+  - `python -m py_compile app/services/broker_paper_sync.py scripts/summarize_broker_order_backlog.py scripts/summarize_paper_cash_gap.py tests/test_broker_paper_sync.py tests/test_broker_order_backlog_analysis.py tests/test_paper_cash_gap_analysis.py`: 통과.
+  - `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis -q`: 19개 통과.
+  - `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q`: 43개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 410개 통과.
+  - `python -m app --build-dashboard`: 통과, latest dashboard snapshot `2026-06-14T05:50:20+09:00`.
+  - `git diff --check`: 통과. CRLF/LF 경고만 확인.
+- 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+  - 변경 전: KIS lookback 에서 사라진 주문이 이전 final/applied 상태를 잃고 open backlog 로 되살아날 수 있었다.
+  - 변경 후: 이전 final/applied 상태를 보존하고 과거 주문일 잔량을 final 만료 상태로 해석한다.
+  - 영향 범위: broker paper sync 해석, read-only backlog/cash-gap 분석, 관련 문서.
+  - 회귀 위험: 당일 open 주문을 잘못 final 처리하면 안 되므로 주문일과 조회 성공 여부를 기준으로 분기하고, rate-limit 조회 실패 경로에서는 pending 보존 원칙을 유지한다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> paper cash gap dry-run 분석 추가
 
 - 사용자 지시:

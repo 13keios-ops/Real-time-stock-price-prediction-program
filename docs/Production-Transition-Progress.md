@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 05:25 KST
+- 마지막 갱신: 2026-06-14 05:50 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -29,7 +29,7 @@
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합/후속 리포트:
-  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-8.md`
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-9.md`
 - 최신 Cybos rescue 실험 계획:
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
@@ -40,7 +40,7 @@
   `market_status`와 `kill_switch`는 Phase 1a read-only에서 비차단 관측 실패로 남는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-13T13:33:09+09:00`.
+  기준 `generated_at=2026-06-14T05:50:20+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
   기준 `generated_at=2026-06-13 13:33:34 +0900`, `status=ok`.
@@ -56,12 +56,14 @@
 - 최신 검증:
   `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py` 통과,
   `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 15개 통과,
-  `python -m py_compile scripts/summarize_paper_cash_gap.py tests/test_paper_cash_gap_analysis.py` 통과,
-  `python -m unittest tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q` 27개 통과,
+  `python -m py_compile app/services/broker_paper_sync.py scripts/summarize_broker_order_backlog.py scripts/summarize_paper_cash_gap.py tests/test_broker_paper_sync.py tests/test_broker_order_backlog_analysis.py tests/test_paper_cash_gap_analysis.py` 통과,
+  `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis -q` 19개 통과,
+  `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q` 43개 통과,
   `python -m unittest tests.test_runtime_scope` 4개 통과,
   `python -m unittest tests.test_dashboard -q` 23개 통과,
-  `python -m unittest discover -s tests -p "test_*.py" -q` 402개 통과,
-  `git diff --check` 통과.
+  `python -m unittest discover -s tests -p "test_*.py" -q` 410개 통과,
+  `python -m app --build-dashboard` 통과,
+  `git diff --check` 통과. CRLF/LF 경고만 확인.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
   기준 `challenger-h15-20260612045334514142`, active `baseline-h15-v1`,
@@ -109,6 +111,9 @@
   KIS shadow 회피율에 맞춘 target skip `0.3665`는 실제 skip `0.3617`,
   baseline net `-538.040362%p`, kept net `-170.325157%p`,
   net 개선 `+367.715205%p`, 개선 fold `12/12`다.
+  여기서 baseline 은 실제 runtime baseline 주문 판단이 아니라 Cybos LightGBM 이 만든
+  proxy 매수 후보 집합이다. 따라서 이 결과는 `LightGBM이 runtime baseline의 나쁜 매수를 막았다`가 아니라
+  `LightGBM이 자기 proxy 매수 후보 중 하락 위험이 높은 row 를 자체 필터링하자 손실이 줄었다`로만 해석한다.
   이 결과는 buy-avoid 구조가 Cybos 5년치에서도 손실 축소 후보라는 근거지만,
   kept net 이 여전히 음수이므로 모델 승격, gate 변경, paper/live 주문 정책 변경 근거가 아니다.
   같은 full 실행에서 생성한 `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
@@ -151,11 +156,9 @@
   이는 Cybos full hold-rescue 결과 실험이 아니라 lifecycle 구현 전제 검증이다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
-  기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
-  `005380`, `035420`, `247540`, `373220`이다.
-  2026-06-12 15:07~15:08 청산 주문이 local/broker 모두 submitted 상태이고
-  broker order-fill 회수가 `EGW00201` 또는 장외 재시도 응답 지연으로 막힌 상태라
-  자동 alignment로 덮지 않는다.
+  기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.
+  2026-06-12 15:07~15:08 청산 주문은 2026-06-14 broker paper sync 에서 fill 로 반영되어
+  local position 도 브로커 flat 상태와 일치했다.
 - 최신 gate walk-forward 극단 fold 요약:
   `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`
   기준 fold `118`개 중 정확도 `0.20` 미만 fold가 `3`개 있으며
@@ -192,14 +195,24 @@
   dashboard status alert에 `실시간 분봉 갱신이 지연되고 있습니다` warning 이 노출되는지 잠갔다.
   따라서 review_ver_19의 장외 P1-A는 테스트 기준으로 닫혔다.
 - 최신 paper/KIS 정합성:
-  최신 `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
-  기준 `status=needs_review`.
-  브로커는 보유 0이고 로컬은 `005380` 1주, `035420` 2주, `247540` 4주,
-  `373220` 1주가 남아 있다.
+  최신 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
+  기준 `status=matched_waiting_first_submission`, position mismatch `0`,
+  effective cash gap `0원`, total asset gap `0원`이다.
+  브로커 원시 예수금과 유효현금 차이 `29,991원`은 `raw_cash_gap`으로 분리해서 본다.
 - 최신 broker paper sync:
   `runtime-data/reports/broker-paper/latest-sync.json`
-  기준 `status=rate_limited`, KIS `EGW00201`, open order 5건.
-  2026-06-13 장외 1회 재시도는 2분 안에 완료되지 않아 Codex가 시작한 프로세스만 정리했다.
+  기준 최신 marker 이후 제출 주문이 없어 `status=no_submissions`, open order `0건`이다.
+  2026-06-14 수정 뒤 broker paper sync 실행 출력 기준으로 기존 153건 backlog 는
+  `open_order_count=0`, `final_order_count=173`, `pending_symbols=[]` 상태까지 닫혔고,
+  이후 `-SyncInitialCash` 없이 marker-only alignment 를 적용했다.
+- 최신 broker order backlog analysis:
+  `runtime-data/reports/broker-paper/latest-open-order-backlog-analysis.json`
+  기준 marker 이후 현재 view 는 `submission_rows=0`, `current_open_order_count=0`,
+  `projected_open_order_count=0`, 권고 `backlog_cleared_no_action`이다.
+- 최신 paper cash gap analysis:
+  `runtime-data/reports/reconciliation/latest-paper-cash-gap-analysis.json`
+  기준 권고는 `keep_current_alignment`, 다음 조치는 `no_cash_gap_action_required`다.
+  `SyncInitialCash`와 추가 `AlignToBroker`는 지금 필요하지 않다.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -233,12 +246,12 @@
     2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은
     2026-06-13 read-only 조회로 1차 정리했고, 현재는 2026-06-08처럼
     raw market symbol-minute 가 약한 구간이 재발하는지만 다음 거래일에 관찰한다.
-  - broker paper sync 최신 리포트는 KIS `EGW00201` rate limit 으로
-    `status=rate_limited`, open order 5건이다.
-  - 최신 paper-account sync 기준 브로커는 보유 0이고 로컬은
-    `005380`, `035420`, `247540`, `373220` 4종목이 local-only position 으로 남아 있다.
+  - 2026-06-14 broker paper sync 보강 뒤 최신 현재 view 는 `status=no_submissions`,
+    open order `0건`이다.
+  - 최신 dual account match 기준 브로커와 로컬 모두 보유 0이고,
+    effective cash gap 과 total asset gap 은 `0원`이다.
   - `trace_paper_kis_mismatch.py`는 최신 `paper-account-sync` mismatch 목록을
-    우선 기준으로 쓰도록 보강됐고, 현재 trace 기준 mismatch source 는 `paper_account_sync`다.
+    우선 기준으로 쓰도록 보강됐고, 현재 trace 기준 mismatch count 는 `0`이다.
   - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
     30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 재호출하지 않고
     `cooldown_active=true`, `skipped_broker_call=true`를 남기도록 보강했다.
@@ -316,9 +329,17 @@
   - 2026-06-09 장후 KIS live data quality 는 latest trade date 는 맞고
     intraday coverage 는 97%대지만, 당일 h15 label coverage 주의로
     `assessment.status=watch`다.
+  - 2026-06-14 `app/services/broker_paper_sync.py`는 KIS lookback 에서 사라진 주문이
+    이전 final/applied fill 상태를 잃고 `pending_lookup`으로 되돌아가지 않도록 보강됐다.
+    정상 조회 후 broker row 가 없으면 이전 적용 체결 수량을 보존하고,
+    과거 주문일 잔량은 `expired` 또는 `expired_partial`로 닫는다.
+  - 2026-06-14 실제 sync 실행으로 기존 open order backlog 153건은
+    `open_order_count=0`, `final_order_count=173`, `pending_symbols=[]`까지 닫혔다.
+    이후 marker-only alignment 를 적용했고, 최신 `latest-open-order-backlog-analysis.json`은
+    현재 view 기준 `backlog_cleared_no_action`이다.
 - 남은 blocker:
   - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
-  - 다음 장후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
+  - 다음 거래일 첫 신규 제출 뒤에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
   - 2026-06-08과 같은 raw market 약한 구간이 다음 거래일에도 반복되는지
     watchdog heartbeat, KIS WS frame, raw market/orderbook coverage 로 비교한다.
   - 장후 label refresh 최신 상태 파일은 2026-06-11 기준 `status=ok`로 갱신됐으므로,
@@ -430,40 +451,34 @@
 
 ### broker paper sync / initial cash mismatch
 
-- 상태: 진행 중
+- 상태: 현재 blocker 해소, 다음 거래일 재발 관찰
 - 현재 판단:
-  - 2026-06-14 장외 1회 read-only 확인으로 broker paper sync 는 `status=ok`가 됐다.
+  - 2026-06-14 장외 broker paper sync 보강과 1회 실제 sync 로 기존 backlog 를 닫았다.
   - 최신 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
     기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.
   - 최신 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
-    기준 position mismatch 는 `0`, `positions_match=true`다.
-  - 남은 blocker 는 `initial_cash_mismatch`와 현금/총자산 gap 이다.
-    broker effective cash 는 `9,098,995원`, local net liquidation 은 `8,536,028.660760004원`,
-    cash/total asset gap 은 `-562,966.3392399959원`이다.
-  - broker sync 자체는 `ok`지만 `open_order_count=153`, pending symbols 는
-    `005380`, `005930`, `035420`, `068270`, `086520`, `105560`, `247540`, `373220`로 남아
-    과거 제출 주문 backlog 정리가 아직 필요하다.
-  - `.env`의 `PAPER_INITIAL_CASH`는 `8,748,211원`이고, 2026-06-09 marker-only alignment 의
-    baseline snapshot 은 `9,301,757원`이다.
-    최신 브로커 effective cash 는 `9,098,995원`이라 초기 현금 기준이 현재 브로커 계좌와 맞지 않는다.
-  - 2026-06-14 broker sync 는 6월 12일 15:07~15:08 close sell 5건을 fill 로 새로 반영해
-    local position 을 0으로 닫았다. 따라서 남은 현금 gap 은 미회수 포지션 수량 문제가 아니다.
-  - `python scripts/summarize_paper_cash_gap.py --as-json` dry-run 결과:
-    `-SyncInitialCash` target 은 브로커 원시 예수금 `9,128,986원`이고 `.env` delta 는 `+380,775원`이지만,
-    이 조치만으로 최신 local snapshot cash gap `-562,966원`은 닫히지 않는다.
-  - 같은 dry-run 기준 `-AlignToBroker`는 hypothetical marker baseline 을
-    cash/net liquidation `9,098,995원`, open positions `0`으로 만들 수 있지만,
-    `open_order_count=153`이 남아 있어 backlog 검토 전 자동 적용하지 않는다.
-  - 2026-06-11 보강은 같은 KIS order-fill endpoint 반복 호출을 줄이는 1차 방어이며,
-    현재 포지션 mismatch 해소 뒤에도 과거 open order backlog 를 자동 삭제하지 않는다.
+    기준 `status=matched_waiting_first_submission`, position mismatch 는 `0`,
+    `positions_match=true`, effective cash gap `0원`, total asset gap `0원`이다.
+  - 최신 `runtime-data/reports/broker-paper/latest-sync.json` 기준 marker 이후 제출 주문이 없어
+    `status=no_submissions`, open order `0건`이다.
+  - `runtime-data/reports/broker-paper/latest-open-order-backlog-analysis.json` 기준
+    marker 이후 현재 view 는 `submission_rows=0`, `current_open_order_count=0`,
+    `projected_open_order_count=0`, 권고 `backlog_cleared_no_action`이다.
+  - `runtime-data/reports/reconciliation/latest-paper-cash-gap-analysis.json` 기준
+    권고는 `keep_current_alignment`, 다음 조치 `no_cash_gap_action_required`다.
+  - `.env`의 `PAPER_INITIAL_CASH`는 과거 시작값으로 남아 있지만,
+    최신 current view 는 marker-only alignment effective cash 기준으로 정합하다.
+    브로커 원시 예수금과 유효현금 차이 `29,991원`은 `raw_cash_gap`으로만 표시한다.
+  - 기존 153건 open backlog 원인은 KIS lookback 에서 사라진 주문을 이전 final/applied fill 상태로 보존하지 못하고
+    `pending_lookup`처럼 다시 보는 해석 문제였다. 수정 뒤 이전 적용 체결이 주문 수량을 덮으면 `filled`,
+    과거 주문일 잔량이면 `expired` 또는 `expired_partial`로 닫는다.
 - 다음 작업:
-  - `open_order_count=153` backlog 의 실제 broker 상태와 local 상태를 분리한다.
-  - `-SyncInitialCash` 또는 `-AlignToBroker`는 자동 적용하지 않고, backlog 검토와 당일 감사 메모를 남긴 뒤 실행한다.
-  - open order backlog 는 실제 broker 상태와 local 상태를 구분해, dashboard 경고와 모델 성과 해석에 어떤 영향을 주는지 확인한다.
+  - 다음 거래일 첫 신규 broker submission 이후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
+  - `SyncInitialCash`와 추가 `AlignToBroker`는 지금 실행하지 않는다.
+  - 누적 paper-vs-broker 자동 집계와 dashboard 표시가 최신 marker 상태를 잘 설명하는지 확인한다.
 - 권장안:
-  - 포지션 mismatch 는 닫혔으므로 marker-only alignment 는 하지 않는다.
-  - `SyncInitialCash` 단독 실행은 현 상태에서 권장하지 않는다.
-  - 다음 장외 작업은 open order backlog 정리 기준을 설계하고, 필요하면 `AlignToBroker`를 감사 메모와 함께 별도 적용하는 것이다.
+  - Phase 0 계좌 정합성 blocker 는 현재 닫힌 상태로 본다.
+  - 월요일 장전에는 새 주문 전 상태를 read-only 로 확인하고, 장후에는 신규 제출 주문 기준 sync/reconciliation 이 계속 0-gap 인지 본다.
 
 ### dashboard/watchdog daemon 유지
 

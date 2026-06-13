@@ -112,6 +112,46 @@ class PaperCashGapAnalysisTests(unittest.TestCase):
         self.assertFalse(sync["allowed_by_current_shape"])
         self.assertEqual(sync["blocked_reason"], "broker_positions_or_cash_unavailable")
 
+    def test_aligned_accounts_need_no_cash_gap_action(self) -> None:
+        payload = build_cash_gap_analysis(
+            env={"PAPER_INITIAL_CASH": "700000"},
+            dual_match={
+                "status": "matched_waiting_first_submission",
+                "broker_account": {
+                    "cash_balance": 1_030_000,
+                    "stock_evaluation_amount": 0,
+                    "total_asset_amount": 1_000_000,
+                    "positions": [],
+                    "position_row_count": 0,
+                },
+                "local_account": {
+                    "cash_balance": 1_000_000.0,
+                    "net_liquidation_value": 1_000_000.0,
+                    "positions": [],
+                },
+                "comparison": {
+                    "mismatch_count": 0,
+                    "positions_match": True,
+                    "balance_match": True,
+                    "total_asset_match": True,
+                    "cash_gap": 0.0,
+                    "total_asset_gap": 0.0,
+                    "broker_raw_cash_balance": 1_030_000,
+                    "broker_effective_cash_balance": 1_000_000.0,
+                    "order_mirroring_enabled": True,
+                    "mirrored_order_count": 0,
+                },
+            },
+            account_sync={},
+            broker_sync={"status": "no_submissions", "open_order_count": 0},
+            alignment={"status": "aligned_to_broker_marker"},
+            generated_at="2026-06-14T00:00:00+09:00",
+        )
+
+        self.assertEqual(payload["recommendation"]["recommended_action"], "keep_current_alignment")
+        self.assertEqual(payload["recommendation"]["next_action"], "no_cash_gap_action_required")
+        self.assertFalse(payload["recommendation"]["operator_approval_required_for_mutation"])
+
 
 if __name__ == "__main__":
     unittest.main()

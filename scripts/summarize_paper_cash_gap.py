@@ -188,12 +188,39 @@ def build_cash_gap_analysis(
     if alignment_allowed and open_order_count > 0:
         warnings.append("align_to_broker_should_review_open_order_backlog_first")
 
+    already_aligned = (
+        open_order_count == 0
+        and bool(comparison.get("positions_match"))
+        and bool(_balance_match(cash_gap))
+        and bool(_balance_match(total_asset_gap))
+    )
     recommended_action = "do_not_apply_automatically"
+    operator_approval_required = True
     next_action = "review_open_order_backlog_then_decide_alignment"
-    if sync_allowed and sync_fix_snapshot_gap and open_order_count == 0:
+    reason = (
+        "Position mismatch is closed, but cash gap remains and broker open order backlog is present. "
+        "A baseline-changing command should not be applied automatically."
+    )
+    if already_aligned:
+        recommended_action = "keep_current_alignment"
+        operator_approval_required = False
+        next_action = "no_cash_gap_action_required"
+        reason = (
+            "Position, effective cash, total asset, and open order backlog are already aligned. "
+            "No SyncInitialCash or AlignToBroker action is required now."
+        )
+    elif sync_allowed and sync_fix_snapshot_gap and open_order_count == 0:
         next_action = "operator_may_run_sync_initial_cash_then_reconcile"
+        reason = (
+            "Position mismatch and open order backlog are closed, and SyncInitialCash would be enough "
+            "to satisfy the current cash check."
+        )
     elif alignment_allowed and open_order_count == 0:
         next_action = "operator_may_run_align_to_broker_after_audit_note"
+        reason = (
+            "Position mismatch and open order backlog are closed, but SyncInitialCash alone would not "
+            "fix the current snapshot gap. Marker-only alignment is the remaining baseline candidate."
+        )
 
     return {
         "generated_at": generated_at or _now_iso(),
@@ -269,11 +296,8 @@ def build_cash_gap_analysis(
         "recommendation": {
             "recommended_action": recommended_action,
             "next_action": next_action,
-            "operator_approval_required_for_mutation": True,
-            "reason": (
-                "Position mismatch is closed, but cash gap remains and broker open order backlog is present. "
-                "A baseline-changing command should not be applied automatically."
-            ),
+            "operator_approval_required_for_mutation": operator_approval_required,
+            "reason": reason,
         },
         "warnings": warnings,
     }

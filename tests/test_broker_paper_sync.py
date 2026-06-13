@@ -321,6 +321,216 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(str(latest_order["status"]), "expired")
         self.assertEqual(str(latest_status["status"]), "expired")
 
+    def test_sync_expires_prior_day_order_missing_from_broker_lookback(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        sync_time = datetime.fromisoformat("2026-04-18T09:30:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=sync_time):
+                with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=[]):
+                    result = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
+            latest_status = sqlite_store.fetch_latest_row("broker_paper_order_status_snapshots", "synced_at")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.open_order_count, 0)
+        self.assertEqual(result.final_order_count, 1)
+        self.assertEqual(result.pending_symbols, [])
+        self.assertIsNotNone(latest_order)
+        self.assertIsNotNone(latest_status)
+        self.assertEqual(str(latest_order["status"]), "expired")
+        self.assertEqual(str(latest_status["status"]), "expired")
+        self.assertFalse(bool(latest_status["matched"]))
+
+    def test_sync_preserves_previous_final_status_when_broker_lookback_drops_row(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        first_sync_time = datetime.fromisoformat("2026-04-17T10:20:00+09:00")
+        second_sync_time = datetime.fromisoformat("2026-04-18T09:30:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="filled",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            writer.write_broker_order_status_snapshot(
+                BrokerOrderStatusSnapshot(
+                    sync_id="broker-sync-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    synced_at=first_sync_time,
+                    order_date="20260417",
+                    side="buy",
+                    order_qty=3,
+                    filled_qty=3,
+                    remaining_qty=0,
+                    avg_fill_price=70100.0,
+                    status="filled",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    reject_qty=0,
+                    cancel_confirm_qty=0,
+                    cancel_yn=False,
+                    matched=True,
+                    applied_fill_qty=3,
+                    detail={"status": "filled"},
+                )
+            )
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=second_sync_time):
+                with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=[]):
+                    result = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
+            latest_status = sqlite_store.fetch_latest_row("broker_paper_order_status_snapshots", "synced_at")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.open_order_count, 0)
+        self.assertEqual(result.final_order_count, 1)
+        self.assertEqual(result.applied_fill_events, 0)
+        self.assertIsNotNone(latest_order)
+        self.assertIsNotNone(latest_status)
+        self.assertEqual(str(latest_order["status"]), "filled")
+        self.assertEqual(str(latest_status["status"]), "filled")
+        self.assertEqual(int(latest_status["applied_fill_qty"]), 3)
+
+    def test_sync_preserves_previous_rejected_status_when_broker_lookback_drops_row(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        first_sync_time = datetime.fromisoformat("2026-04-17T10:20:00+09:00")
+        second_sync_time = datetime.fromisoformat("2026-04-18T09:30:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="rejected",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            writer.write_broker_order_status_snapshot(
+                BrokerOrderStatusSnapshot(
+                    sync_id="broker-sync-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    synced_at=first_sync_time,
+                    order_date="20260417",
+                    side="buy",
+                    order_qty=3,
+                    filled_qty=0,
+                    remaining_qty=3,
+                    avg_fill_price=0.0,
+                    status="rejected",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    reject_qty=3,
+                    cancel_confirm_qty=0,
+                    cancel_yn=False,
+                    matched=True,
+                    applied_fill_qty=0,
+                    detail={"status": "rejected"},
+                )
+            )
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=second_sync_time):
+                with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=[]):
+                    result = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
+            latest_status = sqlite_store.fetch_latest_row("broker_paper_order_status_snapshots", "synced_at")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.open_order_count, 0)
+        self.assertEqual(result.final_order_count, 1)
+        self.assertIsNotNone(latest_order)
+        self.assertIsNotNone(latest_status)
+        self.assertEqual(str(latest_order["status"]), "rejected")
+        self.assertEqual(str(latest_status["status"]), "rejected")
+
     def test_rate_limited_sync_counts_prior_day_open_snapshot_as_final(self) -> None:
         root, env = self._prepare_runtime()
         event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")

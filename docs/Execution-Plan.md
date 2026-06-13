@@ -110,6 +110,8 @@ git status --short --branch
 - 실제 브로커 계좌 스냅샷과 local paper 상태가 일치할 때만 alignment를 고려한다.
 - mismatch가 다음 거래일 장후까지 이어지거나 1회 cooldown 뒤에도 close fill 회수가 안 되면 P0 운영 blocker로 격상한다.
 - mismatch가 남아 있는 동안에는 paper 손익과 모델 성과를 확정값처럼 해석하지 않는다.
+- 2026-06-14 이후에는 KIS lookback 에서 사라진 주문이 이전 final/applied fill 상태를 잃고 `pending_lookup`으로 되돌아가지 않는지도 함께 본다.
+- 최신 alignment marker 이후 현재 view 의 open order 가 0건이면, marker 이전 legacy row 는 현재 blocker 로 보지 않고 보존 원장으로 분리한다.
 
 ### 이유
 
@@ -132,6 +134,7 @@ git status --short --branch
 
 - 최신 `latest-sync.json`이 `ok`, `no_submissions`, 또는 이유가 명확한 `rate_limited` 상태다.
 - 최신 `latest-paper-dual-account-match.json`의 mismatch가 없거나, 남은 mismatch에 원장 원인이 붙어 있다.
+- 최신 `latest-open-order-backlog-analysis.json` 기준 현재 view open order 가 0건이거나, 남은 open row 의 이유가 종목/주문별로 붙어 있다.
 - 대시보드 계좌 탭에 현재 상태와 이유가 통화 단위로 표시된다.
 - `scripts/trace_paper_kis_mismatch.py`가 종목별 최신 local order, broker submission, broker status snapshot을 read-only 리포트로 남긴다.
 
@@ -209,6 +212,8 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - 성공 후보는 비용 `0.13%` 반영 뒤 순손익 개선, coverage 구간 내 위치, 전체 fold 중 최소 `2/3` 이상 개선을 동시에 만족해야 한다.
    - 최신 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json` 기준 target skip `0.3665`는 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`로 구조적 손실 축소 후보를 지지한다.
    - 단, 필터 뒤 kept net 도 아직 음수이므로 이 결과는 `buy-avoid shadow 지속` 근거이지 모델 승격, gate 변경, 주문 정책 변경 근거가 아니다.
+   - 여기서 `baseline net`은 실제 runtime baseline 모델의 매수 판단 결과가 아니라 Cybos LightGBM 이 만든 proxy 매수 후보 집합의 비용 차감 손익이다.
+   - 따라서 이 결과는 `LightGBM이 runtime baseline의 나쁜 매수를 막았다`가 아니라 `LightGBM이 자기 proxy 매수 후보 중 하락 위험이 높은 row 를 자체 필터링했더니 손실이 줄었다`로만 해석한다.
 7. Cybos regime 분해는 새 모델을 만들기 전 진단으로만 쓴다.
    - 최신 `runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json` 기준 고변동 구간은 정확도 `0.467210`, buy signal net `-435.709195%p`로 가장 약하고, reference skip `0.3665`의 buy-avoid delta 는 `+220.787918%p`다.
    - 기존 `latest-walk-forward-extreme-fold-regimes-h15`는 gate reference 의 극단 fold 분석이고, Cybos regime report 는 5년 proxy fold 진단이라 중복 리포트가 아니라 범위가 다르다.
@@ -254,6 +259,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
   - 연구용 지표가 실제 수익률처럼 오해될 수 있다.
   - dashboard 문구에서 `연구용`, `단순합산`, `실제 체결 아님`을 계속 표시한다.
   - Cybos proxy baseline 을 runtime baseline 으로 오해하지 않도록 report metadata 와 테스트로 잠근다.
+  - Cybos buy-avoid 12/12 fold 개선은 self-filter proxy 결과로만 해석하고, runtime baseline 개선 근거로 단정하지 않는다.
 
 ### 완료 기준
 
