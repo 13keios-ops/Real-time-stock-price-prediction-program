@@ -196,6 +196,12 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - KIS live 고유 거래일이 최소 `30거래일` 이상이다.
    - buy-avoid shadow 관측이 최소 `10거래일` 이상 쌓였다.
    - baseline 매수 허용 신호와 LightGBM shadow 예측이 같은 종목/시각으로 충분히 연결되어, 회피/미회피 표본을 비교할 수 있다.
+   - 연결 표본 충분성은 아래 숫자를 모두 만족해야 `충분`으로 본다.
+     - `matched_buy_shadow_rows`: baseline 매수 허용 신호와 LightGBM h15 shadow 예측, 닫힌 h15 label 이 같은 `symbol/event_time`으로 연결된 행이 최소 `1,000`건 이상.
+     - `matched_trade_days`: 연결 표본이 있는 거래일이 최소 `10거래일`이고, 그중 최소 `8거래일`은 일별 연결 표본이 `50`건 이상.
+     - `matched_symbols`: 연결 표본이 있는 종목이 최소 `5`종목이고, 각 종목별 연결 표본이 `50`건 이상.
+     - `avoid_candidate_rows`: 기준 down threshold `0.40`에서 매수 회피 후보가 최소 `200`건 이상이고, 최소 `5거래일`에 걸쳐 분포.
+   - 위 조건 중 하나라도 부족하면 모델 실패로 단정하지 않고 `표본 부족`으로 분류해 관측을 연장한다.
 6. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
 7. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 8. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.

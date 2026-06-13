@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> buy-avoid shadow 연결 표본 충분성 기준 고정
+
+- 사용자 지시:
+  - cowork가 지적한 `baseline 매수 허용 신호와 LightGBM shadow 예측 연결 표본이 충분할 것`의 숫자 기준 부재를 확인하고 보강한다.
+- 시작 상태:
+  - KST 2026-06-14 00:00, 일요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `docs/Execution-Plan.md`에 buy-avoid shadow 10거래일 관측 뒤 연결 표본 충분성 기준을 숫자로 추가했다.
+  - 기준은 연결 표본 `1,000`건 이상, 연결 표본 거래일 `10거래일` 이상, 그중 `8거래일`은 일별 `50`건 이상, 종목 `5`개 이상과 종목별 `50`건 이상, down threshold `0.40` 회피 후보 `200`건 이상 및 `5거래일` 이상 분포다.
+  - `docs/Production-Transition-Progress.md`에도 같은 기준을 요약 반영했다.
+  - cowork 전달용 `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-1.md`를 작성했다.
+  - 조건 부족 시 성능 실패가 아니라 `표본 부족`으로 보고 관측을 연장한다고 명시했다.
+- 검증:
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - 코드, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-13] Codex -> 모델개선 트랙 순서 보정
 
 - 사용자 지시:
