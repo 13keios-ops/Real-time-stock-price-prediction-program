@@ -20,27 +20,28 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-12 23:25 KST
-- 현재 런타임: `post-close`
+- 마지막 갱신: 2026-06-13 13:35 KST
+- 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
-- runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`.
+- runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review_ver_3.md`
+  `docs/cowork-reports/2026-06-12-repo-goal-and-direction-deep-review-review_ver_17.md`
 - 최신 통합 리포트:
-  `docs/cowork-reports/2026-05-23-production-architecture-implementation-blueprint-work_ver_16.md`
+  확인 필요: 2026-06 deep review 반영 통합본은 아직 별도 `work_ver_18`로 생성하지 않았다.
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
-  기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`.
-  단, `generated_at=2026-05-28T05:12:29+09:00`라 현재 freshness 증거로는 만료 상태이며
-  Phase 1b/Phase 2 통과 증거로 재사용하지 않는다.
+  기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
+  `generated_at=2026-06-13T13:34:06+09:00`.
+  token/account/system_clock/ws_synthetic/dashboard/database evidence는 최신 freshness 기준을 통과했다.
+  `market_status`와 `kill_switch`는 Phase 1a read-only에서 비차단 관측 실패로 남는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-12T23:02:16+09:00`.
+  기준 `generated_at=2026-06-13T13:33:09+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
-  기준 `generated_at=2026-06-11 08:20:02 +0900`, `status=ok`.
+  기준 `generated_at=2026-06-13 13:33:34 +0900`, `status=ok`.
 - 최신 장후 ML maintenance:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`
   기준 `completed_at=2026-06-11 16:10:08 +0900`, `status=ok`, `mode=quick-live-train`.
@@ -89,9 +90,11 @@
   따라서 현재 권장안은 `buy-avoid 후보 유지`, `early-exit 적용 보류`다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
-  기준 mismatch `5`종목 모두 `close_order_fill_unknown_due_rate_limit` 후보로 분류됐다.
+  기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
+  `005380`, `035420`, `247540`, `373220`이다.
   2026-06-12 15:07~15:08 청산 주문이 local/broker 모두 submitted 상태이고
-  broker order-fill 회수가 `EGW00201`로 막힌 상태라 자동 alignment로 덮지 않는다.
+  broker order-fill 회수가 `EGW00201` 또는 장외 재시도 응답 지연으로 막힌 상태라
+  자동 alignment로 덮지 않는다.
 - 최신 gate walk-forward 극단 fold 요약:
   `runtime-data/reports/backtests/latest-walk-forward-extreme-folds-h15.json`
   기준 fold `118`개 중 정확도 `0.20` 미만 fold가 `3`개 있으며
@@ -109,13 +112,14 @@
   수집 누락 보완이 아니라 데이터 다양성/장세 다양성 확보 목적의 후보 검토이며,
   Phase 2 실전 canary 종목 수나 주문 한도 확대와 연결하지 않는다.
 - 최신 paper/KIS 정합성:
-  `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
+  최신 `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
   기준 `status=needs_review`.
-  브로커는 `247540` 4주, 로컬은 `247540` 4주와 `373220` 1주가 남아
-  `373220` local-only mismatch가 남아 있다.
+  브로커는 보유 0이고 로컬은 `005380` 1주, `035420` 2주, `247540` 4주,
+  `373220` 1주가 남아 있다.
 - 최신 broker paper sync:
   `runtime-data/reports/broker-paper/latest-sync.json`
   기준 `status=rate_limited`, KIS `EGW00201`, open order 5건.
+  2026-06-13 장외 1회 재시도는 2분 안에 완료되지 않아 Codex가 시작한 프로세스만 정리했다.
 - 최신 forced NAS backup:
   `/mnt/backup/repos/real-time-stock-price-prediction-program/recovery-exports/real-time-stock-price-prediction-program-recovery-20260528-224455.tar.gz`
   (`5558128973` bytes).
@@ -149,8 +153,10 @@
     2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은 별도 추적한다.
   - broker paper sync 최신 리포트는 KIS `EGW00201` rate limit 으로
     `status=rate_limited`, open order 5건이다.
-  - dual-account match 최신 리포트는 `status=needs_review`이고,
-    `373220` 1주가 local-only position 으로 남아 있다.
+  - 최신 paper-account sync 기준 브로커는 보유 0이고 로컬은
+    `005380`, `035420`, `247540`, `373220` 4종목이 local-only position 으로 남아 있다.
+  - `trace_paper_kis_mismatch.py`는 최신 `paper-account-sync` mismatch 목록을
+    우선 기준으로 쓰도록 보강됐고, 현재 trace 기준 mismatch source 는 `paper_account_sync`다.
   - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
     30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 재호출하지 않고
     `cooldown_active=true`, `skipped_broker_call=true`를 남기도록 보강했다.
@@ -318,17 +324,20 @@
   - Phase 2 논의보다 먼저 alpha 연구 스프린트를 진행한다.
   - 우선순위는 피처 확장, 라벨 분포/보합 폭 재검토, LightGBM calibration 이다.
 
-### broker paper sync rate-limit / 373220 mismatch
+### broker paper sync rate-limit / local-only mismatch
 
 - 상태: 진행 중
 - 현재 판단:
   - 최신 broker paper sync 는 KIS `EGW00201`로 `rate_limited`다.
-  - 최신 dual-account match 는 `373220` 1주 local-only mismatch 때문에 `needs_review`다.
+  - 최신 paper-account sync 는 `005380`, `035420`, `247540`, `373220`
+    4종목 local-only mismatch 때문에 `needs_review`다.
   - 2026-06-11 보강은 같은 KIS order-fill endpoint 반복 호출을 줄이는 1차 방어이며,
-    373220 mismatch 자체를 자동으로 덮지 않는다.
+    local-only mismatch 자체를 자동으로 덮지 않는다.
+  - 2026-06-13 장외 1회 broker paper sync 재시도는 2분 안에 끝나지 않아
+    Codex가 시작한 프로세스만 정리했다.
 - 다음 작업:
   - rate-limit 이 풀린 뒤 order-fill 상태를 1회 확인한다.
-  - 브로커 계좌와 local paper 의 `373220` 원장 차이를 주문/체결/강제청산 흐름으로 추적한다.
+  - 브로커 계좌와 local paper 의 4종목 원장 차이를 주문/체결/강제청산 흐름으로 추적한다.
 - 권장안:
   - mismatch 는 marker-only alignment 로 덮기 전에 원장 원인을 먼저 확인한다.
 
@@ -337,14 +346,14 @@
 - 상태: 진행 중
 - 현재 판단:
   - `python -m app --build-dashboard`는 정상 통과하고 최신 snapshot도 생성된다.
-  - `start_dashboard_background.sh`와 `start_runtime_watchdog_background.sh`는 시작 JSON을 내지만,
-    현재 Codex/WSL 호출 환경에서는 후속 상태가 `stale`로 돌아온다.
-  - stderr/stdout 로그에는 최신 traceback이 없어 앱 예외보다는 백그라운드 프로세스 유지 방식 문제로 본다.
+  - 2026-06-13 장외 복구 후 dashboard 와 runtime watchdog 은 모두 `running`이고,
+    dashboard/API 응답과 watchdog heartbeat fresh 를 확인했다.
+  - 단, 정규장 중 장시간 유지 증거는 아직 다음 실제 거래일 장중 실측이 필요하다.
 - 다음 작업:
-  - Windows 작업 스케줄러/재부팅 자동 시작 경로와 Codex 수동 호출 경로를 분리해 검증한다.
-  - 필요한 경우 `scripts/wsl_ops.py`의 daemon 시작/상태 확인 방식을 보강한다.
+  - 다음 실제 거래일 정규장 중 dashboard/API 응답과 watchdog heartbeat가 10분 이내로 유지되는지 read-only로 확인한다.
+  - 재부팅 자동 시작 경로와 Codex 수동 호출 경로의 차이는 계속 분리해서 본다.
 - 권장안:
-  - 장중 전에는 dashboard/watchdog 장시간 유지 확인을 별도 운영 blocker로 다룬다.
+  - 장외 수동 복구는 완료로 보고, 장중 장시간 유지 확인만 별도 운영 blocker로 남긴다.
 
 ### read-only 구조적 차단
 

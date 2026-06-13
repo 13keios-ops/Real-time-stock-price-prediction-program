@@ -1,5 +1,46 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> 장외 정합성/Phase 1a readiness 마무리
+
+- 사용자 지시:
+  - 장외에 해야 할 작업들을 모두 마무리한다.
+- 시작 상태:
+  - KST 2026-06-13 13:14, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=stale`, process not running.
+  - `./scripts/get_dashboard_status.sh`: `status=stale`, port not bound.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - KIS 모의계좌 order-fill sync를 cooldown 이후 장외 1회 재시도했지만 2분 안에 완료되지 않아, Codex가 시작한 sync 프로세스만 정리했다. 같은 endpoint 반복 호출은 하지 않았다.
+  - `python3 -m app --reconcile-paper-accounts`는 정상 완료했고 최신 브로커 계좌 snapshot은 보유 0, 로컬 장부는 `005380` 1주, `035420` 2주, `247540` 4주, `373220` 1주가 남아 `needs_review`다.
+  - `scripts/trace_paper_kis_mismatch.py`가 최신 `paper-account-sync` mismatch 목록을 우선 기준으로 쓰고, 없을 때만 `dual-account-match`로 fallback 하도록 보강했다.
+  - `tests/test_paper_kis_mismatch_trace.py`를 추가해 stale dual report가 최신 account sync mismatch에 섞이지 않도록 잠갔다.
+  - 최신 mismatch trace는 `mismatch_source_report=paper_account_sync`, mismatch `4`종목으로 갱신됐다.
+  - dashboard와 runtime watchdog를 장외 기준으로 재기동했다. live runtime은 주말이라 켜지지 않은 상태가 정상이다.
+  - `python3 -m app --build-runtime-report`는 2분 timeout 뒤에도 프로세스가 계속 실행됐고, 추가 대기 중 종료됐다.
+  - `python3 -m app --build-dashboard`로 dashboard snapshot을 `2026-06-13T13:33:09+09:00` 기준으로 갱신했다.
+  - `./scripts/run_codex_ops_job.sh --job-type premarket-readiness --dry-run`을 다시 실행해 `status=ok`, warnings 없음으로 갱신했다.
+  - token refresh cache, KIS paper account snapshot, KIS HTTP Date 기반 system clock, synthetic WS recovery evidence를 최신화했다.
+  - `latest-fixture-snapshot.json`, `latest-phase1a-readiness.json`, `latest-readiness.json`을 `phase1a_paper_readonly`, `status=ok`로 갱신했다. `market_status`와 `kill_switch`는 Phase 1a read-only에서 비차단 관측 실패로 남는다.
+  - `docs/Current-Implementation.md`와 `docs/Production-Transition-Progress.md`를 최신 동작과 상태에 맞춰 갱신했다.
+- 검증:
+  - `python3 -m py_compile scripts/trace_paper_kis_mismatch.py tests/test_paper_kis_mismatch_trace.py`: 통과.
+  - `python3 -m unittest tests.test_paper_kis_mismatch_trace -q`: 2개 통과.
+  - `python3 scripts/trace_paper_kis_mismatch.py`: 통과.
+  - `python3 -m app --reconcile-paper-accounts`: 통과, `needs_review` 유지.
+  - `python3 -m app --build-dashboard`: 통과.
+  - `./scripts/run_live_readiness_dry_run.sh --phase phase1a_paper_readonly ...`: 통과.
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -q`: 384개 통과.
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+- 남은 작업:
+  - 다음 실제 거래일 정규장 중 dashboard/watchdog heartbeat 장시간 유지 여부를 read-only로 확인한다.
+  - 다음 거래일 장후 broker order-fill 회수와 `EGW00201` 재발 여부를 다시 본다.
+  - 4종목 local-only mismatch는 order/fill 감사가 복구되기 전까지 marker-only alignment로 덮지 않는다.
+
 ## [2026-06-13] Codex -> review_ver_17 비판적 반영과 원장 추적 리포트
 
 - 사용자 지시:

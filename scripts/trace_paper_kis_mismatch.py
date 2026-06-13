@@ -199,19 +199,41 @@ def _query_symbol_rows(
     return [dict(row) for row in rows]
 
 
-def _mismatch_rows(*reports: dict[str, Any]) -> list[dict[str, Any]]:
+def _comparison_mismatch_rows(report: dict[str, Any]) -> list[dict[str, Any]] | None:
+    comparison = report.get("comparison") if isinstance(report, dict) else None
+    if not isinstance(comparison, dict):
+        return None
+    rows = comparison.get("mismatch_rows")
+    if rows is None and comparison.get("status") not in {None, "ok", "matched_waiting_first_submission"}:
+        rows = comparison.get("position_rows")
+    if rows is None:
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _dedupe_mismatch_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: dict[str, dict[str, Any]] = {}
-    for report in reports:
-        comparison = report.get("comparison") if isinstance(report, dict) else None
-        if not isinstance(comparison, dict):
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip()
+        if not symbol:
             continue
-        for row in comparison.get("mismatch_rows") or comparison.get("position_rows") or []:
-            symbol = str(row.get("symbol") or "").strip()
-            if not symbol:
-                continue
-            existing = seen.setdefault(symbol, {"symbol": symbol})
-            existing.update(row)
+        existing = seen.setdefault(symbol, {"symbol": symbol})
+        existing.update(row)
     return list(seen.values())
+
+
+def _select_mismatch_rows(
+    *,
+    dual_match: dict[str, Any],
+    account_sync: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str]:
+    account_rows = _comparison_mismatch_rows(account_sync)
+    if account_rows is not None:
+        return _dedupe_mismatch_rows(account_rows), "paper_account_sync"
+    dual_rows = _comparison_mismatch_rows(dual_match)
+    if dual_rows is not None:
+        return _dedupe_mismatch_rows(dual_rows), "dual_account_match"
+    return [], "none"
 
 
 def _broker_sync_summary(report: dict[str, Any]) -> dict[str, Any]:
@@ -282,7 +304,7 @@ def build_trace_report(
     dual_match = _read_json(dual_match_path)
     account_sync = _read_json(account_sync_path)
     broker_sync = _read_json(broker_sync_path)
-    mismatches = _mismatch_rows(dual_match, account_sync)
+    mismatches, mismatch_source = _select_mismatch_rows(dual_match=dual_match, account_sync=account_sync)
     symbols = [str(row["symbol"]) for row in mismatches]
     report: dict[str, Any] = {
         "generated_at": _utc_now_iso(),
@@ -294,6 +316,7 @@ def build_trace_report(
         },
         "dual_account_status": dual_match.get("status") or dual_match.get("comparison", {}).get("status"),
         "paper_account_sync_status": account_sync.get("comparison", {}).get("status"),
+        "mismatch_source_report": mismatch_source,
         "broker_sync": _broker_sync_summary(broker_sync),
         "mismatch_count": len(symbols),
         "mismatch_rows": mismatches,
@@ -368,6 +391,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- assessment: `{report.get('assessment', {}).get('status')}`",
         f"- summary: {report.get('assessment', {}).get('summary')}",
         f"- mismatch_count: `{report.get('mismatch_count')}`",
+        f"- mismatch_source_report: `{report.get('mismatch_source_report')}`",
         f"- dual_account_status: `{report.get('dual_account_status')}`",
         f"- paper_account_sync_status: `{report.get('paper_account_sync_status')}`",
         f"- broker_sync_status: `{report.get('broker_sync', {}).get('status')}`",
