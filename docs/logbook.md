@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> Cybos 5년 buy-avoid proxy / regime 진단
+
+- 사용자 지시:
+  - cowork가 제안한 Cybos 5년 buy-avoid proxy 와 regime 분해가 도움이 되는지 확인하고, 조급하게 축소하지 말고 꼼꼼하게 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 00:17, 일요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - 기존 `latest-walk-forward-extreme-fold-regimes-h15` 리포트를 먼저 확인해 중복 여부를 봤다.
+  - 기존 리포트는 gate reference 극단 fold 원인 진단이고, 이번 작업은 Cybos 5년 proxy fold 기준 buy-avoid 구조 검증이라 범위가 다름을 확인했다.
+  - `scripts/summarize_cybos_buy_avoid_proxy.py`를 추가했다.
+  - 이 스크립트는 기존 Cybos `bar_context_momentum` LightGBM 프로파일과 기존 walk-forward 샘플링 구조를 재사용하고, KIS `down_threshold=0.40`을 직접 옮기지 않고 skip-rate coverage 로 비교한다.
+  - `tests/test_cybos_buy_avoid_proxy.py`를 추가해 threshold 산정, fold 일관성, 하락확률 높은 매수 후보 회피 계산을 검증했다.
+  - 1차 실행에서 설정 기본 비용 `0.108%`가 적용된 것을 확인하고, Cybos 연구 기준과 맞게 기본 비용을 `0.13%`로 보정한 뒤 전체 12 fold 를 다시 실행했다.
+  - `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.{json,md}`와 `latest-cybos-regime-performance-h15.{json,md}`를 생성했다.
+  - `docs/Execution-Plan.md`, `docs/Current-Implementation.md`, `docs/Production-Transition-Progress.md`에 결과와 해석 한계를 반영했다.
+- 결과:
+  - Cybos buy-avoid proxy 는 비용 `0.13%` 기준 target skip `0.3665`에서 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`였다.
+  - target skip `0.30`, `0.3665`, `0.40`, `0.50`은 모두 follow-up candidate proxy 로 기록됐다.
+  - 단, kept net 도 여전히 음수라 모델 승격, gate 변경, paper/live 주문 정책 변경 근거는 아니다.
+  - regime 진단 기준 high-vol 구간은 accuracy `0.467210`, buy signal net `-435.709195%p`로 가장 취약했고, reference buy-avoid delta 는 `+220.787918%p`였다.
+- 검증:
+  - `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py`: 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy -q`: 3개 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q`: 5개 통과.
+  - `python -m unittest discover -s tests -p 'test_*.py' -q`: 389개 통과.
+  - `git diff --check`: 통과. 기존 문서 CRLF 변환 경고만 출력.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> buy-avoid shadow 연결 표본 충분성 기준 고정
 
 - 사용자 지시:

@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-13 23:55 KST
+- 마지막 갱신: 2026-06-14 01:40 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -29,7 +29,7 @@
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합 리포트:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_20.md`
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-2.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
@@ -52,9 +52,11 @@
   `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
   기준 latest trade date `2026-06-12`, `assessment.status=ok`.
 - 최신 검증:
+  `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py` 통과,
+  `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 5개 통과,
   `python -m unittest tests.test_runtime_scope` 4개 통과,
   `python -m unittest tests.test_dashboard -q` 23개 통과,
-  `python -m unittest discover -s tests -p "test_*.py"` 385개 통과,
+  `python -m unittest discover -s tests -p "test_*.py" -q` 389개 통과,
   `git diff --check` 통과.
 - 최신 challenger:
   `runtime-data/reports/challengers/latest-challengers-h15.json`
@@ -94,6 +96,23 @@
   2026-06-13 cowork 보정 기준으로 새 모델 학습 실험은 보류하고,
   기존 LightGBM shadow 예측과 baseline 매수 허용 신호를 이용한 buy-avoid shadow 를
   최소 2주 또는 10거래일 이상 축적한 뒤 재검증한다.
+- 최신 Cybos buy-avoid proxy:
+  `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`
+  기준 `generated_at=2026-06-14T01:38:54+09:00`, `source=cybos-historical`,
+  `feature_set=bar_context_momentum`, `trade_cost_pct=0.13`,
+  `decision=follow_up_candidate_proxy_only`.
+  KIS `down_threshold=0.40` 수치는 직접 옮기지 않고 skip-rate coverage 로 비교했다.
+  KIS shadow 회피율에 맞춘 target skip `0.3665`는 실제 skip `0.3617`,
+  baseline net `-538.040362%p`, kept net `-170.325157%p`,
+  net 개선 `+367.715205%p`, 개선 fold `12/12`다.
+  이 결과는 buy-avoid 구조가 Cybos 5년치에서도 손실 축소 후보라는 근거지만,
+  kept net 이 여전히 음수이므로 모델 승격, gate 변경, paper/live 주문 정책 변경 근거가 아니다.
+- 최신 Cybos regime performance 진단:
+  `runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json`
+  기준 고변동 구간은 accuracy `0.467210`, buy signal net `-435.709195%p`,
+  reference buy-avoid delta `+220.787918%p`로 가장 취약했다.
+  이 리포트는 기존 `latest-walk-forward-extreme-fold-regimes-h15`의 gate 극단 fold 분석과 달리
+  Cybos 5년 proxy fold 를 범위로 하며, 새 regime별 모델을 만들기 전 원인 후보를 좁히는 진단이다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 mismatch source 는 `paper_account_sync`이고 mismatch 는 `4`종목
@@ -344,6 +363,9 @@
     `three_class_accuracy=0.416342`, gate `needs_review`다.
   - LightGBM buy-signal diagnostics 는 threshold `0.40~0.80` 전 구간에서
     비용 차감 순수익률이 양수가 아니었다.
+  - 2026-06-14 Cybos 5년 buy-avoid proxy 는 target skip `0.3665`에서
+    12/12 fold 개선을 보여 KIS buy-avoid shadow 지속 근거를 보강했다.
+    단, kept net 도 음수이므로 실전/paper 주문 정책 변경이나 모델 승격 근거는 아니다.
 - 다음 작업:
   - 새 모델 학습 실험을 즉시 늘리지 않는다.
   - 기존 LightGBM shadow serving 예측과 baseline 매수 허용 신호를 이용해

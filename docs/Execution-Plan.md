@@ -202,13 +202,24 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
      - `matched_symbols`: 연결 표본이 있는 종목이 최소 `5`종목이고, 각 종목별 연결 표본이 `50`건 이상.
      - `avoid_candidate_rows`: 기준 down threshold `0.40`에서 매수 회피 후보가 최소 `200`건 이상이고, 최소 `5거래일`에 걸쳐 분포.
    - 위 조건 중 하나라도 부족하면 모델 실패로 단정하지 않고 `표본 부족`으로 분류해 관측을 연장한다.
-6. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
-7. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
-8. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-9. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
-10. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-11. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
-12. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+6. Cybos 5년 buy-avoid proxy 는 KIS shadow 를 대체하지 않는 장외 보조 진단으로만 쓴다.
+   - KIS `down_threshold=0.40` 수치를 Cybos 로 직접 옮기지 않는다.
+   - Cybos 에서는 `bar_context_momentum` 기반 하락확률을 사용하되, threshold 는 skip-rate coverage 로 맞춘다.
+   - 실용 coverage 는 `20~50%`, KIS shadow 비교 중심 구간은 `30~40%`다.
+   - 성공 후보는 비용 `0.13%` 반영 뒤 순손익 개선, coverage 구간 내 위치, 전체 fold 중 최소 `2/3` 이상 개선을 동시에 만족해야 한다.
+   - 최신 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json` 기준 target skip `0.3665`는 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`로 구조적 손실 축소 후보를 지지한다.
+   - 단, 필터 뒤 kept net 도 아직 음수이므로 이 결과는 `buy-avoid shadow 지속` 근거이지 모델 승격, gate 변경, 주문 정책 변경 근거가 아니다.
+7. Cybos regime 분해는 새 모델을 만들기 전 진단으로만 쓴다.
+   - 최신 `runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json` 기준 고변동 구간은 정확도 `0.467210`, buy signal net `-435.709195%p`로 가장 약하고, reference skip `0.3665`의 buy-avoid delta 는 `+220.787918%p`다.
+   - 기존 `latest-walk-forward-extreme-fold-regimes-h15`는 gate reference 의 극단 fold 분석이고, Cybos regime report 는 5년 proxy fold 진단이라 중복 리포트가 아니라 범위가 다르다.
+   - regime별 모델 분리나 보합 전용 모델은 이 진단과 KIS live shadow / walk-forward 재검증을 함께 본 뒤 결정한다.
+8. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
+9. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
+10. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
+11. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+12. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+13. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+14. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
@@ -247,7 +258,10 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `runtime-data/reports/challengers/`,
 `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15`,
 `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`,
-`python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`
+`python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`,
+`scripts/summarize_cybos_buy_avoid_proxy.py`,
+`runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`,
+`runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json`
 
 ## 8. 4단계: 하락/회피 신호 방어적 활용 검증
 
