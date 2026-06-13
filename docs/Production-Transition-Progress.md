@@ -20,16 +20,16 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-13 16:45 KST
+- 마지막 갱신: 2026-06-13 17:35 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_18.md`
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_19.md`
 - 최신 통합 리포트:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_18.md`
+  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_19.md`
 - 최신 Phase readiness:
   `runtime-data/reports/live-readiness/latest-readiness.json`
   기준 `phase1a_paper_readonly`, `status=ok`, `source=fixture-dry-run`,
@@ -53,6 +53,7 @@
   기준 latest trade date `2026-06-12`, `assessment.status=ok`.
 - 최신 검증:
   `python -m unittest tests.test_runtime_scope` 4개 통과,
+  `python -m unittest tests.test_dashboard -q` 23개 통과,
   `python -m unittest discover -s tests -p "test_*.py"` 385개 통과,
   `git diff --check` 통과.
 - 최신 challenger:
@@ -126,6 +127,11 @@
   raw KIS 이벤트는 들어오지만 `curated_minute_bars`가 멈춘 상황을 격리 DB에서 재현했다.
   dashboard용 curated scope는 최신 raw minute를 자동 포함하지 않으므로, 분봉 생성기 지연은
   `최근 분봉 시각` stale과 data-quality raw coverage를 분리해서 해석해야 한다.
+- dashboard bar builder lag 경고 노출:
+  `tests/test_dashboard.py::DashboardTests.test_status_alerts_warn_when_regular_session_minute_bars_are_stale`를 추가해,
+  live runtime 이 `running`이고 KIS session 이 `regular-session`인데 `latest_market_bar`가 stale이면
+  dashboard status alert에 `실시간 분봉 갱신이 지연되고 있습니다` warning 이 노출되는지 잠갔다.
+  따라서 review_ver_19의 장외 P1-A는 테스트 기준으로 닫혔다.
 - 최신 paper/KIS 정합성:
   최신 `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
   기준 `status=needs_review`.
@@ -366,6 +372,8 @@
   - `python -m app --build-dashboard`는 정상 통과하고 최신 snapshot도 생성된다.
   - 2026-06-13 장외 복구 후 dashboard 와 runtime watchdog 은 모두 `running`이고,
     dashboard/API 응답과 watchdog heartbeat fresh 를 확인했다.
+  - 정규장 중 `latest_market_bar` stale 은 dashboard warning 으로 노출되는지
+    `tests/test_dashboard.py`에서 회귀 잠금했다.
   - 단, 정규장 중 장시간 유지 증거는 아직 다음 실제 거래일 장중 실측이 필요하다.
 - 다음 작업:
   - 다음 실제 거래일 정규장 중 dashboard/API 응답과 watchdog heartbeat가 10분 이내로 유지되는지 read-only로 확인한다.

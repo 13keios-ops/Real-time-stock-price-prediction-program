@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-06-13] Codex -> review_ver_19 P1-A dashboard stale 경고 검증
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_19.md`를 확인하고 조치한다.
+- 시작 상태:
+  - KST 2026-06-13 17:29, 토요일 `weekend`.
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `session_status=weekend`, `trading_mode=paper`.
+  - `./scripts/get_runtime_watchdog_status.sh`: `status=running`, `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
+  - `./scripts/get_dashboard_status.sh`: dashboard 와 API가 `http://127.0.0.1:8765`에서 응답 중.
+  - 작업트리는 `tests/test_dashboard.py` 수정분과 cowork `review_ver_19.md`, Codex `work_ver_19.md` 초안이 있었다.
+- 조치:
+  - cowork review_ver_19가 새로 지적한 P1-A, 즉 `curated_minute_bars` 지연이 dashboard 경고로 실제 노출되는지 확인했다.
+  - 운영 코드에는 이미 live runtime `running` + KIS `regular-session` + `latest_market_bar` stale 조합에서 `실시간 분봉 갱신이 지연되고 있습니다` warning 을 만드는 경로가 있었다.
+  - `tests/test_dashboard.py::DashboardTests.test_status_alerts_warn_when_regular_session_minute_bars_are_stale`를 추가해 이 동작을 회귀 잠금했다.
+  - cowork 전달용 `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-work_ver_19.md`를 작성했다.
+  - `docs/Current-Implementation.md`와 `docs/Production-Transition-Progress.md`에 P1-A 조치 결과와 최신 cowork 기준을 반영했다.
+- 검증:
+  - `python -m unittest tests.test_dashboard -q`: 23개 통과.
+  - `git diff --check`: 통과.
+- 금지/안전:
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 실전 주문/취소 없음.
+  - NAS 백업 실행 없음.
+- 남은 작업:
+  - 다음 실제 거래일 장중 watchdog heartbeat 10분 이내 유지 여부를 read-only로 확인한다.
+  - 다음 거래일 장후 `EGW00201` 재발 여부와 4종목 mismatch 체결 상태를 확인한다.
+
 ## [2026-06-13] Codex -> review_ver_18 반영과 work_ver_18 통합본
 
 - 사용자 지시:

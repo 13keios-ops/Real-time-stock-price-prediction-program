@@ -16,6 +16,7 @@ from app.services.dashboard import (
     _build_account_sync_status,
     _build_paper_fill_return_summary,
     _build_signal_replay_summary,
+    _build_status_alerts,
     _challenger_decision_label,
     _prediction_flow_view,
     build_dashboard_snapshot,
@@ -30,6 +31,31 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class DashboardTests(unittest.TestCase):
+    def test_status_alerts_warn_when_regular_session_minute_bars_are_stale(self) -> None:
+        alerts = _build_status_alerts(
+            live_runtime_state={"status": "running", "process_running": True},
+            latest_kis_verification={"session_status": "regular-session", "ok": True},
+            freshness={
+                "latest_market_bar": {"state": "stale", "note": "23분 전 업데이트"},
+                "latest_prediction": {"state": "fresh"},
+                "latest_kis_verification": {"state": "fresh"},
+                "latest_training": {"state": "fresh"},
+                "latest_evaluation": {"state": "fresh"},
+            },
+            runtime_summary={"predictions": 0, "training_runs": 1, "evaluations": 1},
+            latest_training={"completed_at": "2026-06-13T16:00:00+09:00"},
+            latest_evaluation={"evaluated_at": "2026-06-13T16:00:00+09:00"},
+        )
+
+        self.assertTrue(
+            any(
+                alert.get("level") == "warning"
+                and alert.get("title") == "실시간 분봉 갱신이 지연되고 있습니다"
+                and "23분 전 업데이트" in str(alert.get("message"))
+                for alert in alerts
+            )
+        )
+
     def test_challenger_decision_label_distinguishes_eligibility_from_promotion(self) -> None:
         report = {
             "recommended_action": "keep_active",

@@ -117,6 +117,7 @@ python -m app --build-dashboard
   영향 범위는 dashboard payload 수집, runtime scope 생성, SQLite raw count helper 의 기간 조건에 한정된다.
   회귀 위험은 dashboard 의 raw tick 총량 숫자가 scope 기반 직접 집계 대신 data-quality 카드 중심 해석으로 분리되는 점이며, raw coverage 판단은 `latest-kis-live-data-quality.json`을 기준으로 계속 확인한다.
 - `tests/test_runtime_scope.py`는 raw KIS 이벤트가 더 최신인데 `curated_minute_bars`만 멈춘 상황을 별도로 재현한다. 이 회귀 테스트는 분봉 생성 지연을 raw 수집 중단으로 오해하지 않도록, dashboard scope와 data-quality raw coverage의 역할 분리를 잠근다.
+- `tests/test_dashboard.py`는 정규장 중 live runtime 이 실행 중인데 `latest_market_bar`가 stale 인 상황에서 dashboard status alert에 `실시간 분봉 갱신이 지연되고 있습니다` warning 이 노출되는지 잠근다. 이 테스트는 bar builder lag가 silent하게 지나가지 않도록 하는 운영 화면 회귀 잠금이다.
 - 머신러닝 현황 탭의 `장후 자동 학습 상태` 카드는 post-close maintenance 상태, snapshot DB, snapshot runtime, stdout/stderr 로그 경로를 보여준다.
 - 머신러닝 현황 탭의 `장후 label refresh 상태` 카드는 quick maintenance 뒤 live DB에서 feature/label rebuild 와 진단/대시보드 갱신을 수행한 최신 상태를 보여준다.
 - 머신러닝 현황 탭의 `게이트 기준 워크포워드` 카드는 정본 저장소의 승격 게이트가 실제로 참조하는 `runtime-data/reports/backtests/latest-walk-forward-h15.json`의 시점, 학습창, fold 수, 수익률, 설정 점검 상태를 post-close snapshot 산출물과 분리해서 보여준다.
