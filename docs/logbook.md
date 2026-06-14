@@ -1,5 +1,43 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> Cybos buy-rescue precision review
+
+- 사용자 지시:
+  - buy-rescue 를 무작정 버리거나 손실 회피 설계만 보강하지 말고, 상승 rescue 신호를 어떻게 볼지 검토하고 장외에 가능한 작업을 바로 진행한다.
+- 시작 상태:
+  - KST 2026-06-14 21시대, 일요일 `weekend`.
+  - live runtime 은 정지 상태가 정상이고, runtime watchdog/dashboard 는 실행 중이었다.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `scripts/summarize_cybos_buy_avoid_proxy.py`에 buy-rescue precision review 를 추가했다.
+  - 기존 wide rescue grid `0.05`, `0.10`, `0.20`, `0.30`은 유지하고, 정밀 grid `0.001`, `0.0025`, `0.005`, `0.01`, `0.02`, `0.03`, `0.05`를 별도 `buy_rescue_precision_target_summaries`로 기록한다.
+  - rescue 후보마다 거래당 평균 총수익, 거래당 평균 순수익, 비용 드래그, 비용 대비 초과 수익을 기록하도록 보강했다.
+  - `tests/test_cybos_buy_avoid_proxy.py`에 비용 드래그 판정과 rare high-conviction candidate 판정 테스트를 추가했다.
+  - full 12 fold Cybos report 를 재생성했다.
+- 결과:
+  - 최신 `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json` 기준 `generated_at=2026-06-14T22:02:31+09:00`, decision 은 `buy_avoid_candidate_only`다.
+  - 정밀 rescue `0.001` target 은 rescued trade `727`건, 거래당 평균 총수익 `0.005543%`, 거래당 평균 순수익 `-0.124457%`로 비용 `0.13%`를 넘지 못했다.
+  - 정밀 rescue `0.01` target 도 거래당 평균 총수익 `0.047194%`, 거래당 평균 순수익 `-0.082806%`로 비용을 넘지 못했다.
+  - 따라서 현재 buy-rescue 는 `넓게 잡아서 실패`가 아니라 `가장 강한 상승 후보도 비용을 이길 증거가 부족`으로 해석한다.
+  - KIS live 에 buy-rescue shadow 를 추가하지 않고, buy-avoid shadow 순차 관측을 유지한다.
+- 검증:
+  - `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py`: 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy -q`: 15개 통과.
+  - `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q`: 17개 통과.
+  - `python scripts/summarize_cybos_buy_avoid_proxy.py --horizon-min 15 --feature-set-name bar_context_momentum --trade-cost-pct 0.13 --walk-forward-max-folds 1 --output-dir .tmp-tests/cybos-rescue-precision-smoke`: 통과.
+  - `python scripts/summarize_cybos_buy_avoid_proxy.py --horizon-min 15 --feature-set-name bar_context_momentum --trade-cost-pct 0.13`: 통과, full 12 fold.
+  - `python -m unittest discover -s tests -p "test_*.py" -q`: 412개 통과.
+  - `git diff --check`: 통과. CRLF/LF 경고만 확인.
+- 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+  - 변경 전: buy-rescue 실패가 넓은 5~30% rescue grid 때문인지, 상승 신호 자체가 약한지 분리하기 어려웠다.
+  - 변경 후: 0.1~5% 정밀 rescue 구간까지 비용 드래그와 거래당 손익을 분해해서 확인한다.
+  - 영향 범위: Cybos 연구 리포트 생성 스크립트, 관련 단위 테스트, 문서 기록.
+  - 회귀 위험: Cybos proxy 는 실제 runtime baseline replay 가 아니므로, 결과가 좋아도 KIS live shadow 와 주문 정책으로 바로 연결하면 안 된다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> broker paper open order backlog 해소
 
 - 사용자 지시:

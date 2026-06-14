@@ -162,6 +162,9 @@ class CybosBuyAvoidProxyTests(unittest.TestCase):
         self.assertEqual(result["no_buy_candidates"], 2)
         self.assertEqual(target["rescued_trades"], 1)
         self.assertAlmostEqual(target["rescued_net_return_pct"], 0.5)
+        self.assertAlmostEqual(target["rescued_avg_gross_return_pct"], 0.6)
+        self.assertAlmostEqual(target["rescued_avg_net_return_pct"], 0.5)
+        self.assertAlmostEqual(target["gross_minus_cost_per_trade_pct"], 0.5)
         self.assertGreater(target["net_improvement_pct"], 0.0)
 
     def test_rescue_summary_requires_sample_size_before_followup_candidate(self) -> None:
@@ -210,6 +213,71 @@ class CybosBuyAvoidProxyTests(unittest.TestCase):
         self.assertEqual(summary["rescued_trades"], 600)
         self.assertAlmostEqual(summary["nonnegative_net_fold_share"], 1.0)
         self.assertEqual(summary["conclusion"], "follow_up_candidate_proxy_only")
+
+    def test_precision_rescue_summary_marks_cost_drag_when_gross_does_not_cover_cost(self) -> None:
+        fold_summaries = []
+        for _ in range(2):
+            fold_summaries.append(
+                {
+                    "buy_rescue_precision_targets": [
+                        {
+                            "target_rescue_rate": 0.02,
+                            "no_buy_candidates": 10000,
+                            "rescued_trades": 100,
+                            "untouched_candidates": 9900,
+                            "actual_rescue_rate": 0.02,
+                            "trade_cost_pct": 0.13,
+                            "rescued_gross_return_pct": 5.0,
+                            "rescued_net_return_pct": -8.0,
+                            "rescued_cost_drag_pct": 13.0,
+                        }
+                    ]
+                }
+            )
+
+        summary = summarize_rescue_targets(
+            fold_summaries,
+            target_key="buy_rescue_precision_targets",
+            precision=True,
+        )[0]
+
+        self.assertEqual(summary["rescued_trades"], 200)
+        self.assertAlmostEqual(summary["rescued_avg_gross_return_pct"], 0.05)
+        self.assertAlmostEqual(summary["rescued_avg_net_return_pct"], -0.08)
+        self.assertAlmostEqual(summary["gross_minus_cost_per_trade_pct"], -0.08)
+        self.assertEqual(summary["conclusion"], "diagnostic_only_cost_drag")
+
+    def test_precision_rescue_summary_can_mark_rare_high_conviction_candidate(self) -> None:
+        fold_summaries = []
+        for _ in range(6):
+            fold_summaries.append(
+                {
+                    "buy_rescue_precision_targets": [
+                        {
+                            "target_rescue_rate": 0.01,
+                            "no_buy_candidates": 10000,
+                            "rescued_trades": 20,
+                            "untouched_candidates": 9980,
+                            "actual_rescue_rate": 0.01,
+                            "trade_cost_pct": 0.13,
+                            "rescued_gross_return_pct": 5.0,
+                            "rescued_net_return_pct": 2.4,
+                            "rescued_cost_drag_pct": 2.6,
+                        }
+                    ]
+                }
+            )
+
+        summary = summarize_rescue_targets(
+            fold_summaries,
+            target_key="buy_rescue_precision_targets",
+            precision=True,
+        )[0]
+
+        self.assertEqual(summary["rescued_trades"], 120)
+        self.assertAlmostEqual(summary["rescued_avg_net_return_pct"], 0.12)
+        self.assertAlmostEqual(summary["nonnegative_net_fold_share"], 1.0)
+        self.assertEqual(summary["conclusion"], "precision_follow_up_candidate_proxy_only")
 
     def test_hold_rescue_extends_position_when_up_probability_stays_high(self) -> None:
         result = _simulate_hold_rescue_lifecycle(

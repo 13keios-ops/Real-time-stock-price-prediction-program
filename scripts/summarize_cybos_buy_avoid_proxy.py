@@ -44,12 +44,17 @@ from app.utils.time import now_local
 
 DEFAULT_TARGET_SKIP_RATES = (0.20, 0.30, 0.3665, 0.40, 0.50)
 DEFAULT_TARGET_RESCUE_RATES = (0.05, 0.10, 0.20, 0.30)
+DEFAULT_PRECISION_TARGET_RESCUE_RATES = (0.001, 0.0025, 0.005, 0.01, 0.02, 0.03, 0.05)
 COMPARABLE_SKIP_RATE_MIN = 0.20
 COMPARABLE_SKIP_RATE_MAX = 0.50
 COMPARABLE_RESCUE_RATE_MIN = 0.05
 COMPARABLE_RESCUE_RATE_MAX = 0.30
+PRECISION_RESCUE_RATE_MIN = 0.001
+PRECISION_RESCUE_RATE_MAX = 0.05
 FOLLOW_UP_FOLD_SHARE_MIN = 2 / 3
 BUY_RESCUE_MIN_TRADES = 500
+BUY_RESCUE_PRECISION_MIN_TRADES = 100
+BUY_RESCUE_PRECISION_MIN_NET_PER_TRADE_PCT = 0.03
 FOLD_CONCENTRATION_MAX_SHARE = 0.50
 RUNTIME_BASELINE_REQUIRED_FEATURES = ("return_1m_pct", "bid_ask_imbalance", "spread_bps")
 
@@ -272,8 +277,26 @@ def _buy_rescue_fold_result(
                 "rescued_trades": rescued_metrics.trades,
                 "untouched_candidates": len(untouched),
                 "actual_rescue_rate": actual_rescue_rate,
+                "trade_cost_pct": float(trade_cost_pct),
                 "rescued_gross_return_pct": rescued_metrics.gross_return_pct,
                 "rescued_net_return_pct": rescued_metrics.net_return_pct,
+                "rescued_cost_drag_pct": rescued_metrics.trades * trade_cost_pct,
+                "rescued_avg_gross_return_pct": (
+                    rescued_metrics.gross_return_pct / rescued_metrics.trades
+                    if rescued_metrics.trades
+                    else 0.0
+                ),
+                "rescued_avg_net_return_pct": (
+                    rescued_metrics.net_return_pct / rescued_metrics.trades
+                    if rescued_metrics.trades
+                    else 0.0
+                ),
+                "required_gross_per_trade_pct": float(trade_cost_pct),
+                "gross_minus_cost_per_trade_pct": (
+                    (rescued_metrics.gross_return_pct / rescued_metrics.trades) - trade_cost_pct
+                    if rescued_metrics.trades
+                    else 0.0
+                ),
                 "rescued_hit_rate": rescued_metrics.hit_rate,
                 "rescued_win_rate": rescued_metrics.win_rate,
                 "net_improvement_pct": rescued_metrics.net_return_pct,
@@ -396,6 +419,31 @@ def _buy_rescue_conclusion(summary: dict[str, Any]) -> str:
     return "follow_up_candidate_proxy_only"
 
 
+def _buy_rescue_precision_conclusion(summary: dict[str, Any]) -> str:
+    if (
+        _int(summary.get("eligible_folds")) <= 0
+        or _int(summary.get("rescued_trades")) < BUY_RESCUE_PRECISION_MIN_TRADES
+    ):
+        return "sample_insufficient"
+    rescue_rate = _float(summary.get("actual_rescue_rate"))
+    if rescue_rate < PRECISION_RESCUE_RATE_MIN or rescue_rate > PRECISION_RESCUE_RATE_MAX:
+        return "coverage_out_of_bounds"
+    if _float(summary.get("rescued_avg_net_return_pct")) < BUY_RESCUE_PRECISION_MIN_NET_PER_TRADE_PCT:
+        if (
+            _float(summary.get("rescued_avg_gross_return_pct")) > 0.0
+            and _float(summary.get("gross_minus_cost_per_trade_pct")) <= 0.0
+        ):
+            return "diagnostic_only_cost_drag"
+        if _float(summary.get("rescued_net_return_pct")) <= 0.0:
+            return "diagnostic_only_negative_net"
+        return "diagnostic_only_low_net_per_trade"
+    if _float(summary.get("nonnegative_net_fold_share")) < FOLLOW_UP_FOLD_SHARE_MIN:
+        return "average_positive_but_fold_inconsistent"
+    if _float(summary.get("max_positive_fold_net_share")) > FOLD_CONCENTRATION_MAX_SHARE:
+        return "fold_concentration_risk"
+    return "precision_follow_up_candidate_proxy_only"
+
+
 def summarize_skip_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_target: dict[float, list[dict[str, Any]]] = defaultdict(list)
     for fold in fold_summaries:
@@ -437,10 +485,15 @@ def summarize_skip_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[st
     return summaries
 
 
-def summarize_rescue_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_rescue_targets(
+    fold_summaries: list[dict[str, Any]],
+    *,
+    target_key: str = "buy_rescue_targets",
+    precision: bool = False,
+) -> list[dict[str, Any]]:
     by_target: dict[float, list[dict[str, Any]]] = defaultdict(list)
     for fold in fold_summaries:
-        for row in fold.get("buy_rescue_targets", []):
+        for row in fold.get(target_key, []):
             if isinstance(row, dict):
                 by_target[round(_float(row.get("target_rescue_rate")), 6)].append(row)
 
@@ -451,6 +504,10 @@ def summarize_rescue_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[
         rescued_trades = sum(_int(row.get("rescued_trades")) for row in rows)
         rescued_net = sum(_float(row.get("rescued_net_return_pct")) for row in rows)
         rescued_gross = sum(_float(row.get("rescued_gross_return_pct")) for row in rows)
+        rescued_cost_drag = sum(_float(row.get("rescued_cost_drag_pct")) for row in rows)
+        avg_gross_per_trade = rescued_gross / rescued_trades if rescued_trades else 0.0
+        avg_net_per_trade = rescued_net / rescued_trades if rescued_trades else 0.0
+        representative_trade_cost = _float(rows[0].get("trade_cost_pct")) if rows else 0.0
         positive_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) > 0.0)
         nonnegative_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) >= 0.0)
         negative_folds = sum(1 for row in eligible if _float(row.get("rescued_net_return_pct")) < 0.0)
@@ -474,6 +531,11 @@ def summarize_rescue_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[
             "actual_rescue_rate": (rescued_trades / no_buy_candidates) if no_buy_candidates else 0.0,
             "rescued_gross_return_pct": rescued_gross,
             "rescued_net_return_pct": rescued_net,
+            "rescued_cost_drag_pct": rescued_cost_drag,
+            "rescued_avg_gross_return_pct": avg_gross_per_trade,
+            "rescued_avg_net_return_pct": avg_net_per_trade,
+            "required_gross_per_trade_pct": representative_trade_cost,
+            "gross_minus_cost_per_trade_pct": avg_gross_per_trade - representative_trade_cost,
             "net_improvement_pct": rescued_net,
             "positive_net_folds": positive_folds,
             "nonnegative_net_folds": nonnegative_folds,
@@ -481,12 +543,21 @@ def summarize_rescue_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[
             "positive_net_fold_share": (positive_folds / len(eligible)) if eligible else 0.0,
             "nonnegative_net_fold_share": (nonnegative_folds / len(eligible)) if eligible else 0.0,
             "max_positive_fold_net_share": max_positive_fold_net_share,
-            "coverage_band": f"{COMPARABLE_RESCUE_RATE_MIN:.2f}..{COMPARABLE_RESCUE_RATE_MAX:.2f}",
-            "min_rescued_trades": BUY_RESCUE_MIN_TRADES,
+            "coverage_band": (
+                f"{PRECISION_RESCUE_RATE_MIN:.4f}..{PRECISION_RESCUE_RATE_MAX:.4f}"
+                if precision
+                else f"{COMPARABLE_RESCUE_RATE_MIN:.2f}..{COMPARABLE_RESCUE_RATE_MAX:.2f}"
+            ),
+            "min_rescued_trades": BUY_RESCUE_PRECISION_MIN_TRADES if precision else BUY_RESCUE_MIN_TRADES,
+            "min_avg_net_return_per_trade_pct": (
+                BUY_RESCUE_PRECISION_MIN_NET_PER_TRADE_PCT if precision else None
+            ),
             "fold_consistency_min_share": FOLLOW_UP_FOLD_SHARE_MIN,
             "fold_concentration_max_share": FOLD_CONCENTRATION_MAX_SHARE,
         }
-        summary["conclusion"] = _buy_rescue_conclusion(summary)
+        summary["conclusion"] = (
+            _buy_rescue_precision_conclusion(summary) if precision else _buy_rescue_conclusion(summary)
+        )
         summaries.append(summary)
     return summaries
 
@@ -621,6 +692,7 @@ def build_reports(
     calibration_rows: int,
     target_skip_rates: tuple[float, ...],
     target_rescue_rates: tuple[float, ...],
+    precision_target_rescue_rates: tuple[float, ...],
     reference_skip_rate: float,
     trade_cost_pct: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -712,6 +784,13 @@ def build_reports(
             buy_threshold=buy_threshold,
             trade_cost_pct=effective_trade_cost_pct,
         )
+        buy_rescue_precision = _buy_rescue_fold_result(
+            scored_calibration=scored_calibration,
+            scored_test=scored_test,
+            target_rescue_rates=precision_target_rescue_rates,
+            buy_threshold=buy_threshold,
+            trade_cost_pct=effective_trade_cost_pct,
+        )
         scored_metrics = _fold_scored_metrics(
             scored_test,
             settings=settings,
@@ -737,6 +816,7 @@ def build_reports(
                     "no_buy_candidates": buy_rescue["no_buy_candidates"],
                 },
                 "buy_rescue_targets": buy_rescue["target_results"],
+                "buy_rescue_precision_targets": buy_rescue_precision["target_results"],
                 **scored_metrics,
             }
         )
@@ -751,6 +831,11 @@ def build_reports(
 
     target_summaries = summarize_skip_targets(fold_summaries)
     rescue_summaries = summarize_rescue_targets(fold_summaries)
+    rescue_precision_summaries = summarize_rescue_targets(
+        fold_summaries,
+        target_key="buy_rescue_precision_targets",
+        precision=True,
+    )
     thresholds = _regime_thresholds(fold_summaries)
     regime_folds: list[dict[str, Any]] = []
     for fold in fold_summaries:
@@ -793,6 +878,7 @@ def build_reports(
             "calibration_rows": calibration_rows,
             "target_skip_rates": list(target_skip_rates),
             "target_rescue_rates": list(target_rescue_rates),
+            "precision_target_rescue_rates": list(precision_target_rescue_rates),
             "coverage_band": [COMPARABLE_SKIP_RATE_MIN, COMPARABLE_SKIP_RATE_MAX],
             "follow_up_fold_share_min": FOLLOW_UP_FOLD_SHARE_MIN,
         },
@@ -834,8 +920,11 @@ def build_reports(
                 "sample_insufficient",
                 "coverage_out_of_bounds",
                 "diagnostic_only_negative_net",
+                "diagnostic_only_cost_drag",
+                "diagnostic_only_low_net_per_trade",
                 "average_positive_but_fold_inconsistent",
                 "fold_concentration_risk",
+                "precision_follow_up_candidate_proxy_only",
             ],
         },
         "baseline_candidate_policy_name": "lightgbm_self_filter_buy_avoid_proxy",
@@ -853,6 +942,19 @@ def build_reports(
             "target_rescue_rates": list(target_rescue_rates),
             "minimum_rescued_trades": BUY_RESCUE_MIN_TRADES,
             "coverage_band": [COMPARABLE_RESCUE_RATE_MIN, COMPARABLE_RESCUE_RATE_MAX],
+        },
+        "buy_rescue_precision_definition": {
+            "experiment_mode": runtime_baseline_replay.get("recommended_experiment_mode"),
+            "candidate_pool": "same proxy no-buy pool as buy_rescue_definition",
+            "action": "virtually buy only rare high-conviction probability_up candidates",
+            "target_rescue_rates": list(precision_target_rescue_rates),
+            "minimum_rescued_trades": BUY_RESCUE_PRECISION_MIN_TRADES,
+            "coverage_band": [PRECISION_RESCUE_RATE_MIN, PRECISION_RESCUE_RATE_MAX],
+            "min_avg_net_return_per_trade_pct": BUY_RESCUE_PRECISION_MIN_NET_PER_TRADE_PCT,
+            "interpretation": (
+                "This answers whether buy-rescue failed only because the previous 5-30% grid was too broad. "
+                "Passing this section still creates a KIS shadow design candidate only, not an order-policy change."
+            ),
         },
         "hold_rescue_lifecycle_spec": {
             "status": "not_executed_in_this_report",
@@ -875,12 +977,14 @@ def build_reports(
             "calibration_rows": calibration_rows,
             "target_skip_rates": list(target_skip_rates),
             "target_rescue_rates": list(target_rescue_rates),
+            "precision_target_rescue_rates": list(precision_target_rescue_rates),
         },
         "dataset": buy_avoid_report["dataset"],
         "buy_avoid_target_summaries": target_summaries,
         "buy_rescue_target_summaries": rescue_summaries,
+        "buy_rescue_precision_target_summaries": rescue_precision_summaries,
         "fold_summaries": fold_summaries,
-        "decision": _overall_rescue_decision(target_summaries, rescue_summaries),
+        "decision": _overall_rescue_decision(target_summaries, rescue_summaries, rescue_precision_summaries),
     }
     regime_report = {
         "review": "cybos_regime_performance_diagnostic",
@@ -955,6 +1059,7 @@ def _overall_buy_avoid_decision(target_summaries: list[dict[str, Any]]) -> dict[
 def _overall_rescue_decision(
     target_summaries: list[dict[str, Any]],
     rescue_summaries: list[dict[str, Any]],
+    rescue_precision_summaries: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     avoid_candidates = [row for row in target_summaries if row.get("conclusion") == "follow_up_candidate_proxy_only"]
     rescue_candidates = [
@@ -962,6 +1067,29 @@ def _overall_rescue_decision(
         for row in rescue_summaries
         if row.get("conclusion") == "follow_up_candidate_proxy_only"
     ]
+    precision_candidates = [
+        row
+        for row in (rescue_precision_summaries or [])
+        if row.get("conclusion") == "precision_follow_up_candidate_proxy_only"
+    ]
+    if avoid_candidates and precision_candidates:
+        best_precision = max(
+            precision_candidates,
+            key=lambda row: (
+                _float(row.get("rescued_avg_net_return_pct")),
+                _float(row.get("rescued_net_return_pct")),
+                _float(row.get("nonnegative_net_fold_share")),
+            ),
+        )
+        return {
+            "status": "buy_avoid_and_precision_buy_rescue_proxy_candidates",
+            "recommended_action": (
+                "Keep KIS buy-avoid shadow sequential. Treat precision buy-rescue as a KIS no-trade logging "
+                "and shadow-design candidate only; do not change paper/live order policy."
+            ),
+            "best_buy_rescue_target_rate": best_precision.get("target_rescue_rate"),
+            "reason": "A rare high-conviction buy-rescue proxy passed the fixed precision criteria.",
+        }
     if avoid_candidates and rescue_candidates:
         best_rescue = max(
             rescue_candidates,
@@ -996,6 +1124,20 @@ def _overall_rescue_decision(
             ),
             "best_buy_rescue_target_rate": best_rescue.get("target_rescue_rate"),
             "reason": "Only the secondary exploratory hypothesis passed.",
+        }
+    if precision_candidates:
+        best_precision = max(
+            precision_candidates,
+            key=lambda row: _float(row.get("rescued_avg_net_return_pct")),
+        )
+        return {
+            "status": "precision_buy_rescue_proxy_candidate_only",
+            "recommended_action": (
+                "Do not add KIS live buy-rescue yet. Review why buy-avoid did not pass and require KIS "
+                "no-trade decision logging before any shadow expansion."
+            ),
+            "best_buy_rescue_target_rate": best_precision.get("target_rescue_rate"),
+            "reason": "Only the rare high-conviction secondary exploratory hypothesis passed.",
         }
     return {
         "status": "diagnostic_only_no_rescue_candidate",
@@ -1109,8 +1251,8 @@ def render_rescue_markdown(report: dict[str, Any]) -> str:
             "",
             "## Buy-Rescue Summary",
             "",
-            "| target_rescue | actual_rescue | no_buy_candidates | rescued | rescued_net | nonnegative_fold_share | max_positive_fold_share | conclusion |",
-            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            "| target_rescue | actual_rescue | no_buy_candidates | rescued | avg_gross | avg_net | gross_minus_cost | rescued_net | nonnegative_fold_share | max_positive_fold_share | conclusion |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for row in report.get("buy_rescue_target_summaries", []):
@@ -1120,9 +1262,39 @@ def render_rescue_markdown(report: dict[str, Any]) -> str:
             f"{_float(row.get('actual_rescue_rate')):.4f} | "
             f"{_int(row.get('no_buy_candidates'))} | "
             f"{_int(row.get('rescued_trades'))} | "
+            f"{_float(row.get('rescued_avg_gross_return_pct')):.6f} | "
+            f"{_float(row.get('rescued_avg_net_return_pct')):.6f} | "
+            f"{_float(row.get('gross_minus_cost_per_trade_pct')):.6f} | "
             f"{_float(row.get('rescued_net_return_pct')):.6f} | "
             f"{_float(row.get('nonnegative_net_fold_share')):.4f} | "
             f"{_float(row.get('max_positive_fold_net_share')):.4f} | "
+            f"{row.get('conclusion')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Precision Buy-Rescue Review",
+            "",
+            "- Purpose: check whether the earlier 5-30% rescue grid was simply too broad.",
+            f"- Minimum average net return per rescued trade: `{BUY_RESCUE_PRECISION_MIN_NET_PER_TRADE_PCT:.4f}%`.",
+            "- Passing this section still means `proxy-only shadow design candidate`, not a trading change.",
+            "",
+            "| target_rescue | actual_rescue | no_buy_candidates | rescued | avg_gross | avg_net | gross_minus_cost | rescued_net | nonnegative_fold_share | conclusion |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for row in report.get("buy_rescue_precision_target_summaries", []):
+        lines.append(
+            "| "
+            f"{_float(row.get('target_rescue_rate')):.4f} | "
+            f"{_float(row.get('actual_rescue_rate')):.4f} | "
+            f"{_int(row.get('no_buy_candidates'))} | "
+            f"{_int(row.get('rescued_trades'))} | "
+            f"{_float(row.get('rescued_avg_gross_return_pct')):.6f} | "
+            f"{_float(row.get('rescued_avg_net_return_pct')):.6f} | "
+            f"{_float(row.get('gross_minus_cost_per_trade_pct')):.6f} | "
+            f"{_float(row.get('rescued_net_return_pct')):.6f} | "
+            f"{_float(row.get('nonnegative_net_fold_share')):.4f} | "
             f"{row.get('conclusion')} |"
         )
     hold_spec = report.get("hold_rescue_lifecycle_spec") or {}
@@ -1235,6 +1407,10 @@ def main() -> int:
     parser.add_argument("--calibration-rows", type=int, default=20_000)
     parser.add_argument("--target-skip-rates", default="0.20,0.30,0.3665,0.40,0.50")
     parser.add_argument("--target-rescue-rates", default="0.05,0.10,0.20,0.30")
+    parser.add_argument(
+        "--precision-target-rescue-rates",
+        default=",".join(str(value) for value in DEFAULT_PRECISION_TARGET_RESCUE_RATES),
+    )
     parser.add_argument("--reference-skip-rate", type=float, default=0.3665)
     parser.add_argument("--trade-cost-pct", type=float, default=CYBOS_PROFITABILITY_COST_PCT)
     parser.add_argument("--output-dir", default="runtime-data/reports/backtests")
@@ -1252,6 +1428,7 @@ def main() -> int:
         calibration_rows=args.calibration_rows,
         target_skip_rates=_parse_float_tuple(args.target_skip_rates),
         target_rescue_rates=_parse_float_tuple(args.target_rescue_rates),
+        precision_target_rescue_rates=_parse_float_tuple(args.precision_target_rescue_rates),
         reference_skip_rate=args.reference_skip_rate,
         trade_cost_pct=args.trade_cost_pct,
     )

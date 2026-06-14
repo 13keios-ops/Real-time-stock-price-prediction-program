@@ -20,7 +20,7 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 05:50 KST
+- 마지막 갱신: 2026-06-14 22:20 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
@@ -29,7 +29,7 @@
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
 - 최신 통합/후속 리포트:
-  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-9.md`
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-10.md`
 - 최신 Cybos rescue 실험 계획:
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
@@ -55,13 +55,14 @@
   기준 latest trade date `2026-06-12`, `assessment.status=ok`.
 - 최신 검증:
   `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py` 통과,
-  `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 15개 통과,
+  `python -m unittest tests.test_cybos_buy_avoid_proxy -q` 15개 통과,
+  `python -m unittest tests.test_cybos_buy_avoid_proxy tests.test_cybos_research_suite_summary tests.test_expected_value_stability -q` 17개 통과,
+  `python -m unittest discover -s tests -p "test_*.py" -q` 412개 통과,
   `python -m py_compile app/services/broker_paper_sync.py scripts/summarize_broker_order_backlog.py scripts/summarize_paper_cash_gap.py tests/test_broker_paper_sync.py tests/test_broker_order_backlog_analysis.py tests/test_paper_cash_gap_analysis.py` 통과,
   `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis -q` 19개 통과,
   `python -m unittest tests.test_broker_paper_sync tests.test_broker_order_backlog_analysis tests.test_paper_cash_gap_analysis tests.test_paper_reconciliation tests.test_paper_alignment tests.test_wsl_ops -q` 43개 통과,
   `python -m unittest tests.test_runtime_scope` 4개 통과,
   `python -m unittest tests.test_dashboard -q` 23개 통과,
-  `python -m unittest discover -s tests -p "test_*.py" -q` 410개 통과,
   `python -m app --build-dashboard` 통과,
   `git diff --check` 통과. CRLF/LF 경고만 확인.
 - 최신 challenger:
@@ -142,10 +143,15 @@
   `hold-rescue`는 포지션 lifecycle 이 달라 별도 설계와 synthetic test 이후에만 진행한다.
 - 최신 Cybos rescue full:
   `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
-  기준 `review=cybos_rescue_proxy`, `decision.status=buy_avoid_candidate_only`,
+  기준 `generated_at=2026-06-14T22:02:31+09:00`, `review=cybos_rescue_proxy`, `decision.status=buy_avoid_candidate_only`,
   `recommended_action=Keep KIS buy-avoid shadow running; do not add KIS buy-rescue shadow yet.`,
   `hold_rescue_lifecycle_spec.status=not_executed_in_this_report`다.
-  full 12 fold 실행 시간은 약 `1,723`초였으므로 잦은 재실행이 필요하면 성능 최적화를 먼저 검토한다.
+  기존 wide rescue target `0.05`, `0.10`, `0.20`, `0.30`은 모두 비용 반영 순손익이 음수다.
+  추가 정밀 rescue target `0.001`, `0.0025`, `0.005`, `0.01`, `0.02`, `0.03`, `0.05`도 모두 통과하지 못했다.
+  `0.001` target 은 rescued trade `727`건, 거래당 평균 총수익 `0.005543%`, 거래당 평균 순수익 `-0.124457%`,
+  `0.01` target 은 거래당 평균 총수익 `0.047194%`, 거래당 평균 순수익 `-0.082806%`로 비용 `0.13%`를 넘지 못했다.
+  따라서 buy-rescue 는 `넓게 잡아서 실패`가 아니라 `현재 상승 신호가 거래비용을 이길 만큼 강하지 않음`으로 본다.
+  full 12 fold 실행 시간은 약 `1,610`초였으므로 잦은 재실행이 필요하면 성능 최적화를 먼저 검토한다.
 - 최신 hold-rescue lifecycle 준비:
   2026-06-14 기준 `scripts/summarize_cybos_buy_avoid_proxy.py`에
   `_simulate_hold_rescue_lifecycle` synthetic helper 를 추가했다.

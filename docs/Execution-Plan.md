@@ -225,6 +225,9 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - `proxy_buy_rescue`는 no-buy pool 중 `probability_up` 상위 `0.05`, `0.10`, `0.20`, `0.30` coverage 를 고정 grid 로 계산하고, 결과는 `latest-cybos-rescue-proxy-h15.{json,md}`에 별도로 쓴다.
    - 2026-06-14 04:54 KST full 12 fold report 를 생성했다. `latest-cybos-rescue-proxy-h15.json` 기준 decision 은 `buy_avoid_candidate_only`다.
    - buy-rescue target `0.05`, `0.10`, `0.20`, `0.30` 모두 비용 `0.13%` 반영 뒤 rescued net 이 음수였고, fold `12/12` 모두 비음수 기준을 만족하지 못했다. 따라서 KIS live 에 buy-rescue shadow 를 추가하지 않는다.
+   - 2026-06-14 22:02 KST full 12 fold report 는 정밀 rescue grid `0.001`, `0.0025`, `0.005`, `0.01`, `0.02`, `0.03`, `0.05`도 추가했다. 이는 `buy-rescue`가 너무 넓게 잡혀 실패했는지 확인하는 검토다.
+   - 정밀 grid 도 모두 비용 드래그로 실패했다. 예를 들어 `0.001` target 은 rescued trade `727`건, 거래당 평균 총수익 `0.005543%`, 거래당 평균 순수익 `-0.124457%`이고, `0.01` target 은 거래당 평균 총수익 `0.047194%`, 순수익 `-0.082806%`다. 둘 다 비용 `0.13%`를 넘지 못한다.
+   - 따라서 현재 결론은 `손실 회피만 보자`가 아니라 `상승 rescue 신호는 아직 비용을 이길 정도로 강하지 않다`다. buy-rescue 는 폐기하지 않고, KIS live 비매수/차단 로그 가용성과 상승 후보 표본이 확보된 뒤 후순위로 재검토한다.
    - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
    - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않는다.
    - 2026-06-14 기준 `_simulate_hold_rescue_lifecycle` helper 와 synthetic tests 는 추가했다. 아직 Cybos full hold-rescue 결과 수익률은 계산하지 않는다.
