@@ -1,5 +1,39 @@
 # 작업 기록
 
+## [2026-06-14] Codex -> cowork review_ver_21 반영과 report 작성 규칙 보강
+
+- 사용자 지시:
+  - `2026-06-14-repo-goal-and-direction-deep-review-review_ver_21.md`를 확인하고 모두 진행한다.
+  - 작업 후 review/work MD에 결과만 남기지 말고 Codex 의견, 앞으로 방향, 계속 진행/보류 기준을 함께 남기도록 문서에 고정한다.
+- 시작 상태:
+  - KST 2026-06-14 23:29, 일요일 `weekend`.
+  - live runtime 은 정지 상태가 정상이고, runtime watchdog 은 running / heartbeat fresh 였다.
+  - 작업트리는 `review_ver_21.md`만 untracked 상태였다.
+- cowork review 반영:
+  - review_ver_21은 Step 0, Cybos buy-rescue wide/precision 결과, hold-rescue synthetic helper, paper/KIS mismatch 해소, open order backlog 해소, 전체 테스트 412개 통과를 대체로 정확하다고 판정했다.
+  - 남은 항목은 월요일 P0-4 장중 watchdog heartbeat 실측과 P0-broker 장후 EGW00201 재발 여부 확인이다.
+  - broker_paper_sync.py final-state 보존 경로는 타당하지만, 당일 open 주문을 조기 final 처리하지 않는지 월요일 실제 주문 발생 시 관찰이 필요하다고 정리했다.
+- 조치:
+  - `AGENTS.md`, `docs/Codex-Operating-Feedback.md`, `docs/cowork-reports/README.md`에 cowork `work_ver_*` report 작성 기준을 고정했다.
+  - `work_ver_*`에는 Codex 의견, 다음 방향, 계속 진행 기준, 보류 기준, 다음 cowork 리뷰 권장 시점을 포함하도록 했다.
+  - `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-10.md`에 `Codex 의견과 다음 방향` 섹션을 추가했다.
+  - `docs/Production-Transition-Progress.md`의 최신 cowork 기준을 review_ver_21로 갱신했다.
+  - `docs/Execution-Plan.md`에 월요일 P0-4/P0-broker 관찰 기준을 추가했다.
+- 다음 방향:
+  - 월요일 장중에는 watchdog heartbeat fresh 유지 증거를 남긴다.
+  - 월요일 장후에는 broker order-fill sync 의 EGW00201 재발 여부와 신규 final-state 보존 경로를 확인한다.
+  - 그 전에는 새 cowork 리뷰보다 Codex가 상태 증거를 모으는 것이 우선이다.
+- 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+  - 변경 전: 일부 work report 가 결과 중심으로 끝나 다음 방향과 Codex 판단을 빠뜨릴 수 있었다.
+  - 변경 후: work report 에 Codex 의견과 계속/보류 기준을 필수 구성으로 둔다.
+  - 영향 범위: 운영 문서와 cowork 전달 문서 규칙.
+  - 회귀 위험: 리포트가 길어질 수 있으므로, 핵심 판단과 다음 방향은 짧게 유지하고 상세 수치는 필요한 표만 둔다.
+- 금지/안전:
+  - 코드 변경 없음.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> Cybos buy-rescue precision review
 
 - 사용자 지시:

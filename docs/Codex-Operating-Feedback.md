@@ -42,6 +42,9 @@
   짧은 section과 bullet 중심으로 작성한다.
 - cowork 토큰이 부족한 기간에는 Codex가 가능한 단계까지 진행하고,
   꼭 필요한 질문이나 리뷰 지점에서만 전달용 report를 만든다.
+- cowork 전달용 `work_ver_*` report 는 결과 요약만 쓰지 않는다.
+  Codex의 비판적 의견, 앞으로 방향, 계속 진행할 조건,
+  보류할 조건, 다음 cowork 리뷰가 필요한 시점을 함께 적는다.
 
 관련 문서/코드 경로:
 `docs/Production-Architecture.md`,
@@ -124,9 +127,12 @@
 - 후보 상태: 강함
 - 대상:
   `work_ver_N`, `review_ver_N`, `work_ver_N-M` 파일명,
-  cowork 토큰 제약, 전달용 report 통합본 생성, 리뷰 반영 self-review.
+  cowork 토큰 제약, 전달용 report 통합본 생성, 리뷰 반영 self-review,
+  work report 안의 Codex 의견과 다음 방향 기록.
 - 이유:
   절차가 반복되고 파일명/버전 실수가 나면 협업 흐름이 끊긴다.
+- 추가 기준:
+  work report 에 `Codex 의견`, `다음 방향`, `계속/보류 기준`, `다음 cowork 리뷰 시점`이 없으면 미완성으로 본다.
 - 권장안:
   `docs/cowork-reports/README.md` 기준이 더 안정되면 skill로 승격한다.
 

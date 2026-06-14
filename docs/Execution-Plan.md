@@ -112,6 +112,10 @@ git status --short --branch
 - mismatch가 남아 있는 동안에는 paper 손익과 모델 성과를 확정값처럼 해석하지 않는다.
 - 2026-06-14 이후에는 KIS lookback 에서 사라진 주문이 이전 final/applied fill 상태를 잃고 `pending_lookup`으로 되돌아가지 않는지도 함께 본다.
 - 최신 alignment marker 이후 현재 view 의 open order 가 0건이면, marker 이전 legacy row 는 현재 blocker 로 보지 않고 보존 원장으로 분리한다.
+- 2026-06-14 cowork review_ver_21 기준으로, 4종목 position mismatch 와 open order backlog 는 현재 해소됐다.
+- 월요일 장중에는 watchdog heartbeat 가 10분 이내 fresh 로 유지되는지 P0-4 증거를 남긴다.
+- 월요일 장후에는 broker order-fill sync 에서 `EGW00201` rate limit 이 재발하는지 확인한다.
+- 당일 주문이 생긴 경우 `broker_paper_sync.py`의 final-state 보존 경로가 당일 open 주문을 조기 final 처리하지 않는지 주문일, 조회 성공 여부, rate-limit 여부를 함께 본다.
 
 ### 이유
 
@@ -135,6 +139,8 @@ git status --short --branch
 - 최신 `latest-sync.json`이 `ok`, `no_submissions`, 또는 이유가 명확한 `rate_limited` 상태다.
 - 최신 `latest-paper-dual-account-match.json`의 mismatch가 없거나, 남은 mismatch에 원장 원인이 붙어 있다.
 - 최신 `latest-open-order-backlog-analysis.json` 기준 현재 view open order 가 0건이거나, 남은 open row 의 이유가 종목/주문별로 붙어 있다.
+- 월요일 장후 order-fill sync 후 `EGW00201` 재발이 없거나, 재발해도 cooldown guard 가 pending 상태를 보존한 증거가 있다.
+- 월요일 장중 watchdog heartbeat 가 10분 이내 fresh 로 유지된 근거가 있다.
 - 대시보드 계좌 탭에 현재 상태와 이유가 통화 단위로 표시된다.
 - `scripts/trace_paper_kis_mismatch.py`가 종목별 최신 local order, broker submission, broker status snapshot을 read-only 리포트로 남긴다.
 

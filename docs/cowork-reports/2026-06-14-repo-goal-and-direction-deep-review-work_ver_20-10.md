@@ -169,3 +169,46 @@ git diff --check
 관련 문서/코드 경로:
 `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`,
 `docs/Production-Transition-Progress.md`
+
+## 8. Codex 의견과 다음 방향
+
+Codex 의견:
+
+- 이번 결과는 `buy-rescue 를 영구 폐기`가 아니라 `지금은 상승 rescue 보다 하락 회피 검증이 우선`이라는 뜻이다.
+- 제 판단으로는 현재 LightGBM은 상승 포착 모델이라기보다 손실 후보를 거르는 방어 필터 후보에 가깝다.
+- 따라서 당분간 성급하게 새 주문 시나리오를 늘리면 검증 축이 흐려지고, paper/KIS 정합성 관찰도 어려워진다.
+- 모델 연구는 계속하되, KIS live 에 붙는 shadow 는 buy-avoid 하나로 좁혀 10거래일을 채우는 편이 더 낫다.
+
+다음 방향:
+
+- 월요일 장중에는 P0-4, 즉 watchdog heartbeat 가 10분 이내로 유지되는지 실제 정규장 증거를 본다.
+- 월요일 장후에는 P0-broker, 즉 broker order-fill sync 에서 `EGW00201` rate limit 이 재발하는지 본다.
+- broker_paper_sync 의 새 final-state 보존 로직은 테스트로는 통과했지만, 실제 당일 주문이 생기는 날 조기 final 처리 없이 동작하는지 관찰한다.
+- 모델 쪽은 buy-avoid KIS live shadow 10거래일 누적을 먼저 끝낸다.
+- buy-rescue 는 `no-trade decision ledger`와 상승 후보 표본이 확보된 뒤 재검토한다.
+- hold-rescue 는 paper replay 또는 Cybos lifecycle 설계를 별도 작업으로 잡되, buy-avoid 관측을 방해하지 않는 장외 연구로만 진행한다.
+
+계속 진행 기준:
+
+- 장중 watchdog heartbeat 가 fresh 상태로 유지된다.
+- 장후 broker sync 가 `EGW00201` 없이 끝나거나, rate limit 이 나도 cooldown guard 로 상태가 보존된다.
+- buy-avoid shadow 가 최소 10거래일, 연결 표본 기준을 채운다.
+- 모델 후보가 비용 차감 후 양수 기대값과 기간 분리 재현성을 함께 보인다.
+
+보류 기준:
+
+- 정규장 중 live runtime/watchdog 이 stale 이 되거나, data quality 가 반복적으로 `needs_attention`으로 떨어진다.
+- 당일 주문이 KIS lookback 문제로 조기 final 처리되는 의심이 생긴다.
+- broker order-fill sync 에서 `EGW00201`이 재발하고 cooldown 뒤에도 상태 회수가 안 된다.
+- buy-avoid shadow 표본이 부족한데 새 rescue/hold 실험을 live shadow 로 늘리려는 경우.
+
+다음 cowork 리뷰 권장 시점:
+
+- 월요일 장후 P0-4와 P0-broker 증거가 생긴 뒤가 적절하다.
+- 그 전에는 새 cowork 리뷰보다 Codex가 장중/장후 상태 증거를 모으는 것이 낫다.
+
+관련 문서/코드 경로:
+`docs/Execution-Plan.md`,
+`docs/Production-Transition-Progress.md`,
+`runtime-data/reports/reconciliation/`,
+`runtime-data/reports/broker-paper/`

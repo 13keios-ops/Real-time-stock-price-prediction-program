@@ -20,16 +20,20 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 22:20 KST
+- 마지막 갱신: 2026-06-14 23:45 KST
 - 현재 런타임: `weekend`
 - live runtime: 정지 상태가 정상
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
 - 최신 cowork 기준:
-  `docs/cowork-reports/2026-06-13-repo-goal-and-direction-deep-review-review_ver_20.md`
+  `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-review_ver_21.md`
 - 최신 통합/후속 리포트:
   `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-work_ver_20-10.md`
+- 최신 cowork review_ver_21 판정:
+  2026-06-14 Codex 작업 주장-실제 일치율은 높음.
+  buy-rescue 는 wide/precision grid 모두 탈락했고 KIS live shadow 추가 없음이 타당하다.
+  broker mismatch 와 open order backlog 는 현재 해소됐지만, 월요일 장중/장후에 새 broker sync 경로와 EGW00201 재발 여부를 관찰해야 한다.
 - 최신 Cybos rescue 실험 계획:
   `docs/cowork-reports/2026-06-14-cybos-rescue-experiment-plan.md`
 - 최신 Phase readiness:
@@ -226,7 +230,8 @@
   앞으로 Codex는 주간/강제 NAS 백업을 자율 실행하지 않고,
   사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
 - 다음 cowork 리뷰 권장 시점:
-  6월 누적 변경 통합본과 이번 deep review 반영 결과를 묶어 전달한다.
+  월요일 장후 P0-4 watchdog heartbeat 실측, P0-broker EGW00201 재발 여부,
+  broker_paper_sync final-state 보존 경로의 실제 주문 처리 관찰 결과가 생긴 뒤 전달한다.
 
 관련 문서/코드 경로:
 `scripts/get_live_runtime_status.sh`,
