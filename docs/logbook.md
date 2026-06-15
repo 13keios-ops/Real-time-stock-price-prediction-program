@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-06-15] Codex -> 장중 지연 점검과 장후 정합성/label refresh 조치
+
+- 사용자 지시:
+  - 장중에 하기로 했던 확인을 늦게라도 가능한 범위에서 진행한다.
+- 시작 상태:
+  - KST 2026-06-15 16:21, `post-close`.
+  - live runtime 은 15:30:43에 정지돼 장후 정지 상태가 정상이다.
+  - runtime watchdog 과 dashboard 는 running 이고, git 작업트리는 clean 이었다.
+- 장중 확인 결과:
+  - 장전 readiness 는 `2026-06-15 08:20:01`, `status=ok`, warnings/blockers 없음.
+  - live runtime 은 08:00:12 자동 기동됐고 15:30까지 운영됐다.
+  - pre-open 중 KIS WebSocket 은 1~2분 간격으로 끊겼다가 재연결됐지만, 정규장 데이터 수집은 완료됐다.
+  - `latest-kis-live-data-quality.json` 기준 최신일은 `2026-06-15`, raw market 마지막 시각은 `15:30:29`, raw orderbook 마지막 시각은 `15:30:41`이다.
+  - dashboard today report 기준 오늘 실제 예측 `11,220`건, 신호 `3,740`건, 주문 `56`건, 체결 `47`건이 기록됐다.
+- 조치:
+  - 장후 quick ML maintenance 는 이미 `2026-06-15 16:12:41`, `status=ok`였다.
+  - 오래된 label refresh 상태를 갱신하기 위해 `./scripts/run_post_close_label_refresh.sh`를 실행했고, `2026-06-15 16:36:47`, `status=ok`로 완료됐다.
+  - dashboard snapshot 은 `2026-06-15 16:36:56` 기준으로 갱신됐다.
+  - KIS live data quality 는 label refresh 뒤 `assessment.status=ok`로 회복됐다.
+- paper/KIS 정합성:
+  - broker paper sync 재시도는 KIS `EGW00201` 초당 거래건수 초과로 실패했다.
+  - `runtime-data/reports/broker-paper/latest-sync.json` 기준 `status=rate_limited`, `open_order_count=5`, pending symbols 는 `005930`, `035420`, `068270`, `105560`, `247540`이다.
+  - 계좌 snapshot 기반 reconciliation 은 `needs_review`, mismatch count `5`다.
+  - local 은 `005930` 1주, `035420` 2주를 보유로 보고, broker 는 `068270`, `105560`, `247540` 각 3주를 보유로 본다.
+  - 수량 mismatch 가 있으므로 marker-only alignment 는 적용하지 않았다.
+- 다음 방향:
+  - 같은 KIS order-fill endpoint 반복 호출은 중지한다.
+  - 다음 장후 또는 KIS 제한이 풀린 뒤 broker paper sync 를 1회만 재시도하고, 그 뒤 reconciliation 을 다시 확인한다.
+  - 재시도 후에도 `EGW00201`이면 `needs_review`를 유지하고 자동 align 하지 않는다.
+  - 이 항목은 Phase 0 paper/KIS mirroring blocker 로 남긴다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-14] Codex -> cowork review_ver_21 반영과 report 작성 규칙 보강
 
 - 사용자 지시:

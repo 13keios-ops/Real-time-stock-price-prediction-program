@@ -20,9 +20,9 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-14 23:45 KST
-- 현재 런타임: `weekend`
-- live runtime: 정지 상태가 정상
+- 마지막 갱신: 2026-06-15 16:45 KST
+- 현재 런타임: `post-close`
+- live runtime: 2026-06-15 08:00:12 자동 기동, 15:30:43 정지. 장후 정지 상태가 정상.
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
@@ -44,19 +44,19 @@
   `market_status`와 `kill_switch`는 Phase 1a read-only에서 비차단 관측 실패로 남는다.
 - 최신 dashboard snapshot:
   `runtime-data/reports/dashboard/latest-dashboard.html`
-  기준 `generated_at=2026-06-14T05:50:20+09:00`.
+  기준 `generated_at=2026-06-15T16:36:56+09:00`.
 - 최신 장전 readiness:
   `runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json`
-  기준 `generated_at=2026-06-13 13:33:34 +0900`, `status=ok`.
+  기준 `generated_at=2026-06-15 08:20:01 +0900`, `status=ok`, warnings/blockers 없음.
 - 최신 장후 ML maintenance:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`
-  기준 `completed_at=2026-06-11 16:10:08 +0900`, `status=ok`, `mode=quick-live-train`.
+  기준 `completed_at=2026-06-15 16:12:41 +0900`, `status=ok`, `mode=quick-live-train`.
 - 최신 장후 label refresh:
   `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`
-  기준 `completed_at=2026-06-11 16:45:07 +0900`, `status=ok`.
+  기준 `completed_at=2026-06-15 16:36:47 +0900`, `status=ok`.
 - 최신 KIS live data quality:
   `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
-  기준 latest trade date `2026-06-12`, `assessment.status=ok`.
+  기준 latest trade date `2026-06-15`, `assessment.status=ok`.
 - 최신 검증:
   `python -m py_compile scripts/summarize_cybos_buy_avoid_proxy.py tests/test_cybos_buy_avoid_proxy.py` 통과,
   `python -m unittest tests.test_cybos_buy_avoid_proxy -q` 15개 통과,
@@ -205,16 +205,15 @@
   dashboard status alert에 `실시간 분봉 갱신이 지연되고 있습니다` warning 이 노출되는지 잠갔다.
   따라서 review_ver_19의 장외 P1-A는 테스트 기준으로 닫혔다.
 - 최신 paper/KIS 정합성:
-  최신 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
-  기준 `status=matched_waiting_first_submission`, position mismatch `0`,
-  effective cash gap `0원`, total asset gap `0원`이다.
-  브로커 원시 예수금과 유효현금 차이 `29,991원`은 `raw_cash_gap`으로 분리해서 본다.
+  최신 `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
+  기준 `status=needs_review`, mismatch count `5`다.
+  2026-06-15 broker paper sync 재시도는 KIS `EGW00201` 초당 거래건수 초과로 실패했고,
+  local/broker 보유 수량이 달라 marker-only alignment 는 적용하지 않았다.
 - 최신 broker paper sync:
   `runtime-data/reports/broker-paper/latest-sync.json`
-  기준 최신 marker 이후 제출 주문이 없어 `status=no_submissions`, open order `0건`이다.
-  2026-06-14 수정 뒤 broker paper sync 실행 출력 기준으로 기존 153건 backlog 는
-  `open_order_count=0`, `final_order_count=173`, `pending_symbols=[]` 상태까지 닫혔고,
-  이후 `-SyncInitialCash` 없이 marker-only alignment 를 적용했다.
+  기준 `status=rate_limited`, `open_order_count=5`, pending symbols 는
+  `005930`, `035420`, `068270`, `105560`, `247540`이다.
+  같은 KIS order-fill endpoint 반복 호출은 중지하고 다음 장후 또는 제한 해제 뒤 1회만 재시도한다.
 - 최신 broker order backlog analysis:
   `runtime-data/reports/broker-paper/latest-open-order-backlog-analysis.json`
   기준 marker 이후 현재 view 는 `submission_rows=0`, `current_open_order_count=0`,
@@ -257,10 +256,11 @@
     2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은
     2026-06-13 read-only 조회로 1차 정리했고, 현재는 2026-06-08처럼
     raw market symbol-minute 가 약한 구간이 재발하는지만 다음 거래일에 관찰한다.
-  - 2026-06-14 broker paper sync 보강 뒤 최신 현재 view 는 `status=no_submissions`,
-    open order `0건`이다.
-  - 최신 dual account match 기준 브로커와 로컬 모두 보유 0이고,
-    effective cash gap 과 total asset gap 은 `0원`이다.
+  - 2026-06-15 장후 현재 broker paper sync 는 KIS `EGW00201` rate limit 으로
+    `status=rate_limited`, open order `5건`이다.
+  - 최신 reconciliation 은 `status=needs_review`, mismatch count `5`다.
+    local 은 `005930`, `035420` 보유로 보고 broker 는 `068270`, `105560`, `247540`
+    보유로 보므로, 수량 mismatch 해소 전까지 marker-only alignment 를 적용하지 않는다.
   - `trace_paper_kis_mismatch.py`는 최신 `paper-account-sync` mismatch 목록을
     우선 기준으로 쓰도록 보강됐고, 현재 trace 기준 mismatch count 는 `0`이다.
   - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
@@ -353,8 +353,10 @@
   - 다음 거래일 첫 신규 제출 뒤에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
   - 2026-06-08과 같은 raw market 약한 구간이 다음 거래일에도 반복되는지
     watchdog heartbeat, KIS WS frame, raw market/orderbook coverage 로 비교한다.
-  - 장후 label refresh 최신 상태 파일은 2026-06-11 기준 `status=ok`로 갱신됐으므로,
-    다음 거래일 장후에도 자동화가 같은 방식으로 갱신되는지만 확인한다.
+  - 장후 label refresh 최신 상태 파일은 2026-06-15 기준 `status=ok`로 갱신됐다.
+  - 2026-06-15 KIS order-fill 조회가 `EGW00201`로 막혀 paper/KIS position mismatch 가
+    `needs_review`로 남았다. 다음 제한 해제 뒤 broker paper sync 를 1회만 재시도하고,
+    그 뒤에도 mismatch 가 남으면 자동 align 하지 않고 원인 분석을 계속한다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
@@ -462,16 +464,19 @@
 
 ### broker paper sync / initial cash mismatch
 
-- 상태: 현재 blocker 해소, 다음 거래일 재발 관찰
+- 상태: blocker 재발, KIS order-fill rate limit 해제 대기
 - 현재 판단:
-  - 2026-06-14 장외 broker paper sync 보강과 1회 실제 sync 로 기존 backlog 를 닫았다.
-  - 최신 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
-    기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.
-  - 최신 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
-    기준 `status=matched_waiting_first_submission`, position mismatch 는 `0`,
-    `positions_match=true`, effective cash gap `0원`, total asset gap `0원`이다.
-  - 최신 `runtime-data/reports/broker-paper/latest-sync.json` 기준 marker 이후 제출 주문이 없어
-    `status=no_submissions`, open order `0건`이다.
+  - 2026-06-14 장외 broker paper sync 보강과 1회 실제 sync 로 기존 backlog 는 닫혔다.
+  - 2026-06-15 장중 신규 제출 뒤 KIS order-fill 조회가 `EGW00201`와 timeout 으로 막히며
+    `runtime-data/reports/broker-paper/latest-sync.json`은 `status=rate_limited`다.
+  - 최신 reconciliation 은 `status=needs_review`, mismatch count `5`다.
+  - 수량 mismatch 가 있으므로 `-SyncInitialCash`와 marker-only `-AlignToBroker`는 실행하지 않는다.
+  - 현재 local 은 `005930` 1주, `035420` 2주를 보유로 보고,
+    broker 는 `068270`, `105560`, `247540` 각 3주를 보유로 본다.
+  - 이는 order-fill 조회 실패로 로컬 장부가 장중 broker 체결 상태를 따라가지 못한 상황으로 본다.
+- 보존되는 기존 판단:
+  - 2026-06-14 기준 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`은
+    `assessment.status=ok`, mismatch count `0`이었다.
   - `runtime-data/reports/broker-paper/latest-open-order-backlog-analysis.json` 기준
     marker 이후 현재 view 는 `submission_rows=0`, `current_open_order_count=0`,
     `projected_open_order_count=0`, 권고 `backlog_cleared_no_action`이다.
@@ -484,12 +489,14 @@
     `pending_lookup`처럼 다시 보는 해석 문제였다. 수정 뒤 이전 적용 체결이 주문 수량을 덮으면 `filled`,
     과거 주문일 잔량이면 `expired` 또는 `expired_partial`로 닫는다.
 - 다음 작업:
-  - 다음 거래일 첫 신규 broker submission 이후에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
-  - `SyncInitialCash`와 추가 `AlignToBroker`는 지금 실행하지 않는다.
+  - 같은 KIS order-fill endpoint 반복 호출은 중지한다.
+  - 다음 장후 또는 제한 해제 뒤 broker paper sync 를 1회만 재시도한다.
+  - 그 뒤 reconciliation 을 다시 확인한다.
+  - 수량 mismatch 가 0으로 닫히기 전까지 `SyncInitialCash`와 추가 `AlignToBroker`는 실행하지 않는다.
   - 누적 paper-vs-broker 자동 집계와 dashboard 표시가 최신 marker 상태를 잘 설명하는지 확인한다.
 - 권장안:
-  - Phase 0 계좌 정합성 blocker 는 현재 닫힌 상태로 본다.
-  - 월요일 장전에는 새 주문 전 상태를 read-only 로 확인하고, 장후에는 신규 제출 주문 기준 sync/reconciliation 이 계속 0-gap 인지 본다.
+  - Phase 0 계좌 정합성 blocker 는 다시 열린 상태로 본다.
+  - 오늘은 추가 KIS order-fill 호출을 멈추고, 다음 안전한 재시도 시점에 1회만 재확인한다.
 
 ### dashboard/watchdog daemon 유지
 
