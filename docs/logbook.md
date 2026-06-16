@@ -16,6 +16,10 @@
   - dashboard today report 기준 오늘 실제 예측 `11,220`건, 신호 `3,740`건, 주문 `56`건, 체결 `47`건이 기록됐다.
 - 조치:
   - 장후 quick ML maintenance 는 이미 `2026-06-15 16:12:41`, `status=ok`였다.
+  - DB 확인 기준 새 학습 run `train-lightgbm-h15-20260615161017410667`가 생성됐다. LightGBM h15, train rows `192,215`, validation rows `36,279`, class labels `down/flat/up`로 학습됐다.
+  - 해당 run의 validation accuracy 는 `0.384961`, challenger holdout 3분류 정확도는 `0.359900`이었다. 클래스별 적중률은 down `0.646761`, flat `0.258114`, up `0.223517`이다.
+  - challenger holdout 에서 LightGBM actual trade 후보는 `trades_taken=0`이라 실거래 승격 근거는 없고, virtual direction 기준은 `301`건, hit rate `0.548173`, cumulative net return `121.311540%`로 방어/관찰 후보로만 본다.
+  - 이 결과는 active 모델 승격이 아니라 `baseline-h15-v1` 유지 판단이다.
   - 오래된 label refresh 상태를 갱신하기 위해 `./scripts/run_post_close_label_refresh.sh`를 실행했고, `2026-06-15 16:36:47`, `status=ok`로 완료됐다.
   - dashboard snapshot 은 `2026-06-15 16:36:56` 기준으로 갱신됐다.
   - KIS live data quality 는 label refresh 뒤 `assessment.status=ok`로 회복됐다.
