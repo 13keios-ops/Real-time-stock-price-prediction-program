@@ -1,5 +1,37 @@
 # 작업 기록
 
+## [2026-06-16] Codex -> 20:30 장후 운영 체크
+
+- 사용자 지시:
+  - 12시간 간격 운영 체크 heartbeat 기준으로 장후 학습, label refresh, data quality, dashboard, paper/KIS 정합성을 확인한다.
+- 시작 상태:
+  - KST 2026-06-16 20:32, `post-close`.
+  - live runtime 은 `2026-06-16 15:30:03 +0900`에 정지돼 장후 정지 상태가 정상이다.
+  - runtime watchdog 은 running, `live_runtime_should_run=false`, `ml_maintenance_action=already_ok`, `errors=[]`였다.
+  - dashboard 는 `http://127.0.0.1:8765`에서 running 이고 API 응답도 정상이다.
+  - startup launcher 는 Windows 시작프로그램 기준 installed/ok 이다.
+- 장전/장후 자동화 결과:
+  - 장전 readiness 는 `2026-06-16 08:20:01 +0900`, `status=ok`, warnings/blockers 없음.
+  - 장후 quick ML maintenance 는 `2026-06-16 16:12:49 +0900`, `status=ok`, mode `quick-live-train`로 완료됐다.
+  - 장후 label refresh 는 `2026-06-16 16:47:03 +0900`, `status=ok`, mode `post-close-label-refresh-live-db`로 완료됐다.
+  - KIS live data quality 는 `2026-06-16 16:44:42 +0900`, `assessment.status=ok`다.
+  - feature source drift 는 계속 `source_drift_detected`이고, KIS live feature diagnostics 는 `no_clear_single_feature_signal`이다. 이는 새 장애가 아니라 Cybos/KIS 원천 차이와 live 데이터 누적 필요 신호다.
+  - dashboard snapshot 은 `2026-06-16 16:51:13 +0900` 기준으로 갱신돼 있다.
+- paper/KIS 정합성:
+  - `latest-sync.json` 기준 broker paper sync 는 `2026-06-16 16:47:17 +0900`, `status=rate_limited`, KIS `EGW00201` 상태다.
+  - pending symbols 는 `005930`, `035420`, `086520`, `105560`, `373220`이고 open order count 는 `5`다.
+  - account sync 는 `2026-06-16 16:51:05 +0900`, `ok=true`였지만 dual-account match 는 `needs_review`다.
+  - 20:33에 cooldown 뒤 broker sync 를 1회 재시도했으나 `python -m app --sync-broker-paper-orders`가 3분 이상 종료되지 않아 Codex가 시작한 프로세스만 종료했다. 보고 기준 최신 sync/reconciliation 파일은 16:47~16:51 상태 그대로다.
+- 다음 방향:
+  - 같은 KIS order-fill endpoint 를 계속 반복 호출하지 않는다.
+  - 다음 조치는 다음 장후 또는 KIS 제한이 충분히 풀린 뒤 broker sync 1회 재시도와 reconciliation 확인이다.
+  - `open_order_count=5`와 수량/주문 정합성 미확인 상태가 남아 있으므로 자동 alignment 는 계속 보류한다.
+- 변경/검증:
+  - 운영 상태 기록을 위해 `docs/logbook.md`를 갱신했다.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-15] Codex -> 장중 지연 점검과 장후 정합성/label refresh 조치
 
 - 사용자 지시:
