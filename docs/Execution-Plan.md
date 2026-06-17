@@ -258,6 +258,11 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
      - 진행 금지선:
        paper 포지션 replay 가 안정적으로 재구성되지 않거나, 기존 early-exit shadow 처럼 실제 paper 청산보다 악화되면 full Cybos/lifecycle 확장을 보류한다.
        buy-avoid 공식 10거래일 관측이 끝나기 전에는 KIS live 에 hold-rescue shadow 를 추가하지 않는다.
+   - 2026-06-17 22:30 KST 기준 `scripts/summarize_hold_rescue_paper_replay_feasibility.py`를 추가해 paper replay 가능성을 먼저 확인했다.
+     `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-feasibility-h15.json` 기준 판정은 `feasible_for_offline_replay`다.
+     2026-06-11 이후 닫힌 paper lot `108`건, LightGBM exit 시점 예측 매칭 `103`건, 이후 h15 분봉 매칭 `103`건으로 다음 단계의 offline hold-rescue replay 리포트를 구현할 수 있다.
+     이는 hold-rescue 성과 검증이나 주문 정책 변경 근거가 아니라, 실제 paper 체결 원장으로 lifecycle 실험을 해도 되는지에 대한 준비도 판정이다.
+     다만 `orphan_sell_events_present`, `open_lots_remaining`, `non_weekday_exit_lots_present` warning 이 있으므로 replay 본실험에서는 시작 전 보유 lot, 장외/주말 sync 로 닫힌 lot, 미청산 lot 을 분리해야 한다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
 10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
@@ -308,8 +313,10 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`,
 `python -m app --run-lightgbm-label-band-reproducibility-review --horizon-min 15`,
 `scripts/summarize_cybos_buy_avoid_proxy.py`,
+`scripts/summarize_hold_rescue_paper_replay_feasibility.py`,
 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`,
-`runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json`
+`runtime-data/reports/backtests/latest-cybos-regime-performance-h15.json`,
+`runtime-data/reports/challengers/latest-hold-rescue-paper-replay-feasibility-h15.json`
 
 ## 8. 4단계: 하락/회피 신호 방어적 활용 검증
 

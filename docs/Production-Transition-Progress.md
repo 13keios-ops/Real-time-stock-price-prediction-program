@@ -166,6 +166,17 @@
   `tests/test_cybos_buy_avoid_proxy.py`는 보유 연장, threshold 미충족, probability drop,
   max loss exit 을 합성 경로로 검증한다.
   이는 Cybos full hold-rescue 결과 실험이 아니라 lifecycle 구현 전제 검증이다.
+- 최신 hold-rescue paper replay feasibility:
+  `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-feasibility-h15.json`
+  기준 `generated_at=2026-06-17T22:35:49+09:00`, `decision.status=feasible_for_offline_replay`다.
+  `scripts/summarize_hold_rescue_paper_replay_feasibility.py`가 `paper_orders`, `paper_fills`,
+  `serving_predictions`, `curated_minute_bars`를 read-only 로 확인했다.
+  2026-06-11 이후 닫힌 paper lot `108`건 중 LightGBM exit 예측 매칭 `103`건,
+  이후 h15 분봉 매칭 `103`건으로, 다음 단계의 offline hold-rescue replay 리포트 구현은 가능하다.
+  단, `orphan_sell_events_present`, `open_lots_remaining`, `non_weekday_exit_lots_present` warning 이 있으므로
+  본 replay 에서는 시작 전 보유 lot, 장외/주말 sync 로 닫힌 lot, 미청산 lot 을 분리해야 한다.
+  이 판정은 성과 검증이 아니라 원장 연결 준비도이며, KIS live shadow, paper 주문 정책,
+  active model, gate 기준값은 바꾸지 않는다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.

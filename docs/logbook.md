@@ -1,5 +1,46 @@
 # 작업 기록
 
+## [2026-06-17] Codex -> hold-rescue paper replay feasibility 구현
+
+- 사용자 지시:
+  - hold-rescue 별도 포지션 lifecycle 설계를 진행해도 되는지부터 검토한다.
+  - 방치하지 말고, 진행 가능하면 실제 다음 단계로 넘길 수 있게 준비한다.
+- 시작 상태:
+  - KST 2026-06-17 22:27, `post-close`.
+  - live runtime 은 stopped, runtime watchdog 과 dashboard 는 running 이었다.
+  - 장중 수집 보호 모드는 아니었다.
+- 구현:
+  - `scripts/summarize_hold_rescue_paper_replay_feasibility.py`를 추가했다.
+  - 이 스크립트는 `runtime-data/dev.db`를 read-only 로 열고 `paper_orders`, `paper_fills`, `serving_predictions`, `curated_minute_bars`를 확인한다.
+  - FIFO 기준으로 paper 진입/청산 lot 을 재구성하고, baseline 청산 시점에 LightGBM h15 shadow 예측과 이후 h15 분봉이 붙는지 확인한다.
+  - `tests/test_hold_rescue_paper_replay_feasibility.py`를 추가해 orphan sell 처리, 초 단위 체결시각의 분 단위 예측 매칭, markdown guardrail 을 검증했다.
+- 리포트:
+  - 생성 파일:
+    `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-feasibility-h15.json`,
+    `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-feasibility-h15.md`.
+  - 판정은 `feasible_for_offline_replay`다.
+  - 2026-06-11 이후 닫힌 paper lot `108`건, LightGBM exit 예측 매칭 `103`건, 이후 h15 분봉 매칭 `103`건이다.
+  - warning 으로 `orphan_sell_events_present`, `open_lots_remaining`, `non_weekday_exit_lots_present`가 남았다.
+  - 따라서 다음 단계의 offline hold-rescue replay 구현은 가능하지만, 시작 전 보유 lot, 장외/주말 sync lot, 미청산 lot 은 본 replay 에서 분리해야 한다.
+- 문서 반영:
+  - `docs/Execution-Plan.md`에 hold-rescue feasibility 결과와 다음 경계를 추가했다.
+  - `docs/Production-Transition-Progress.md`에 최신 리포트와 warning 을 추가했다.
+  - `docs/Current-Implementation.md`에 실행 명령과 구현 범위를 추가했다.
+- 검증:
+  - `python -m py_compile scripts/summarize_hold_rescue_paper_replay_feasibility.py tests/test_hold_rescue_paper_replay_feasibility.py` 통과.
+  - `python -m unittest tests.test_hold_rescue_paper_replay_feasibility -q` 3개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q` 415개 통과.
+  - `python scripts/summarize_hold_rescue_paper_replay_feasibility.py --horizon-min 15` 통과.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - KIS 네트워크 호출 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+- 다음 방향:
+  - 다음 구현은 `hold-rescue offline replay` 본 리포트다.
+  - 본 리포트에서는 baseline 청산 대비 보유 연장 delta, 최대 손실 확대, 기회비용, forced-flat 전 종료 여부를 계산한다.
+  - KIS live shadow 또는 paper 주문 정책 변경은 buy-avoid 공식 10거래일 관측과 offline replay 결과 전까지 하지 않는다.
+
 ## [2026-06-17] Codex -> buy-avoid 관측 기간과 hold-rescue 진행 범위 검토
 
 - 사용자 지시:
