@@ -199,6 +199,10 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
 4. 즉시 다음 단계는 새 학습 실험이 아니라 `buy-avoid` shadow 관측이다.
    - 기존 LightGBM shadow serving 예측과 baseline 매수 허용 신호를 이용해, 실제 주문 판단은 바꾸지 않고 매수 회피 후보 성과를 누적한다.
    - 최소 관측 기간은 2주 또는 10거래일이다.
+   - 공식 관측 기간은 2026-06-15 월요일부터 2026-06-26 금요일까지 10거래일로 본다.
+     `config/market_calendar.toml` 기준 이 구간에는 별도 휴장일이 없다.
+     따라서 가장 이른 정식 평가는 2026-06-26 장후 label refresh 와 dashboard 갱신이 끝난 뒤다.
+     2026-06-11~2026-06-12 자료는 초기 후보 발견 근거로만 쓰고, cowork 보정 뒤 공식 10거래일 카운트에는 넣지 않는다.
    - 관측 기간 중 active model, gate 기준값, 주문 판단, `config/` label threshold 는 바꾸지 않는다.
 5. walk-forward 재검증은 아래 조건을 모두 만족할 때 다시 실행한다.
    - KIS live h15 labeled row 가 최소 `60,000`행 이상이다.
@@ -237,6 +241,23 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - buy-rescue 는 상승 신호 품질 확인용 2순위 탐색 가설이며, 결과가 좋아도 KIS live shadow 없이 모델 승격이나 주문 정책 변경으로 연결하지 않는다.
    - hold-rescue 는 진입, 보유, 청산을 추적하는 포지션 lifecycle 시뮬레이션이 필요하므로 이번 1차 Cybos 통합 실행에는 결과 실험으로 넣지 않는다.
    - 2026-06-14 기준 `_simulate_hold_rescue_lifecycle` helper 와 synthetic tests 는 추가했다. 아직 Cybos full hold-rescue 결과 수익률은 계산하지 않는다.
+   - 2026-06-17 검토 기준으로 hold-rescue 는 방치하지 않고 다음 범위까지 진행해도 된다.
+     단, 이 범위는 오프라인 연구 설계와 paper replay 가능성 확인이며, KIS live shadow 추가나 주문 정책 변경이 아니다.
+     - 입력 이벤트:
+       `paper_orders`, `paper_fills`, `paper_portfolio_snapshots`, `serving_predictions`의 LightGBM h15 shadow row, 닫힌 h15 label, 분봉 가격을 연결한다.
+     - lifecycle 상태:
+       `entry_open` -> `baseline_exit_candidate` -> `rescue_extended` -> `exit_by_probability_drop|max_extension|max_loss|forced_flat` 순서로 추적한다.
+     - 1차 정책 후보:
+       baseline 또는 paper engine 이 청산하려는 시점에 LightGBM `probability_up`이 높은 경우에만 보유 연장을 검토한다.
+       연장 폭은 처음에는 h15 기준 한 horizon 이내로 제한하고, `config/market_calendar.toml`의 `forced_flat_time=15:20`을 넘기지 않는다.
+     - 위험 제한:
+       비용과 세금, 최대 손실, 최대 보유 시간, 장마감 강제청산을 반드시 포함한다.
+       손실 확대가 보이면 rescue 는 즉시 보류한다.
+     - 비교 지표:
+       실제 paper 청산 대비 현금 손익 delta, 수익률 delta, 최대 낙폭, 손실 확대 건수, 기회비용, 적용 표본 수를 함께 본다.
+     - 진행 금지선:
+       paper 포지션 replay 가 안정적으로 재구성되지 않거나, 기존 early-exit shadow 처럼 실제 paper 청산보다 악화되면 full Cybos/lifecycle 확장을 보류한다.
+       buy-avoid 공식 10거래일 관측이 끝나기 전에는 KIS live 에 hold-rescue shadow 를 추가하지 않는다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
 10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.

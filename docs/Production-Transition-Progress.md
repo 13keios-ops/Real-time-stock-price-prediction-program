@@ -107,6 +107,8 @@
   2026-06-13 cowork 보정 기준으로 새 모델 학습 실험은 보류하고,
   기존 LightGBM shadow 예측과 baseline 매수 허용 신호를 이용한 buy-avoid shadow 를
   최소 2주 또는 10거래일 이상 축적한 뒤 재검증한다.
+  공식 관측 기간은 2026-06-15 월요일부터 2026-06-26 금요일까지 10거래일이며,
+  가장 이른 정식 평가는 2026-06-26 장후 label refresh 이후다.
 - 최신 Cybos buy-avoid / rescue proxy:
   `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`
   기준 `generated_at=2026-06-14T04:54:30+09:00`, `source=cybos-historical`,

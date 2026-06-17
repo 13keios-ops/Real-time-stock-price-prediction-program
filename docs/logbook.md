@@ -1,5 +1,33 @@
 # 작업 기록
 
+## [2026-06-17] Codex -> buy-avoid 관측 기간과 hold-rescue 진행 범위 검토
+
+- 사용자 지시:
+  - KIS live buy-avoid shadow 10거래일 누적을 언제까지 봐야 하는지 정확한 기간을 확인한다.
+  - hold-rescue 가 방치되지 않도록 별도 포지션 lifecycle 설계를 진행해도 되는지 먼저 검토한다.
+- 시작 상태:
+  - KST 2026-06-17 21:59, `post-close`.
+  - live runtime 은 정지 상태가 정상이고, runtime watchdog 은 running / `errors=[]`였다.
+  - 작업트리는 이전 운영 기록 커밋 3개가 아직 `origin/main`보다 앞선 상태였다.
+- 검토 결과:
+  - 공식 buy-avoid shadow 관측 기간은 2026-06-15 월요일부터 2026-06-26 금요일까지 10거래일로 본다.
+  - `config/market_calendar.toml` 기준 이 구간에는 별도 휴장일이 없다.
+  - 2026-06-11~2026-06-12 자료는 초기 후보 발견 근거로만 쓰고, cowork 보정 뒤 공식 10거래일 카운트에는 넣지 않는다.
+  - 가장 이른 정식 평가는 2026-06-26 장후 label refresh 와 dashboard 갱신 뒤다.
+  - hold-rescue 는 `live shadow`나 주문 정책 변경이 아니라 오프라인 lifecycle 설계와 paper replay 가능성 확인 범위라면 지금 진행해도 된다.
+  - 기존 `_simulate_hold_rescue_lifecycle` helper 와 synthetic tests 는 있으므로, 다음 단계는 paper entry/exit event 를 안정적으로 재구성할 수 있는지 확인하는 설계다.
+- 문서 반영:
+  - `docs/Execution-Plan.md`에 공식 buy-avoid 관측 기간과 hold-rescue 진행 가능 범위, 금지선을 추가했다.
+  - `docs/Production-Transition-Progress.md`에 10거래일 관측 종료일을 명시했다.
+- 다음 방향:
+  - KIS live 에는 buy-avoid shadow 만 유지하고, hold-rescue 는 오프라인 paper replay 설계로만 진행한다.
+  - hold-rescue 는 `paper_orders`, `paper_fills`, `paper_portfolio_snapshots`, `serving_predictions` LightGBM h15 shadow row, 닫힌 h15 label, 분봉 가격 연결이 가능한지 먼저 본다.
+  - paper replay 가 불안정하거나 실제 paper 청산보다 악화되면 full Cybos/lifecycle 확장을 보류한다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-17] Codex -> 20:30 장후 운영 체크
 
 - 사용자 지시:
