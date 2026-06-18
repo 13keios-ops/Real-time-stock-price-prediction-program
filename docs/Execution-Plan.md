@@ -263,6 +263,14 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
      2026-06-11 이후 닫힌 paper lot `108`건, LightGBM exit 시점 예측 매칭 `103`건, 이후 h15 분봉 매칭 `103`건으로 다음 단계의 offline hold-rescue replay 리포트를 구현할 수 있다.
      이는 hold-rescue 성과 검증이나 주문 정책 변경 근거가 아니라, 실제 paper 체결 원장으로 lifecycle 실험을 해도 되는지에 대한 준비도 판정이다.
      다만 `orphan_sell_events_present`, `open_lots_remaining`, `non_weekday_exit_lots_present` warning 이 있으므로 replay 본실험에서는 시작 전 보유 lot, 장외/주말 sync 로 닫힌 lot, 미청산 lot 을 분리해야 한다.
+   - 2026-06-19 00:44 KST 기준 `scripts/summarize_hold_rescue_paper_replay.py`를 추가해 실제 paper-only offline replay 본 리포트를 생성했다.
+     `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json` 기준 decision 은 `diagnostic_only_no_hold_rescue_candidate`다.
+     재구성된 닫힌 lot `112`건 중 replay 가능 lot 은 `97`건이고, 제외 lot `15`건은 모두 `cross_day_lot`이다.
+     exit 시점 `probability_up` 분포는 p50 `0.353297`, p90 `0.422203`, max `0.465518`로 0.50 이상 강한 상승 확신 표본이 없다.
+     threshold `0.40`은 적용 lot `20`건, 기준선 손익 `163,039원`, hold-rescue 전략 손익 `141,552원`, 차이 `-21,487원`으로 악화됐다.
+     threshold `0.45`도 적용 lot `3`건, 차이 `-6,496원`으로 악화됐고, `0.50` 이상은 적용 lot 이 없다.
+     따라서 hold-rescue 는 현재 KIS live shadow, paper 주문 정책, active model, gate 변경으로 올리지 않고 우선순위를 낮춘다.
+     이 결론은 LightGBM 전체를 폐기한다는 뜻이 아니라, 현재 상승 지속/청산 보류 방향 증거가 약하므로 buy-avoid shadow 관측을 우선한다는 뜻이다.
 9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
 10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
 11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.

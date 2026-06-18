@@ -177,6 +177,17 @@
   본 replay 에서는 시작 전 보유 lot, 장외/주말 sync 로 닫힌 lot, 미청산 lot 을 분리해야 한다.
   이 판정은 성과 검증이 아니라 원장 연결 준비도이며, KIS live shadow, paper 주문 정책,
   active model, gate 기준값은 바꾸지 않는다.
+- 최신 hold-rescue paper-only replay:
+  `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`
+  기준 `generated_at=2026-06-19T00:46:53+09:00`, `decision.status=diagnostic_only_no_hold_rescue_candidate`다.
+  `scripts/summarize_hold_rescue_paper_replay.py`가 actual paper exit 을 baseline 으로 두고,
+  LightGBM `probability_up` threshold 별 추가 보유 결과를 read-only 로 계산한다.
+  replay 가능 lot 은 `97`건이고, exit 시점 `probability_up`은 p50 `0.353297`, p90 `0.422203`,
+  max `0.465518`로 강한 상승 지속 신호가 부족했다.
+  threshold `0.40`은 적용 lot `20`건에서 `-21,487원`, threshold `0.45`는 적용 lot `3`건에서
+  `-6,496원`으로 baseline paper 청산보다 악화됐으며, `0.50` 이상은 적용 lot 이 없다.
+  따라서 hold-rescue 는 Phase 0/1 현재 단계에서 KIS live shadow, paper 주문 정책,
+  active model, gate 기준값 변경으로 올리지 않는다. buy-avoid 공식 10거래일 shadow 관측을 우선한다.
 - 최신 paper/KIS mismatch trace:
   `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
   기준 `assessment.status=ok`, mismatch count `0`, summary `no mismatched symbols`다.

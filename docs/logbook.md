@@ -1,5 +1,50 @@
 # 작업 기록
 
+## [2026-06-19] Codex -> hold-rescue paper-only replay 본 리포트 구현
+
+- 사용자 지시:
+  - 활성 목표 기준 `hold-rescue 관련해야할것들 모두 진행해`.
+  - 기존 feasibility 에서 다음 단계로 남긴 offline hold-rescue replay 를 실제로 진행한다.
+- 시작 상태:
+  - KST 2026-06-19 00:37, `overnight`.
+  - live runtime 은 stopped, runtime watchdog 과 dashboard 는 running 이었다.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 구현:
+  - `scripts/summarize_hold_rescue_paper_replay.py`를 추가했다.
+  - 이 스크립트는 `runtime-data/dev.db`를 read-only 로 열고, 실제 paper sell fill 을 baseline exit 으로 삼아 LightGBM `probability_up` threshold 별 추가 보유 결과를 계산한다.
+  - 기본 threshold grid 는 `0.40, 0.45, 0.50, 0.55, 0.60, 0.65`다. 3분류 모델에서 0.40 이상은 상승 쪽 기울기 후보, 0.55 이상은 강한 상승 확신 후보로 해석한다.
+  - h15 이내, forced flat `15:20` 이전, 최대 손실 `2%`, 비용 proxy `0.13%p`를 기본 가정으로 둔다.
+  - `tests/test_hold_rescue_paper_replay.py`를 추가해 threshold 충족 시 연장, threshold 미충족 시 미적용, markdown guardrail 을 검증했다.
+- 리포트:
+  - 생성 파일:
+    `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`,
+    `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.md`.
+  - 판정은 `diagnostic_only_no_hold_rescue_candidate`다.
+  - 재구성된 닫힌 lot 은 `112`건, replay 가능 lot 은 `97`건, 제외 lot 은 `15`건이며 제외 사유는 모두 `cross_day_lot`이다.
+  - exit 시점 `probability_up` 분포는 p50 `0.353297`, p90 `0.422203`, max `0.465518`이다.
+  - threshold `0.40`은 적용 lot `20`건, 기준선 손익 `163,039원`, hold-rescue 전략 손익 `141,552원`, 차이 `-21,487원`이다.
+  - threshold `0.45`는 적용 lot `3`건, 차이 `-6,496원`이다.
+  - threshold `0.50` 이상은 적용 lot 이 없다.
+- 해석:
+  - 현재 paper-only replay 기준으로 hold-rescue 는 KIS live shadow, paper 주문 정책, active model, gate 기준 변경 후보가 아니다.
+  - 이 결론은 LightGBM 전체 폐기가 아니라, 상승 지속/청산 보류 방향 증거가 약하므로 buy-avoid 공식 10거래일 shadow 관측을 우선한다는 뜻이다.
+- 문서 반영:
+  - `docs/Execution-Plan.md`에 hold-rescue 본 replay 결과와 후속 판단을 추가했다.
+  - `docs/Production-Transition-Progress.md`에 최신 hold-rescue replay 상태를 추가했다.
+  - `docs/Current-Implementation.md`에 실행 명령, threshold grid, 현재 판정을 추가했다.
+- 검증:
+  - `python -m py_compile scripts/summarize_hold_rescue_paper_replay.py tests/test_hold_rescue_paper_replay.py` 통과.
+  - `python -m unittest tests.test_hold_rescue_paper_replay -q` 3개 통과.
+  - `python -m unittest tests.test_hold_rescue_paper_replay tests.test_hold_rescue_paper_replay_feasibility tests.test_cybos_buy_avoid_proxy -q` 21개 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q` 418개 통과.
+  - `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15` 통과.
+  - `git diff --check` 통과.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - KIS 네트워크 호출 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-18] Codex -> 장후 학습 결과 출력 누락 방지 기준 보강
 
 - 사용자 지시:
