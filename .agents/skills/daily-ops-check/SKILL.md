@@ -165,6 +165,12 @@ NAS 백업은 사용자가 명시적으로 지시한 경우에만 실행한다.
 
 - 장전 readiness 결과.
 - 장후 ML/label/data quality 결과.
+- 장후 체크에서는 사용자가 별도로 묻지 않아도 `장후 학습 결과`를 별도 줄로 반드시 요약한다.
+  - 학습 완료 여부: `latest-post-close-ml.json`의 `status`, `completed_at`, `mode`.
+  - label refresh 완료 여부: `latest-post-close-label-refresh.json`의 `status`, `completed_at`.
+  - active 유지/승격 없음 여부: `latest-challengers-h15.json`의 `active_model_version`, `recommended_action`, `recommended_model_version`, `promotion_applied`.
+  - 핵심 수치 3개: top challenger의 `three_class_accuracy`, `buy_signal_hit_rate` 또는 `trade_hit_rate`, `cumulative_net_return_pct`.
+  - 표본 신뢰도 보조값: 가능하면 `trades_taken`도 함께 표시한다. 거래 표본이 작으면 수익률 숫자보다 표본 부족을 먼저 해석한다.
 - paper/KIS 정합성 조치 전후.
 - dashboard/runtime 갱신 여부.
 - 변경 파일과 검증 명령.

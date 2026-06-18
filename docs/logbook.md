@@ -1,5 +1,28 @@
 # 작업 기록
 
+## [2026-06-18] Codex -> 장후 학습 결과 출력 누락 방지 기준 보강
+
+- 사용자 지시:
+  - 장후 학습 결과를 사용자가 다시 묻지 않도록, 이런 출력 기준은 Codex가 알아서 보강해야 한다.
+- 시작 상태:
+  - KST 2026-06-18 장후 `post-close`.
+  - live runtime 은 stopped, runtime watchdog 과 dashboard 는 running 이었다.
+  - 작업트리는 기존 커밋 기준 `origin/main`보다 5커밋 앞선 상태였다.
+- 조치:
+  - `.agents/skills/daily-ops-check/SKILL.md`의 최종 보고 형식에 장후 학습 결과 필수 요약 항목을 추가했다.
+  - `AGENTS.md` 반복 지적 방지 체크에 장후 운영 체크 답변의 필수 학습 요약을 추가했다.
+  - `docs/Codex-Operating-Feedback.md`에 같은 기준을 반복 누락 방지 항목으로 추가했다.
+  - heartbeat 자동화 `automation`의 프롬프트를 갱신해, 장후 체크 최종 답변에 학습 완료 여부, label refresh 완료 여부, active 유지/승격 없음 여부, top challenger 핵심 수치 3개와 거래 표본 수를 반드시 포함하도록 했다.
+- 기준:
+  - 장후 학습 결과 요약은 `latest-post-close-ml.json`, `latest-post-close-label-refresh.json`, `latest-challengers-h15.json`을 근거로 한다.
+  - 핵심 수치 3개는 top challenger 의 `three_class_accuracy`, `buy_signal_hit_rate` 또는 `trade_hit_rate`, `cumulative_net_return_pct`다.
+  - `trades_taken`은 표본 신뢰도 보조값으로 함께 표시하며, 표본이 작으면 수익률보다 표본 부족을 먼저 해석한다.
+- 검증:
+  - 문서/skill 기준 변경만 수행했다.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-17] Codex -> hold-rescue paper replay feasibility 구현
 
 - 사용자 지시:
