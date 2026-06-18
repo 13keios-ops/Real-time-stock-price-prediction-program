@@ -42,6 +42,9 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`
 - `runtime-data/reports/data-quality/latest-feature-source-drift.json`
 - `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`
+- `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`
+- `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
+- `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`
 - `runtime-data/reports/broker-paper/latest-sync.json`
 - `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
 - `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
@@ -171,6 +174,11 @@ NAS 백업은 사용자가 명시적으로 지시한 경우에만 실행한다.
   - active 유지/승격 없음 여부: `latest-challengers-h15.json`의 `active_model_version`, `recommended_action`, `recommended_model_version`, `promotion_applied`.
   - 핵심 수치 3개: top challenger의 `three_class_accuracy`, `buy_signal_hit_rate` 또는 `trade_hit_rate`, `cumulative_net_return_pct`.
   - 표본 신뢰도 보조값: 가능하면 `trades_taken`도 함께 표시한다. 거래 표본이 작으면 수익률 숫자보다 표본 부족을 먼저 해석한다.
+- 장후 체크에서는 `rescue/avoid 관측`을 별도 줄로 반드시 요약한다.
+  - `buy-avoid`: `latest-lightgbm-defensive-shadow-h15.json`의 `status`, `date_range`, `joined_rows`, best threshold, `delta_net_pct` 또는 `delta_net` 계열 수치를 요약한다. 파일이 오래됐으면 stale 또는 fresh evidence 부족으로 표시한다.
+  - `buy-rescue`: `latest-cybos-rescue-proxy-h15.json`의 `decision`, `recommended_action`, buy-rescue target/precision 결과를 요약한다. KIS live no-trade ledger 가 아직 없으면 `live buy-rescue ledger not available`로 표시하고 실패로 단정하지 않는다.
+  - `hold-rescue`: 장후/장외이고 안전하면 `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 paper-only replay 를 갱신한 뒤 `latest-hold-rescue-paper-replay-h15.json`의 `decision.status`, replay 가능 lot, 적용 lot, `delta_cash_sum`을 요약한다. 장중 보호 모드이면 기존 파일만 읽는다.
+  - 세 항목은 모두 관측/진단용이며, 주문 정책, gate, active model, KIS live shadow 확장을 바꾸지 않았는지 함께 적는다.
 - paper/KIS 정합성 조치 전후.
 - dashboard/runtime 갱신 여부.
 - 변경 파일과 검증 명령.

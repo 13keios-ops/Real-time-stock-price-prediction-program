@@ -1,5 +1,29 @@
 # 작업 기록
 
+## [2026-06-19] Codex -> 장후 rescue/avoid 동시 관측 자동화 기준 반영
+
+- 사용자 지시:
+  - `buy-avoid`, `buy-rescue`, `hold-rescue` 성과를 계속 같이 보면 되므로 자동화 내용에 반영한다.
+- 시작 상태:
+  - KST 2026-06-19 01:12, `overnight`.
+  - live runtime 은 stopped, runtime watchdog 과 dashboard 는 running 이었다.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 조치:
+  - `.agents/skills/daily-ops-check/SKILL.md`의 핵심 확인 파일과 최종 보고 형식에 `rescue/avoid 관측` 필수 줄을 추가했다.
+  - heartbeat 자동화 `automation` 프롬프트를 갱신해 장후 체크 최종 답변에 `buy-avoid`, `buy-rescue`, `hold-rescue` 관측 결과를 반드시 포함하도록 했다.
+  - `AGENTS.md` 반복 지적 방지 체크에 세 항목을 계속 같이 보되 권한을 분리한다는 기준을 추가했다.
+  - `docs/Codex-Operating-Feedback.md`에 같은 출력 기준을 추가했다.
+- 기준:
+  - `buy-avoid`는 `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`의 상태, 기간, 표본, best threshold, delta 계열 수치를 본다.
+  - `buy-rescue`는 `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`의 decision 과 target/precision 결과를 본다. KIS live no-trade ledger 가 아직 없으면 `live buy-rescue ledger not available`로 표시한다.
+  - `hold-rescue`는 장후/장외이고 안전하면 `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 paper-only replay 를 갱신한 뒤 최신 decision, replay 가능 lot, 적용 lot, `delta_cash_sum`을 본다.
+  - 세 항목은 모두 관측/진단용이며, 주문 정책, gate, active model, KIS live shadow 확장을 바꾸지 않는다.
+- 검증:
+  - 문서/skill/automation 프롬프트 기준 변경만 수행했다.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-19] Codex -> hold-rescue paper-only replay 본 리포트 구현
 
 - 사용자 지시:

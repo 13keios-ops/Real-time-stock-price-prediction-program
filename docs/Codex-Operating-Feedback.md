@@ -65,6 +65,10 @@
   최소 포함 항목은 학습 완료 여부, label refresh 완료 여부,
   active 모델 유지/승격 없음 여부, top challenger 의 3분류 정확도,
   매수 신호 적중률, 누적 순수익률, 거래 표본 수다.
+- 장후 운영 체크에서는 `rescue/avoid 관측`을 별도 줄로 항상 포함한다.
+  `buy-avoid`는 주 관측 후보, `buy-rescue`와 `hold-rescue`는 보조 진단 지표로 두고,
+  세 항목의 최신 판정, 표본 수, 손익 delta, stale 여부를 함께 말한다.
+  이 관측은 주문 정책, gate, active model, KIS live shadow 확장과 분리해서 설명한다.
 - 작업 마지막에는 현재 작업 모드, 답변 접두어,
   활성 체크리스트 갱신 여부, 기준 문서 반영 여부를 확인한다.
 - 푸시나 NAS 백업이 정책/도구에서 막히면 우회하지 않고,
