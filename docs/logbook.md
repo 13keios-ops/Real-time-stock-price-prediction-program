@@ -1,5 +1,45 @@
 # 작업 기록
 
+## [2026-06-27] Codex -> 주말 저장소 전체 점검과 리포트 최신화
+
+- 사용자 지시:
+  - 토요일이라 장이 열리지 않으므로 저장소 전체 점검과 가능한 조치를 진행하고, 전체 진행현황을 요약한다.
+- 시작 상태:
+  - KST 2026-06-27 09:34, `weekend`.
+  - live runtime 은 stopped, runtime watchdog 과 dashboard 는 running 이었다.
+  - trading mode 는 `paper`, `ALLOW_LIVE_ORDERS` 변경 없음.
+  - 작업트리는 `main...origin/main` clean 상태였다.
+- 확인:
+  - 2026-06-26 장전 readiness 는 `status=ok`, blockers/warnings 없음.
+  - 2026-06-26 장후 quick ML maintenance 는 `status=ok`, `quick-live-train` 완료.
+  - 2026-06-26 장후 label refresh 는 `status=ok`, `post-close-label-refresh-live-db` 완료.
+  - active model 은 `baseline-h15-v1` 유지, recommended action 은 `keep_active`, promotion applied 는 `false`.
+  - 최신 top challenger 는 `lightgbm-h15-v1`이며 3분류 정확도 `0.356006`, 매수 신호 적중률 `0.5`, 누적 순수익률 `0.6813%`, 실제 거래 표본 `4`건이다. 표본이 작아 승격 근거로 보지 않는다.
+  - 2026-06-26 KIS live data quality 는 `watch`다. 시장 체결 coverage `0.916624`, 닫힌 분봉/특징 coverage `0.916410`으로 95% 기준 미만이다.
+  - broker paper sync 는 `rate_limited`, `cooldown_active=true`, `open_order_count=3`, pending symbols `068270`, `086520`, `373220`이다.
+  - dual-account match 는 `needs_review`라 자동 alignment 는 하지 않았다.
+  - KIS WebSocket 은 2026-06-26에 반복 reconnect 됐지만 각 reconnect 는 `storm=false`로 복구됐다.
+- 조치:
+  - `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 paper-only hold-rescue replay 를 갱신했다.
+  - 결과는 계속 `diagnostic_only_no_hold_rescue_candidate`이며, 주문 정책, gate, active model, KIS live shadow 확장은 바꾸지 않았다.
+  - `./scripts/check_local_setup.sh`를 단독 실행해 local setup `ok=true`, blockers/warnings 없음으로 확인했다.
+  - `python -m app --build-runtime-report`와 `python -m app --build-dashboard`를 실행해 runtime report 와 dashboard snapshot 을 `2026-06-27 09:45` 기준으로 갱신했다.
+  - 전체 테스트 뒤 생긴 `.tmp-tests` 임시 산출물이 `2.0G`까지 커져, `.tmp-tests/codex-ops`를 제외하고 정리했다. 정리 뒤 `.tmp-tests`는 `8.0K`다.
+- 검증:
+  - `git diff --check` 통과.
+  - `bash -n` scripts shell 문법 검사 통과.
+  - `python -m unittest discover -s tests -p "test_*.py" -q` 418개 통과.
+  - dashboard 는 `http://127.0.0.1:8765`에서 running, API 응답 정상.
+  - 작업트리는 logbook 기록 전까지 clean 이었고, 본 entry 만 tracked 변경이다.
+- 남은 위험:
+  - KIS `EGW00201` rate limit 때문에 order-fill 감사 복구와 pending order 확인이 보류 상태다. 같은 endpoint 반복 호출은 하지 않는다.
+  - 2026-06-26 data quality `watch`는 다음 거래일에 WebSocket reconnect 로그와 raw market coverage 를 함께 확인한다.
+  - `buy-avoid` 최신 리포트는 2026-06-23 기준이라 fresh evidence 가 부족하다. 다음 거래일 장후부터 최신 누적 판정을 다시 봐야 한다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-19] Codex -> 장후 rescue/avoid 동시 관측 자동화 기준 반영
 
 - 사용자 지시:
