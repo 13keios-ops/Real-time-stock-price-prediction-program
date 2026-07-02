@@ -1,5 +1,82 @@
 # 작업 기록
 
+
+## [2026-07-03] Codex -> Cybos-KIS 전이성/상관 진단 리포트 추가
+
+- 사용자 지시:
+  - Cybos 데이터와 현재 수집 중인 KIS live 데이터의 상관관계와 비교 가능한 조건을 깊게 찾아본다.
+  - 현재 적용하지 않는 값이나 참고하지 않는 방식 중 쓸 만한 것이 있는지 검토한다.
+  - 단순히 새로워 보이는 AI 퀀트 방식이 아니라, 수익 가능성을 높일 실제 근거를 찾는다.
+- 시작 상태:
+  - KST 2026-07-03 02:31, `overnight`.
+  - live runtime 은 stopped, runtime watchdog 은 running 이었다.
+  - trading mode 는 `paper`, 실전 주문/취소 없음.
+- 구현:
+  - `scripts/summarize_cybos_kis_transfer_review.py`를 추가했다.
+  - 이 스크립트는 `runtime-data/dev.db`를 read-only 로 열고 Cybos historical row 와 2026-06-11 이후 KIS live h15 label row 를 비교한다.
+  - 비교 축은 feature bucket, 시간대, 단기 모멘텀, 변동성 구간, KIS-only orderbook 후보, 전이 가능성 등급이다.
+  - `tests/test_cybos_kis_transfer_review.py`를 추가해 source-stable feature 와 Cybos zero-variance orderbook guardrail 을 합성 DB로 검증했다.
+- 결과:
+  - 산출물은 `runtime-data/reports/research/latest-cybos-kis-transfer-review.json`과 `.md`다.
+  - 표본은 Cybos historical `200,000`행, KIS live `57,858`행, KIS 거래일 `16`일이다.
+  - 판정은 `kis_specific_shadow_candidates_only`다.
+  - 공통 bar 피처에서 Cybos와 KIS가 모두 강하게 같은 방향으로 말하는 `source_stable_candidate`는 0개다.
+  - `bid_ask_imbalance`와 `spread_bps`는 Cybos 값이 구조적으로 비어 있어 KIS live 전용 shadow 후보로만 분류했다.
+  - `midday`와 `short_up` 구간은 Cybos와 KIS 모두 평균 future return 이 음수라 회피/축소 후보로 남겼다.
+- 해석:
+  - 현재 근거는 단독 공격 진입 모델보다 `primary signal -> meta filter/router -> size/no-trade decision` 구조를 지지한다.
+  - 다만 이 meta-policy 는 진단/설계 후보이며, 좋은 조합만 사후 선택하는 과적합을 피하려면 사전 기준, 기간 분리, KIS live 20/30/60거래일 checkpoint 가 필요하다.
+  - Cybos 5년치가 있어도 orderbook 피처는 직접 검증할 수 없으므로, KIS live 전용 후보는 계속 live shadow 로 따로 봐야 한다.
+- 문서 반영:
+  - `docs/Current-Implementation.md`에 실행 명령과 현재 판정을 추가했다.
+  - `docs/Execution-Plan.md`에 Cybos-KIS 전이성 리뷰와 meta filter/router 방향을 추가했다.
+- 검증:
+  - `python3 -m py_compile scripts/summarize_cybos_kis_transfer_review.py tests/test_cybos_kis_transfer_review.py` 통과.
+  - `python3 -m unittest tests.test_cybos_kis_transfer_review -q` 2개 통과.
+  - `python3 scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15 --cybos-sample-size 200000 --kis-start-date 2026-06-11 --kis-sample-size 200000` 통과.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - KIS 네트워크 호출 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
+
+## [2026-07-03] Codex -> 모델 공통 rescue/avoid overlay 비교 추가
+
+- 사용자 지시:
+  - 모델마다 정확도가 높은 부분을 깊이 탐색해 모델 조합 운용 가능성을 검토한다.
+  - `linear-score` 기준 `buy-avoid`, `buy-rescue`, `hold-rescue`를 계산하고 LightGBM 결과와 같은 표에서 비교해 관리한다.
+- 시작 상태:
+  - KST 2026-07-03 01:00, `overnight`.
+  - live runtime 은 stopped, runtime watchdog 은 running 이었다.
+  - trading mode 는 `paper`, `ALLOW_LIVE_ORDERS` 변경 없음.
+- 구현:
+  - `scripts/summarize_model_overlay_comparison.py`를 추가했다.
+  - 이 스크립트는 `runtime-data/dev.db`를 read-only 로 열고, `LightGBM` 저장 예측과 `linear-score` 내장 모델 계산값을 같은 KIS live h15 label 구간에서 비교한다.
+  - 비교 축은 `3분류 정확도`, 상승/하락 precision, `buy-avoid`, `buy-rescue`, `hold-rescue`다.
+  - 출력은 `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`과 `.md`다.
+- 결과:
+  - 첫 실행 기준 since date 는 `2026-06-11`, label row 는 `57,858`건이다.
+  - `LightGBM`: 3분류 정확도 `0.350911`, 상승 precision `0.248885`, 하락 precision `0.291370`, buy-avoid best delta `+560.835740%p`, buy-rescue best net `-3.521700%p`, hold-rescue best delta cash `0원`.
+  - `linear-score`: 3분류 정확도 `0.278751`, 상승 precision `0.236277`, 하락 precision `0.271022`, buy-avoid best delta `+1,966.228874%p`, buy-rescue best net `-66.326348%p`, hold-rescue best delta cash `-25,599원`.
+  - 두 모델 모두 현재 역할 후보는 `defensive_buy_avoid`다.
+  - 보강 실행에서 조합 정책 후보를 추가했고, `either_model_down_veto_0.40`은 baseline 대비 `+2,046.718%p`로 가장 큰 손실 축소 후보였다. 다만 실행 row가 `23,675`건에서 `5,818`건으로 줄어드는 강한 방어 필터라 진단 전용으로 둔다.
+  - 두 모델이 모두 상승으로 본 `both_models_up_rescue_0.40`은 `160`건에서 `+0.632%p`로 소폭 양수지만 손실 비율 `0.506`이라 buy-rescue 정책 후보로 올리지 않는다.
+  - 강점 구간은 두 모델 모두 방향성 매수/매도보다 `flat` 예측 구간 정확도가 높게 나왔다. 이는 현재 모델 조합이 공격 진입보다 회피/대기 판단에 먼저 쓰일 가능성을 시사한다.
+  - `buy-rescue`와 `hold-rescue`는 현재 비용/손익 기준으로 주문 정책이나 KIS live shadow 확장 후보가 아니다.
+- 해석:
+  - 현재 증거는 “모델 하나를 단독 운용”보다 “모델별 강점 구간을 분리해 단일 주문 정책이 활용”하는 방향을 지지한다.
+  - 다만 이 작업은 역할 분류용 진단이며, active model, gate, paper/live 주문, KIS live shadow 확장은 변경하지 않았다.
+- 검증:
+  - `python3 -m py_compile scripts/summarize_model_overlay_comparison.py` 통과.
+  - `python3 scripts/summarize_model_overlay_comparison.py --horizon-min 15` 통과.
+  - `python3 -m unittest tests.test_model_overlay_comparison -q` 1개 통과.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - KIS 네트워크 호출 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
 ## [2026-06-27] Codex -> 주말 저장소 전체 점검과 리포트 최신화
 
 - 사용자 지시:

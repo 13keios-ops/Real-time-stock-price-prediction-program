@@ -271,13 +271,30 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
      threshold `0.45`도 적용 lot `3`건, 차이 `-6,496원`으로 악화됐고, `0.50` 이상은 적용 lot 이 없다.
      따라서 hold-rescue 는 현재 KIS live shadow, paper 주문 정책, active model, gate 변경으로 올리지 않고 우선순위를 낮춘다.
      이 결론은 LightGBM 전체를 폐기한다는 뜻이 아니라, 현재 상승 지속/청산 보류 방향 증거가 약하므로 buy-avoid shadow 관측을 우선한다는 뜻이다.
-9. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
-10. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
-11. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-12. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
-13. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-14. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
-15. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+
+10. `linear-score`가 2026-07-02 challenger 리포트에서 추천 후보로 올라왔으므로, LightGBM 전용 rescue/avoid 해석을 그대로 두지 않고 모델 공통 overlay 비교로 확장한다.
+    - 실행 명령은 `python scripts/summarize_model_overlay_comparison.py --horizon-min 15`다.
+    - 결과 파일은 `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`과 `.md`다.
+    - 2026-07-03 첫 결과 기준 `LightGBM`과 `linear-score` 모두 `defensive_buy_avoid` 역할 후보로만 분류한다.
+    - `buy-rescue`는 두 모델 모두 비용 차감 후 음수라 KIS live shadow 로 확장하지 않는다.
+    - `hold-rescue`는 두 모델 모두 `diagnostic_only_no_hold_rescue_candidate`라 청산 지연 정책으로 올리지 않는다.
+    - 2026-07-03 보강 결과 조합 정책 후보 중 `either_model_down_veto_0.40`이 baseline 대비 가장 큰 손실 축소 후보였지만, 실행 row를 크게 줄이는 방어 필터이므로 진단 전용으로만 유지한다.
+    - 두 모델이 모두 상승으로 본 `both_models_up_rescue_0.40`은 소폭 양수였지만 표본 `160`건과 손실 비율 `0.506` 때문에 buy-rescue 정책 후보로 올리지 않는다.
+    - 다음 작업은 모델별 강점 구간을 dashboard/장후 리포트에서 계속 누적 표시하고, 주문 정책으로 연결하기 전 표본과 비용 후 손익 일관성을 확인하는 것이다.
+11. Cybos-KIS 전이성 리뷰로 장기 데이터와 현재 live 데이터가 같은 방향으로 말하는 조건을 분리한다.
+    - 실행 명령은 `python scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15`다.
+    - 결과 파일은 `runtime-data/reports/research/latest-cybos-kis-transfer-review.json`과 `.md`다.
+    - 2026-07-03 첫 결과 기준 공통 bar 피처에서 `source_stable_candidate`는 0개다. 따라서 Cybos 5년치에서 좋아 보인 구조를 KIS live 주문 판단으로 바로 옮기면 안 된다.
+    - `bid_ask_imbalance`와 `spread_bps`는 KIS live 전용 orderbook 후보로만 본다. Cybos 쪽 값이 구조적으로 비어 있어 Cybos backtest 로 검증됐다고 해석하지 않는다.
+    - `midday`와 `short_up` 구간은 Cybos와 KIS 모두 평균 future return 이 음수인 회피/축소 후보로 남긴다. 다만 gate 나 주문 정책으로 연결하지 않고 shadow/리포트에서만 추적한다.
+    - AI quant 방식의 다음 방향은 단독 모델 승격이 아니라 `primary signal -> meta filter/router -> size/no-trade decision` 구조다. 이때 meta filter 는 공통 bar 피처, KIS-only orderbook 피처, 시간대/변동성 regime, LightGBM/linear-score overlay 를 함께 보되, 사전 기준과 기간 분리 검증 없이 좋은 조합만 골라 쓰지 않는다.
+12. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
+13. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
+14. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
+15. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+16. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+17. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+18. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 
