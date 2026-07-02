@@ -1,6 +1,33 @@
 # 작업 기록
 
 
+## [2026-07-03] Codex -> Phase 1 meta-policy/social signal shadow 기준 추가
+
+- 사용자 지시:
+  - Cybos/KIS 비교와 모델 overlay 검토 결과를 실제 구조에 반영한다.
+  - 기업인이나 주식 영향력자의 SNS/공개 발언을 실시간 추적해 거래에 활용하는 방식도 검토하고, Phase 1부터 시험삼아 같이 운용할 수 있게 한다.
+- 시작 상태:
+  - KST 2026-07-03 03:35, `overnight`.
+  - live runtime 은 stopped, runtime watchdog 은 running 이었다.
+  - trading mode 는 `paper`, 실전 주문/취소 없음.
+- 구현:
+  - `scripts/summarize_meta_policy_shadow.py`를 추가했다.
+  - 이 스크립트는 모델 overlay, Cybos-KIS transfer, Cybos buy-rescue proxy, hold-rescue paper replay 를 하나로 묶어 `runtime-data/reports/research/latest-meta-policy-shadow-h15.{json,md}`에 남긴다.
+  - `scripts/summarize_social_signal_shadow.py`를 추가했다.
+  - 이 스크립트는 `runtime-data/social/signals/social_events.jsonl` 이벤트를 `feature_labels`와 read-only 로 연결해 source/author/event_type/impact_direction 별 방향 적중률과 평균 미래 수익률을 `runtime-data/reports/research/latest-social-signal-shadow-h15.{json,md}`에 남긴다.
+  - `docs/Social-Signal-Shadow-Plan.md`를 추가해 공식 API, 공개 feed, 수동 export 만 허용하고 Phase 1에서는 주문 판단에 쓰지 않는 기준을 문서화했다.
+- 기준:
+  - 현재 권장 구조는 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`다.
+  - SNS/공개 영향력 이벤트는 Phase 1에서 정보성/연구 피처 후보로만 수집·평가한다.
+  - X filtered stream, Bluesky firehose/Jetstream, YouTube Data API, Naver Search API 는 공식 원천 후보로 검토했다. Threads/Instagram 계열 실시간 공개 추적은 공식 API 가능 범위 확인 필요다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - KIS 네트워크 호출 없음.
+  - SNS API 호출 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
+
 ## [2026-07-03] Codex -> Cybos-KIS 전이성/상관 진단 리포트 추가
 
 - 사용자 지시:

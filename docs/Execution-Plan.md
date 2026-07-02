@@ -58,6 +58,11 @@
 9. Phase 2 canary는 모델과 운영 blocker가 닫힌 뒤에만 시작한다.
 10. Phase 3 다종목 운용은 Phase 2 관측 뒤에만 검토한다.
 
+2026-07-03 기준 모델 운용 방향은 단독 모델 선택보다 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`가 우선이다.
+따라서 LightGBM, linear-score, KIS-only orderbook, 시간대/모멘텀 후보는 `scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 하나의 Phase 1 shadow 관측판에 묶어 본다.
+SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으로 공식 API, 공개 feed, 수동 export 만 허용하고, `scripts/summarize_social_signal_shadow.py --horizon-min 15`로 사후 방향 적중률을 본다.
+두 경로 모두 Phase 1에서는 주문 정책, gate, active model, `config/`, `app/risk/`를 바꾸지 않는다.
+
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
 반대로 모델 후보가 좋아 보여도 paper/KIS 정합성, rate limit, 감사 원장이 불안정하면 실제 운용에서 원인 추적이 어렵다.

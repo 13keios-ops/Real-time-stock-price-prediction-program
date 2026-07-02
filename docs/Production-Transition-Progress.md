@@ -20,12 +20,20 @@
 
 ## 2. 현재 스냅샷
 
-- 마지막 갱신: 2026-06-15 16:45 KST
-- 현재 런타임: `post-close`
-- live runtime: 2026-06-15 08:00:12 자동 기동, 15:30:43 정지. 장후 정지 상태가 정상.
+- 마지막 갱신: 2026-07-03 03:50 KST
+- 현재 런타임: `overnight`
+- live runtime: stopped. 장전 warmup 전 야간 정지 상태가 정상.
 - runtime watchdog: running. `live_runtime_should_run=false`, `errors=[]`, heartbeat fresh.
 - dashboard: running. `http://127.0.0.1:8765` 서버와 API가 응답 중.
 - trading mode: `paper`
+- 최신 meta-policy shadow:
+  `runtime-data/reports/research/latest-meta-policy-shadow-h15.json`
+  기준 Phase 1 적용 방향은 `baseline 주문 판단 유지 + meta filter/router 후보 shadow 관측`이다.
+  주문 정책, gate, active model, KIS live shadow 확장은 바꾸지 않는다.
+- 최신 social signal shadow:
+  `runtime-data/reports/research/latest-social-signal-shadow-h15.json`
+  기준 SNS/공개 영향력 이벤트는 Phase 1에서 공식 API, 공개 feed, 수동 export 만 허용하고,
+  주문 신호가 아니라 사후 평가/연구 피처 후보로만 본다.
 - 최신 cowork 기준:
   `docs/cowork-reports/2026-06-14-repo-goal-and-direction-deep-review-review_ver_21.md`
 - 최신 통합/후속 리포트:

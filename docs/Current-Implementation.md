@@ -199,6 +199,8 @@ python scripts/summarize_lightgbm_defensive_signal_candidates.py
 python scripts/summarize_lightgbm_defensive_shadow.py
 python scripts/summarize_model_overlay_comparison.py --horizon-min 15
 python scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15
+python scripts/summarize_meta_policy_shadow.py --horizon-min 15
+python scripts/summarize_social_signal_shadow.py --horizon-min 15
 python scripts/summarize_cybos_buy_avoid_proxy.py --trade-cost-pct 0.13
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh
@@ -241,6 +243,8 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - LightGBM 방어 shadow 비교는 `python scripts/summarize_lightgbm_defensive_shadow.py`로 실행한다. 이 명령은 baseline 매수 허용 신호와 같은 시각의 `lightgbm-h15-v1` shadow 예측, 닫힌 h15 label, closed paper lot 을 read-only 로 조인해 `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`과 `.md`에 남긴다. 2026-06-13 첫 결과는 `buy-avoid`는 손실 축소 후보였지만, 같은 하락 신호를 조기 청산에 쓰는 것은 실제 paper 청산보다 악화되어 보류다. 이 결과는 active model, threshold, paper/live 주문을 바꾸지 않는다.
 - 모델 공통 overlay 비교는 `python scripts/summarize_model_overlay_comparison.py --horizon-min 15`로 실행한다. 이 명령은 `LightGBM` 저장 예측과 `linear-score` 내장 모델 계산값을 같은 KIS live h15 label 구간에서 비교해 `buy-avoid`, `buy-rescue`, `hold-rescue`를 한 표로 남긴다. 결과는 `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`과 `.md`에 저장된다. 2026-07-03 첫 결과 기준 두 모델 모두 역할 후보는 `defensive_buy_avoid`이고, `buy-rescue`와 `hold-rescue`는 비용/손익 기준으로 후보가 아니다. 같은 리포트는 방향/시간대/확률대별 강점 구간과 `baseline`, `LightGBM veto`, `linear-score veto`, `either/both veto`, `both-up rescue` 조합 정책 후보도 진단 전용으로 비교한다. 이 리포트는 모델별 강점 구간 분류를 위한 진단이며 주문 정책, active model, gate, KIS live shadow 확장을 바꾸지 않는다.
 - Cybos-KIS 전이성 리뷰는 `python scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15`로 실행한다. 이 명령은 Cybos historical row 와 2026-06-11 이후 KIS live h15 label row 를 같은 feature bucket, 시간대, 단기 모멘텀, 변동성 구간으로 비교해 `runtime-data/reports/research/latest-cybos-kis-transfer-review.{json,md}`에 남긴다. 2026-07-03 첫 결과는 `kis_specific_shadow_candidates_only`이며, 공통 bar 피처에서 바로 전이 가능한 수익 신호는 없고 `bid_ask_imbalance`, `spread_bps` 같은 KIS 전용 orderbook 후보와 `midday`, `short_up` 회피/축소 후보만 진단 전용으로 남았다. 이 결과는 meta-policy/router 후보를 좁히기 위한 연구 리포트이며 모델 승격, gate 변경, 주문 정책, KIS live shadow 확장을 자동 변경하지 않는다.
+- meta-policy shadow 요약은 `python scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 실행한다. 이 명령은 모델 overlay, Cybos-KIS 전이성, Cybos buy-rescue proxy, hold-rescue paper replay 결과를 한 리포트로 묶어 `runtime-data/reports/research/latest-meta-policy-shadow-h15.{json,md}`에 남긴다. 현재 기준 적용 방향은 `baseline 주문 판단 유지 + meta filter/router 후보 shadow 관측`이며, active model, gate, paper/KIS 주문 정책, KIS live shadow 확장은 바꾸지 않는다.
+- SNS/공개 영향력 이벤트 shadow 평가는 `python scripts/summarize_social_signal_shadow.py --horizon-min 15`로 실행한다. 기본 이벤트 파일은 `runtime-data/social/signals/social_events.jsonl`이고, 이벤트가 없으면 `no_events_file`로 안전 종료한다. 이벤트가 있으면 `feature_labels`를 read-only 로 조회해 source/author/event_type/impact_direction 별 h15 사후 방향 적중률과 평균 미래 수익률을 `runtime-data/reports/research/latest-social-signal-shadow-h15.{json,md}`에 남긴다. Phase 1에서는 공식 API, 공개 feed, 수동 export 만 허용하고 주문 판단에는 쓰지 않는다.
 - 오래된 데이터는 삭제하지 않고 변화 점검, 구간 비교, 재생, 회귀 검증에 보관
 - Cybos 연구 실험은 `source=cybos-historical`만 사용하고, 호가가 없는 과거 데이터 특성상 `mid_price`, `spread_bps`, `bid_ask_imbalance`는 제외한다.
 - Cybos rule challenger review는 고정 long-only 룰 후보를 비용 반영 walk-forward로 비교한다. 결과가 좋아도 자동 승격하지 않고 기간 분리 재현성 검증 후보로만 기록한다.

@@ -37,6 +37,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/Production-Implementation-Blueprint.md`: 실전 전환을 코드 작업 단위로 나눈 구현 청사진
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
 - `docs/Execution-Plan.md`: 현재 상태에서 다음 작업을 어떤 순서와 방법으로 진행할지 정리한 실행 계획판
+- `docs/Social-Signal-Shadow-Plan.md`: SNS/공개 영향력 이벤트를 Phase 1 shadow 로 관측·평가하는 기준
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
 - `docs/Codex-Operating-Feedback.md`: 반복 지적 방지 체크리스트와 저장소 전용 skill 후보 관리
@@ -64,6 +65,8 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - LightGBM 성능 진단, feature source, feature profile, label band, label band 재현성, probability calibration 연구 리포트
 - LightGBM 하락/회피 방어 신호 후보 요약 리포트
 - LightGBM 하락/회피 신호의 baseline 매수 회피 / 조기청산 shadow 비교 리포트
+- 모델 공통 meta-policy shadow 후보 요약 리포트
+- SNS/공개 영향력 이벤트 shadow 평가 계획과 read-only 사후평가 리포트
 - paper/KIS mismatch trace 리포트와 gate walk-forward 극단 fold 요약/장세 분석 리포트
 - online replay 기반 paper trading 상태 기록
 - KIS WebSocket 연결 준비와 검증 리포트
