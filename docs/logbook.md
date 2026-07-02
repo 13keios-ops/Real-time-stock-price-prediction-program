@@ -19,7 +19,7 @@
 - 기준:
   - 현재 권장 구조는 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`다.
   - SNS/공개 영향력 이벤트는 Phase 1에서 정보성/연구 피처 후보로만 수집·평가한다.
-  - X filtered stream, Bluesky firehose/Jetstream, YouTube Data API, Naver Search API 는 공식 원천 후보로 검토했다. Threads/Instagram 계열 실시간 공개 추적은 공식 API 가능 범위 확인 필요다.
+  - 사용자 보정에 따라 Phase 1 SNS 영향력 후보는 X, Facebook, Instagram, Threads 를 우선으로 좁혔다. YouTube Data API 와 Naver Search API 는 실시간 인물 영향력 추적 목적과 맞지 않아 제외했다. Bluesky firehose/Jetstream 은 X 대체 플랫폼의 공개 event stream 비교용 보조 후보로만 남기며, 국내 주식 영향 계정 coverage 가 약하면 중단한다.
 - 금지/안전:
   - 실전 주문/취소 없음.
   - KIS 네트워크 호출 없음.

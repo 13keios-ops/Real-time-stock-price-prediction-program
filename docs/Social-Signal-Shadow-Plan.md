@@ -36,15 +36,22 @@ Phase 1에서는 SNS 신호로 paper 주문, KIS 모의계좌 주문, 실전 주
 
 Phase 1a는 자격정보 없이 시작할 수 있는 manual/fixture JSONL 을 우선한다.
 
-Phase 1b 이후 공식 API 연결 후보는 아래다.
+Phase 1b 이후 공식 API 연결 후보는 아래 우선순위로 둔다.
 
-- X filtered stream: 공개 post 를 rule 기반으로 거의 실시간 stream 으로 받는 공식 API 후보다. 승인된 developer 계정과 bearer token 이 필요하다.
-- Bluesky firehose/Jetstream: 공개 event stream 후보다. 국내 주식 영향 계정 coverage 는 확인 필요다.
-- YouTube Data API: 기업 공식 채널, IR 채널, 경제 인플루언서 채널의 신규 영상/라이브/커뮤니티 관련 공개 metadata 를 polling 한다.
-- Naver Search API: 블로그/뉴스성 공개 반응을 polling 하는 후보다. 실시간 SNS라기보다 공개 반응 보조 지표다.
-- Threads/Instagram 계열: 공식 API에서 실시간 공개 계정 추적이 가능한지와 약관 범위는 확인 필요다.
+1. X filtered stream:
+   공개 post 를 rule 기반으로 거의 실시간 stream 으로 받는 1순위 후보다. 영향력 있는 기업인, 투자자, 애널리스트, 기업 공식 계정의 `from:계정`, 종목명, 기업명, 주요 키워드를 rule 로 관리할 수 있다. 승인된 developer 계정과 bearer token 이 필요하다.
+2. Facebook Graph API:
+   기업 공식 Page, 공개 인물 Page, 공개 커뮤니티성 Page 게시물 확인 후보지만, 실제로 읽을 수 있는 대상과 권한은 Meta app review 와 Page 권한에 크게 좌우된다. 개인 프로필/비공개 그룹 추적은 하지 않는다.
+3. Instagram Graph API:
+   기업/인플루언서의 공개 professional account, hashtag, media metadata 후보를 확인한다. 다만 일반 개인 계정 전체 추적이나 실시간 feed 는 제한이 클 수 있으므로, 1차는 whitelist 계정/공식 계정 중심으로 본다.
+4. Threads API:
+   X 와 비슷한 텍스트 기반 영향력 이벤트 후보지만, 공식 API 의 검색/실시간 stream 지원 범위와 rate limit 은 별도 확인이 필요하다. 가능하면 whitelist 계정의 공개 post 확인부터 시작한다.
+5. Bluesky firehose/Jetstream:
+   1순위 플랫폼은 아니다. 다만 공개 event stream 구조가 단순하고, X 대체 플랫폼으로 일부 금융/기술 인물이 이동했을 가능성이 있어 비교용 보조 후보로 둔다. 국내 주식 영향 계정 coverage 가 약하면 바로 제외한다.
 
-첫 적용 권장안은 X/Bluesky 실시간 stream 을 바로 붙이는 것이 아니라, 운영자가 고른 whitelist 계정과 키워드에 대해 manual export 또는 fixture 로 1~2주 평가하는 것이다. 그 다음 실제 API token 과 rate limit 을 확인하고 connector 를 붙인다.
+YouTube Data API 와 Naver Search API 는 이번 Phase 1 SNS 영향력 shadow 후보에서 제외한다. 영상/검색/블로그성 원천은 즉시성보다 후행 반응에 가까워, 사용자가 목표로 한 기업인/주식 영향력자 실시간 추적 목적과 맞지 않기 때문이다.
+
+첫 적용 권장안은 X 를 1순위로 두고, Facebook/Instagram/Threads 는 공식 권한으로 가능한 공개 계정 범위를 확인한 뒤 manual export 또는 fixture 로 1~2주 평가하는 것이다. Bluesky 는 같은 기간에 소수 계정 coverage 만 확인하고, 한국 주식 관련 표본이 약하면 중단한다.
 
 관련 문서/코드 경로:
 `scripts/summarize_social_signal_shadow.py`,
