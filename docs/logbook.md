@@ -1,5 +1,32 @@
 # 작업 기록
 
+## [2026-07-05] Codex -> review_ver_25 반영과 E6 source split 재계산
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_25.md`를 확인하고 P0인 E6 source split 재계산과 신규 테스트 포함 전체 pytest 결과를 보고한다.
+  - E6 분리 결과 전까지 E6 분리 전에는 h15 비용 구조 결론을 확정하지 않는다.
+- 시작 상태:
+  - 일요일/주말, live runtime stopped, watchdog running, `live_runtime_should_run=false`, trading mode 는 `paper`였다.
+- 조치:
+  - `scripts/summarize_cost_horizon_diagnostics.py`가 `all`, `kis_live`, `cybos_historical`, `kis_live_baseline_buy_join` source summary 를 함께 쓰도록 보강했다.
+  - 현재 DB schema 에는 source 컬럼이 없어 `KIS live 근사 = serving runtime 심볼 + 2026-06-11 이후`, `Cybos historical 근사 = 2026-06-11 이전`으로 분리하고 JSON/Markdown에 근사 방식을 명시했다.
+  - `tests/test_cost_horizon_diagnostics.py`에 KIS live source split 이 정책 판단을 구동하는 회귀 테스트와 baseline buy join 표기 테스트를 추가했다.
+  - `runtime-data/reports/research/latest-cost-horizon-diagnostics.{json,md}`를 재생성했다.
+- 결과:
+  - 전체 h15: `rows=6,281,164`, `median_abs=0.189394`, `below_2x_cost=true`, Cybos historical 비중 `99.02%`.
+  - KIS live 근사 h15: `rows=61,527`, `share=0.98%`, `median_abs=0.361446`, `2 * trade_cost_pct=0.216`, `decision=kis_live_h15_median_move_covers_2x_cost`.
+  - KIS live baseline buy join h15: `rows=64,173`, `median_abs=0.311365`, `below_2x_cost=false`.
+  - h60 KIS live 근사: `rows=54,215`, `median_abs=0.717274`, `below_2x_cost=false`.
+- 검증:
+  - `python3 -m py_compile scripts/summarize_cost_horizon_diagnostics.py tests/test_cost_horizon_diagnostics.py` 통과.
+  - `python3 -m pytest tests/test_cost_horizon_diagnostics.py -q` -> `3 passed`.
+  - `python3 -m pytest -q` -> `443 passed, 59 subtests passed in 34.96s`.
+- 해석:
+  - review_ver_25 지적은 타당했다. 전체 h15 비용 경고는 Cybos historical 지배 표본의 성격이 강하므로 KIS live h15 구조 결론으로 확정하면 안 된다.
+  - 현재 병목은 E6 비용/시간지평 확정 문제가 아니라 E1 신호 정보량 부족이다. E2/E3 threshold/EV 필터 튜닝은 계속 보류한다.
+- 안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
 ## [2026-07-05] Codex -> review_ver_24 반영과 Phase 1 E1/E6 구조 진단
 
 - 사용자 지시:

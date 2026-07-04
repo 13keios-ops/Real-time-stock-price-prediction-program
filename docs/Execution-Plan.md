@@ -69,7 +69,7 @@ SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으�
 같은 점검에서 paper/KIS mismatch trace와 live readiness도 갱신했으며, readiness는 KIS read-only probe의 `KisApiError` 때문에 `blocked`로 남았다.
 SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_count=0`이라 인프라만 준비된 상태로 본다.
 
-2026-07-05 Phase 1 구조 진단 E1/E6 결과도 닫혔다. `latest-signal-ic-h15` 기준 LightGBM `probability_down`의 일별 Spearman IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준의 올바른 음의 방향 신호가 아니다. 판정은 `signal_quality_insufficient`이며, E2/E3 threshold/EV 필터 튜닝은 바로 진행하지 않는다. `latest-cost-horizon-diagnostics` 기준 h15 `median_abs_future_return_pct=0.189394`는 `2 * trade_cost_pct=0.216`보다 작아 `h15_median_move_below_2x_cost` 경고가 켜졌다. h60은 `median_abs=0.341880`으로 비용 구조는 더 낫지만, h60 주문 정책은 별도 gate/label/체결 검증 전까지 만들지 않는다.
+2026-07-05 Phase 1 구조 진단 E1/E6 결과도 닫혔다. `latest-signal-ic-h15` 기준 LightGBM `probability_down`의 일별 Spearman IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준의 올바른 음의 방향 신호가 아니다. 판정은 `signal_quality_insufficient`이며, E2/E3 threshold/EV 필터 튜닝은 바로 진행하지 않는다. review_ver_25 반영 후 `latest-cost-horizon-diagnostics`는 source 컬럼 부재를 명시하고 `KIS live 근사 = serving runtime 심볼 + 2026-06-11 이후`, `Cybos historical 근사 = 2026-06-11 이전`으로 E6를 분리한다. 전체 h15는 `median_abs=0.189394`, `below_2x_cost=true`지만 Cybos historical이 `99.02%`를 차지하는 참고 표본이다. 정책 판단 표본인 KIS live 근사 h15는 `rows=61,527`, `share=0.98%`, `median_abs=0.361446`, `2 * trade_cost_pct=0.216`, `decision=kis_live_h15_median_move_covers_2x_cost`다. 따라서 E6만으로 h15 비용 구조만으로 배제하지 않고, E1 신호 품질 부족을 우선 병목으로 본다. h60 KIS live 근사 표본은 `median_abs=0.717274`이나 h60 주문 정책은 별도 gate/label/체결 검증 전까지 만들지 않는다.
 
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
