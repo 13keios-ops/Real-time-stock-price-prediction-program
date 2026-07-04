@@ -63,6 +63,12 @@
 SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으로 공식 API, 공개 feed, 수동 export 만 허용하고, `scripts/summarize_social_signal_shadow.py --horizon-min 15`로 사후 방향 적중률을 본다.
 두 경로 모두 Phase 1에서는 주문 정책, gate, active model, `config/`, `app/risk/`를 바꾸지 않는다.
 
+2026-07-04 `review_ver_22` 대응 기준으로, buy-avoid shadow는 2026-06-11~2026-07-03 구간 `joined_rows=25,198`까지 쌓여 10거래일 checkpoint를 넘겼다.
+다만 같은 날 `gate_reference_v1` walk-forward를 재검증한 결과 `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`로 gate는 계속 `needs_review`다.
+따라서 buy-avoid는 손실 축소 관측 후보로 유지하되, active model, gate, 주문 정책에는 반영하지 않는다.
+같은 점검에서 paper/KIS mismatch trace와 live readiness도 갱신했으며, readiness는 KIS read-only probe의 `KisApiError` 때문에 `blocked`로 남았다.
+SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_count=0`이라 인프라만 준비된 상태로 본다.
+
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
 반대로 모델 후보가 좋아 보여도 paper/KIS 정합성, rate limit, 감사 원장이 불안정하면 실제 운용에서 원인 추적이 어렵다.

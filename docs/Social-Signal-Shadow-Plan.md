@@ -152,6 +152,11 @@ SNS 신호를 모델 피처 후보로 올리려면 최소 아래 조건이 필�
 
 현재 권장안은 `manual/fixture social event shadow -> read-only 사후 평가 -> source별 표본 확인 -> 공식 API 연결 여부 결정` 순서다.
 
+2026-07-04 기준 최신 `latest-social-signal-shadow-h15.json`은 `status=no_events_file`, `event_count=0`, `matched=0`이다.
+따라서 현재 상태는 SNS 영향력 이벤트를 검증한 결과가 아니라, 이벤트 파일이 없어서 평가가 시작되지 않은 인프라 준비 상태다.
+`runtime-data/social/signals/social_events.jsonl`에 공식 API, 공개 feed, 수동 export 기반 이벤트가 들어오기 전까지는 성공/실패로 해석하지 않는다.
+대시보드와 장후 요약에서는 이 상태를 `not active: no events file`로 표시하는 것이 안전하다.
+
 Phase 1부터 같이 운용할 수 있는 범위는 “같이 수집하고 같이 평가한다”까지다.
 실제 주문 정책에 반영하는 것은 Phase 1 결과와 별도 검증 뒤에만 검토한다.
 

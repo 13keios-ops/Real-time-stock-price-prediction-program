@@ -20,6 +20,22 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-04 최신 스냅샷
+
+- 마지막 갱신: 2026-07-04 20:40 KST, `review_ver_22` 대응 후속 점검.
+- 현재 장 상태: 토요일/주말. live runtime 은 stopped 로 정상이다.
+- runtime watchdog: stale 상태를 확인한 뒤 `scripts/start_runtime_watchdog_background.sh`로 재기동했고, pid `17046`에서 heartbeat 가 fresh 상태다.
+- dashboard: stale 상태를 확인한 뒤 `scripts/start_dashboard_background.sh`로 재기동했고, `http://127.0.0.1:8765`에서 응답 중이다. 최신 snapshot 은 `runtime-data/reports/dashboard/latest-dashboard.html` 기준 `generated_at=2026-07-04T20:38:03+09:00`이다.
+- 최신 cowork 리뷰: `docs/cowork-reports/2026-07-04-repo-goal-and-direction-deep-review-review_ver_22.md`.
+- 최신 Codex 후속 리포트: `docs/cowork-reports/2026-07-04-repo-goal-and-direction-deep-review-work_ver_22.md`.
+- buy-avoid shadow: `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json` 기준 2026-06-11~2026-07-03, `joined_rows=25,198`, threshold `0.40`, skip `6,694`, net delta `+486.38%p`로 10거래일 checkpoint 는 충족했다. 단, 이것은 손실 축소 관측 후보이지 주문 정책 반영 근거가 아니다.
+- gate walk-forward 재검증: `runtime-data/reports/backtests/latest-walk-forward-h15.json` 기준 `walk-forward-h15-20260704201528027664`, `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`, gate 는 계속 `needs_review`다.
+- challenger 재평가: `runtime-data/reports/challengers/latest-challengers-h15.json` 기준 `challenger-h15-20260704203559674231`, active `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`다.
+- paper/KIS mismatch trace: `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`를 갱신했다. broker sync 는 `status=ok`, open order `0`이지만, position mismatch 는 5종목이 남아 있다.
+- live readiness: `runtime-data/reports/live-readiness/latest-readiness.json` 기준 `phase1a_paper_readonly`, `status=blocked`다. synthetic `ws_recovery`, database, disk_space, dashboard, storage_migration_state 는 통과했지만, KIS read-only `token_refresh`, `account_snapshot`, `system_clock` probe 가 `KisApiError`로 실패했다. `market_status`와 `kill_switch`는 비차단 미확인이다.
+- social signal shadow: `runtime-data/reports/research/latest-social-signal-shadow-h15.json` 기준 `status=no_events_file`, `event_count=0`, `matched=0`이다. 현재는 인프라만 준비된 상태이며 SNS 효과 검증은 시작되지 않았다.
+- 위 2026-07-04 스냅샷이 아래의 2026-07-03 및 이전 항목보다 최신 기준이다.
+
 - 마지막 갱신: 2026-07-03 03:50 KST
 - 현재 런타임: `overnight`
 - live runtime: stopped. 장전 warmup 전 야간 정지 상태가 정상.

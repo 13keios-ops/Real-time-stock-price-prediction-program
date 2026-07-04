@@ -1,6 +1,42 @@
 # 작업 기록
 
 
+## [2026-07-04] Codex -> review_ver_22 대응, buy-avoid 재검증, stale 리포트 갱신
+
+- 사용자 지시:
+  - `2026-07-04-repo-goal-and-direction-deep-review-review_ver_22.md`를 `pingpong-review` 흐름으로 확인하고 비판적으로 조치한다.
+- 시작 상태:
+  - KST 2026-07-04 토요일, 장 미개장.
+  - live runtime 은 stopped, trading mode 는 `paper`였다.
+  - runtime watchdog 과 dashboard 는 stale 상태라 장외에서 안전하게 복구 대상이었다.
+  - cowork review 파일은 미추적 상태로 존재했다.
+- cowork 리뷰 판단:
+  - 2026-06-15~2026-07-03 사이 cowork review gap 이 있었고, buy-avoid 10거래일 checkpoint 가 이미 찼다는 지적은 타당하다.
+  - buy-avoid 결과가 좋아 보여도 active model, gate, 주문 정책 변경 근거는 아니며, walk-forward/challenger 재검증이 먼저 필요하다는 지적을 반영했다.
+- 조치:
+  - `./scripts/run_gate_walk_forward_backtest.sh`로 gate reference walk-forward 를 재검증했다.
+  - `python3 scripts/trace_paper_kis_mismatch.py`로 paper/KIS mismatch trace 를 갱신했다.
+  - `./scripts/probe_kis_token_refresh.sh --mode paper --use-cache`, `./scripts/probe_kis_account_snapshot.sh --mode paper --timeout-seconds 10`, `./scripts/probe_kis_clock_reference.sh --mode paper --timeout-seconds 10`, `./scripts/probe_kis_ws_recovery.sh`와 fixture rebuild 로 live readiness 를 다시 만들었다.
+  - `python3 -m app --run-challengers --horizon-min 15`로 challenger summary 를 최신 walk-forward 이후 다시 평가했다.
+  - stale watchdog 과 dashboard 를 장외에서 재기동하고 runtime/dashboard report 를 갱신했다.
+  - `docs/cowork-reports/2026-07-04-repo-goal-and-direction-deep-review-work_ver_22.md`를 작성했다.
+- 결과:
+  - latest walk-forward: `walk-forward-h15-20260704201528027664`, `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`, gate 는 계속 `needs_review`.
+  - latest challenger: `challenger-h15-20260704203559674231`, active `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`.
+  - buy-avoid shadow: 2026-06-11~2026-07-03, `joined_rows=25,198`, threshold `0.40`, skip `6,694`, net delta `+486.38%p`로 손실 축소 후보지만 주문 반영은 보류.
+  - mismatch trace: broker sync 는 `ok`, open order 는 0건이나 5종목 position mismatch 가 남아 있다.
+  - live readiness: `phase1a_paper_readonly`는 `blocked`; KIS read-only token/account/system_clock probe 가 `KisApiError`로 실패했다.
+  - social signal shadow: `status=no_events_file`, `event_count=0`이라 실제 검증은 시작되지 않았다.
+- 문서 반영:
+  - `docs/Execution-Plan.md`에 2026-07-04 checkpoint-first 판단을 추가했다.
+  - `docs/Production-Transition-Progress.md`에 최신 스냅샷을 추가했다.
+  - `docs/Social-Signal-Shadow-Plan.md`에 no-events 상태 해석을 명시했다.
+- 금지/안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - NAS 백업 실행 없음.
+
+
 ## [2026-07-03] Codex -> Phase 1 meta-policy/social signal shadow 기준 추가
 
 - 사용자 지시:
