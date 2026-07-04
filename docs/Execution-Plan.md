@@ -65,9 +65,11 @@ SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으�
 
 2026-07-04 `review_ver_22` 대응 기준으로, buy-avoid shadow는 2026-06-11~2026-07-03 구간 `joined_rows=25,198`까지 쌓여 10거래일 checkpoint를 넘겼다.
 다만 같은 날 `gate_reference_v1` walk-forward를 재검증한 결과 `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`로 gate는 계속 `needs_review`다.
-따라서 buy-avoid는 손실 축소 관측 후보로 유지하되, active model, gate, 주문 정책에는 반영하지 않는다.
+2026-07-05 random-control 기준 KIS live buy-avoid는 `재검증 필요, 무작위 대조군 대비 우위 미확인`으로 정정했다. 따라서 active model, gate, 주문 정책에는 반영하지 않는다.
 같은 점검에서 paper/KIS mismatch trace와 live readiness도 갱신했으며, readiness는 KIS read-only probe의 `KisApiError` 때문에 `blocked`로 남았다.
 SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_count=0`이라 인프라만 준비된 상태로 본다.
+
+2026-07-05 Phase 1 구조 진단 E1/E6 결과도 닫혔다. `latest-signal-ic-h15` 기준 LightGBM `probability_down`의 일별 Spearman IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준의 올바른 음의 방향 신호가 아니다. 판정은 `signal_quality_insufficient`이며, E2/E3 threshold/EV 필터 튜닝은 바로 진행하지 않는다. `latest-cost-horizon-diagnostics` 기준 h15 `median_abs_future_return_pct=0.189394`는 `2 * trade_cost_pct=0.216`보다 작아 `h15_median_move_below_2x_cost` 경고가 켜졌다. h60은 `median_abs=0.341880`으로 비용 구조는 더 낫지만, h60 주문 정책은 별도 gate/label/체결 검증 전까지 만들지 않는다.
 
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
@@ -231,8 +233,10 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
    - Cybos 에서는 `bar_context_momentum` 기반 하락확률을 사용하되, threshold 는 skip-rate coverage 로 맞춘다.
    - 실용 coverage 는 `20~50%`, KIS shadow 비교 중심 구간은 `30~40%`다.
    - 성공 후보는 비용 `0.13%` 반영 뒤 순손익 개선, coverage 구간 내 위치, 전체 fold 중 최소 `2/3` 이상 개선을 동시에 만족해야 한다.
-   - 최신 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json` 기준 target skip `0.3665`는 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`로 구조적 손실 축소 후보를 지지한다.
-   - 단, 필터 뒤 kept net 도 아직 음수이므로 이 결과는 `buy-avoid shadow 지속` 근거이지 모델 승격, gate 변경, 주문 정책 변경 근거가 아니다.
+   - 최신 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json` 기준 target skip `0.3665`는 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, random-control aggregate `filter_better_than_random_p95`로 Cybos proxy 내부에서는 하락 위험 필터가 무작위보다 나쁜 거래를 더 잘 골라냈다.
+   - 단, KIS live shadow 의 같은 threshold `0.40`은 random-control `filter_worse_than_random_p95`, `random_control_gate.passed=false`이므로 Cybos 결과를 KIS live 주문 정책으로 전이하지 않는다.
+   - Cybos 결과를 "손실 축소 후보"라고 부를 때도 범위는 `Cybos proxy 내부`로 제한하며, KIS live 현재 표현은 `재검증 필요, 무작위 대조군 대비 우위 미확인`이다.
+   - 필터 뒤 kept net 도 아직 음수이므로 이 결과는 `buy-avoid shadow 지속` 근거이지 모델 승격, gate 변경, 주문 정책 변경 근거가 아니다.
    - 여기서 `baseline net`은 실제 runtime baseline 모델의 매수 판단 결과가 아니라 Cybos LightGBM 이 만든 proxy 매수 후보 집합의 비용 차감 손익이다.
    - 따라서 이 결과는 `LightGBM이 runtime baseline의 나쁜 매수를 막았다`가 아니라 `LightGBM이 자기 proxy 매수 후보 중 하락 위험이 높은 row 를 자체 필터링했더니 손실이 줄었다`로만 해석한다.
 7. Cybos regime 분해는 새 모델을 만들기 전 진단으로만 쓴다.
@@ -289,7 +293,7 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
     - 2026-07-03 첫 결과 기준 `LightGBM`과 `linear-score` 모두 `defensive_buy_avoid` 역할 후보로만 분류한다.
     - `buy-rescue`는 두 모델 모두 비용 차감 후 음수라 KIS live shadow 로 확장하지 않는다.
     - `hold-rescue`는 두 모델 모두 `diagnostic_only_no_hold_rescue_candidate`라 청산 지연 정책으로 올리지 않는다.
-    - 2026-07-03 보강 결과 조합 정책 후보 중 `either_model_down_veto_0.40`이 baseline 대비 가장 큰 손실 축소 후보였지만, 실행 row를 크게 줄이는 방어 필터이므로 진단 전용으로만 유지한다.
+    - 2026-07-03 보강 결과 조합 정책 후보 중 `either_model_down_veto_0.40`은 baseline 대비 가장 큰 손실 축소 delta 를 보였지만, random-control 미적용 조합 후보이고 실행 row를 크게 줄이는 방어 필터이므로 진단 전용으로만 유지한다.
     - 두 모델이 모두 상승으로 본 `both_models_up_rescue_0.40`은 소폭 양수였지만 표본 `160`건과 손실 비율 `0.506` 때문에 buy-rescue 정책 후보로 올리지 않는다.
     - 다음 작업은 모델별 강점 구간을 dashboard/장후 리포트에서 계속 누적 표시하고, 주문 정책으로 연결하기 전 표본과 비용 후 손익 일관성을 확인하는 것이다.
 11. Cybos-KIS 전이성 리뷰로 장기 데이터와 현재 live 데이터가 같은 방향으로 말하는 조건을 분리한다.
@@ -367,7 +371,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 방어 신호가 좋아 보여도 active model 교체나 gate 기준값 변경 없이 별도 후보로만 둔다.
 - 기존 진단에서 후보를 추릴 때는 `scripts/summarize_lightgbm_defensive_signal_candidates.py`로 하락 예측 양수 후보를 먼저 요약한다.
 - 실제 baseline 매수 신호에 적용한 첫 비교는 `scripts/summarize_lightgbm_defensive_shadow.py`로 수행한다.
-- 같은 하락/회피 단서라도 `buy-avoid`와 `early-exit`은 분리해서 판정한다. 2026-06-13 기준 첫 shadow 결과는 `buy-avoid`는 손실 축소 후보지만, 조기 청산은 실제 paper 청산보다 악화되어 보류다.
+- 같은 하락/회피 단서라도 `buy-avoid`와 `early-exit`은 분리해서 판정한다. 2026-06-13 첫 shadow 는 baseline 대비 손실 축소 delta 가 양수였지만, 2026-07-05 random-control 기준 KIS buy-avoid 는 `재검증 필요, 무작위 대조군 대비 우위 미확인`으로 정정되었다. 조기 청산은 실제 paper 청산보다 악화되어 보류다.
 
 ### 이유
 
@@ -708,8 +712,8 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 
 1. broker paper sync rate limit과 local-only mismatch 원장을 `scripts/trace_paper_kis_mismatch.py`로 확인한다.
 2. 다음 거래일 장후에도 mismatch가 남으면 P0 운영 blocker로 보고 order-fill 호출량 설계를 줄인다.
-3. KIS live feature 후보를 더 좁히는 모델 실험을 진행하되, 현재 데이터 한계 때문에 provisional 판단으로 둔다.
-4. 하락/회피 신호를 baseline 매수 회피 필터와 조기 청산 후보로 paper shadow 검증한다.
+3. E1/E6 결과에 따라 h15 threshold/EV 튜닝은 보류하고, 먼저 신호 품질 개선 또는 horizon 전환 후보를 설계한다.
+4. KIS live feature 후보는 `probability_down` 자체가 정보가 약하다는 전제에서 재검토한다.
 5. gate walk-forward 극단 저성능 fold를 `scripts/summarize_walk_forward_extreme_folds.py`로 추적하고, 원인 분석 후보 기간을 고른다.
 6. dashboard/watchdog 장시간 유지 상태를 다음 장중에 read-only로 확인한다.
 7. 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.

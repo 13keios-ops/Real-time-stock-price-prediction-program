@@ -1,5 +1,105 @@
 # 작업 기록
 
+## [2026-07-05] Codex -> review_ver_24 반영과 Phase 1 E1/E6 구조 진단
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_24.md`를 `pingpong-review` 흐름으로 확인하고 조치한다.
+- 시작 상태:
+  - KST 2026-07-05 03:51, 일요일/주말.
+  - live runtime 은 stopped, watchdog 은 running, `live_runtime_should_run=false`, trading mode 는 `paper`였다.
+- cowork 리뷰 판단:
+  - review_ver_24의 P0/P1 완료 판정은 타당하다. 남은 미완은 work_ver_24의 `검증 예정` 문구에 실제 실행 결과가 빠진 점이다.
+  - 방법론 문서와 work_ver 표 중복은 낮은 위험이지만, 방법론 문서 §8을 정본으로 두는 기준을 추가했다.
+- 조치:
+  - `scripts/summarize_signal_ic.py`와 `tests/test_signal_ic.py`를 추가했다.
+  - `scripts/summarize_cost_horizon_diagnostics.py`와 `tests/test_cost_horizon_diagnostics.py`를 추가했다.
+  - `runtime-data/reports/research/latest-signal-ic-h15.{json,md}`와 `latest-cost-horizon-diagnostics.{json,md}`를 생성했다.
+  - `docs/Execution-Plan.md`, `docs/Current-Implementation.md`, `docs/Buy-Avoid-Random-Control-Methodology.md`에 결과와 해석 기준을 반영했다.
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-work_ver_25.md`에 검증 종료와 E1/E6 결과를 남겼다.
+- 결과:
+  - E1 IC: `joined_rows=25,198`, `trade_days=17`, `probability_down.mean_daily_ic=0.004754`, `t_stat=0.367342`, `decision=signal_quality_insufficient`, `proceed_to_e2_e3=false`.
+  - E6 cost/horizon: h15 `median_abs_future_return_pct=0.189394`, `2 * trade_cost_pct=0.216`, `decision=h15_median_move_below_2x_cost`. h60은 `median_abs=0.341880`으로 비용 구조는 더 낫다.
+- 해석:
+  - 현재 h15 buy-avoid 문제는 threshold 조정 문제가 아니라 신호 정보량과 비용/시간지평 구조 문제로 보는 것이 안전하다.
+  - E2/E3 EV/regime 조건부 필터는 바로 진행하지 않고, 신호 품질 개선 또는 horizon 전환 후보를 먼저 검토한다.
+- 안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
+
+## [2026-07-05] Codex -> buy-avoid random-control review_ver_23 반영
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-04-buy-avoid-validation-verification-review_ver_23.md`를 `pingpong-review` 흐름으로 확인하고 조치한다.
+- 시작 상태:
+  - KST 2026-07-05 03시대, 일요일/주말.
+  - live runtime 은 stopped, watchdog 은 running, `live_runtime_should_run=false`, trading mode 는 `paper`였다.
+- cowork 리뷰 판단:
+  - KIS live threshold `0.40`은 random-control `filter_worse_than_random_p95`라 `손실 축소 후보` 표현을 쓰면 안 된다는 지적은 타당하다.
+  - Cybos proxy full 재생성 결과는 모든 target 에서 `filter_better_than_random_p95`지만, KIS live 로 바로 전이할 수 없다는 지적도 타당하다.
+- 조치:
+  - `docs/Buy-Avoid-Random-Control-Methodology.md`에 해석 우선순위와 KIS-Cybos 비교 요약을 추가했다.
+  - `docs/Execution-Plan.md`, `docs/Current-Implementation.md`, `docs/Production-Transition-Progress.md`의 오래된 `손실 축소 후보` 표현을 최신 random-control 기준으로 정정했다.
+  - `scripts/summarize_lightgbm_defensive_shadow.py`, `scripts/summarize_cybos_buy_avoid_proxy.py`의 생성 Markdown 문구에 legacy status 보다 random-control 판정이 우선한다는 문장을 추가했다.
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-work_ver_24.md`에 결과와 Codex 의견을 남겼다.
+- 안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - handoff 금지선에 따라 자동 commit/push 없음.
+
+
+
+## [2026-07-04] Codex -> buy-avoid random-control 실행 검증 work_ver_23
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-04-buy-avoid-validation-verification-and-codex-handoff.md`의 §4를 읽고, 새 구현 없이 `pytest` 실행과 anchor 대조만 수행한다.
+  - buy-avoid 코드를 만지기 전 `docs/Buy-Avoid-Random-Control-Methodology.md`를 필독한다.
+  - 결과를 `work_ver_23`으로 기록한다.
+- 시작 상태:
+  - KST 2026-07-04 22:35, 토요일/주말.
+  - live runtime 은 stopped, watchdog 은 running, trading mode 는 `paper`였다.
+  - cowork가 반영한 buy-avoid random-control 코드와 문서가 uncommitted 상태였다.
+- 실행:
+  - `python3 -m pytest tests/test_buy_avoid_random_control.py tests/test_lightgbm_defensive_shadow.py tests/test_cybos_buy_avoid_proxy.py -q` 실행.
+  - `python3 scripts/summarize_lightgbm_defensive_shadow.py --horizon-min 15` 실행.
+  - `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`의 threshold `0.40` random-control anchor 를 methodology §7과 대조했다.
+  - `python3 scripts/summarize_cybos_buy_avoid_proxy.py --horizon-min 15`는 장시간 실행되어 handoff의 “장시간이면 다음 정기 재생성” 조건으로 중단했다.
+- 결과:
+  - pytest 30개 통과.
+  - KIS threshold `0.40`은 `expected_random_skipped_sum_pct=-711.8525`, `actual_skipped_cumulative_net_pct=-486.3753`, `excess_vs_random_pct=+225.4772`, `verdict=filter_worse_than_random_p95`, `random_control_gate.passed=false`로 methodology §7 anchor 와 일치했다.
+  - 기존 Cybos proxy latest 파일에는 아직 `random_control_aggregate`가 없으므로 새 기준의 Cybos 부호 판정은 다음 장시간 재생성 전까지 미완료다.
+- 산출물:
+  - `docs/cowork-reports/2026-07-04-buy-avoid-validation-verification-work_ver_23.md`
+- 금지/안전:
+  - 코드 구현 수정 없음.
+  - 공식/seed/부호 규약 변경 없음.
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - handoff 금지선에 따라 자동 commit/push 없음.
+
+
+### 2026-07-05 추가: Cybos proxy full 재생성 재시도 완료
+
+- 사용자 지시:
+  - Cybos proxy full 재생성을 다시 시도한다.
+- 실행:
+  - `python3 scripts/summarize_cybos_buy_avoid_proxy.py --horizon-min 15`를 foreground wrapper 로 재실행했다.
+  - 실행 시간은 약 31분이며 정상 종료 코드 0으로 완료했다.
+- 결과:
+  - `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json` 갱신.
+  - `generated_at=2026-07-05T02:27:46.310251+09:00`.
+  - target `0.3665` random-control aggregate 는 `actual=-367.715205`, `expected=-182.166161`, `excess=-185.549044`, `z=-6.360742`, `verdict=filter_better_than_random_p95`.
+  - 전체 target `0.20/0.30/0.3665/0.40/0.50` 모두 aggregate verdict 는 `filter_better_than_random_p95`였다.
+- 해석:
+  - Cybos proxy 에서는 buy-avoid 필터가 무작위 대조군보다 나쁜 거래를 실제로 골라냈다.
+  - KIS live threshold `0.40`은 반대로 `filter_worse_than_random_p95`이므로, Cybos 결과를 KIS live 주문 정책으로 전이하면 안 된다.
+  - 현재 표현은 계속 `재검증 필요, 무작위 대조군 대비 우위 미확인`이 안전하다.
+- 안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+  - 자동 commit/push 없음.
+
 
 ## [2026-07-04] Codex -> review_ver_22 대응, buy-avoid 재검증, stale 리포트 갱신
 
@@ -23,7 +123,7 @@
 - 결과:
   - latest walk-forward: `walk-forward-h15-20260704201528027664`, `folds=118`, `rows_evaluated=5,900,000`, `three_class_accuracy=0.416342`, gate 는 계속 `needs_review`.
   - latest challenger: `challenger-h15-20260704203559674231`, active `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`.
-  - buy-avoid shadow: 2026-06-11~2026-07-03, `joined_rows=25,198`, threshold `0.40`, skip `6,694`, net delta `+486.38%p`로 손실 축소 후보지만 주문 반영은 보류.
+  - buy-avoid shadow: 2026-06-11~2026-07-03, `joined_rows=25,198`, threshold `0.40`, skip `6,694`, net delta `+486.38%p`였다. 다만 2026-07-05 random-control 검증 뒤 이 표현은 `재검증 필요, 무작위 대조군 대비 우위 미확인`으로 정정한다. 주문 반영은 계속 보류.
   - mismatch trace: broker sync 는 `ok`, open order 는 0건이나 5종목 position mismatch 가 남아 있다.
   - live readiness: `phase1a_paper_readonly`는 `blocked`; KIS read-only token/account/system_clock probe 가 `KisApiError`로 실패했다.
   - social signal shadow: `status=no_events_file`, `event_count=0`이라 실제 검증은 시작되지 않았다.
@@ -123,7 +223,7 @@
   - `LightGBM`: 3분류 정확도 `0.350911`, 상승 precision `0.248885`, 하락 precision `0.291370`, buy-avoid best delta `+560.835740%p`, buy-rescue best net `-3.521700%p`, hold-rescue best delta cash `0원`.
   - `linear-score`: 3분류 정확도 `0.278751`, 상승 precision `0.236277`, 하락 precision `0.271022`, buy-avoid best delta `+1,966.228874%p`, buy-rescue best net `-66.326348%p`, hold-rescue best delta cash `-25,599원`.
   - 두 모델 모두 현재 역할 후보는 `defensive_buy_avoid`다.
-  - 보강 실행에서 조합 정책 후보를 추가했고, `either_model_down_veto_0.40`은 baseline 대비 `+2,046.718%p`로 가장 큰 손실 축소 후보였다. 다만 실행 row가 `23,675`건에서 `5,818`건으로 줄어드는 강한 방어 필터라 진단 전용으로 둔다.
+  - 보강 실행에서 조합 정책 후보를 추가했고, `either_model_down_veto_0.40`은 baseline 대비 `+2,046.718%p` 손실 축소 delta 를 보였다. 다만 random-control 미적용 조합 후보이고 실행 row가 `23,675`건에서 `5,818`건으로 줄어드는 강한 방어 필터라 진단 전용으로 둔다.
   - 두 모델이 모두 상승으로 본 `both_models_up_rescue_0.40`은 `160`건에서 `+0.632%p`로 소폭 양수지만 손실 비율 `0.506`이라 buy-rescue 정책 후보로 올리지 않는다.
   - 강점 구간은 두 모델 모두 방향성 매수/매도보다 `flat` 예측 구간 정확도가 높게 나왔다. 이는 현재 모델 조합이 공격 진입보다 회피/대기 판단에 먼저 쓰일 가능성을 시사한다.
   - `buy-rescue`와 `hold-rescue`는 현재 비용/손익 기준으로 주문 정책이나 KIS live shadow 확장 후보가 아니다.

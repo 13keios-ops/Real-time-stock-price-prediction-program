@@ -121,32 +121,31 @@
   buy-avoid / early-exit paper shadow 검증 후보로만 본다.
 - 최신 LightGBM 방어 shadow:
   `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`
-  기준 `2026-06-11T09:15:00+09:00`~`2026-06-12T15:00:00+09:00`의
-  baseline 매수 허용 신호 `3,130`건을 같은 시각 LightGBM 하락확률로 걸러 봤다.
-  down threshold `0.40`은 매수 회피 `1,147`건, 비용 차감 누적 순수익률 delta
-  `+114.8758%p`로 손실 축소 후보였지만, closed paper lot `1,029`건 기준 조기청산 shadow 는
-  best threshold `0.58`에서도 delta `-48.7958%p`, cash delta `-178,007원`으로 악화됐다.
-  따라서 현재 권장안은 `buy-avoid 후보 유지`, `early-exit 적용 보류`다.
-  단, 이 shadow 는 아직 2026-06-11~2026-06-12 2거래일 수준이라 결론으로 쓰지 않는다.
-  2026-06-13 cowork 보정 기준으로 새 모델 학습 실험은 보류하고,
-  기존 LightGBM shadow 예측과 baseline 매수 허용 신호를 이용한 buy-avoid shadow 를
-  최소 2주 또는 10거래일 이상 축적한 뒤 재검증한다.
-  공식 관측 기간은 2026-06-15 월요일부터 2026-06-26 금요일까지 10거래일이며,
-  가장 이른 정식 평가는 2026-06-26 장후 label refresh 이후다.
+  기준 `2026-06-11`~`2026-07-03` KIS live h15 연결 표본 `25,198`건을
+  baseline 매수 허용 신호와 같은 시각 LightGBM 하락확률로 걸러 봤다.
+  down threshold `0.40`은 매수 회피 `6,694`건, baseline 대비 비용 차감 누적 순수익률 delta
+  `+486.3753%p`였지만, 같은 coverage 무작위 회피 기대값 `-711.8525%p`보다 실제 회피 손익
+  `-486.3753%p`가 덜 나빠 `excess_vs_random_pct=+225.4772`, `z_score=+4.6278`,
+  `verdict=filter_worse_than_random_p95`, `random_control_gate.passed=false`다.
+  따라서 KIS live buy-avoid 의 현재 표준 표현은 `재검증 필요, 무작위 대조군 대비 우위 미확인`이다.
+  조기청산 shadow 는 기존 기준에서도 실제 paper 청산보다 악화되어 계속 보류다.
+  공식 10거래일 checkpoint 는 찼지만, 2026-07-04~2026-07-18 구간까지 같은 기준으로 reverse-selection 패턴 지속 여부를 본다.
 - 최신 Cybos buy-avoid / rescue proxy:
   `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`
-  기준 `generated_at=2026-06-14T04:54:30+09:00`, `source=cybos-historical`,
+  기준 `generated_at=2026-07-05T02:27:46.310251+09:00`, `source=cybos-historical`,
   `feature_set=bar_context_momentum`, `trade_cost_pct=0.13`,
   `decision=follow_up_candidate_proxy_only`.
   KIS `down_threshold=0.40` 수치는 직접 옮기지 않고 skip-rate coverage 로 비교했다.
   KIS shadow 회피율에 맞춘 target skip `0.3665`는 실제 skip `0.3617`,
   baseline net `-538.040362%p`, kept net `-170.325157%p`,
   net 개선 `+367.715205%p`, 개선 fold `12/12`다.
-  여기서 baseline 은 실제 runtime baseline 주문 판단이 아니라 Cybos LightGBM 이 만든
-  proxy 매수 후보 집합이다. 따라서 이 결과는 `LightGBM이 runtime baseline의 나쁜 매수를 막았다`가 아니라
-  `LightGBM이 자기 proxy 매수 후보 중 하락 위험이 높은 row 를 자체 필터링하자 손실이 줄었다`로만 해석한다.
-  이 결과는 buy-avoid 구조가 Cybos 5년치에서도 손실 축소 후보라는 근거지만,
-  kept net 이 여전히 음수이므로 모델 승격, gate 변경, paper/live 주문 정책 변경 근거가 아니다.
+  random-control aggregate 는 `expected_random_skipped_sum_pct=-182.1662`,
+  `actual_skipped_cumulative_net_pct=-367.7152`, `excess_vs_random_pct=-185.5490`,
+  `z_score=-6.3607`, `verdict=filter_better_than_random_p95`다.
+  전체 target `0.20/0.30/0.3665/0.40/0.50`도 모두 aggregate verdict 가 `filter_better_than_random_p95`였다.
+  단, 여기서 baseline 은 실제 runtime baseline 주문 판단이 아니라 Cybos LightGBM 이 만든 proxy 매수 후보 집합이다.
+  따라서 이 결과는 Cybos proxy 내부의 손실 축소 후보 근거이지, KIS live 주문 정책 전이 근거가 아니다.
+  kept net 이 여전히 음수이므로 모델 승격, gate 변경, paper/live 주문 정책 변경 근거도 아니다.
   같은 full 실행에서 생성한 `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
   기준 rescue decision 은 `buy_avoid_candidate_only`다.
   `runtime_baseline_replay.status=not_replayed_orderbook_features_missing`이고,

@@ -41,6 +41,12 @@ from app.services.research import (
 )
 from app.utils.time import now_local
 
+# REPO_ROOT is already on sys.path above, so the scripts.* import always works here.
+from scripts.buy_avoid_random_control import (
+    aggregate_random_control_reports,
+    random_control_report,
+)
+
 
 DEFAULT_TARGET_SKIP_RATES = (0.20, 0.30, 0.3665, 0.40, 0.50)
 DEFAULT_TARGET_RESCUE_RATES = (0.05, 0.10, 0.20, 0.30)
@@ -206,6 +212,15 @@ def _buy_avoid_fold_result(
         kept_metrics = _trade_metrics(kept, trade_cost_pct)
         skipped_metrics = _trade_metrics(skipped, trade_cost_pct)
         actual_skip_rate = (len(skipped) / len(test_buys)) if test_buys else 0.0
+        # Same-coverage random-skip control per fold.
+        # See docs/Buy-Avoid-Random-Control-Methodology.md: net_improvement_pct > 0
+        # alone is not evidence of selectivity when the baseline mean is negative.
+        test_net_returns = [_float(row.get("future_return_pct")) - trade_cost_pct for row in test_buys]
+        random_control = random_control_report(
+            test_net_returns,
+            len(skipped),
+            skipped_metrics.net_return_pct,
+        )
         target_results.append(
             {
                 "target_skip_rate": float(target_skip_rate),
@@ -229,6 +244,7 @@ def _buy_avoid_fold_result(
                 "baseline_win_rate": baseline.win_rate,
                 "kept_win_rate": kept_metrics.win_rate,
                 "skipped_win_rate": skipped_metrics.win_rate,
+                "random_control": random_control,
             }
         )
     return {
@@ -480,6 +496,13 @@ def summarize_skip_targets(fold_summaries: list[dict[str, Any]]) -> list[dict[st
             "coverage_band": f"{COMPARABLE_SKIP_RATE_MIN:.2f}..{COMPARABLE_SKIP_RATE_MAX:.2f}",
             "fold_consistency_min_share": FOLLOW_UP_FOLD_SHARE_MIN,
         }
+        # Aggregate the per-fold random controls (folds are independent, so
+        # expectations and variances add).  A target may only be called a real
+        # loss-reduction candidate if this aggregate verdict is
+        # 'filter_better_than_random_p95'.  docs/Buy-Avoid-Random-Control-Methodology.md
+        summary["random_control_aggregate"] = aggregate_random_control_reports(
+            [row.get("random_control") for row in rows]
+        )
         summary["conclusion"] = _candidate_conclusion(summary)
         summaries.append(summary)
     return summaries
@@ -1189,6 +1212,39 @@ def render_buy_avoid_markdown(report: dict[str, Any]) -> str:
             f"{_float(row.get('net_improvement_pct')):.6f} | "
             f"{_float(row.get('positive_improvement_fold_share')):.4f} | "
             f"{row.get('conclusion')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Random Control (Same-Coverage Random Skip)",
+            "",
+            "improvement>0 만으로는 필터의 선별력이 증명되지 않는다 (baseline 평균이 음수이면 무작위 제거도 improvement를 양수로 만든다). "
+            "아래 aggregate verdict가 `filter_better_than_random_p95`일 때만 손실 축소 후보로 부를 수 있다. "
+            "기존 `decision.status`와 `conclusion` 문자열은 호환용이며, 해석은 `random_control_aggregate`가 우선한다. "
+            "공식: `docs/Buy-Avoid-Random-Control-Methodology.md`",
+            "",
+            "| target_skip | folds_usable | actual_skipped_net | random_expected | excess | z_score | verdict |",
+            "| ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for row in report.get("target_summaries", []):
+        aggregate = row.get("random_control_aggregate") or {}
+        if aggregate.get("status") != "ok":
+            lines.append(
+                f"| {_float(row.get('target_skip_rate')):.4f} | - | - | - | - | - | {aggregate.get('status')} |"
+            )
+            continue
+        z_value = aggregate.get("z_score")
+        z_text = f"{_float(z_value):.4f}" if z_value is not None else "-"
+        lines.append(
+            "| "
+            f"{_float(row.get('target_skip_rate')):.4f} | "
+            f"{_int(aggregate.get('folds_usable'))} | "
+            f"{_float(aggregate.get('actual_skipped_cumulative_net_pct')):.6f} | "
+            f"{_float(aggregate.get('expected_random_skipped_sum_pct')):.6f} | "
+            f"{_float(aggregate.get('excess_vs_random_pct')):.6f} | "
+            f"{z_text} | "
+            f"{aggregate.get('verdict')} |"
         )
     lines.extend(
         [

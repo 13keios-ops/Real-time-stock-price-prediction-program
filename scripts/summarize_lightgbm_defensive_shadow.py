@@ -15,6 +15,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+try:  # repo-root import (pytest) or sibling import (direct script run)
+    from scripts.buy_avoid_random_control import (
+        VERDICT_BETTER,
+        random_control_report,
+    )
+except ImportError:  # pragma: no cover - direct `python3 scripts/...` run
+    from buy_avoid_random_control import (  # type: ignore[no-redef]
+        VERDICT_BETTER,
+        random_control_report,
+    )
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / "runtime-data" / "dev.db"
@@ -362,11 +373,21 @@ def _threshold_summary(
     filtered = _return_summary(kept_returns)
     delta_net = filtered["cumulative_net_return_pct"] - baseline["cumulative_net_return_pct"]
     drawdown_reduction = baseline["max_drawdown_pct"] - filtered["max_drawdown_pct"]
+    # Same-coverage random-skip control.  See docs/Buy-Avoid-Random-Control-Methodology.md:
+    # a positive delta alone is NOT evidence of selectivity when the baseline
+    # mean is negative, so every threshold must also be scored against a
+    # random skip of identical size.
+    random_control = random_control_report(
+        baseline_returns,
+        len(skipped_rows),
+        skipped_net,
+    )
     return {
         "threshold": threshold,
         "require_down_argmax": require_down_argmax,
         "baseline": baseline,
         "filtered": filtered,
+        "random_control": random_control,
         "skipped": {
             "signals": len(skipped_rows),
             "coverage_rate": len(skipped_rows) / len(rows) if rows else 0.0,
@@ -502,6 +523,23 @@ def build_summary(
         status = "buy_avoid_candidate_found"
     if best_early_exit_by_net and best_early_exit_by_net["delta"]["net_return_pct"] > 0:
         status = "defensive_shadow_candidate_found"
+    # Fail-closed random-control gate (docs/Buy-Avoid-Random-Control-Methodology.md).
+    # The gate is a separate field (not a change to `status`) so existing
+    # consumers keep working, but any wording like "loss-reduction candidate"
+    # MUST check gate.passed first.
+    best_verdict = (
+        ((best_by_net or {}).get("random_control") or {}).get("comparison", {}).get("verdict")
+        if best_by_net
+        else None
+    )
+    random_control_gate = {
+        "verdict": best_verdict,
+        "passed": best_verdict == VERDICT_BETTER,
+        "policy": (
+            "buy-avoid may only be described as a loss-reduction candidate if passed=true; "
+            "otherwise describe it as 'random-control advantage unproven'"
+        ),
+    }
     return {
         "generated_at": _now_iso(),
         "status": status,
@@ -526,6 +564,7 @@ def build_summary(
             "thresholds": threshold_summaries,
             "best_by_net_delta": best_by_net,
             "best_by_drawdown_reduction": best_by_drawdown,
+            "random_control_gate": random_control_gate,
         },
         "early_exit_shadow": {
             "status": "evaluated_from_closed_paper_lots" if closed_lots else "no_closed_paper_lots",
@@ -588,6 +627,24 @@ def render_markdown(summary: dict[str, Any]) -> str:
             ]
         )
     best = summary.get("buy_avoid_shadow", {}).get("best_by_net_delta") or {}
+    random_control_rows = []
+    for item in summary.get("buy_avoid_shadow", {}).get("thresholds", []):
+        control = item.get("random_control") or {}
+        if control.get("status") != "ok":
+            random_control_rows.append([item.get("threshold"), control.get("status"), "", "", "", ""])
+            continue
+        comparison = control.get("comparison", {})
+        random_control_rows.append(
+            [
+                item.get("threshold"),
+                control.get("n_skip"),
+                control.get("actual_skipped_cumulative_net_pct"),
+                control.get("analytic", {}).get("expected_random_skipped_sum_pct"),
+                comparison.get("z_score"),
+                comparison.get("verdict"),
+            ]
+        )
+    gate = summary.get("buy_avoid_shadow", {}).get("random_control_gate") or {}
     early_rows = []
     for item in summary.get("early_exit_shadow", {}).get("thresholds", []):
         actual = item["actual"]
@@ -652,6 +709,32 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- filtered_net_pct: `{_fmt((best.get('filtered') or {}).get('cumulative_net_return_pct'))}`",
         f"- skipped_signals: `{(best.get('skipped') or {}).get('signals')}`",
         "",
+        "## Random Control (Same-Coverage Random Skip)",
+        "",
+        "baseline 평균이 마이너스면 아무 부분집합을 제거해도 delta는 양수가 된다. "
+        "따라서 필터가 진짜 나쁜 거래를 고르는지는 '같은 개수를 무작위로 제거했을 때'와 비교해야 한다. "
+        "공식/판정 규칙: `docs/Buy-Avoid-Random-Control-Methodology.md`",
+        "",
+        _markdown_table(
+            [
+                "down_threshold",
+                "n_skip",
+                "actual_skipped_net_pct",
+                "random_expected_net_pct",
+                "z_score",
+                "verdict",
+            ],
+            random_control_rows,
+        )
+        if random_control_rows
+        else "No rows.",
+        "",
+        f"- random_control_gate.passed: `{gate.get('passed')}`",
+        f"- random_control_gate.verdict: `{gate.get('verdict')}`",
+        "- gate.passed=false 인 동안 buy-avoid는 '손실 축소 후보'가 아니라 "
+        "'무작위 대조군 대비 우위 미확인' 상태로만 표현한다.",
+        "- legacy `status`/delta 수치는 호환용이며, 해석은 random_control_gate가 우선한다.",
+        "",
         "## Early-Exit Shadow",
         "",
         f"- status: `{summary.get('early_exit_shadow', {}).get('status')}`",
@@ -686,7 +769,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "- 이 리포트는 baseline 매수 허용 신호를 LightGBM 하락확률로 걸렀을 때의 연구용 비교다.",
         "- 실제 주문, active model, gate 기준값, threshold 정책은 바꾸지 않는다.",
-        "- `delta_net_pct`가 양수이면 해당 기간의 baseline 매수 신호 중 걸러낸 구간이 손실 쪽에 가까웠다는 뜻이다.",
+        "- `delta_net_pct`가 양수라는 것만으로는 필터가 나쁜 거래를 골라냈다고 말할 수 없다. "
+        "baseline 평균이 마이너스면 무작위 제거도 delta를 양수로 만들기 때문이다. "
+        "반드시 위 Random Control 섹션의 z_score/verdict와 random_control_gate로 판단한다.",
         "- 기간이 짧고 LightGBM shadow 저장 구간이 제한되어 있으므로 승격 근거가 아니라 plan B 후보 검증의 첫 증거로만 본다.",
         "",
         "관련 문서/코드 경로:",
