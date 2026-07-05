@@ -1,5 +1,24 @@
 ﻿# 작업 기록
 
+## [2026-07-05] Codex -> account snapshot 기반 system_clock probe 복구
+
+- 사용자 목표:
+  - KIS read-only probe 3종(token/account/system_clock) 실패 원인을 분리하고 해결한다.
+- 조치:
+  - `app/services/kis_account_probe.py`에 계좌 snapshot 응답의 HTTP Date header로 `system_clock` check를 만드는 helper를 추가했다.
+  - `scripts/probe_kis_account_snapshot.py`에 `--system-clock-output-path` 옵션을 추가해 계좌 조회 1회로 account_snapshot과 system_clock 증거를 동시에 생성하도록 했다.
+  - `docs/KIS-Connection-Runbook.md`, `docs/Production-Transition-Progress.md`에 quote endpoint rate limit 때의 대체 절차를 기록했다.
+- 실제 확인:
+  - `./scripts/probe_kis_account_snapshot.sh --mode paper --system-clock-output-path runtime-data/reports/live-readiness/system-clock-check.json --output-path runtime-data/reports/live-readiness/account-snapshot-check.json` 실행.
+  - `account_snapshot=ok`, `system_clock=ok`, `system_clock.details.source=kis_rest_http_date_account_snapshot`, `skew_seconds=0.029246`.
+  - 통합 fixture dry-run에서 `token_refresh=true`, `account_snapshot=true`, `system_clock=true`로 확인됐다. 남은 blocker는 `ws_recovery_fault_dry_run_failed`, `market_status_fault_dry_run_failed`, `kill_switch_fault_dry_run_failed`다.
+- 검증:
+  - `python3 -m unittest tests.test_kis_account_probe tests.test_kis_clock_reference_probe -q` 통과.
+  - `python3 -m pytest -q` -> `451 passed, 59 subtests passed in 30.78s`.
+  - `git diff --check` 통과.
+- 안전:
+  - read-only 계좌 조회 1회만 수행했다. 실전 주문/취소, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> Cybos-KIS 격차와 h60 사전등록 초안
 
 - 사용자 목표:

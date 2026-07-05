@@ -90,9 +90,22 @@
 1. runtime-data/reports/live-readiness/token-refresh-check.json, account-snapshot-check.json, system-clock-check.json의 details.error_category를 먼저 본다.
 2. rate_limited이면 즉시 반복 호출하지 않고 cooldown 후 장외에 다시 확인한다.
 3. token_refresh와 account_snapshot이 ok이고 system_clock만 rate_limited이면 Phase readiness blocker는 system_clock read-only quote 호출량 문제로 좁힌다.
-4. missing_*_credentials이면 .env 존재 여부와 필수 키 shape만 확인하고 값은 출력하지 않는다.
+4. system_clock quote probe가 `EGW00201`이면 즉시 같은 현재가 endpoint를 반복 호출하지 않는다. 대신 장외에 계좌 snapshot read-only 조회 1회로 HTTP Date를 재사용한다.
+5. 계좌 snapshot과 system_clock을 함께 갱신할 때는 아래 명령을 사용한다. 이 명령은 주문/취소가 아니라 `get_account_balance` 조회 1회만 수행하고, 계좌번호와 raw header는 저장하지 않는다.
 
-관련 문서/코드 경로: app/services/kis_probe_errors.py, app/services/kis_token_probe.py, app/services/kis_account_probe.py, app/services/system_clock_probe.py, runtime-data/reports/live-readiness/
+```bash
+./scripts/probe_kis_account_snapshot.sh --mode paper --output-path runtime-data/reports/live-readiness/account-snapshot-check.json --system-clock-output-path runtime-data/reports/live-readiness/system-clock-check.json
+```
+
+6. missing_*_credentials이면 .env 존재 여부와 필수 키 shape만 확인하고 값은 출력하지 않는다.
+
+2026-07-05 실제 확인:
+
+- 위 계좌 snapshot 파생 방식으로 `account_snapshot=ok`, `system_clock=ok`를 같은 read-only 계좌 조회 1회에서 생성했다.
+- `system_clock` 세부값은 `source=kis_rest_http_date_account_snapshot`, `probe=kis_readonly_account_snapshot`, `derived_from=account_snapshot`, `skew_seconds=0.029246`이다.
+- 이 방식으로 readiness dry-run의 `system_clock_fault_dry_run_failed` blocker는 제거됐고, 남은 blocker는 `ws_recovery` stale, `market_status`, `kill_switch`다.
+
+관련 문서/코드 경로: app/services/kis_probe_errors.py, app/services/kis_token_probe.py, app/services/kis_account_probe.py, app/services/system_clock_probe.py, scripts/probe_kis_account_snapshot.py, runtime-data/reports/live-readiness/
 
 ### 3.3. WebSocket `No close frame received`
 

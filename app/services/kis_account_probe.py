@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.kis_probe_errors import build_sanitized_kis_probe_error
+from app.services.live_phase_readiness import build_system_clock_check_from_http_date_headers
+from app.services.system_clock import DEFAULT_MAX_CLOCK_SKEW_SECONDS
 
 
 REQUIRED_ACCOUNT_SNAPSHOT_ATTRIBUTES = (
@@ -21,6 +23,46 @@ ACCOUNT_SNAPSHOT_NUMERIC_VALUE_ATTRIBUTES = (
     "stock_evaluation_amount",
     "total_asset_amount",
 )
+
+
+
+def build_system_clock_check_from_account_snapshot_headers(
+    readonly_client: Any,
+    *,
+    mode: str,
+    checked_at: datetime | None = None,
+    max_skew_seconds: float = DEFAULT_MAX_CLOCK_SKEW_SECONDS,
+    reference_source: str = "kis_rest_http_date_account_snapshot",
+) -> dict[str, Any]:
+    """Build a system_clock check from the account snapshot response headers.
+
+    This reuses the HTTP Date header from an already-issued read-only account
+    query so readiness can avoid an additional quote request when quote rate
+    limits are the blocker.
+    """
+
+    observed_at = checked_at or datetime.now(timezone.utc)
+    headers = getattr(readonly_client, "last_response_headers", {})
+    check = build_system_clock_check_from_http_date_headers(
+        headers,
+        local_time=observed_at,
+        reference_source=reference_source,
+        max_skew_seconds=max_skew_seconds,
+    )
+    if check.get("status") == "invalid_fixture":
+        check["summary"] = "account snapshot HTTP Date header invalid"
+    elif check.get("status") == "not_verified":
+        check["summary"] = "account snapshot HTTP Date header missing"
+    details = dict(check.get("details", {})) if isinstance(check.get("details"), dict) else {}
+    details.update(
+        {
+            "mode": mode,
+            "probe": "kis_readonly_account_snapshot",
+            "derived_from": "account_snapshot",
+        }
+    )
+    check["details"] = details
+    return check
 
 
 def probe_kis_account_snapshot_check(
