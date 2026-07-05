@@ -99,6 +99,19 @@ python -m app --sync-broker-paper-orders
 python -m app --reconcile-paper-accounts
 ```
 
+수량 mismatch 가 남아 있으면 alignment 전에 trace 리포트를 먼저 재생성한다.
+
+```bash
+python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
+```
+
+확인 기준:
+
+- `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md`의 `root_cause_scope`를 먼저 본다.
+- `kis_account_snapshot_vs_order_fill_ledger_divergence`이면 로컬 paper 수량과 KIS order-fill 순수량은 맞고 KIS 계좌 snapshot만 다른 상태다. 이 경우 자동 align을 하지 않고 다음 거래일 장후 account snapshot과 order-fill snapshot을 다시 비교한다.
+- `local_ledger_divergence`이면 로컬 position restore/fill 적용 경로를 먼저 확인한다.
+- `broker_order_fill_lookup_blocked_by_rate_limit`이면 cooldown 뒤 order-fill sync를 1회만 재시도한다.
+
 다음 조건이면 marker-only alignment를 권장한다.
 
 - 보유 수량 mismatch 가 0이다.

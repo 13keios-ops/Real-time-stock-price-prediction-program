@@ -1,5 +1,21 @@
 ﻿# 작업 기록
 
+## [2026-07-05] Codex -> 목표 완료 감사와 daily ops mismatch 절차 보강
+
+- 사용자 목표:
+  - 07-18 전 동결 유지 중 현재까지의 4개 목표 항목이 실제로 완료됐는지 증거 기준으로 점검한다.
+- 감사 결과:
+  - KIS read-only probe 3종은 최신 파일 기준 `token_refresh=ok`, `account_snapshot=ok`, `system_clock=ok`다.
+  - paper/KIS mismatch 5종목은 root_cause_scope 가 모두 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 좁혀졌지만, 다음 거래일 장후 재측정 전에는 최종 종결로 표시하지 않는다.
+  - Cybos-KIS 격차/orderbook 가설과 h60 사전등록은 `docs/Model-Research-PreRegistration.md`에 정리돼 있다.
+- 조치:
+  - `docs/Production-Transition-Progress.md`에 목표 완료 감사 섹션을 추가했다.
+  - `.agents/skills/daily-ops-check/SKILL.md`의 paper/KIS 정합성 절차에 `scripts/trace_paper_kis_mismatch.py --limit-per-table 12` 재생성과 root_cause_scope 확인 기준을 추가했다.
+- 검증:
+  - git diff --check 통과.
+- 안전:
+  - 문서/skill 절차 변경만 수행했다. 실전 주문/취소, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> account snapshot 기반 system_clock probe 복구
 
 - 사용자 목표:

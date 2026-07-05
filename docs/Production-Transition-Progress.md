@@ -22,11 +22,19 @@
 
 ### 2026-07-05 최신 스냅샷
 
-- 마지막 갱신: 2026-07-05 17:45 KST, 주말/장외 read-only 점검.
+- 마지막 갱신: 2026-07-05 18:45 KST, 주말/장외 read-only 점검.
 - live runtime: stopped/weekend 로 정상이다. runtime watchdog 은 running 이고 heartbeat fresh 상태다.
 - KIS read-only probe: token_refresh, account_snapshot, system_clock 모두 ok 로 복구됐다. system_clock 은 quote endpoint 재호출 대신 account_snapshot read-only 응답의 HTTP Date 를 재사용해 `skew_seconds=0.029246`으로 통과했다. 남은 Phase readiness blocker 는 KIS 3종 probe 가 아니라 `ws_recovery` stale, `market_status`, `kill_switch`다.
 - paper/KIS mismatch trace: `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md` 기준 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량이 일치하지만 KIS 계좌 잔고 snapshot 수량이 다르다. root_cause_scope 는 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 자동 align 은 보류하고 다음 거래일 장후 계좌 snapshot 과 order-fill snapshot 을 재비교한다.
 - buy-avoid: review_ver_27 기준 2026-07-18 전까지 신규 실험은 동결하고, 현재는 전체 pytest 결과 보고 한 줄만 닫았다. 07-18 이후 첫 거래일 장후 E1 재측정과 E5 역발상 관찰을 한 라운드로 진행한다.
+
+### 2026-07-05 목표 완료 감사
+
+- 항목 1 KIS read-only probe 3종: 현재 증거상 완료. `token_refresh`, `account_snapshot`, `system_clock` 모두 ok 이며 system_clock 은 계좌 snapshot 응답 Date 재사용으로 quote rate limit 문제를 우회했다.
+- 항목 2 paper/KIS mismatch 5종목: 원인 범위는 규명됐지만 최종 종결은 보류. 현재 root_cause_scope 는 5종목 모두 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 다음 거래일 장후에도 같은지 재측정해야 완료로 볼 수 있다.
+- 항목 3 Cybos-KIS 격차와 orderbook 가설: 문서화 완료. `docs/Model-Research-PreRegistration.md` 기준으로 2026-07-18 이후 KIS live 데이터로만 검증한다.
+- 항목 4 h60 트랙 사전등록: 초안 완료. h60 주문 정책은 만들지 않았고, 07-18 이후 daily IC, random-control, h15/h60 충돌표, paper-only replay 가능성부터 본다.
+- 현재 목표 상태: 진행 중. 남은 필수 증거는 다음 거래일 장후 mismatch 재확인과 07-18 이후 첫 거래일 장후 E1/E5 라운드다.
 
 ### 2026-07-04 최신 스냅샷
 
@@ -42,7 +50,7 @@
 - paper/KIS mismatch trace: `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`를 갱신했다. broker sync 는 `status=ok`, open order `0`이지만, position mismatch 는 5종목이 남아 있다.
 - live readiness: `runtime-data/reports/live-readiness/latest-readiness.json` 기준 `phase1a_paper_readonly`, `status=blocked`다. synthetic `ws_recovery`, database, disk_space, dashboard, storage_migration_state 는 통과했지만, KIS read-only `token_refresh`, `account_snapshot`, `system_clock` probe 가 `KisApiError`로 실패했다. `market_status`와 `kill_switch`는 비차단 미확인이다.
 - social signal shadow: `runtime-data/reports/research/latest-social-signal-shadow-h15.json` 기준 `status=no_events_file`, `event_count=0`, `matched=0`이다. 현재는 인프라만 준비된 상태이며 SNS 효과 검증은 시작되지 않았다.
-- 위 2026-07-04 스냅샷이 아래의 2026-07-03 및 이전 항목보다 최신 기준이다.
+- 아래 2026-07-04 스냅샷은 보존 기록이며, 현재 기준은 위 2026-07-05 스냅샷이다.
 
 - 마지막 갱신: 2026-07-03 03:50 KST
 - 현재 런타임: `overnight`
