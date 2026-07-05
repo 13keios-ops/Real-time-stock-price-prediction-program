@@ -2,6 +2,7 @@ import unittest
 
 from scripts.recheck_paper_kis_mismatch import (
     build_command_plan,
+    is_non_trading_day_status,
     is_protected_runtime_status,
     summarize_trace_payload,
 )
@@ -14,6 +15,11 @@ class PaperKisMismatchRecheckTests(unittest.TestCase):
         self.assertTrue(is_protected_runtime_status({"current_session_status": "regular-session"}))
         self.assertTrue(is_protected_runtime_status({"current_session_status": "weekend", "process_running": True}))
         self.assertFalse(is_protected_runtime_status({"current_session_status": "weekend", "process_running": False}))
+
+    def test_non_trading_day_blocks_weekend_and_holiday(self) -> None:
+        self.assertTrue(is_non_trading_day_status({"current_session_status": "weekend"}))
+        self.assertTrue(is_non_trading_day_status({"session_status": "holiday"}))
+        self.assertFalse(is_non_trading_day_status({"current_session_status": "post-close"}))
 
     def test_command_plan_is_sync_reconcile_then_trace(self) -> None:
         plan = build_command_plan(Path("/repo"), limit_per_table=12)

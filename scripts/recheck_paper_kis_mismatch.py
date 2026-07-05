@@ -2,10 +2,10 @@
 """Post-close paper/KIS mismatch recheck wrapper.
 
 This wrapper is intentionally conservative: it refuses to run during pre-open,
-regular-session, or while live runtime is running unless explicitly overridden.
-It performs no alignment and sends no orders. The default flow refreshes broker
-paper order/fill sync, refreshes paper/account reconciliation, then rebuilds the
-read-only mismatch trace report.
+regular-session, weekend/holiday, or while live runtime is running unless
+explicitly overridden. It performs no alignment and sends no orders. The default
+flow refreshes broker paper order/fill sync, refreshes paper/account
+reconciliation, then rebuilds the read-only mismatch trace report.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_PATH = Path("runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck.json")
 DEFAULT_TRACE_PATH = Path("runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json")
 PROTECTED_SESSION_STATUSES = {"pre-open", "regular-session"}
+NON_TRADING_DAY_STATUSES = {"weekend", "holiday"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-path", default=str(DEFAULT_OUTPUT_PATH))
     parser.add_argument("--limit-per-table", type=int, default=12)
     parser.add_argument("--allow-protected-session", action="store_true")
+    parser.add_argument("--allow-non-trading-day", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -49,6 +51,20 @@ def main(argv: list[str] | None = None) -> int:
             "runtime_status": runtime_status,
             "planned_commands": [display_command(command, project_root) for command in planned_commands],
             "blocking_reasons": ["protected_runtime_session"],
+            "dry_run": args.dry_run,
+        }
+        write_json(output_path, payload)
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return 2
+
+    if is_non_trading_day_status(runtime_status) and not args.allow_non_trading_day:
+        payload = {
+            "status": "blocked",
+            "generated_at": generated_at,
+            "summary": "paper/KIS mismatch recheck blocked on non-trading day; wait for next trading-day post-close",
+            "runtime_status": runtime_status,
+            "planned_commands": [display_command(command, project_root) for command in planned_commands],
+            "blocking_reasons": ["non_trading_day"],
             "dry_run": args.dry_run,
         }
         write_json(output_path, payload)
@@ -128,6 +144,11 @@ def is_protected_runtime_status(status: dict[str, Any]) -> bool:
     if bool(status.get("live_runtime_should_run")):
         return True
     return False
+
+
+def is_non_trading_day_status(status: dict[str, Any]) -> bool:
+    session_status = str(status.get("current_session_status") or status.get("session_status") or "").strip()
+    return session_status in NON_TRADING_DAY_STATUSES
 
 
 def load_live_runtime_status(project_root: Path) -> dict[str, Any]:

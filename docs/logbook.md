@@ -1,5 +1,20 @@
 ﻿# 작업 기록
 
+## [2026-07-05] Codex -> paper/KIS mismatch recheck 주말 차단 보강
+
+- 사용자 목표:
+  - paper/KIS mismatch 5종목 재확인은 다음 거래일 장후 증거로 닫아야 하며, 주말 재실행 결과를 완료 증거로 오해하지 않게 한다.
+- 조치:
+  - `scripts/recheck_paper_kis_mismatch.py`에 `weekend`/`holiday` 기본 차단을 추가했다.
+  - 검증용으로만 `--allow-non-trading-day`를 둘 수 있게 했다.
+  - `.agents/skills/daily-ops-check/SKILL.md`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`에 같은 기준을 반영했다.
+- 검증:
+  - `python3 -m unittest tests.test_paper_kis_mismatch_recheck -q` 통과.
+  - 주말 상태에서 `python3 scripts/recheck_paper_kis_mismatch.py --dry-run --output-path .tmp-tests/recheck-weekend-block.json`은 `non_trading_day`로 차단 payload를 생성했다.
+  - `python3 scripts/recheck_paper_kis_mismatch.py --dry-run --allow-non-trading-day --output-path .tmp-tests/recheck-weekend-allow.json`은 계획 출력만 수행했다.
+- 안전:
+  - 실전 주문/취소, alignment, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> buy-avoid review_ver_27 P1 검증 한 줄 갱신
 
 - 사용자 지시:

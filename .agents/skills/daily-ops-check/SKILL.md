@@ -92,7 +92,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 
 ### paper/KIS 정합성
 
-장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session 또는 live runtime 실행 중에는 기본 차단된다.
+장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. weekend/holiday 차단은 주말 재실행 결과를 다음 거래일 장후 증거로 오해하지 않기 위한 것이다.
 
 ```bash
 ./scripts/recheck_paper_kis_mismatch.sh

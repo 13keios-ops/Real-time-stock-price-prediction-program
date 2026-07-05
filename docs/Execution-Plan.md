@@ -131,7 +131,7 @@ git status --short --branch
 - 월요일 장중에는 watchdog heartbeat 가 10분 이내 fresh 로 유지되는지 P0-4 증거를 남긴다.
 - 월요일 장후에는 broker order-fill sync 에서 `EGW00201` rate limit 이 재발하는지 확인한다.
 - 당일 주문이 생긴 경우 `broker_paper_sync.py`의 final-state 보존 경로가 당일 open 주문을 조기 final 처리하지 않는지 주문일, 조회 성공 여부, rate-limit 여부를 함께 본다.
-- 2026-07-05 최신 mismatch 5종목은 로컬 paper 수량과 KIS order-fill 순수량이 일치하고 KIS 계좌 잔고 snapshot 만 다른 상태로 좁혔다. 이 경우 자동 align 대신 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 두고 다음 거래일 장후 `./scripts/recheck_paper_kis_mismatch.sh`로 계좌 snapshot 과 order-fill snapshot 을 재비교한다.
+- 2026-07-05 최신 mismatch 5종목은 로컬 paper 수량과 KIS order-fill 순수량이 일치하고 KIS 계좌 잔고 snapshot 만 다른 상태로 좁혔다. 이 경우 자동 align 대신 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 두고 다음 거래일 장후 `./scripts/recheck_paper_kis_mismatch.sh`로 계좌 snapshot 과 order-fill snapshot 을 재비교한다. 이 wrapper 는 `pre-open`, `regular-session`, live runtime 실행 중뿐 아니라 `weekend`/`holiday`도 기본 차단해 주말 재실행 결과를 완료 증거로 오해하지 않게 한다.
 
 ### 이유
 
