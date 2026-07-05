@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Summarize rank information coefficients for saved shadow model probabilities.
 
 This is a read-only research diagnostic. It does not change active models,
@@ -40,9 +40,16 @@ except ImportError:  # pragma: no cover - direct script run
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "runtime-data" / "reports" / "research"
 DEFAULT_MODEL_VERSION_TEMPLATE = "lightgbm-h{horizon_min}-v1"
+DECOMPOSITION_MEAN_IC_THRESHOLD = 0.03
+DECOMPOSITION_T_STAT_THRESHOLD = 2.5
+DECOMPOSITION_MIN_USABLE_DAYS = 5
+DECOMPOSITION_VOL_LOOKBACK_BARS = 5
+TIME_BUCKET_ORDER = ("open_early", "midday", "close", "outside_regular")
+VOLATILITY_BUCKET_ORDER = ("low", "medium", "high", "unknown")
 
 PREREGISTERED_CRITERIA = {
     "source_document": "docs/cowork-reports/2026-07-05-alternative-approaches-validation-plan.md",
+    "criteria_revision": "review_ver_26 requested E1 decomposition before 2026-07-18; no threshold/gate/order policy change",
     "experiment": "E1_signal_information_coefficient",
     "primary_signal": "probability_down_vs_future_return_pct_on_baseline_buy_shadow_rows",
     "daily_metric": "Spearman rank correlation per trade_date",
@@ -50,6 +57,23 @@ PREREGISTERED_CRITERIA = {
     "signal_quality_insufficient": "abs(mean_daily_ic) < 0.02 or abs(t_stat) < 2.0",
     "reverse_signal_observation": "mean_daily_ic >= 0.02 and t_stat >= 2.0",
     "pooled_correlation_use": "reference_only_not_decision",
+    "decomposition_families": ["time_bucket", "symbol", "volatility_bucket"],
+    "decomposition_time_buckets": {
+        "open_early": "09:00 <= event_time < 10:00 KST",
+        "midday": "10:00 <= event_time < 14:30 KST",
+        "close": "14:30 <= event_time during regular session",
+        "outside_regular": "event_time outside the above regular-session buckets",
+    },
+    "decomposition_volatility_bucket": (
+        "recent realized volatility proxy: rolling mean of absolute one-minute close-to-close returns, "
+        f"lookback={DECOMPOSITION_VOL_LOOKBACK_BARS}; low/medium/high split by terciles on joined rows"
+    ),
+    "decomposition_candidate_after_multiple_comparison": (
+        f"abs(mean_daily_ic) >= {DECOMPOSITION_MEAN_IC_THRESHOLD} and "
+        f"abs(t_stat) >= {DECOMPOSITION_T_STAT_THRESHOLD} and "
+        f"days_usable >= {DECOMPOSITION_MIN_USABLE_DAYS}"
+    ),
+    "decomposition_scope_until_2026_07_18": "diagnostic only; do not run E2/E3 filter tuning or policy changes from decomposition alone",
 }
 
 
@@ -61,6 +85,9 @@ class IcRow:
     probability_up: float | None
     probability_down: float | None
     future_return_pct: float
+    time_bucket: str
+    volatility_bucket: str
+    recent_volatility_pct: float | None
 
 
 def _now_iso() -> str:
@@ -108,10 +135,119 @@ def _date_from_event_time(value: str) -> str:
     return value[:10]
 
 
+def _minutes_from_event_time(value: str) -> int | None:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.hour * 60 + parsed.minute
+
+
+def _time_bucket(value: str) -> str:
+    minutes = _minutes_from_event_time(value)
+    if minutes is None:
+        return "outside_regular"
+    if 9 * 60 <= minutes < 10 * 60:
+        return "open_early"
+    if 10 * 60 <= minutes < 14 * 60 + 30:
+        return "midday"
+    if 14 * 60 + 30 <= minutes <= 15 * 60 + 30:
+        return "close"
+    return "outside_regular"
+
+
+def _percentile(sorted_values: list[float], pct: float) -> float | None:
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    pos = (len(sorted_values) - 1) * pct
+    low = math.floor(pos)
+    high = math.ceil(pos)
+    if low == high:
+        return sorted_values[low]
+    weight = pos - low
+    return sorted_values[low] * (1 - weight) + sorted_values[high] * weight
+
+
+def _recent_volatility_map(connection: sqlite3.Connection, shadow_rows: list[Any]) -> dict[tuple[str, str], float]:
+    if not shadow_rows:
+        return {}
+    symbols = sorted({str(row.symbol) for row in shadow_rows})
+    if not symbols:
+        return {}
+    min_time = min(str(row.event_time) for row in shadow_rows)
+    max_time = max(str(row.event_time) for row in shadow_rows)
+    placeholders = ",".join("?" for _ in symbols)
+    try:
+        bar_rows = connection.execute(
+            f"""
+            SELECT symbol, bar_time, close
+            FROM curated_minute_bars
+            WHERE symbol IN ({placeholders})
+              AND bar_time >= ?
+              AND bar_time <= ?
+              AND close IS NOT NULL
+            ORDER BY symbol ASC, bar_time ASC
+            """,
+            [*symbols, min_time[:10] + "T00:00:00+09:00", max_time],
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    by_symbol: dict[str, list[tuple[str, float]]] = {}
+    for symbol, bar_time, close_raw in bar_rows:
+        try:
+            close = float(close_raw)
+        except (TypeError, ValueError):
+            continue
+        if close <= 0:
+            continue
+        by_symbol.setdefault(str(symbol), []).append((str(bar_time), close))
+
+    volatility: dict[tuple[str, str], float] = {}
+    for symbol, rows in by_symbol.items():
+        recent_abs_returns: list[float] = []
+        previous_close: float | None = None
+        for bar_time, close in rows:
+            if previous_close is not None and previous_close > 0:
+                abs_return_pct = abs((close / previous_close - 1.0) * 100.0)
+                recent_abs_returns.append(abs_return_pct)
+                if len(recent_abs_returns) > DECOMPOSITION_VOL_LOOKBACK_BARS:
+                    recent_abs_returns.pop(0)
+                volatility[(symbol, bar_time)] = mean(recent_abs_returns)
+            previous_close = close
+    return volatility
+
+
+def _volatility_cutoffs(volatility_map: dict[tuple[str, str], float], shadow_rows: list[Any]) -> tuple[float | None, float | None]:
+    values = sorted(
+        volatility_map[(str(row.symbol), str(row.event_time))]
+        for row in shadow_rows
+        if (str(row.symbol), str(row.event_time)) in volatility_map
+    )
+    if not values:
+        return None, None
+    return _percentile(values, 1.0 / 3.0), _percentile(values, 2.0 / 3.0)
+
+
+def _volatility_bucket(value: float | None, low_cutoff: float | None, high_cutoff: float | None) -> str:
+    if value is None or low_cutoff is None or high_cutoff is None:
+        return "unknown"
+    if value <= low_cutoff:
+        return "low"
+    if value <= high_cutoff:
+        return "medium"
+    return "high"
+
+
 def _rows_from_shadow(connection: sqlite3.Connection, horizon_min: int, label_threshold_pct: float) -> list[IcRow]:
     shadow_rows = _load_rows(connection, horizon_min, label_threshold_pct)
+    volatility_map = _recent_volatility_map(connection, shadow_rows)
+    low_cutoff, high_cutoff = _volatility_cutoffs(volatility_map, shadow_rows)
     result: list[IcRow] = []
     for row in shadow_rows:
+        key = (str(row.symbol), str(row.event_time))
+        recent_volatility = volatility_map.get(key)
         result.append(
             IcRow(
                 trade_date=_date_from_event_time(row.event_time),
@@ -120,6 +256,9 @@ def _rows_from_shadow(connection: sqlite3.Connection, horizon_min: int, label_th
                 probability_up=row.probability_up,
                 probability_down=row.probability_down,
                 future_return_pct=row.future_return_pct,
+                time_bucket=_time_bucket(row.event_time),
+                volatility_bucket=_volatility_bucket(recent_volatility, low_cutoff, high_cutoff),
+                recent_volatility_pct=recent_volatility,
             )
         )
     return result
@@ -196,6 +335,108 @@ def _classify_down_signal(summary: dict[str, Any]) -> dict[str, Any]:
     return {"decision": "criteria_not_met", "proceed_to_e2_e3": False}
 
 
+def _classify_decomposition_candidate(summary: dict[str, Any], probability_field: str) -> dict[str, Any]:
+    mean_ic = summary.get("mean_daily_ic")
+    t_stat = summary.get("t_stat")
+    days_usable = int(summary.get("days_usable") or 0)
+    if mean_ic is None or t_stat is None:
+        return {
+            "magnitude_candidate": False,
+            "expected_direction_candidate": False,
+            "reverse_direction_candidate": False,
+            "reason": "insufficient_data",
+        }
+    magnitude_candidate = (
+        abs(float(mean_ic)) >= DECOMPOSITION_MEAN_IC_THRESHOLD
+        and abs(float(t_stat)) >= DECOMPOSITION_T_STAT_THRESHOLD
+        and days_usable >= DECOMPOSITION_MIN_USABLE_DAYS
+    )
+    expected_direction = "negative" if probability_field == "probability_down" else "positive"
+    expected_direction_met = mean_ic < 0 if probability_field == "probability_down" else mean_ic > 0
+    return {
+        "magnitude_candidate": magnitude_candidate,
+        "expected_direction": expected_direction,
+        "expected_direction_candidate": bool(magnitude_candidate and expected_direction_met),
+        "reverse_direction_candidate": bool(magnitude_candidate and not expected_direction_met),
+        "reason": "passes_preregistered_magnitude" if magnitude_candidate else "below_preregistered_magnitude",
+    }
+
+
+def _signal_block(rows: list[IcRow], probability_field: str, min_daily_rows: int) -> dict[str, Any]:
+    daily = _daily_ic(rows, probability_field, min_daily_rows=min_daily_rows)
+    summary = _summarize_daily(daily)
+    return {
+        "daily": daily,
+        "summary": summary,
+        "candidate": _classify_decomposition_candidate(summary, probability_field),
+    }
+
+
+def _ordered_group_keys(family: str, keys: Iterable[str]) -> list[str]:
+    key_set = set(keys)
+    if family == "time_bucket":
+        return [key for key in TIME_BUCKET_ORDER if key in key_set] + sorted(key_set - set(TIME_BUCKET_ORDER))
+    if family == "volatility_bucket":
+        return [key for key in VOLATILITY_BUCKET_ORDER if key in key_set] + sorted(key_set - set(VOLATILITY_BUCKET_ORDER))
+    return sorted(key_set)
+
+
+def _decompose_rows(rows: list[IcRow], min_daily_rows: int) -> dict[str, Any]:
+    families = {
+        "time_bucket": lambda row: row.time_bucket,
+        "symbol": lambda row: row.symbol,
+        "volatility_bucket": lambda row: row.volatility_bucket,
+    }
+    family_results: dict[str, list[dict[str, Any]]] = {}
+    for family, key_func in families.items():
+        grouped: dict[str, list[IcRow]] = {}
+        for row in rows:
+            grouped.setdefault(str(key_func(row)), []).append(row)
+        entries: list[dict[str, Any]] = []
+        for group_key in _ordered_group_keys(family, grouped.keys()):
+            group_rows = grouped[group_key]
+            entries.append(
+                {
+                    "group_family": family,
+                    "group_key": group_key,
+                    "rows": len(group_rows),
+                    "trade_days": sorted({row.trade_date for row in group_rows}),
+                    "probability_down": _signal_block(group_rows, "probability_down", min_daily_rows),
+                    "probability_up": _signal_block(group_rows, "probability_up", min_daily_rows),
+                }
+            )
+        family_results[family] = entries
+    candidates: list[dict[str, Any]] = []
+    for family, entries in family_results.items():
+        for entry in entries:
+            for signal in ("probability_down", "probability_up"):
+                candidate = entry[signal]["candidate"]
+                if candidate.get("magnitude_candidate"):
+                    candidates.append(
+                        {
+                            "group_family": family,
+                            "group_key": entry["group_key"],
+                            "signal": signal,
+                            "rows": entry["rows"],
+                            "days_usable": entry[signal]["summary"].get("days_usable"),
+                            "mean_daily_ic": entry[signal]["summary"].get("mean_daily_ic"),
+                            "t_stat": entry[signal]["summary"].get("t_stat"),
+                            "expected_direction_candidate": candidate.get("expected_direction_candidate"),
+                            "reverse_direction_candidate": candidate.get("reverse_direction_candidate"),
+                        }
+                    )
+    candidates.sort(key=lambda row: abs(float(row.get("t_stat") or 0.0)), reverse=True)
+    return {
+        "preregistered_criteria": {
+            "families": list(families.keys()),
+            "candidate_after_multiple_comparison": PREREGISTERED_CRITERIA["decomposition_candidate_after_multiple_comparison"],
+            "interpretation": "magnitude candidates are follow-up hypotheses only until 2026-07-18 remeasurement",
+        },
+        "families": family_results,
+        "candidates": candidates,
+    }
+
+
 def build_summary(
     *,
     database_path: Path,
@@ -220,6 +461,7 @@ def build_summary(
     pooled_down_pairs = [(row.probability_down, row.future_return_pct) for row in rows if row.probability_down is not None]
     pooled_up_pairs = [(row.probability_up, row.future_return_pct) for row in rows if row.probability_up is not None]
     down_decision = _classify_down_signal(down_summary)
+    decomposition = _decompose_rows(rows, min_daily_rows)
     return {
         "status": "ok" if rows else "no_joinable_shadow_rows",
         "generated_at": _now_iso(),
@@ -247,6 +489,7 @@ def build_summary(
                 [float(p) for p, _r in pooled_up_pairs], [r for _p, r in pooled_up_pairs]
             ),
         },
+        "decomposition": decomposition,
     }
 
 
@@ -256,6 +499,14 @@ def _fmt(value: Any, digits: int = 6) -> str:
     if isinstance(value, float):
         return f"{value:.{digits}f}"
     return str(value)
+
+
+def _candidate_mark(candidate: dict[str, Any]) -> str:
+    if candidate.get("expected_direction_candidate"):
+        return "expected"
+    if candidate.get("reverse_direction_candidate"):
+        return "reverse"
+    return "-"
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -278,8 +529,10 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "## Preregistered Criteria",
         "",
         "- down 확률이 높을수록 미래 수익률이 낮아야 한다.",
-        "- 통과: `mean_daily_ic <= -0.02` 그리고 `t_stat <= -2.0`.",
+        "- E1 전체 통과: `mean_daily_ic <= -0.02` 그리고 `t_stat <= -2.0`.",
+        "- 부분집합 후속 후보: `abs(mean_daily_ic) >= 0.03`, `abs(t_stat) >= 2.5`, `days_usable >= 5`.",
         "- `pooled_spearman_reference_only`는 참고용이며 판정에 쓰지 않는다.",
+        "- 부분집합 후보는 2026-07-18 재측정 전까지 진단용이다.",
         "",
         "## Summary",
         "",
@@ -302,6 +555,54 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"| {row.get('trade_date')} | {row.get('rows')} | {_fmt(row.get('ic'))} | {row.get('status')} |"
             )
         lines.append("")
+    decomposition = summary.get("decomposition", {})
+    families = decomposition.get("families") or {}
+    if families:
+        lines.extend([
+            "## Decomposition",
+            "",
+            "| family | group | rows | down_mean_ic | down_t | down_candidate | up_mean_ic | up_t | up_candidate |",
+            "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- |",
+        ])
+        for family in ("time_bucket", "volatility_bucket", "symbol"):
+            for entry in families.get(family, []):
+                down_block = entry.get("probability_down", {})
+                up_block = entry.get("probability_up", {})
+                lines.append(
+                    "| {family} | {group} | {rows} | {down_mean} | {down_t} | {down_candidate} | {up_mean} | {up_t} | {up_candidate} |".format(
+                        family=family,
+                        group=entry.get("group_key"),
+                        rows=entry.get("rows"),
+                        down_mean=_fmt(down_block.get("summary", {}).get("mean_daily_ic")),
+                        down_t=_fmt(down_block.get("summary", {}).get("t_stat")),
+                        down_candidate=_candidate_mark(down_block.get("candidate", {})),
+                        up_mean=_fmt(up_block.get("summary", {}).get("mean_daily_ic")),
+                        up_t=_fmt(up_block.get("summary", {}).get("t_stat")),
+                        up_candidate=_candidate_mark(up_block.get("candidate", {})),
+                    )
+                )
+        lines.append("")
+    candidates = decomposition.get("candidates") or []
+    lines.extend(["## Decomposition Candidates", ""])
+    if candidates:
+        lines.extend(["| family | group | signal | rows | days | mean_ic | t_stat | type |", "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |"])
+        for row in candidates:
+            candidate_type = "expected" if row.get("expected_direction_candidate") else "reverse"
+            lines.append(
+                "| {family} | {group} | {signal} | {rows} | {days} | {mean_ic} | {t_stat} | {candidate_type} |".format(
+                    family=row.get("group_family"),
+                    group=row.get("group_key"),
+                    signal=row.get("signal"),
+                    rows=row.get("rows"),
+                    days=row.get("days_usable"),
+                    mean_ic=_fmt(row.get("mean_daily_ic")),
+                    t_stat=_fmt(row.get("t_stat")),
+                    candidate_type=candidate_type,
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["- No subset passed the preregistered decomposition threshold.", ""])
     return "\n".join(lines)
 
 

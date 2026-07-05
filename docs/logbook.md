@@ -1,10 +1,40 @@
 # 작업 기록
 
+## [2026-07-05] Codex -> review_ver_26 반영과 E1 신호 분해
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_26.md`를 확인한다.
+  - P0는 §6 E1 신호 분해(시간대·종목·변동성 구간별 daily IC, 사전 등록 기준 포함)만 진행한다.
+  - P1은 §4-1 baseline join 날짜 필터 정합만 진행한다.
+  - 2026-07-18 전까지 이 두 개만 진행한다.
+- 시작 상태:
+  - KST 2026-07-05 10:04, 일요일/주말.
+  - live runtime stopped/weekend, watchdog running, `live_runtime_should_run=false`, trading mode 는 `paper`였다.
+- 조치:
+  - `scripts/summarize_signal_ic.py`에 시간대(`open_early/midday/close`), 종목, 최근 5분 절대 1분수익률 기반 변동성 tercile 구간별 daily IC 분해를 추가했다.
+  - 부분집합 사전 등록 기준을 `abs(mean_daily_ic) >= 0.03`, `abs(t_stat) >= 2.5`, `days_usable >= 5`로 JSON/Markdown에 기록했다.
+  - `scripts/summarize_cost_horizon_diagnostics.py`의 `kis_live_baseline_buy_join`에 `event_time >= 2026-06-11` 필터를 적용해 KIS live 근사 창과 맞췄다.
+  - `tests/test_signal_ic.py`, `tests/test_cost_horizon_diagnostics.py`에 회귀 테스트를 추가했다.
+  - `runtime-data/reports/research/latest-signal-ic-h15.{json,md}`와 `latest-cost-horizon-diagnostics.{json,md}`를 재생성했다.
+- 결과:
+  - 전체 `probability_down`: `mean_daily_ic=0.004754`, `t_stat=0.367342`, `decision=signal_quality_insufficient` 유지.
+  - 전체 `probability_up`: `mean_daily_ic=0.021684`, `t_stat=1.947040`으로 사전 기준 미달.
+  - 시간대 후보: `open_early`, `midday`, `close` 모두 사전 기준 통과 없음.
+  - 변동성 후보: `low`, `medium`, `high` 모두 사전 기준 통과 없음.
+  - 종목 후보: `005380 probability_up` expected 후보(`mean_ic=0.056581`, `t=2.929750`), `035420 probability_down` expected 후보(`mean_ic=-0.080897`, `t=-2.722788`), `105560 probability_down` reverse 후보(`mean_ic=0.090894`, `t=2.557247`).
+  - baseline buy join h15: `rows=25,198`, `median_abs=0.349650`, `below_2x_cost=false`.
+- 해석:
+  - review_ver_26 지적은 타당했다. 비용 구조 문제가 아니라 신호 정보량 문제라는 현재 지도는 유지된다.
+  - 종목 후보 3개는 07-18 전까지 정책 반영 대상이 아니라 후속 관찰 후보일 뿐이다.
+  - E2/E3 threshold/EV 필터 튜닝, active model/gate/order policy 변경은 계속 보류한다.
+- 안전:
+  - 실전 주문/취소 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
 ## [2026-07-05] Codex -> review_ver_25 반영과 E6 source split 재계산
 
 - 사용자 지시:
   - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_25.md`를 확인하고 P0인 E6 source split 재계산과 신규 테스트 포함 전체 pytest 결과를 보고한다.
-  - E6 분리 결과 전까지 E6 분리 전에는 h15 비용 구조 결론을 확정하지 않는다.
+  - E6 분리 전에는 h15 비용 구조 결론을 확정하지 않는다.
 - 시작 상태:
   - 일요일/주말, live runtime stopped, watchdog running, `live_runtime_should_run=false`, trading mode 는 `paper`였다.
 - 조치:

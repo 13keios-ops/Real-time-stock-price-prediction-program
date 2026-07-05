@@ -116,6 +116,15 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
                 )
                 """
             )
+            old_event_time = "2026-06-10T09:19:00+09:00"
+            conn.execute(
+                "INSERT INTO feature_labels VALUES ('005930', ?, 15, 'up', 0.35, 0.99)",
+                (old_event_time,),
+            )
+            conn.execute(
+                "INSERT INTO serving_trade_signals VALUES ('old', '005930', ?, 'buy', 0.7, 'baseline', 1)",
+                (old_event_time,),
+            )
             for idx, value in enumerate([0.22, -0.24, 0.31]):
                 event_time = f"2026-06-11T09:{20 + idx:02d}:00+09:00"
                 conn.execute(
@@ -131,10 +140,12 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
             summary = build_summary(database_path=db_path, diagnostics_path=diagnostics_path, horizons=(15,))
 
         sources = {row["source_key"]: row for row in summary["source_summaries"]}
-        baseline = sources["kis_live_baseline_buy_join"]["horizons"][0]
+        baseline_source = sources["kis_live_baseline_buy_join"]
+        baseline = baseline_source["horizons"][0]
         self.assertEqual(baseline["status"], "ok")
         self.assertEqual(baseline["rows"], 3)
-        self.assertEqual(sources["kis_live_baseline_buy_join"]["role"], "diagnostic_runtime_buy_signals")
+        self.assertIn("event_time >= 2026-06-11", baseline_source["method"])
+        self.assertEqual(baseline_source["role"], "diagnostic_runtime_buy_signals")
 
 
 if __name__ == "__main__":

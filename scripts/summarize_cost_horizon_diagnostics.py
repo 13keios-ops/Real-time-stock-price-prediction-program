@@ -131,9 +131,10 @@ def _baseline_buy_values(connection: sqlite3.Connection, horizon_min: int) -> li
              AND fl.horizon_min = ?
             WHERE s.side = 'buy'
               AND s.allowed = 1
+              AND s.event_time >= ?
               AND fl.future_return_pct IS NOT NULL
             """,
-            (horizon_min,),
+            (horizon_min, KIS_LIVE_START_DATE),
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -298,7 +299,7 @@ def build_summary(
                 connection=connection,
                 source_key="kis_live_baseline_buy_join",
                 role="diagnostic_runtime_buy_signals",
-                method="serving_trade_signals side=buy and allowed=1 joined to feature_labels",
+                method=f"serving_trade_signals side=buy and allowed=1 and event_time >= {KIS_LIVE_START_DATE} joined to feature_labels",
                 horizons=horizons,
                 trade_cost_pct=trade_cost_pct,
                 all_rows_by_horizon=all_rows_by_horizon,
