@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.kis_probe_errors import build_sanitized_kis_probe_error
+
 
 REQUIRED_ACCOUNT_SNAPSHOT_ATTRIBUTES = (
     "position_row_count",
@@ -33,6 +35,7 @@ def probe_kis_account_snapshot_check(
     try:
         snapshot = readonly_client.get_account_balance()
     except Exception as exc:  # pragma: no cover - network/client failures vary.
+        error_details = build_sanitized_kis_probe_error(exc)
         return {
             "key": "account_snapshot",
             "status": "failed",
@@ -41,7 +44,7 @@ def probe_kis_account_snapshot_check(
             "details": {
                 "mode": mode,
                 "checked_at": observed_at.isoformat(),
-                "error_type": type(exc).__name__,
+                **error_details,
             },
         }
 

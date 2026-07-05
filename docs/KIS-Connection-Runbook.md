@@ -76,7 +76,25 @@
 
 관련 문서/코드 경로: `app/services/broker_paper_sync.py`, `tests/test_broker_paper_sync.py`, `.agents/skills/daily-ops-check/SKILL.md`
 
-### 3.2. WebSocket `No close frame received`
+### 3.2. read-only probe 실패 분류
+
+기본 판단:
+
+- token_refresh, account_snapshot, system_clock probe는 실패할 때 원문 응답 본문을 저장하지 않고 sanitized error category만 남긴다.
+- 현재 분류 후보는 missing_quote_credentials, missing_account_credentials, rate_limited, token_invalid_or_expired, network_error, http_error, kis_business_error, client_error이다.
+- EGW00201은 rate_limited로 분류하고, EGW00121/EGW00123은 token_invalid_or_expired로 분류한다.
+- 계좌번호, app key, app secret, token, raw response body는 리포트 본문에 쓰지 않는다.
+
+운영 확인:
+
+1. runtime-data/reports/live-readiness/token-refresh-check.json, account-snapshot-check.json, system-clock-check.json의 details.error_category를 먼저 본다.
+2. rate_limited이면 즉시 반복 호출하지 않고 cooldown 후 장외에 다시 확인한다.
+3. token_refresh와 account_snapshot이 ok이고 system_clock만 rate_limited이면 Phase readiness blocker는 system_clock read-only quote 호출량 문제로 좁힌다.
+4. missing_*_credentials이면 .env 존재 여부와 필수 키 shape만 확인하고 값은 출력하지 않는다.
+
+관련 문서/코드 경로: app/services/kis_probe_errors.py, app/services/kis_token_probe.py, app/services/kis_account_probe.py, app/services/system_clock_probe.py, runtime-data/reports/live-readiness/
+
+### 3.3. WebSocket `No close frame received`
 
 기본 판단:
 

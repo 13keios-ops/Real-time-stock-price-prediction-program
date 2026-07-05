@@ -82,7 +82,18 @@ class KisClockReferenceProbeTests(unittest.TestCase):
         self.assertEqual(check["status"], "failed")
         self.assertFalse(check["passed"])
         self.assertEqual(check["details"]["error_type"], "RuntimeError")
+        self.assertEqual(check["details"]["error_category"], "client_error")
         self.assertNotIn("secret body", encoded)
+
+    def test_probe_failure_classifies_token_error(self) -> None:
+        client = FakeReadOnlyClient({}, raises=RuntimeError("KIS REST quote error: EGW00123 secret token body"))
+
+        check = probe_kis_system_clock_check(client)
+
+        encoded = json.dumps(check, ensure_ascii=False)
+        self.assertEqual(check["details"]["error_category"], "token_invalid_or_expired")
+        self.assertEqual(check["details"]["kis_error_codes"], ["EGW00123"])
+        self.assertNotIn("secret token body", encoded)
 
     def test_paper_live_reference_comparison_uses_sanitized_reference_times(self) -> None:
         paper_check = {

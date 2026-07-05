@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from app.services.kis_probe_errors import build_sanitized_kis_probe_error
 from app.services.live_phase_readiness import build_system_clock_check_from_http_date_headers
 from app.services.system_clock import DEFAULT_MAX_CLOCK_SKEW_SECONDS
 
@@ -32,6 +33,7 @@ def probe_kis_system_clock_check(
     try:
         readonly_client.get_current_price(symbol=symbol, market_code=market_code)
     except Exception as exc:  # pragma: no cover - exact client failures vary by network.
+        error_details = build_sanitized_kis_probe_error(exc)
         return {
             "key": "system_clock",
             "status": "failed",
@@ -42,7 +44,7 @@ def probe_kis_system_clock_check(
                 "probe": "kis_readonly_current_price",
                 "symbol": symbol,
                 "market_code": market_code,
-                "error_type": type(exc).__name__,
+                **error_details,
             },
         }
 

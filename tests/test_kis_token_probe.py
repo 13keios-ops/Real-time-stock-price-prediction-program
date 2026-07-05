@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.brokers.kis_auth import KisAccessToken
+from app.services.kis_probe_errors import build_sanitized_kis_probe_error
 from app.services.kis_token_probe import probe_kis_token_refresh_check
 
 
@@ -55,7 +56,26 @@ class KisTokenProbeTests(unittest.TestCase):
         self.assertEqual(check["status"], "failed")
         self.assertFalse(check["passed"])
         self.assertEqual(check["details"]["error_type"], "RuntimeError")
+        self.assertEqual(check["details"]["error_category"], "client_error")
         self.assertNotIn("secret body", encoded)
+
+    def test_probe_failure_classifies_rate_limit_without_raw_body(self) -> None:
+        manager = FakeTokenManager(raises=RuntimeError('KIS HTTP error 429: {"message":"EGW00201 secret"}'))
+
+        check = probe_kis_token_refresh_check(manager, mode="paper")
+
+        encoded = json.dumps(check, ensure_ascii=False)
+        self.assertEqual(check["details"]["error_category"], "rate_limited")
+        self.assertEqual(check["details"]["http_status"], 429)
+        self.assertEqual(check["details"]["kis_error_codes"], ["EGW00201"])
+        self.assertNotIn("secret", encoded)
+
+    def test_error_classifier_detects_missing_credentials(self) -> None:
+        details = build_sanitized_kis_probe_error(
+            RuntimeError("KIS app key and secret are required before requesting a token.")
+        )
+
+        self.assertEqual(details["error_category"], "missing_quote_credentials")
 
     def test_cli_wrapper_help_does_not_call_network(self) -> None:
         result = subprocess.run(

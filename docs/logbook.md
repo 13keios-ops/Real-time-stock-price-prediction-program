@@ -1,5 +1,22 @@
 # 작업 기록
 
+## [2026-07-05] Codex -> KIS read-only probe 실패 원인 분리
+
+- 사용자 흐름:
+  - KIS token/account/system_clock probe 실패가 모두 KisApiError로만 보이던 문제를 원인별로 좁힌다.
+- 조치:
+  - app/services/kis_probe_errors.py를 추가해 KIS probe 예외를 비밀값 없이 error_category로 분류한다.
+  - token_refresh, account_snapshot, system_clock probe 실패 details에 error_category, http_status, kis_error_codes를 sanitized 형태로 남기도록 보강했다.
+  - docs/KIS-Connection-Runbook.md에 read-only probe 실패 분류와 운영 확인 순서를 추가했다.
+- 결과:
+  - 재실행 시 token_refresh와 account_snapshot은 ok로 확인됐고, system_clock만 EGW00201 rate_limited로 남아 Phase readiness blocker가 system_clock read-only quote 호출량 문제로 좁혀졌다.
+- 검증:
+  - python3 -m unittest tests.test_kis_token_probe tests.test_kis_account_probe tests.test_kis_clock_reference_probe -q 통과.
+  - python3 -m pytest -q -> 448 passed, 59 subtests passed in 31.18s.
+- 안전:
+  - 실전 주문/취소 없음.
+  - app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> review_ver_27 P1만 반영
 
 - 사용자 지시:
@@ -11,7 +28,7 @@
   - 2026-07-18은 토요일이므로 실제 P0 라운드는 07-18 이후 첫 거래일 장후로 넘기는 것이 안전하다고 표시했다.
   - 기존 장전/장후 heartbeat 자동화에 이 1회성 조건을 덧붙였고, 기존 08:25/20:25 운영 체크 흐름은 유지했다.
 - 결과:
-  - 전체 pytest 결과: `python3 -m pytest -q` -> `444 passed, 59 subtests passed in 32.62s`.
+  - 전체 pytest 결과: `python3 -m pytest -q` -> `448 passed, 59 subtests passed in 31.18s`.
 - 안전:
   - 코드/모델/gate/주문 정책 변경 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.

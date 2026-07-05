@@ -120,7 +120,17 @@ class KisAccountProbeTests(unittest.TestCase):
         self.assertEqual(check["status"], "failed")
         self.assertFalse(check["passed"])
         self.assertEqual(check["details"]["error_type"], "RuntimeError")
+        self.assertEqual(check["details"]["error_category"], "client_error")
         self.assertNotIn("secret body", encoded)
+
+    def test_probe_failure_classifies_missing_account_credentials(self) -> None:
+        client = FakeReadOnlyClient(
+            raises=RuntimeError("KIS account number and product code are required before requesting account balance.")
+        )
+
+        check = probe_kis_account_snapshot_check(client, mode="paper")
+
+        self.assertEqual(check["details"]["error_category"], "missing_account_credentials")
 
     def test_cli_wrapper_help_does_not_call_network(self) -> None:
         result = subprocess.run(

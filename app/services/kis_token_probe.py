@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.kis_probe_errors import build_sanitized_kis_probe_error
+
 
 def probe_kis_token_refresh_check(
     token_manager: Any,
@@ -19,6 +21,7 @@ def probe_kis_token_refresh_check(
     try:
         token = token_manager.get_access_token(force_refresh=force_refresh)
     except Exception as exc:  # pragma: no cover - network/client failures vary.
+        error_details = build_sanitized_kis_probe_error(exc)
         return {
             "key": "token_refresh",
             "status": "failed",
@@ -28,7 +31,7 @@ def probe_kis_token_refresh_check(
                 "mode": mode,
                 "force_refresh": force_refresh,
                 "checked_at": observed_at.isoformat(),
-                "error_type": type(exc).__name__,
+                **error_details,
             },
         }
     expires_at = token.expires_at.astimezone(timezone.utc) if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)

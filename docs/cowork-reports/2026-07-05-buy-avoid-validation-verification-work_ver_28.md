@@ -18,8 +18,8 @@
 
 ## 3. P1 결과
 
-- 전체 pytest 결과: `python3 -m pytest -q` -> `444 passed, 59 subtests passed in 32.62s`.
-- 이 결과는 `work_ver_27` 최종 검증에서 이미 실행된 결과이며, 이번 `work_ver_28`에서는 cowork가 지적한 보고 누락만 보완했다.
+- 전체 pytest 결과: `python3 -m pytest -q` -> `448 passed, 59 subtests passed in 31.18s`.
+- 이 결과는 2026-07-05 현재 작업트리 기준으로 다시 실행한 값이다. 이번 work_ver_28에서는 cowork가 지적한 전체 pytest 보고 누락을 최신 검증값으로 닫았다.
 
 ## 4. 2026-07-18 이후 진행 조건
 
