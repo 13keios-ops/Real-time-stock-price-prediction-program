@@ -1,5 +1,20 @@
 # 작업 기록
 
+## [2026-07-05] Codex -> review_ver_27 P1만 반영
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_27.md`를 확인한다.
+  - 2026-07-18 전까지는 P1인 전체 pytest 결과 보고 한 줄만 처리한다.
+  - 07-18 장후에는 E1 재측정(후보 3건 재현성 + 105560 p_flat IC 병기)과 E5 역발상 관찰을 한 라운드로 진행한다.
+- 조치:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-work_ver_28.md`에 work_ver_27 전체 pytest 결과 한 줄을 남겼다.
+  - 2026-07-18은 토요일이므로 실제 P0 라운드는 07-18 이후 첫 거래일 장후로 넘기는 것이 안전하다고 표시했다.
+  - 기존 장전/장후 heartbeat 자동화에 이 1회성 조건을 덧붙였고, 기존 08:25/20:25 운영 체크 흐름은 유지했다.
+- 결과:
+  - 전체 pytest 결과: `python3 -m pytest -q` -> `444 passed, 59 subtests passed in 32.62s`.
+- 안전:
+  - 코드/모델/gate/주문 정책 변경 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.
 ## [2026-07-05] Codex -> review_ver_26 반영과 E1 신호 분해
 
 - 사용자 지시:
