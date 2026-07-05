@@ -1,5 +1,18 @@
 ﻿# 작업 기록
 
+## [2026-07-05] Codex -> buy-avoid review_ver_27 P1 검증 한 줄 갱신
+
+- 사용자 지시:
+  - 2026-07-18 전까지 신규 실험 없이 `review_ver_27`의 P1, 즉 전체 pytest 결과 보고 한 줄만 처리한다.
+- 조치:
+  - `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-work_ver_28.md`의 전체 pytest 결과를 현재 실행값으로 갱신했다.
+  - P0인 E1 재측정과 E5 역발상 관찰은 2026-07-18 이후 첫 거래일 장후로 유지했다.
+- 검증:
+  - `python3 -m pytest -q` -> `454 passed, 59 subtests passed in 32.52s`.
+  - `git diff --check` 통과.
+- 안전:
+  - 코드, 모델, gate, active model, 주문 정책, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS 변경 없음.
+
 ## [2026-07-05] Codex -> paper/KIS mismatch 장후 재확인 wrapper 추가
 
 - 사용자 목표:
