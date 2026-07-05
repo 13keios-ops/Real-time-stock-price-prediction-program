@@ -1,5 +1,23 @@
 ﻿# 작업 기록
 
+## [2026-07-05] Codex -> paper/KIS mismatch 장후 재확인 wrapper 추가
+
+- 사용자 목표:
+  - paper/KIS mismatch 5종목의 다음 거래일 장후 재확인을 누락 없이 수행할 수 있게 한다.
+- 조치:
+  - `scripts/recheck_paper_kis_mismatch.py`와 `.sh` wrapper 를 추가했다.
+  - wrapper 는 live runtime 실행 중, `pre-open`, `regular-session`이면 기본 차단하고, 장후/장외에만 broker sync, reconciliation, mismatch trace 를 순서대로 실행한다.
+  - wrapper 는 align 을 수행하지 않으며, 결과 요약은 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck.json`에 남긴다.
+  - `.agents/skills/daily-ops-check/SKILL.md`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`에 다음 거래일 장후 재확인 명령을 연결했다.
+- 검증:
+  - `bash -n scripts/recheck_paper_kis_mismatch.sh scripts/script_dispatch.sh` 통과.
+  - `python3 -m unittest tests.test_paper_kis_mismatch_recheck -q` 통과.
+  - `./scripts/recheck_paper_kis_mismatch.sh --dry-run` 통과.
+  - `python3 -m pytest -q` -> `454 passed, 59 subtests passed in 33.03s`.
+  - `git diff --check` 통과.
+- 안전:
+  - 실전 주문/취소, alignment, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> 목표 완료 감사와 daily ops mismatch 절차 보강
 
 - 사용자 목표:

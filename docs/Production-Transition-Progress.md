@@ -31,7 +31,7 @@
 ### 2026-07-05 목표 완료 감사
 
 - 항목 1 KIS read-only probe 3종: 현재 증거상 완료. `token_refresh`, `account_snapshot`, `system_clock` 모두 ok 이며 system_clock 은 계좌 snapshot 응답 Date 재사용으로 quote rate limit 문제를 우회했다.
-- 항목 2 paper/KIS mismatch 5종목: 원인 범위는 규명됐지만 최종 종결은 보류. 현재 root_cause_scope 는 5종목 모두 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 다음 거래일 장후에도 같은지 재측정해야 완료로 볼 수 있다.
+- 항목 2 paper/KIS mismatch 5종목: 원인 범위는 규명됐지만 최종 종결은 보류. 현재 root_cause_scope 는 5종목 모두 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 다음 거래일 장후 `./scripts/recheck_paper_kis_mismatch.sh`로 같은지 재측정해야 완료로 볼 수 있다.
 - 항목 3 Cybos-KIS 격차와 orderbook 가설: 문서화 완료. `docs/Model-Research-PreRegistration.md` 기준으로 2026-07-18 이후 KIS live 데이터로만 검증한다.
 - 항목 4 h60 트랙 사전등록: 초안 완료. h60 주문 정책은 만들지 않았고, 07-18 이후 daily IC, random-control, h15/h60 충돌표, paper-only replay 가능성부터 본다.
 - 현재 목표 상태: 진행 중. 남은 필수 증거는 다음 거래일 장후 mismatch 재확인과 07-18 이후 첫 거래일 장후 E1/E5 라운드다.

@@ -92,16 +92,17 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 
 ### paper/KIS 정합성
 
-먼저 broker sync와 reconciliation을 재실행한다.
+장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session 또는 live runtime 실행 중에는 기본 차단된다.
+
+```bash
+./scripts/recheck_paper_kis_mismatch.sh
+```
+
+수동으로 나눠서 확인해야 할 때만 아래 순서로 실행한다.
 
 ```bash
 python -m app --sync-broker-paper-orders
 python -m app --reconcile-paper-accounts
-```
-
-수량 mismatch 가 남아 있으면 alignment 전에 trace 리포트를 먼저 재생성한다.
-
-```bash
 python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
 ```
 
