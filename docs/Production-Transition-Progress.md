@@ -20,6 +20,14 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-05 최신 스냅샷
+
+- 마지막 갱신: 2026-07-05 17:45 KST, 주말/장외 read-only 점검.
+- live runtime: stopped/weekend 로 정상이다. runtime watchdog 은 running 이고 heartbeat fresh 상태다.
+- KIS read-only probe: token_refresh 와 account_snapshot 은 ok 로 복구됐고, system_clock 만 `EGW00201` rate_limited 로 남아 Phase readiness blocker 가 system_clock read-only quote 호출량 문제로 좁혀졌다.
+- paper/KIS mismatch trace: `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md` 기준 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량이 일치하지만 KIS 계좌 잔고 snapshot 수량이 다르다. root_cause_scope 는 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 자동 align 은 보류하고 다음 거래일 장후 계좌 snapshot 과 order-fill snapshot 을 재비교한다.
+- buy-avoid: review_ver_27 기준 2026-07-18 전까지 신규 실험은 동결하고, 현재는 전체 pytest 결과 보고 한 줄만 닫았다. 07-18 이후 첫 거래일 장후 E1 재측정과 E5 역발상 관찰을 한 라운드로 진행한다.
+
 ### 2026-07-04 최신 스냅샷
 
 - 마지막 갱신: 2026-07-04 20:40 KST, `review_ver_22` 대응 후속 점검.

@@ -412,6 +412,8 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 2026-06-14 수정 뒤 실제 broker paper sync 를 1회 실행해 marker 이후 현재 view 의 open order backlog 는 0건으로 닫혔다.
 같은 날 `-SyncInitialCash` 없이 marker-only `-AlignToBroker`를 적용한 뒤 최신 dual account match 는 `matched_waiting_first_submission`, effective cash gap 과 total asset gap 은 `0원`이다. 브로커 원시 예수금과 유효현금 차이는 `raw_cash_gap`으로 별도 표시한다.
 
+2026-07-05 재점검 기준 최신 paper/KIS position mismatch 5종목은 단순 로컬 장부 오류로 보지 않는다. `scripts/trace_paper_kis_mismatch.py`는 최신 KIS order-fill snapshot 의 종목별 순수량(`broker_order_fill_net_qty`)을 함께 계산한다. 현재 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량은 일치하지만, KIS 계좌 잔고 snapshot 수량만 다르다. 따라서 즉시 `AlignToBroker`로 덮지 않고 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. 005380, 247540은 계좌 잔고에만 남은 residual position, 035420, 105560은 주문/체결 원장은 보유를 말하지만 계좌 잔고는 flat 이며 반복 청산 주문이 거부된 상태, 086520은 계좌 잔고가 order-fill 순수량보다 1주 적은 상태다. 다음 조치는 다음 거래일 장후 broker account snapshot 과 order-fill sync 를 다시 비교하고, 계속 유지되면 KIS 모의계좌의 수동/외부 체결 또는 계좌 snapshot 원천 차이를 사람 검토 대상으로 올리는 것이다.
+
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 변경 전에는 KIS lookback 에서 사라진 주문이 이미 full fill 로 적용됐거나 과거 주문일 잔량으로 남아도 다음 sync 에서 `pending_lookup`으로 되돌아가 open count 를 부풀릴 수 있었다.
 변경 후에는 이전 final/applied fill 상태를 보존하고, 정상 조회 후에도 남은 과거 주문일 잔량은 final 만료 상태로 해석해 현재 open backlog 를 부풀리지 않는다.

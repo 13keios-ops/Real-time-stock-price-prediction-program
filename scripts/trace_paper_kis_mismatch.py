@@ -258,39 +258,211 @@ def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    try:
+        row = conn.execute(
+            "select 1 from sqlite_master where type='table' and name=?",
+            (table_name,),
+        ).fetchone()
+    except sqlite3.DatabaseError:
+        return False
+    return row is not None
+
+
+def _latest_broker_status_synced_at(conn: sqlite3.Connection) -> str | None:
+    if not _table_exists(conn, "broker_paper_order_status_snapshots"):
+        return None
+    try:
+        row = conn.execute("select max(synced_at) from broker_paper_order_status_snapshots").fetchone()
+    except sqlite3.DatabaseError:
+        return None
+    return row[0] if row and row[0] else None
+
+
+def _signed_qty(side: Any, qty: Any) -> float:
+    try:
+        numeric_qty = float(qty or 0)
+    except (TypeError, ValueError):
+        numeric_qty = 0.0
+    if str(side).lower() == "sell":
+        return -numeric_qty
+    return numeric_qty
+
+
+def _simplify_qty(value: float | None) -> int | float | None:
+    if value is None:
+        return None
+    if float(value).is_integer():
+        return int(value)
+    return value
+
+
+def _broker_status_flow(
+    conn: sqlite3.Connection,
+    symbol: str,
+    *,
+    latest_status_synced_at: str | None,
+) -> dict[str, Any]:
+    if latest_status_synced_at is None or not _table_exists(conn, "broker_paper_order_status_snapshots"):
+        return {"available": False, "reason": "broker_status_snapshots_missing"}
+    query = """
+        select side, status, count(*) as row_count,
+               coalesce(sum(order_qty), 0) as order_qty,
+               coalesce(sum(filled_qty), 0) as filled_qty,
+               coalesce(sum(applied_fill_qty), 0) as applied_fill_qty
+        from broker_paper_order_status_snapshots
+        where symbol = ? and synced_at = ?
+        group by side, status
+        order by side, status
+    """
+    try:
+        rows = [dict(row) for row in conn.execute(query, (symbol, latest_status_synced_at)).fetchall()]
+    except sqlite3.DatabaseError as exc:
+        return {"available": False, "reason": str(exc)}
+    filled_net = sum(_signed_qty(row.get("side"), row.get("filled_qty")) for row in rows)
+    applied_net = sum(_signed_qty(row.get("side"), row.get("applied_fill_qty")) for row in rows)
+    return {
+        "available": True,
+        "synced_at": latest_status_synced_at,
+        "filled_net_qty": _simplify_qty(filled_net),
+        "applied_net_qty": _simplify_qty(applied_net),
+        "rows": rows,
+    }
+
+
+def _recent_rejected_close_orders(
+    conn: sqlite3.Connection,
+    symbol: str,
+    *,
+    limit: int = 5,
+) -> dict[str, Any]:
+    if not _table_exists(conn, "paper_orders"):
+        return {"count": 0, "latest": []}
+    where = "where symbol = ? and side = 'sell' and status = 'rejected'"
+    try:
+        count = conn.execute(f"select count(*) from paper_orders {where}", (symbol,)).fetchone()[0]
+        rows = [
+            dict(row)
+            for row in conn.execute(
+                f"""
+                select order_id, event_time, side, qty, limit_price, status
+                from paper_orders
+                {where}
+                order by event_time desc
+                limit ?
+                """,
+                (symbol, limit),
+            ).fetchall()
+        ]
+    except sqlite3.DatabaseError as exc:
+        return {"count": 0, "latest": [], "error": str(exc)}
+    return {"count": count, "latest": rows}
+
+
+def _quantities_equal(left: Any, right: Any) -> bool:
+    try:
+        return abs(float(left or 0) - float(right or 0)) < 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
+def _classify_position_divergence(
+    *,
+    local_qty: Any,
+    broker_qty: Any,
+    broker_order_fill_net_qty: Any,
+    broker_status_available: bool,
+    rejected_close_count: int,
+    broker_sync_status: str | None,
+) -> tuple[str, str, str]:
+    if broker_sync_status == "rate_limited":
+        return (
+            "broker_order_fill_recovery_rate_limited",
+            "broker_order_fill_lookup_blocked_by_rate_limit",
+            "cooldown 뒤 order-fill sync를 먼저 복구하고 자동 align은 보류한다.",
+        )
+    if broker_status_available and _quantities_equal(local_qty, broker_order_fill_net_qty) and not _quantities_equal(
+        broker_qty, broker_order_fill_net_qty
+    ):
+        if _quantities_equal(local_qty, 0) and not _quantities_equal(broker_qty, 0):
+            return (
+                "broker_account_has_residual_qty_not_in_order_fill_net",
+                "kis_account_snapshot_vs_order_fill_ledger_divergence",
+                "브로커 계좌 잔고에만 남은 수량이다. 수동/외부 모의계좌 체결 또는 계좌 snapshot 원천 차이를 확인한다.",
+            )
+        if _quantities_equal(broker_qty, 0) and not _quantities_equal(local_qty, 0):
+            suffix = "_with_rejected_local_close" if rejected_close_count else ""
+            return (
+                f"broker_account_flat_but_order_fill_net_positive{suffix}",
+                "kis_account_snapshot_vs_order_fill_ledger_divergence",
+                "KIS 주문/체결 원장은 보유를 말하지만 계좌 잔고는 flat이다. 반복 청산 주문은 차단하고 계좌 snapshot과 주문/체결 원천을 재확인한다.",
+            )
+        return (
+            "broker_account_qty_differs_from_order_fill_net",
+            "kis_account_snapshot_vs_order_fill_ledger_divergence",
+            "로컬 장부와 KIS 주문/체결 순수량은 맞지만 계좌 잔고 수량이 다르다. 자동 align 전에 계좌 snapshot 원천을 재확인한다.",
+        )
+    if broker_status_available and _quantities_equal(broker_qty, broker_order_fill_net_qty) and not _quantities_equal(
+        local_qty, broker_qty
+    ):
+        return (
+            "local_position_differs_from_broker_order_fill_net",
+            "local_ledger_divergence",
+            "브로커 주문/체결 원장과 계좌 잔고는 맞지만 로컬 장부가 다르다. 로컬 position restore/fill 적용 경로를 확인한다.",
+        )
+    if rejected_close_count:
+        return (
+            "rejected_close_orders_require_manual_review",
+            "local_close_rejection_loop",
+            "반복 청산 거부가 있어 신규 청산 반복을 막고 주문 가능 수량 원천을 확인한다.",
+        )
+    return (
+        "needs_manual_review",
+        "unclassified_position_divergence",
+        "현재 리포트만으로는 원인을 단정하지 않고 추가 ledger 확인이 필요하다.",
+    )
+
+
 def _summarize_symbol_trace(
     mismatch: dict[str, Any],
     symbol_trace: dict[str, list[dict[str, Any]]],
     *,
     broker_sync_status: str | None,
+    conn: sqlite3.Connection,
+    latest_status_synced_at: str | None,
 ) -> dict[str, Any]:
+    symbol = str(mismatch.get("symbol") or "")
     latest_local_order = _latest_row(symbol_trace.get("paper_orders", []))
     latest_broker_submission = _latest_row(symbol_trace.get("broker_paper_order_submissions", []))
     latest_broker_status = _latest_row(symbol_trace.get("broker_paper_order_status_snapshots", []))
-    status = mismatch.get("status")
-    likely_issue = "needs_manual_review"
-    if (
-        status == "only_local"
-        and latest_local_order
-        and latest_local_order.get("side") == "sell"
-        and latest_local_order.get("status") in {"submitted", "open", "pending"}
-        and broker_sync_status == "rate_limited"
-    ):
-        likely_issue = "close_order_fill_unknown_due_rate_limit"
-    elif status == "only_local" and latest_local_order and latest_local_order.get("side") == "buy":
-        likely_issue = "local_buy_position_without_broker_position"
+    broker_status_flow = _broker_status_flow(conn, symbol, latest_status_synced_at=latest_status_synced_at)
+    rejected_close_orders = _recent_rejected_close_orders(conn, symbol)
+    likely_issue, root_cause_scope, recommended_action = _classify_position_divergence(
+        local_qty=mismatch.get("local_qty"),
+        broker_qty=mismatch.get("broker_qty"),
+        broker_order_fill_net_qty=broker_status_flow.get("filled_net_qty"),
+        broker_status_available=bool(broker_status_flow.get("available")),
+        rejected_close_count=int(rejected_close_orders.get("count") or 0),
+        broker_sync_status=broker_sync_status,
+    )
     return {
-        "symbol": mismatch.get("symbol"),
-        "mismatch_status": status,
+        "symbol": symbol,
+        "mismatch_status": mismatch.get("status"),
         "local_qty": mismatch.get("local_qty"),
         "broker_qty": mismatch.get("broker_qty"),
         "qty_gap": mismatch.get("qty_gap"),
+        "broker_order_fill_net_qty": broker_status_flow.get("filled_net_qty"),
+        "broker_order_fill_applied_net_qty": broker_status_flow.get("applied_net_qty"),
+        "broker_order_fill_synced_at": broker_status_flow.get("synced_at"),
+        "root_cause_scope": root_cause_scope,
         "latest_local_order": latest_local_order,
         "latest_broker_submission": latest_broker_submission,
         "latest_broker_status_snapshot": latest_broker_status,
+        "recent_rejected_close_order_count": rejected_close_orders.get("count", 0),
+        "recent_rejected_close_orders": rejected_close_orders.get("latest", []),
         "likely_issue": likely_issue,
+        "recommended_action": recommended_action,
     }
-
 
 def build_trace_report(
     *,
@@ -331,6 +503,9 @@ def build_trace_report(
         report["assessment"] = {"status": "blocked", "summary": "database path missing"}
         return report
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    latest_status_synced_at = _latest_broker_status_synced_at(conn)
+    report["broker_order_fill_latest_synced_at"] = latest_status_synced_at
     infos = _table_infos(conn, include_auxiliary=include_auxiliary)
     report["scanned_tables"] = [
         {"name": info.name, "symbol_column": info.symbol_column, "time_column": info.time_column}
@@ -350,16 +525,31 @@ def build_trace_report(
                 mismatch_by_symbol[symbol],
                 symbol_trace,
                 broker_sync_status=report.get("broker_sync", {}).get("status"),
+                conn=conn,
+                latest_status_synced_at=latest_status_synced_at,
             )
         )
     report["symbol_summaries"] = symbol_summaries
-    unknown_close_count = sum(
-        1 for item in symbol_summaries if item.get("likely_issue") == "close_order_fill_unknown_due_rate_limit"
+    account_vs_order_fill_count = sum(
+        1
+        for item in symbol_summaries
+        if item.get("root_cause_scope") == "kis_account_snapshot_vs_order_fill_ledger_divergence"
     )
-    if unknown_close_count:
+    rate_limited_count = sum(
+        1 for item in symbol_summaries if item.get("likely_issue") == "broker_order_fill_recovery_rate_limited"
+    )
+    if account_vs_order_fill_count:
         report["assessment"] = {
             "status": "needs_review",
-            "summary": f"{unknown_close_count} symbol(s) likely have close-order fill recovery blocked by broker rate limit",
+            "summary": (
+                f"{account_vs_order_fill_count} symbol(s) have KIS account snapshot qty diverging from "
+                "the latest KIS order/fill ledger while local paper qty matches the order/fill net"
+            ),
+        }
+    elif rate_limited_count:
+        report["assessment"] = {
+            "status": "needs_review",
+            "summary": f"{rate_limited_count} symbol(s) likely have close-order fill recovery blocked by broker rate limit",
         }
     return report
 
@@ -412,19 +602,18 @@ def render_markdown(report: dict[str, Any]) -> str:
     summary_rows = []
     for item in report.get("symbol_summaries", []):
         latest_local_order = item.get("latest_local_order") or {}
-        latest_broker_submission = item.get("latest_broker_submission") or {}
         summary_rows.append(
             [
                 item.get("symbol"),
                 item.get("likely_issue"),
+                item.get("root_cause_scope"),
                 item.get("local_qty"),
                 item.get("broker_qty"),
+                item.get("broker_order_fill_net_qty"),
+                item.get("recent_rejected_close_order_count"),
                 latest_local_order.get("side"),
                 latest_local_order.get("status"),
                 latest_local_order.get("event_time"),
-                latest_broker_submission.get("side"),
-                latest_broker_submission.get("status"),
-                latest_broker_submission.get("event_time"),
             ]
         )
     lines.extend(
@@ -433,14 +622,14 @@ def render_markdown(report: dict[str, Any]) -> str:
                 [
                     "symbol",
                     "likely_issue",
+                    "root_cause_scope",
                     "local_qty",
-                    "broker_qty",
-                    "local_side",
-                    "local_status",
-                    "local_time",
-                    "broker_side",
-                    "broker_status",
-                    "broker_time",
+                    "broker_account_qty",
+                    "broker_order_fill_net_qty",
+                    "rejected_close_count",
+                    "latest_local_side",
+                    "latest_local_status",
+                    "latest_local_time",
                 ],
                 summary_rows,
             )
@@ -470,6 +659,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "- This report is read-only and does not align or mutate account state.",
             "- If broker sync is rate-limited, local-only positions can mean missing broker fills, stale local state, or both.",
+            "- If local_qty equals broker_order_fill_net_qty but broker_account_qty differs, the immediate issue is KIS account snapshot vs KIS order/fill ledger divergence.",
             "- Do not apply marker-only alignment until the order/fill path for each mismatched symbol is understood.",
             "",
             "관련 문서/코드 경로:",

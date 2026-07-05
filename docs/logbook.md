@@ -1,4 +1,41 @@
-# 작업 기록
+﻿# 작업 기록
+
+## [2026-07-05] Codex -> Cybos-KIS 격차와 h60 사전등록 초안
+
+- 사용자 목표:
+  - 07-18 전 KIS live 판정 동결을 유지하면서 Cybos-KIS 격차 원인, orderbook 피처 가설, h60 트랙 사전등록 초안을 정리한다.
+- 조치:
+  - `docs/Model-Research-PreRegistration.md`를 추가했다.
+  - `README.md`, `AGENTS.md`, `docs/Execution-Plan.md`에서 새 문서를 참조하도록 연결했다.
+- 핵심 내용:
+  - Cybos-KIS 공통 bar 피처에서 `source_stable_candidate=0`이므로 Cybos 5년 결과를 KIS live 주문 정책으로 직접 전이하지 않는다.
+  - `spread_bps`는 비용/유동성 stress 후보, `bid_ask_imbalance`는 종목·시간대별 압력 후보로만 본다. 둘 다 2026-07-18 이후 KIS live 데이터로 재검증 전까지 정책 후보가 아니다.
+  - h60은 비용 여유가 있어 보이지만, h60 daily IC, random-control, h15/h60 충돌표, paper-only replay 가능성을 별도 검증하기 전까지 주문 정책을 만들지 않는다.
+- 안전:
+  - 모델 재학습, threshold tuning, active model/gate/order policy 변경 없음.
+  - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.
+
+## [2026-07-05] Codex -> paper/KIS mismatch 5종목 원인 범위 규명
+
+- 사용자 목표:
+  - 07-18 전 KIS live 판정 동결 중, paper/KIS mismatch 5종목의 원인을 원장 기준으로 좁힌다.
+- 조치:
+  - `scripts/trace_paper_kis_mismatch.py`에 최신 KIS order-fill snapshot 순수량(`broker_order_fill_net_qty`), 반복 청산 거부 수, root_cause_scope, recommended_action 을 추가했다.
+  - `tests/test_paper_kis_mismatch_trace.py`에 KIS 계좌 snapshot 과 KIS order-fill 원장이 어긋나는 synthetic 회귀 테스트를 추가했다.
+  - `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.{json,md}`를 재생성했다.
+- 결과:
+  - mismatch 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량은 일치하고 KIS 계좌 잔고 snapshot 수량만 다르다.
+  - 005380, 247540: `broker_account_has_residual_qty_not_in_order_fill_net`.
+  - 035420, 105560: `broker_account_flat_but_order_fill_net_positive_with_rejected_local_close`.
+  - 086520: `broker_account_qty_differs_from_order_fill_net`.
+  - 공통 root_cause_scope 는 `kis_account_snapshot_vs_order_fill_ledger_divergence`다.
+- 해석:
+  - 현재 증거만으로 로컬 장부를 브로커 계좌 잔고로 자동 align 하면 원인을 덮을 위험이 있다. 다음 거래일 장후 account snapshot 과 order-fill snapshot 을 다시 비교하고, 유지되면 KIS 모의계좌 수동/외부 체결 또는 계좌 snapshot 원천 차이 여부를 사람 검토 대상으로 올린다.
+- 검증:
+  - `python3 -m unittest tests.test_paper_kis_mismatch_trace -q` 통과.
+- 안전:
+  - read-only 리포트/문서/테스트 변경만 수행했다.
+  - 실전 주문/취소, 계좌 align, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
 
 ## [2026-07-05] Codex -> KIS read-only probe 실패 원인 분리
 
@@ -12,7 +49,7 @@
   - 재실행 시 token_refresh와 account_snapshot은 ok로 확인됐고, system_clock만 EGW00201 rate_limited로 남아 Phase readiness blocker가 system_clock read-only quote 호출량 문제로 좁혀졌다.
 - 검증:
   - python3 -m unittest tests.test_kis_token_probe tests.test_kis_account_probe tests.test_kis_clock_reference_probe -q 통과.
-  - python3 -m pytest -q -> 448 passed, 59 subtests passed in 31.18s.
+  - python3 -m pytest -q -> 449 passed, 59 subtests passed in 30.49s.
 - 안전:
   - 실전 주문/취소 없음.
   - app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값 변경 없음.
@@ -28,7 +65,7 @@
   - 2026-07-18은 토요일이므로 실제 P0 라운드는 07-18 이후 첫 거래일 장후로 넘기는 것이 안전하다고 표시했다.
   - 기존 장전/장후 heartbeat 자동화에 이 1회성 조건을 덧붙였고, 기존 08:25/20:25 운영 체크 흐름은 유지했다.
 - 결과:
-  - 전체 pytest 결과: `python3 -m pytest -q` -> `448 passed, 59 subtests passed in 31.18s`.
+  - 전체 pytest 결과: `python3 -m pytest -q` -> `449 passed, 59 subtests passed in 30.49s`.
 - 안전:
   - 코드/모델/gate/주문 정책 변경 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.

@@ -94,5 +94,88 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
         self.assertEqual(report["symbols"], ["005930"])
 
 
+    def test_classifies_kis_account_snapshot_vs_order_fill_divergence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "trace.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """
+                create table broker_paper_order_status_snapshots (
+                    sync_id text,
+                    local_order_id text,
+                    broker_mode text,
+                    symbol text,
+                    synced_at text,
+                    side text,
+                    order_qty real,
+                    filled_qty real,
+                    applied_fill_qty real,
+                    status text
+                )
+                """
+            )
+            conn.executemany(
+                """
+                insert into broker_paper_order_status_snapshots
+                (sync_id, local_order_id, broker_mode, symbol, synced_at, side, order_qty, filled_qty, applied_fill_qty, status)
+                values (?, ?, 'paper', ?, '2026-07-03T16:49:28+09:00', ?, ?, ?, ?, 'filled')
+                """,
+                [
+                    ("sync-1", "local-buy", "035420", "buy", 2, 2, 2),
+                    ("sync-2", "local-buy-2", "247540", "buy", 5, 5, 5),
+                    ("sync-3", "local-sell-2", "247540", "sell", 5, 5, 5),
+                ],
+            )
+            conn.commit()
+            conn.close()
+            dual_path = tmp_path / "dual.json"
+            account_path = tmp_path / "account.json"
+            broker_path = tmp_path / "broker.json"
+            dual_path.write_text(json.dumps({"comparison": {"status": "ok", "mismatch_rows": []}}), encoding="utf-8")
+            account_path.write_text(
+                json.dumps(
+                    {
+                        "comparison": {
+                            "status": "needs_review",
+                            "mismatch_rows": [
+                                {"symbol": "035420", "status": "only_local", "local_qty": 2, "broker_qty": 0},
+                                {"symbol": "247540", "status": "only_broker", "local_qty": 0, "broker_qty": 5},
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            broker_path.write_text(json.dumps({"status": "ok", "open_order_count": 0}), encoding="utf-8")
+
+            report = build_trace_report(
+                db_path=db_path,
+                dual_match_path=dual_path,
+                account_sync_path=account_path,
+                broker_sync_path=broker_path,
+                limit_per_table=3,
+                include_auxiliary=False,
+            )
+
+        by_symbol = {row["symbol"]: row for row in report["symbol_summaries"]}
+        self.assertEqual(
+            by_symbol["035420"]["likely_issue"],
+            "broker_account_flat_but_order_fill_net_positive",
+        )
+        self.assertEqual(by_symbol["035420"]["broker_order_fill_net_qty"], 2)
+        self.assertEqual(
+            by_symbol["247540"]["likely_issue"],
+            "broker_account_has_residual_qty_not_in_order_fill_net",
+        )
+        self.assertEqual(by_symbol["247540"]["broker_order_fill_net_qty"], 0)
+        self.assertEqual(
+            by_symbol["035420"]["root_cause_scope"],
+            "kis_account_snapshot_vs_order_fill_ledger_divergence",
+        )
+        self.assertIn("2 symbol(s)", report["assessment"]["summary"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

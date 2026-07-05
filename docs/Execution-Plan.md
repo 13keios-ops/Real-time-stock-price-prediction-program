@@ -131,6 +131,7 @@ git status --short --branch
 - 월요일 장중에는 watchdog heartbeat 가 10분 이내 fresh 로 유지되는지 P0-4 증거를 남긴다.
 - 월요일 장후에는 broker order-fill sync 에서 `EGW00201` rate limit 이 재발하는지 확인한다.
 - 당일 주문이 생긴 경우 `broker_paper_sync.py`의 final-state 보존 경로가 당일 open 주문을 조기 final 처리하지 않는지 주문일, 조회 성공 여부, rate-limit 여부를 함께 본다.
+- 2026-07-05 최신 mismatch 5종목은 로컬 paper 수량과 KIS order-fill 순수량이 일치하고 KIS 계좌 잔고 snapshot 만 다른 상태로 좁혔다. 이 경우 자동 align 대신 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 두고 다음 거래일 장후 계좌 snapshot 과 order-fill snapshot 을 재비교한다.
 
 ### 이유
 
@@ -157,7 +158,7 @@ git status --short --branch
 - 월요일 장후 order-fill sync 후 `EGW00201` 재발이 없거나, 재발해도 cooldown guard 가 pending 상태를 보존한 증거가 있다.
 - 월요일 장중 watchdog heartbeat 가 10분 이내 fresh 로 유지된 근거가 있다.
 - 대시보드 계좌 탭에 현재 상태와 이유가 통화 단위로 표시된다.
-- `scripts/trace_paper_kis_mismatch.py`가 종목별 최신 local order, broker submission, broker status snapshot을 read-only 리포트로 남긴다.
+- `scripts/trace_paper_kis_mismatch.py`가 종목별 최신 local order, broker submission, broker status snapshot, 최신 KIS order-fill 순수량, 반복 청산 거부 수, root_cause_scope 를 read-only 리포트로 남긴다.
 
 관련 문서/코드 경로:
 `app/services/broker_paper_sync.py`,
@@ -298,20 +299,22 @@ KIS 연결 문제는 모델 성능과 무관하게 실전 운용을 멈출 수 �
     - 2026-07-03 보강 결과 조합 정책 후보 중 `either_model_down_veto_0.40`은 baseline 대비 가장 큰 손실 축소 delta 를 보였지만, random-control 미적용 조합 후보이고 실행 row를 크게 줄이는 방어 필터이므로 진단 전용으로만 유지한다.
     - 두 모델이 모두 상승으로 본 `both_models_up_rescue_0.40`은 소폭 양수였지만 표본 `160`건과 손실 비율 `0.506` 때문에 buy-rescue 정책 후보로 올리지 않는다.
     - 다음 작업은 모델별 강점 구간을 dashboard/장후 리포트에서 계속 누적 표시하고, 주문 정책으로 연결하기 전 표본과 비용 후 손익 일관성을 확인하는 것이다.
-11. Cybos-KIS 전이성 리뷰로 장기 데이터와 현재 live 데이터가 같은 방향으로 말하는 조건을 분리한다.
+11. Cybos-KIS 전이성 리뷰로 장기 데이터와 현재 live 데이터가 같은 방향으로 말하는 조건을 분리한다. 세부 사전등록 기준은 `docs/Model-Research-PreRegistration.md`를 정본으로 둔다.
     - 실행 명령은 `python scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15`다.
     - 결과 파일은 `runtime-data/reports/research/latest-cybos-kis-transfer-review.json`과 `.md`다.
     - 2026-07-03 첫 결과 기준 공통 bar 피처에서 `source_stable_candidate`는 0개다. 따라서 Cybos 5년치에서 좋아 보인 구조를 KIS live 주문 판단으로 바로 옮기면 안 된다.
     - `bid_ask_imbalance`와 `spread_bps`는 KIS live 전용 orderbook 후보로만 본다. Cybos 쪽 값이 구조적으로 비어 있어 Cybos backtest 로 검증됐다고 해석하지 않는다.
     - `midday`와 `short_up` 구간은 Cybos와 KIS 모두 평균 future return 이 음수인 회피/축소 후보로 남긴다. 다만 gate 나 주문 정책으로 연결하지 않고 shadow/리포트에서만 추적한다.
     - AI quant 방식의 다음 방향은 단독 모델 승격이 아니라 `primary signal -> meta filter/router -> size/no-trade decision` 구조다. 이때 meta filter 는 공통 bar 피처, KIS-only orderbook 피처, 시간대/변동성 regime, LightGBM/linear-score overlay 를 함께 보되, 사전 기준과 기간 분리 검증 없이 좋은 조합만 골라 쓰지 않는다.
-12. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
-13. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
-14. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
-15. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
-16. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
-17. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
-18. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
+    - orderbook 피처 검증은 2026-07-18 이후 첫 거래일 장후 label refresh 뒤에만 수행한다. `spread_bps`는 비용/유동성 stress 후보, `bid_ask_imbalance`는 종목·시간대별 압력 후보로 보며, 전 종목 global threshold 로 바로 쓰지 않는다.
+12. h60 트랙은 비용 여유가 있어도 별도 사전등록 연구로만 시작한다. 2026-07-18 전에는 h60 주문 정책을 만들지 않고, h60 daily IC, random-control, h15/h60 충돌표, paper-only replay 가능성을 먼저 측정한다.
+13. walk-forward 재검증 뒤에만 보합 regime 분리, 변동성 구간별 모델 분리, 새 feature 조합 학습을 검토한다.
+14. label band는 바로 변경하지 않고 후보별 기간 분리 재현성을 본다.
+15. probability calibration은 NLL/Brier 개선과 실제 방향 수익률 개선을 분리해서 본다.
+16. KIS live 학습 데이터가 최소 `60거래일` 이상 쌓이기 전에는 최종 결론이 아니라 provisional 판단으로 둔다.
+17. 기간 분리 재현성은 가능하면 3구간 각각 최소 `20거래일`에 가까워진 뒤 강하게 해석한다.
+18. watchlist 확대는 거래 universe 확대가 아니라 데이터 다양성 확보용 수집 후보로 먼저 검토한다. 수집 후보가 늘어도 Phase 2 실전 canary 종목 수와 주문 한도는 별도 승인 전까지 그대로 둔다.
+19. 3회 연속 실험에서 개선 없으면 데이터 소스, 라벨 정의, 전략 방향을 다시 점검한다.
 
 ### 이유
 

@@ -1,4 +1,4 @@
-# Codex Work Ver 28 - buy-avoid validation verification
+﻿# Codex Work Ver 28 - buy-avoid validation verification
 
 ## 1. 입력 리뷰
 
@@ -18,7 +18,7 @@
 
 ## 3. P1 결과
 
-- 전체 pytest 결과: `python3 -m pytest -q` -> `448 passed, 59 subtests passed in 31.18s`.
+- 전체 pytest 결과: `python3 -m pytest -q` -> `449 passed, 59 subtests passed in 30.49s`.
 - 이 결과는 2026-07-05 현재 작업트리 기준으로 다시 실행한 값이다. 이번 work_ver_28에서는 cowork가 지적한 전체 pytest 보고 누락을 최신 검증값으로 닫았다.
 
 ## 4. 2026-07-18 이후 진행 조건
