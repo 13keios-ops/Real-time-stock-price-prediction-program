@@ -22,7 +22,7 @@
 
 ### 2026-07-05 최신 스냅샷
 
-- 마지막 갱신: 2026-07-05 18:45 KST, 주말/장외 read-only 점검.
+- 마지막 갱신: 2026-07-05 20:40 KST, 주말/장외 read-only 점검과 mismatch recheck 주말 차단 보강.
 - live runtime: stopped/weekend 로 정상이다. runtime watchdog 은 running 이고 heartbeat fresh 상태다.
 - KIS read-only probe: token_refresh, account_snapshot, system_clock 모두 ok 로 복구됐다. system_clock 은 quote endpoint 재호출 대신 account_snapshot read-only 응답의 HTTP Date 를 재사용해 `skew_seconds=0.029246`으로 통과했다. 남은 Phase readiness blocker 는 KIS 3종 probe 가 아니라 `ws_recovery` stale, `market_status`, `kill_switch`다.
 - paper/KIS mismatch trace: `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md` 기준 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량이 일치하지만 KIS 계좌 잔고 snapshot 수량이 다르다. root_cause_scope 는 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 자동 align 은 보류하고 다음 거래일 장후 계좌 snapshot 과 order-fill snapshot 을 재비교한다. `scripts/recheck_paper_kis_mismatch.py`는 주말/휴장일을 기본 차단해 주말 재실행 결과가 완료 증거로 기록되지 않게 보강했다.
