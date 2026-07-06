@@ -1,5 +1,35 @@
 ﻿# 작업 기록
 
+## [2026-07-06] Codex -> 장후 운영 체크와 paper/KIS mismatch 재확인
+
+- 사용자/자동화 목표:
+  - KST 20:20~20:40 장후 운영 체크에서 런타임 종료, 장후 학습, label refresh, paper/KIS 정합성, avoid/rescue 관측을 확인한다.
+- 확인:
+  - `./scripts/get_live_runtime_status.sh`: `status=stopped`, `current_session_status=post-close`, `process_running=false`, `stopped_at=2026-07-06 15:31:01 +0900`.
+  - `./scripts/get_runtime_watchdog_status.sh`: watchdog running, `post_close_ml_enabled=true`, `ml_maintenance_action=already_ok`, `errors=[]`.
+  - `./scripts/get_dashboard_status.sh`: dashboard running, API responding, `http://127.0.0.1:8765`.
+  - `./scripts/get_runtime_startup_launcher_status.sh`: Windows startup launcher installed/ok.
+- 장후 학습:
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`: `status=ok`, `maintenance_date=2026-07-06`, `completed_at=2026-07-06 16:15:41 +0900`, `mode=quick-live-train`.
+  - `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`: `status=ok`, `maintenance_date=2026-07-06`, `completed_at=2026-07-06 16:49:06 +0900`.
+  - `runtime-data/reports/challengers/latest-challengers-h15.json`: active `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`; top challenger `centroid-challenger-h15-v1`, `three_class_accuracy=0.298914`, `trade_hit_rate=0.5`, `cumulative_net_return_pct=1.843915`, `trades_taken=2`라 표본이 매우 작다.
+- 조치:
+  - 장후 안전 상태에서 `./scripts/recheck_paper_kis_mismatch.sh`를 실행했다. 실전 주문/취소와 alignment는 수행하지 않았다.
+  - `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 hold-rescue paper-only replay를 갱신했다.
+  - `python -m app --build-runtime-report && python -m app --build-dashboard`를 실행했으나 명령 wrapper는 timeout으로 종료됐다. 산출물은 `runtime-data/reports/runtime/latest-runtime-report.json`과 `runtime-data/reports/dashboard/latest-dashboard.json` 기준 20:45 KST로 갱신됐고, 남은 build 프로세스는 없었다.
+- 결과:
+  - mismatch 재확인 결과는 `status=ok`로 실행 완료됐지만, trace assessment는 계속 `needs_review`다.
+  - mismatch 5종목은 `005380`, `035420`, `086520`, `105560`, `247540`이며, 5종목 모두 root cause scope가 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 유지됐다.
+  - broker sync는 `open_order_count=1`, `pending_symbols=["068270"]`이다.
+  - buy-avoid는 2026-07-04 리포트 기준 계속 관측 후보이나 random-control 우위는 확정하지 않는다.
+  - buy-rescue는 Cybos proxy 기준 `buy_avoid_candidate_only`로, KIS live no-trade ledger가 없어 live buy-rescue 실패로 단정하지 않는다.
+  - hold-rescue는 2026-07-06 replay 기준 `diagnostic_only_no_hold_rescue_candidate`다.
+- 남은 조치:
+  - paper/KIS mismatch는 자동 align 하지 않고 다음 장후 account snapshot/order-fill snapshot의 같은 패턴 지속 여부를 계속 본다.
+  - 2026-07-18 이후 첫 거래일 장후까지 신규 E2/E3 threshold/EV tuning, 종목별 주문 정책, h60 정책, active model/gate 변경은 보류한다.
+- 안전:
+  - 실전 주문/취소, alignment, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값, NAS 백업 변경 없음.
+
 ## [2026-07-05] Codex -> paper/KIS mismatch recheck 주말 차단 보강
 
 - 사용자 목표:
@@ -150,6 +180,7 @@
 - 안전:
   - 코드/모델/gate/주문 정책 변경 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.
+
 ## [2026-07-05] Codex -> review_ver_26 반영과 E1 신호 분해
 
 - 사용자 지시:
@@ -180,6 +211,7 @@
 - 안전:
   - 실전 주문/취소 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> review_ver_25 반영과 E6 source split 재계산
 
 - 사용자 지시:
@@ -207,6 +239,7 @@
 - 안전:
   - 실전 주문/취소 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
+
 ## [2026-07-05] Codex -> review_ver_24 반영과 Phase 1 E1/E6 구조 진단
 
 - 사용자 지시:
@@ -234,7 +267,6 @@
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - 자동 commit/push 없음.
 
-
 ## [2026-07-05] Codex -> buy-avoid random-control review_ver_23 반영
 
 - 사용자 지시:
@@ -254,8 +286,6 @@
   - 실전 주문/취소 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - handoff 금지선에 따라 자동 commit/push 없음.
-
-
 
 ## [2026-07-04] Codex -> buy-avoid random-control 실행 검증 work_ver_23
 
@@ -307,7 +337,6 @@
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - 자동 commit/push 없음.
 
-
 ## [2026-07-04] Codex -> review_ver_22 대응, buy-avoid 재검증, stale 리포트 갱신
 
 - 사용자 지시:
@@ -343,7 +372,6 @@
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - NAS 백업 실행 없음.
 
-
 ## [2026-07-03] Codex -> Phase 1 meta-policy/social signal shadow 기준 추가
 
 - 사용자 지시:
@@ -369,7 +397,6 @@
   - SNS API 호출 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - NAS 백업 실행 없음.
-
 
 ## [2026-07-03] Codex -> Cybos-KIS 전이성/상관 진단 리포트 추가
 
@@ -409,7 +436,6 @@
   - KIS 네트워크 호출 없음.
   - `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, gate 기준값 변경 없음.
   - NAS 백업 실행 없음.
-
 
 ## [2026-07-03] Codex -> 모델 공통 rescue/avoid overlay 비교 추가
 

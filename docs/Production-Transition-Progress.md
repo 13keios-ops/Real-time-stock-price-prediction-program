@@ -20,6 +20,21 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-06 최신 스냅샷
+
+- 마지막 갱신: 2026-07-06 20:50 KST, 장후 운영 체크와 다음 거래일 paper/KIS mismatch 재확인.
+- live runtime: stopped/post-close 로 정상이다. `stopped_at=2026-07-06 15:31:01 +0900`, `process_running=false`.
+- runtime watchdog: running 이고 `post_close_ml_enabled=true`, `ml_maintenance_action=already_ok`, `errors=[]`, heartbeat fresh 상태다.
+- dashboard: running 이고 API 응답 중이다. 장후 스냅샷은 `runtime-data/reports/dashboard/latest-dashboard.json` 기준 `generated_at=2026-07-06T20:45:30.914283+09:00`로 갱신됐다.
+- 장후 ML: `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json` 기준 `status=ok`, `maintenance_date=2026-07-06`, `completed_at=2026-07-06 16:15:41 +0900`, `mode=quick-live-train`.
+- 장후 label refresh: `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json` 기준 `status=ok`, `maintenance_date=2026-07-06`, `completed_at=2026-07-06 16:49:06 +0900`.
+- challenger: `runtime-data/reports/challengers/latest-challengers-h15.json` 기준 active `baseline-h15-v1`, `recommended_action=keep_active`, `recommended_model_version=baseline-h15-v1`, `promotion_applied=false`. top challenger 는 `centroid-challenger-h15-v1`, `three_class_accuracy=0.298914`, `trade_hit_rate=0.5`, `cumulative_net_return_pct=1.843915`, `trades_taken=2`라 표본이 작아 수익률 숫자를 확대 해석하지 않는다.
+- paper/KIS mismatch recheck: `./scripts/recheck_paper_kis_mismatch.sh` 실행 완료. wrapper status 는 `ok`였지만 trace assessment 는 계속 `needs_review`다. mismatch 5종목(`005380`, `035420`, `086520`, `105560`, `247540`) 모두 root cause scope 가 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 유지됐다. broker sync 는 `open_order_count=1`, `pending_symbols=["068270"]`이다. 자동 align 은 계속 보류한다.
+- buy-avoid: `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json` 기준 2026-06-11~2026-07-03, `joined_rows=25,198`, threshold `0.40` 후보의 net delta 는 `+486.3753%p`이나 random-control verdict 는 `filter_worse_than_random_p95`다. 따라서 주문 정책 후보가 아니라 30/60거래일 checkpoint 관측 후보로 유지한다.
+- buy-rescue: `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json` 기준 `decision.status=buy_avoid_candidate_only`, KIS live no-trade ledger 는 아직 없어 live buy-rescue 실패로 단정하지 않는다.
+- hold-rescue: `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json` 기준 `decision.status=diagnostic_only_no_hold_rescue_candidate`, `generated_at=2026-07-06T20:42:14+09:00`다.
+- 현재 목표 상태: 진행 중. paper/KIS mismatch 는 다음 장후에도 같은 패턴이 유지되는지 계속 보고, 2026-07-18 이후 첫 거래일 장후 E1/E5 라운드 전까지 신규 threshold/EV tuning, 종목별 주문 정책, h60 정책, active model/gate 변경은 하지 않는다.
+
 ### 2026-07-05 최신 스냅샷
 
 - 마지막 갱신: 2026-07-05 20:40 KST, 주말/장외 read-only 점검과 mismatch recheck 주말 차단 보강.
