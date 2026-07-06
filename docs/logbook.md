@@ -1,5 +1,25 @@
 ﻿# 작업 기록
 
+## [2026-07-07] Codex -> review_ver_28 P0/P1 반영
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-06-buy-avoid-validation-verification-review_ver_28.md`를 확인하고 P0/P1만 처리한다.
+  - 실험 동결은 유지한다.
+- P0 조치:
+  - KIS read-only probe 3종을 현재 증거로 재확인했다.
+  - `./scripts/probe_kis_token_refresh.sh --mode paper --use-cache`: `token_refresh=ok`, auth-only.
+  - `./scripts/probe_kis_account_snapshot.sh --mode paper --system-clock-output-path ...`: `account_snapshot=ok`, `shape_status=ok`, `position_row_count=4`, `summary_row_count=1`; 같은 계좌 응답의 HTTP Date 로 `system_clock=ok`, `skew_seconds=0.075518`.
+  - `./scripts/build_live_readiness_fixture_snapshot.sh`와 fixture 명시 `./scripts/run_live_readiness_dry_run.sh --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json`로 readiness를 갱신했다.
+  - 결과적으로 `token_refresh`, `account_snapshot`, `system_clock`은 blocker가 아니며, 현재 blocker는 `ws_recovery` stale, `market_status`, `kill_switch`다.
+  - `docs/KIS-Connection-Runbook.md`에 probe별 error_category와 코드/자격증명/KIS서버 분류, account_snapshot과 mismatch root cause의 관계를 추가했다.
+- P1 조치:
+  - `docs/Model-Research-PreRegistration.md`에 OB-1 다중 비교 수 `k=12`, OB-2 다중 비교 수 `k=24`를 사전 고정했다.
+  - h60 기준에 random-control `abs(z_score) >= 2.5`, empirical 5% 밖, `days_usable >= 10`, `symbols >= 5`, `virtual_trades >= 100`을 추가했다.
+- cowork 기록:
+  - `docs/cowork-reports/2026-07-07-buy-avoid-validation-verification-work_ver_29.md`를 작성했다.
+- 안전:
+  - 신규 실험, E2/E3 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경 없음.
+  - 실전 주문/취소, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, NAS 백업 변경 없음.
 ## [2026-07-06] Codex -> 장후 운영 체크와 paper/KIS mismatch 재확인
 
 - 사용자/자동화 목표:

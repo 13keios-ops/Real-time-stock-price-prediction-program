@@ -20,6 +20,13 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-07 최신 스냅샷
+
+- 마지막 갱신: 2026-07-07 00:20 KST, review_ver_28 P0/P1 반영.
+- KIS read-only probe 3종: `token_refresh`, `account_snapshot`, `system_clock` 모두 현재 증거상 ok 다. readiness blocker 는 이 3종이 아니라 `ws_recovery` stale, `market_status`, `kill_switch`다.
+- account_snapshot과 mismatch 관계: account snapshot probe는 API 호출과 shape 검증은 통과했다. paper/KIS mismatch는 account snapshot API 실패가 아니라 KIS 계좌 snapshot 수량과 KIS order/fill 원장 순수량 사이의 divergence 로 본다.
+- PreRegistration: OB-1 다중 비교 수 `k=12`, OB-2 다중 비교 수 `k=24`를 사전 고정했다. h60은 random-control `abs(z_score) >= 2.5`, empirical 5% 밖, `days_usable >= 10`, `symbols >= 5`, `virtual_trades >= 100`을 최소 기준으로 둔다.
+- 실험 동결: 2026-07-18 이후 첫 거래일 장후 E1/E5 라운드 전까지 신규 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경은 하지 않는다.
 ### 2026-07-06 최신 스냅샷
 
 - 마지막 갱신: 2026-07-06 20:50 KST, 장후 운영 체크와 다음 거래일 paper/KIS mismatch 재확인.

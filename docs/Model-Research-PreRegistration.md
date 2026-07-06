@@ -28,7 +28,7 @@
 
 가설: `spread_bps`가 높은 구간은 명목 예측이 좋아도 실제 체결 비용과 슬리피지 때문에 순손익이 나빠질 수 있다. 따라서 방향 모델이 아니라 no-trade 또는 size-down 후보로 먼저 본다.
 
-검증 기준: 2026-07-18 이후 KIS live에서 `spread_bps` decile별 h15/h60 future return, 가상 방향 순손익, paper 체결 슬리피지 proxy를 함께 본다. 같은 방향이 최소 5거래일 이상 반복되고 daily IC 사전 기준을 통과해야 관찰 후보가 된다.
+검증 기준: 2026-07-18 이후 KIS live에서 `spread_bps` decile별 h15/h60 future return, 가상 방향 순손익, paper 체결 슬리피지 proxy를 함께 본다. 이번 1차 라운드의 다중 비교 수는 `k=12`로 사전 고정한다. 구성은 `h15/h60 × daily IC/가상 방향 순손익/paper 슬리피지 proxy × 전체/오전/오후`다. `k=12` 안에서 같은 방향이 최소 5거래일 이상 반복되고, 공통 기준보다 보수적인 `abs(t_stat) >= 2.8`을 통과해야 관찰 후보가 된다.
 
 관련 문서/코드 경로: `runtime-data/reports/research/latest-cybos-kis-transfer-review.md`, `runtime-data/reports/data-quality/latest-feature-source-drift.md`
 
@@ -36,7 +36,7 @@
 
 가설: `bid_ask_imbalance`는 매수·매도 압력을 나타낼 수 있지만, 종목별로 의미가 뒤집히거나 변동성 proxy처럼 작동할 수 있다. 단일 global threshold로 쓰지 않는다.
 
-검증 기준: 종목별, 시간대별, 변동성 bucket별로 top/bottom decile의 future return 차이와 daily IC를 따로 계산한다. 같은 종목·같은 방향으로 07-18 이후 재현될 때만 shadow 후보로 둔다.
+검증 기준: 종목별, 시간대별, 변동성 bucket별로 top/bottom decile의 future return 차이와 daily IC를 따로 계산한다. 이번 1차 라운드의 다중 비교 수는 `k=24`로 사전 고정한다. 구성은 `후보 3종목(005380/035420/105560) × 방향 2개(up/down) × 시간대 2개(오전/오후) × horizon 2개(h15/h60)`이다. `k=24` 안에서 같은 종목·같은 방향으로 07-18 이후 재현되고, `abs(t_stat) >= 3.0`을 통과할 때만 shadow 후보로 둔다. 이 범위를 넘는 종목·bucket 탐색은 다음 라운드 사전등록 전까지 하지 않는다.
 
 관련 문서/코드 경로: `scripts/summarize_cybos_kis_transfer_review.py`, `scripts/summarize_signal_ic.py`
 
@@ -64,6 +64,7 @@
 - 최소 공통 기준은 `abs(mean_daily_ic) >= 0.03`, `abs(t_stat) >= 2.5`, `days_usable >= 5`다. 단, 07-18 재측정의 후보 3건 재현성 관문은 cowork review_ver_27 기준 `같은 종목·같은 방향·abs(t_stat) >= 2.0`을 병기한다.
 - `105560 probability_down` 후보는 `probability_up`도 같이 양수였으므로, 재측정 때 `probability_flat` IC와 `p_down/p_up` daily IC 관계를 함께 기록한다.
 - 모든 결과는 random-control, 표본 수, 거래일 수, 종목 수를 같이 표시한다. 표본 부족은 실패가 아니라 관측 연장으로 분류한다.
+- 07-18 이후 1차 라운드에서 사전등록하지 않은 조합을 추가로 발견하더라도, 해당 결과는 `exploratory_only`로만 표시하고 주문 정책 후보로 올리지 않는다.
 
 관련 문서/코드 경로: `docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_27.md`, `scripts/summarize_signal_ic.py`, `scripts/summarize_lightgbm_defensive_shadow.py`
 
@@ -92,7 +93,8 @@ h60은 h15보다 가격 변동폭이 커서 비용 여유가 있다. 하지만 h
 
 - 비용 구조: KIS live h60 `median_abs_future_return_pct`가 `2 * trade_cost_pct`를 계속 초과해야 한다.
 - 신호 품질: 방향별 daily IC 중 최소 한 방향이 사전 기준을 통과하고, 종목/시간대 한두 곳의 우연 후보로만 설명되지 않아야 한다.
-- 수익성: 비용 차감 가상 방향 순손익이 random-control보다 좋아야 하며, 한두 거래일이 평균을 끌어올리는 구조면 탈락한다.
+- 수익성: 비용 차감 가상 방향 순손익이 random-control보다 좋아야 하며, `z_score <= -2.5` 또는 `z_score >= 2.5` 중 사전 정의한 좋은 방향을 통과해야 한다. 같은 coverage random-control 100회 기준 empirical percentile이 상위/하위 5% 밖으로 벗어나야 하며, 한두 거래일이 평균을 끌어올리는 구조면 탈락한다.
+- 최소 표본: h60 1차 판정은 `days_usable >= 10`, `symbols >= 5`, `virtual_trades >= 100`을 모두 만족해야 한다. 미달이면 통과/실패가 아니라 `observe_more`로 둔다.
 - 실행 가능성: h60 신호가 장마감 전 충분한 의사결정 시간을 주고, 보유 중 h15 risk exit와 충돌하지 않는 설명이 있어야 한다.
 
 ### 금지선

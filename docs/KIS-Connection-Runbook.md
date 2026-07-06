@@ -107,6 +107,45 @@
 
 관련 문서/코드 경로: app/services/kis_probe_errors.py, app/services/kis_token_probe.py, app/services/kis_account_probe.py, app/services/system_clock_probe.py, scripts/probe_kis_account_snapshot.py, runtime-data/reports/live-readiness/
 
+### 3.2-1. read-only probe 3종 원인 분리 기준
+
+2026-07-07 기준으로 `token_refresh`, `account_snapshot`, `system_clock` probe는 각각 다른 실패면을 본다. 세 항목을 모두 `KisApiError` 하나로 묶으면 Phase 1a blocker를 잘못 판단할 수 있으므로 아래처럼 분리한다.
+
+| probe | 접근 범위 | 실패 세부 필드 | 1차 분류 | 판정 기준 |
+| --- | --- | --- | --- | --- |
+| `token_refresh` | auth-only | `details.error_category`, `http_status`, `kis_error_codes`, `force_refresh` | 자격증명/토큰/KIS 인증 서버 | `missing_quote_credentials`면 로컬 설정 문제, `token_invalid_or_expired`면 토큰 갱신 문제, `network_error/http_error/rate_limited`면 KIS 또는 네트워크/호출량 문제로 본다. |
+| `account_snapshot` | read-only `get_account_balance` | `details.error_category`, `shape_status`, `position_row_count`, `summary_row_count`, 값 타입 존재 여부 | 자격증명/계좌 shape/KIS 모의계좌 서버 | `missing_account_credentials`면 로컬 계좌 설정 문제, `shape_status != ok`면 응답 shape drift 또는 파서 문제, `rate_limited/network_error/http_error`면 KIS/네트워크 문제로 본다. |
+| `system_clock` | read-only HTTP `Date` | `details.source`, `probe`, `skew_seconds`, `blocking_reasons`, `error_category` | 시스템 시계/quote rate limit/대체 증거 | `kis_readonly_current_price`가 `rate_limited`이면 현재가 endpoint 호출량 문제다. 이때 같은 quote 호출을 반복하지 않고 account snapshot 응답의 HTTP `Date`를 재사용한다. |
+
+코드 문제 / 자격증명 문제 / KIS 서버 문제 분류:
+
+- 코드 문제: `shape_status=missing_required_attributes` 또는 `invalid_value_types`, `client_error`, 파서가 기대 필드를 못 찾는 경우. 조치 순서는 저장된 sanitized shape와 parser test 확인이다.
+- 자격증명 문제: `missing_quote_credentials`, `missing_account_credentials`, `token_invalid_or_expired`. 값은 출력하지 않고 root `.env` 존재와 필수 key shape만 확인한다.
+- KIS 서버/네트워크/호출량 문제: `rate_limited`, `network_error`, `http_error`, 반복되는 `kis_business_error`. 같은 endpoint 반복 호출을 멈추고 cooldown 뒤 장외 1회만 재시도한다.
+
+2026-07-07 실제 증거:
+
+- `runtime-data/reports/live-readiness/token-refresh-check.json`: `status=ok`, `access=auth-only`, `force_refresh=false`, `seconds_to_expiry=30441.289`.
+- `runtime-data/reports/live-readiness/account-snapshot-check.json`: `status=ok`, `shape_status=ok`, `position_row_count=4`, `summary_row_count=1`.
+- `runtime-data/reports/live-readiness/system-clock-check.json`: `status=ok`, `source=kis_rest_http_date_account_snapshot`, `probe=kis_readonly_account_snapshot`, `skew_seconds=0.075518`.
+- `runtime-data/reports/live-readiness/latest-readiness.json`: `token_refresh=true`, `account_snapshot=true`, `system_clock=true`다. 현재 Phase 1 readiness blocker는 이 3종이 아니라 `ws_recovery` stale, `market_status`, `kill_switch`다.
+
+account_snapshot probe와 paper/KIS mismatch 연관성:
+
+- 현재 `account_snapshot` probe는 KIS 계좌 snapshot API가 호출되고 필수 필드 shape가 정상인지 확인한다. 즉 API 연결과 응답 형식은 정상이다.
+- 2026-07-06 `paper/KIS mismatch`의 root cause는 `kis_account_snapshot_vs_order_fill_ledger_divergence`다. 이는 account snapshot API가 실패했다는 뜻이 아니라, 같은 KIS 모의계좌에서 계좌 snapshot 수량과 order/fill 원장 순수량이 서로 다르게 보인다는 뜻이다.
+- 따라서 현재 증거상 `account_snapshot` probe 실패와 mismatch는 같은 실패가 아니다. 다만 둘 다 KIS 모의계좌 계좌/잔고 원천을 보므로, 다음 장후에도 mismatch가 지속되면 `account_snapshot shape ok + order/fill net 일치 + account qty divergence`를 한 묶음으로 남겨 KIS 모의계좌 snapshot 원천 차이 또는 외부/수동 체결 가능성을 운영 검토 대상으로 둔다.
+
+변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+
+| 항목 | 내용 |
+| --- | --- |
+| 변경 전 | read-only probe 실패가 모두 `KisApiError`처럼 보이면 token/account/system_clock 중 어느 계층이 문제인지 문서만으로 구분하기 어려웠다. |
+| 변경 후 | probe별 접근 범위, error_category, 코드/자격증명/KIS서버 분류, account_snapshot과 mismatch의 관계를 분리해서 해석한다. |
+| 영향 범위 | 문서 판정 기준, Phase 1a readiness 운영 해석, cowork review handoff. 코드 실행 경로는 바꾸지 않는다. |
+| 회귀 위험 | 없음. 다만 문서 기준과 실제 `kis_probe_errors.py`의 category 목록이 달라지면 함께 갱신해야 한다. |
+
+관련 문서/코드 경로: `app/services/kis_probe_errors.py`, `app/services/kis_token_probe.py`, `app/services/kis_account_probe.py`, `app/services/system_clock_probe.py`, `runtime-data/reports/live-readiness/token-refresh-check.json`, `runtime-data/reports/live-readiness/account-snapshot-check.json`, `runtime-data/reports/live-readiness/system-clock-check.json`, `runtime-data/reports/live-readiness/latest-readiness.json`, `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
 ### 3.3. WebSocket `No close frame received`
 
 기본 판단:
