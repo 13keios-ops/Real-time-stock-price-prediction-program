@@ -73,6 +73,7 @@ SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_
 
 2026-07-05 Phase 1 구조 진단 E1/E6 결과도 닫혔다. `latest-signal-ic-h15` 기준 LightGBM `probability_down`의 일별 Spearman IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준의 올바른 음의 방향 신호가 아니다. 판정은 `signal_quality_insufficient`이며, E2/E3 threshold/EV 필터 튜닝은 바로 진행하지 않는다. review_ver_25 반영 후 `latest-cost-horizon-diagnostics`는 source 컬럼 부재를 명시하고 `KIS live 근사 = serving runtime 심볼 + 2026-06-11 이후`, `Cybos historical 근사 = 2026-06-11 이전`으로 E6를 분리한다. 전체 h15는 `median_abs=0.189394`, `below_2x_cost=true`지만 Cybos historical이 `99.02%`를 차지하는 참고 표본이다. 정책 판단 표본인 KIS live 근사 h15는 `rows=61,527`, `share=0.98%`, `median_abs=0.361446`, `2 * trade_cost_pct=0.216`, `decision=kis_live_h15_median_move_covers_2x_cost`다. 따라서 E6만으로 h15 비용 구조만으로 배제하지 않고, E1 신호 품질 부족을 우선 병목으로 본다. h60 KIS live 근사 표본은 `median_abs=0.717274`이나 h60 주문 정책은 별도 gate/label/체결 검증 전까지 만들지 않는다.
 
+2026-07-07 review_ver_29 대응으로 Phase 1 readiness blocker 중 `market_status`와 `kill_switch`의 규격 준비를 시작했다. `market_status`는 watchlist 기반 fail-closed 템플릿을 운영 경로에 만들되 사람 확인 전에는 `tradable_unknown`으로 차단한다. `kill_switch`는 상태 파일을 만들었지만 `enabled=true`로 둬 submit 차단을 유지한다. 다음 장전 체크에서는 `ws_recovery` synthetic evidence를 다시 만들고, `token_refresh`, `account_snapshot`, `system_clock`을 장전 시간대에 read-only로 다시 확인한 뒤 fixture dry-run을 갱신한다. 이 작업은 실전 주문 경로, active model, gate, `app/risk/`, `config/`, `VERSION`을 바꾸지 않는다.
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.
 반대로 모델 후보가 좋아 보여도 paper/KIS 정합성, rate limit, 감사 원장이 불안정하면 실제 운용에서 원인 추적이 어렵다.

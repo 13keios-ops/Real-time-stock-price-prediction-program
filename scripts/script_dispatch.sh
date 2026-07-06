@@ -1889,6 +1889,10 @@ probe_market_status_snapshot() {
   "$PYTHON_BIN" "$REPO_ROOT/scripts/probe_market_status_snapshot.py" --project-root "$REPO_ROOT" "$@"
 }
 
+prepare_market_status_snapshot_template() {
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/prepare_market_status_snapshot_template.py" --project-root "$REPO_ROOT" "$@"
+}
+
 build_live_readiness_fixture_snapshot() {
   "$PYTHON_BIN" "$REPO_ROOT/scripts/build_live_readiness_fixture_snapshot.py" --project-root "$REPO_ROOT" "$@"
 }
@@ -2149,6 +2153,7 @@ case "$SCRIPT_NAME" in
   probe_kis_account_snapshot.sh) probe_kis_account_snapshot "$@" ;;
   probe_kis_ws_recovery.sh) probe_kis_ws_recovery "$@" ;;
   probe_market_status_snapshot.sh) probe_market_status_snapshot "$@" ;;
+  prepare_market_status_snapshot_template.sh) prepare_market_status_snapshot_template "$@" ;;
   build_live_readiness_fixture_snapshot.sh) build_live_readiness_fixture_snapshot "$@" ;;
   run_live_readiness_dry_run.sh) live_readiness_dry_run "$@" ;;
   set_live_kill_switch.sh) live_kill_switch_cli "$@" ;;

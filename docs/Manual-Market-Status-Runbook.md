@@ -59,6 +59,30 @@
 
 관련 문서/코드 경로: `runtime-data/reports/live-readiness/market-status-snapshot.json`, `app/storage/contracts.py`
 
+## 3-1. Fail-closed 템플릿 helper
+
+수동 snapshot을 처음 만들 때는 바로 거래 가능으로 열지 않는다. 먼저 아래 helper로 watchlist 기반 템플릿을 만들고, 모든 종목을 `tradable=null`, `operator_checked=false` 상태로 둔다. 이 상태에서 probe는 `tradable_unknown`으로 실패해야 정상이다.
+
+```bash
+./scripts/prepare_market_status_snapshot_template.sh \
+  --watchlist-file config/watchlist.txt \
+  --trading-day YYYY-MM-DD \
+  --stale-after YYYY-MM-DDT08:45:00+09:00
+./scripts/probe_market_status_snapshot.sh --symbols-file config/watchlist.txt
+```
+
+운영자가 거래정지, 관리/투자유의, VI, 상한가/하한가, 단일가 여부를 확인한 뒤에만 각 종목의 `tradable`과 세부 flag를 실제 값으로 고친다. 확인 전 템플릿은 readiness 통과 증거가 아니라 fail-closed 준비 파일이다.
+
+변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
+
+| 항목 | 내용 |
+| --- | --- |
+| 변경 전 | snapshot 양식과 hash 계산 절차는 있었지만, 실제 운영 경로에 둘 수 있는 fail-closed 템플릿 생성 명령이 없었다. |
+| 변경 후 | `prepare_market_status_snapshot_template.sh`가 watchlist와 올바른 `symbol_set_hash`를 가진 템플릿을 만들되, 사람 확인 전에는 모든 종목을 차단 상태로 둔다. |
+| 영향 범위 | repo-local runtime-data snapshot 준비와 `market_status` readiness check. 외부 조회, 주문 경로, gate 기준값은 바꾸지 않는다. |
+| 회귀 위험 | 템플릿을 운영자가 실제 확인 없이 `tradable=true`로 바꾸면 잘못 통과할 수 있다. 따라서 장전 절차에서 확인 주체와 근거를 같이 남긴다. |
+
+관련 문서/코드 경로: `scripts/prepare_market_status_snapshot_template.sh`, `scripts/prepare_market_status_snapshot_template.py`, `scripts/probe_market_status_snapshot.sh`, `config/watchlist.txt`, `runtime-data/reports/live-readiness/market-status-snapshot.json`, `runtime-data/reports/live-readiness/market-status-check.json`
 ## 4. 장전 절차
 
 1. watchlist 대상 종목을 확인한다.

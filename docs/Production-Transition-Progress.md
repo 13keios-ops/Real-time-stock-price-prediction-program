@@ -20,6 +20,14 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-07 01:15 KST 스냅샷
+
+- review_ver_29 §5 운영자 승인에 따라 Phase 1 readiness 규격 준비를 시작했다.
+- `scripts/prepare_market_status_snapshot_template.sh`를 추가하고, `runtime-data/reports/live-readiness/market-status-snapshot.json`에 watchlist 10종목 fail-closed 템플릿을 생성했다. 현재 check는 `allowed_count=0`, 모든 종목 `tradable_unknown`으로 차단된다.
+- `scripts/set_live_kill_switch.sh --enable --reason phase1_readiness_preparation_fail_closed --actor account_owner --apply`로 kill switch 상태 파일을 만들었다. 상태 파일은 존재하지만 `enabled=true`라 submit 차단이 유지된다.
+- read-only/offline 증거를 현재 시점에서 재생성했다. `ws_recovery`, `token_refresh`, `account_snapshot`, `system_clock`은 ok 이며, readiness blocker 는 의도대로 `market_status_fault_dry_run_failed`, `kill_switch_fault_dry_run_failed` 두 개다.
+- 다음 장전 체크에서는 `.agents/skills/daily-ops-check/SKILL.md` 기준으로 `ws_recovery` 증거를 다시 만들고, `token_refresh`, `account_snapshot`, `system_clock`을 장전 시간대에 재확인한다. 현재 야간 증거는 장전 증거를 대체하지 않는다.
+- 실험 동결: 2026-07-18 이후 첫 거래일 장후 E1/E5 라운드 전까지 신규 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경은 하지 않는다.
 ### 2026-07-07 최신 스냅샷
 
 - 마지막 갱신: 2026-07-07 00:20 KST, review_ver_28 P0/P1 반영.

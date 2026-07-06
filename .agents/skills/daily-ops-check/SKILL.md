@@ -90,6 +90,28 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - 계속 `EGW00201`이면 추가 호출을 멈추고 logbook에 남긴다.
 - 상세 기준은 `docs/KIS-Connection-Runbook.md`를 따른다.
 
+### Phase 1 readiness 장전 증거 갱신
+
+장전 시간대(기본 KST 08:20~08:40)에 Phase 1 readiness 를 확인할 때는 아래 순서로 최신 증거를 만든다. 이 절차는 read-only 또는 offline 증거만 만들며, 실전 주문/취소와 live submit 경로를 바꾸지 않는다.
+
+```bash
+./scripts/probe_kis_ws_recovery.sh
+./scripts/probe_kis_token_refresh.sh --mode paper --use-cache
+./scripts/probe_kis_account_snapshot.sh --mode paper \
+  --output-path runtime-data/reports/live-readiness/account-snapshot-check.json \
+  --system-clock-output-path runtime-data/reports/live-readiness/system-clock-check.json
+./scripts/probe_market_status_snapshot.sh --symbols-file config/watchlist.txt
+./scripts/set_live_kill_switch.sh --status
+./scripts/build_live_readiness_fixture_snapshot.sh
+./scripts/run_live_readiness_dry_run.sh \
+  --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json
+```
+
+- `market-status-snapshot.json`이 없으면 `./scripts/prepare_market_status_snapshot_template.sh --watchlist-file config/watchlist.txt --trading-day YYYY-MM-DD --stale-after YYYY-MM-DDT08:45:00+09:00`로 fail-closed 템플릿을 만들 수 있다. 템플릿 상태는 `tradable_unknown`으로 차단되는 것이 정상이다.
+- kill switch 는 `--status`로만 확인한다. `--disable --apply --confirm-disable`은 계좌 소유자 또는 실전 운용 승인권자가 그 작업에서 명시 승인하기 전에는 실행하지 않는다.
+- 장전 재확인에서 `token_refresh`, `account_snapshot`, `system_clock`이 다시 ok인지 별도 줄로 보고한다. 단일 야간 증거가 장전 증거를 대체한다고 쓰지 않는다.
+
+관련 문서/코드 경로: `docs/Manual-Market-Status-Runbook.md`, `docs/KIS-Connection-Runbook.md`, `scripts/probe_kis_ws_recovery.sh`, `scripts/probe_kis_token_refresh.sh`, `scripts/probe_kis_account_snapshot.sh`, `scripts/prepare_market_status_snapshot_template.sh`, `scripts/probe_market_status_snapshot.sh`, `scripts/set_live_kill_switch.sh`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/run_live_readiness_dry_run.sh`
 ### paper/KIS 정합성
 
 장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. weekend/holiday 차단은 주말 재실행 결과를 다음 거래일 장후 증거로 오해하지 않기 위한 것이다.

@@ -1,4 +1,25 @@
-﻿# 작업 기록
+# 작업 기록
+
+## [2026-07-07] Codex -> review_ver_29 Phase 1 readiness fail-closed 준비
+
+- 사용자 지시:
+  - `docs/cowork-reports/2026-07-07-buy-avoid-validation-verification-review_ver_29.md`를 확인한다.
+  - §5 운영자 승인에 따라 `market_status` 수동 snapshot 과 kill switch 상태 파일의 Phase 1 readiness 규격 준비를 시작한다.
+  - fail-closed 유지, 실전 주문 경로 변경 금지, 다음 장전 `ws_recovery` 증거 재생성과 probe 3종 장전 시간대 재확인을 반영한다.
+- 조치:
+  - `scripts/prepare_market_status_snapshot_template.py`와 `.sh` wrapper 를 추가했다.
+  - helper 는 `config/watchlist.txt`를 읽어 `runtime-data/reports/live-readiness/market-status-snapshot.json` 형식의 템플릿을 만들지만, 모든 종목을 `tradable=null`, `operator_checked=false`로 둔다.
+  - `./scripts/probe_market_status_snapshot.sh --symbols-file config/watchlist.txt` 결과는 `status=failed`, `allowed_count=0`, 10종목 모두 `tradable_unknown`이다. 이는 사람 확인 전 readiness 차단이 유지되는 의도한 결과다.
+  - `./scripts/set_live_kill_switch.sh --enable --reason phase1_readiness_preparation_fail_closed --actor account_owner --stale-after-minutes 1440 --apply`로 kill switch 상태 파일을 생성했다. 상태는 `enabled=true`, `submit_blocking_reason=kill_switch_enabled`다.
+  - 현재 시점 read-only/offline 증거 재생성: `ws_recovery`, `token_refresh`, `account_snapshot`, `system_clock` 모두 ok. 다만 다음 장전 증거를 대체하지 않는다.
+  - fixture 명시 readiness dry-run 결과는 `status=blocked`, blocking reasons 는 `market_status_fault_dry_run_failed`, `kill_switch_fault_dry_run_failed` 두 개다.
+  - `.agents/skills/daily-ops-check/SKILL.md`에 다음 장전 `ws_recovery` 재생성, token/account/system_clock 재확인, market_status/kill_switch fixture dry-run 절차를 추가했다.
+- 검증:
+  - `python3 -m unittest tests.test_prepare_market_status_snapshot_template tests.test_market_status_probe tests.test_live_kill_switch tests.test_live_kill_switch_cli_script tests.test_live_readiness_fixture_snapshot tests.test_live_readiness_dry_run_script tests.test_kis_ws_recovery_probe tests.test_kis_token_probe tests.test_kis_account_probe tests.test_kis_clock_reference_probe -q` 통과, 58개 테스트.
+  - `bash -n scripts/prepare_market_status_snapshot_template.sh scripts/script_dispatch.sh` 통과.
+- 안전:
+  - 실전 주문/취소, live submit 경로 연결, app/risk/, config/, VERSION, ALLOW_LIVE_ORDERS, gate 기준값, active model 변경 없음.
+  - NAS 백업 실행 없음.
 
 ## [2026-07-07] Codex -> review_ver_28 P0/P1 반영
 
