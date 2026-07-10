@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 import heapq
 import json
 import math
@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+import uuid
 
 from lightgbm import LGBMClassifier
 import numpy as np
@@ -558,9 +559,101 @@ def _apply_horizon_purge(
         row for row in train_rows
         if row["event_time"] + purge_delta < validation_start_time
     ]
-    if _has_complete_direction_labels(purged_train_rows):
-        return purged_train_rows
-    return train_rows
+    return purged_train_rows
+
+
+def _complete_time_group_start(event_times: list[datetime], index: int) -> int:
+    if index <= 0:
+        return 0
+    if index >= len(event_times):
+        return len(event_times)
+    group_start = bisect_left(event_times, event_times[index])
+    return index if group_start == index else bisect_right(event_times, event_times[index])
+
+
+def _purged_walk_forward_slices(
+    rows: list[dict[str, object]],
+    *,
+    min_train_rows: int,
+    test_rows: int,
+    step_rows: int,
+    gap_rows: int,
+    horizon_min: int,
+    max_train_rows: int | None = None,
+    max_folds: int = 0,
+) -> list[dict[str, object]]:
+    """Build row windows without splitting timestamps or leaking horizon labels.
+
+    Row counts remain sizing hints, but every boundary is aligned to a complete
+    event-time group. The test window starts strictly after the final training
+    timestamp plus the prediction horizon, because a label ending exactly at
+    the test start would still expose test-period prices to training.
+    """
+    if min_train_rows <= 0 or test_rows <= 0 or step_rows <= 0 or gap_rows < 0:
+        raise ValueError("Walk-forward parameters must be positive integers.")
+    if max_train_rows is not None and max_train_rows < min_train_rows:
+        raise ValueError("max_train_rows must be greater than or equal to min_train_rows.")
+    if not rows:
+        return []
+
+    event_times = [row["event_time"] for row in rows]
+    if any(not isinstance(value, datetime) for value in event_times):
+        raise ValueError("Walk-forward rows must contain datetime event_time values.")
+    if event_times != sorted(event_times):
+        raise ValueError("Walk-forward rows must be sorted by event_time.")
+
+    raw_train_end_values = range(min_train_rows, len(rows), step_rows)
+    slices: list[dict[str, object]] = []
+    seen: set[tuple[int, int, int]] = set()
+    purge_delta = timedelta(minutes=horizon_min)
+    for raw_train_end in raw_train_end_values:
+        train_end = bisect_right(event_times, event_times[raw_train_end - 1])
+        if train_end >= len(rows):
+            continue
+
+        row_gap_start = min(len(rows), train_end + gap_rows)
+        time_gap_start = bisect_right(event_times, event_times[train_end - 1] + purge_delta)
+        test_start = max(row_gap_start, time_gap_start)
+        test_start = _complete_time_group_start(event_times, test_start)
+        if test_start >= len(rows):
+            continue
+
+        raw_test_end = min(len(rows), test_start + test_rows)
+        if raw_test_end <= test_start:
+            continue
+        test_end = bisect_right(event_times, event_times[raw_test_end - 1])
+
+        train_start = 0
+        if max_train_rows is not None:
+            raw_train_start = max(0, train_end - max_train_rows)
+            train_start = bisect_left(event_times, event_times[raw_train_start])
+        if train_end - train_start < min_train_rows:
+            continue
+
+        key = (train_end, test_start, test_end)
+        if key in seen:
+            continue
+        seen.add(key)
+        actual_gap_minutes = (event_times[test_start] - event_times[train_end - 1]).total_seconds() / 60.0
+        if actual_gap_minutes <= horizon_min:
+            raise AssertionError("Walk-forward time purge did not clear the prediction horizon.")
+        slices.append(
+            {
+                "train_start": train_start,
+                "train_end": train_end,
+                "test_start": test_start,
+                "test_end": test_end,
+                "train_end_event_time": event_times[train_end - 1],
+                "test_start_event_time": event_times[test_start],
+                "actual_gap_minutes": actual_gap_minutes,
+                "purge_horizon_min": horizon_min,
+            }
+        )
+
+    if max_folds > 0 and len(slices) > max_folds:
+        selected_indices = np.linspace(0, len(slices) - 1, max_folds, dtype=int)
+        slices = [slices[int(index)] for index in selected_indices]
+    return slices
 
 
 def _split_window_summary(
@@ -770,6 +863,15 @@ def _prediction_label(probability_up: float, probability_flat: float, probabilit
 def _resolve_latest_training_run_row(sqlite_store, model_version: str, horizon_min: int):
     for row in reversed(sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")):
         if row["model_version"] == model_version and int(row["horizon_min"]) == horizon_min:
+            return row
+    return None
+
+
+def _resolve_training_run_row_by_id(sqlite_store, training_run_id: str | None):
+    if not training_run_id:
+        return None
+    for row in reversed(sqlite_store.fetch_all_rows("ml_training_runs", "completed_at")):
+        if str(row["training_run_id"]) == training_run_id:
             return row
     return None
 
@@ -1464,8 +1566,11 @@ def _fit_lightgbm_model(
     model_version: str,
 ) -> LightGbmDirectionModel:
     labels_seen = sorted({str(row["label"]) for row in train_rows})
-    if len(labels_seen) < 2:
-        raise ValueError("LightGBM training requires at least two distinct labels.")
+    if labels_seen != sorted(DIRECTION_LABELS):
+        raise ValueError(
+            "LightGBM three-class training requires down, flat, and up labels after temporal purge; "
+            f"received {labels_seen}."
+        )
 
     min_child_samples = max(4, min(20, len(train_rows) // 8 or 4))
     model = LGBMClassifier(
@@ -1502,11 +1607,27 @@ def _write_lightgbm_artifact(
     runtime_root: Path,
     model: LightGbmDirectionModel,
 ) -> Path:
-    artifact_dir = runtime_root / "ml" / "models"
+    artifact_id = model.artifact.artifact_id or model.artifact.training_run_id or f"artifact-{uuid.uuid4().hex}"
+    model.artifact.artifact_id = artifact_id
+    artifact_dir = runtime_root / "ml" / "models" / "lightgbm" / f"h{model.artifact.horizon_min}"
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_dir / f"{model.artifact.model_version}.joblib"
+    artifact_path = artifact_dir / f"{model.artifact.model_version}--{artifact_id}.joblib"
+    if artifact_path.exists():
+        raise FileExistsError(f"Immutable LightGBM artifact already exists: {artifact_path}")
     model.save(artifact_path)
     return artifact_path
+
+
+def _lightgbm_registry_metadata(model: LightGbmDirectionModel) -> dict[str, object]:
+    if not model.artifact.artifact_id or not model.artifact.artifact_sha256:
+        raise ValueError("LightGBM artifact must be saved before registry metadata is created.")
+    return {
+        "framework": "lightgbm",
+        "class_labels": model.artifact.class_labels,
+        "training_run_id": model.artifact.training_run_id,
+        "artifact_id": model.artifact.artifact_id,
+        "artifact_sha256": model.artifact.artifact_sha256,
+    }
 
 
 def _resolve_builtin_model_version(settings, horizon_min: int, builtin_name: str) -> str:
@@ -1596,12 +1717,15 @@ def _optional_int(value: object) -> int | None:
 
 
 def _build_walk_forward_setup_review(payload: dict[str, object]) -> dict[str, object]:
+    horizon_min = _optional_int(payload.get("horizon_min"))
     min_train_rows = _optional_int(payload.get("min_train_rows"))
     test_window_rows = _optional_int(payload.get("test_window_rows"))
     step_rows = _optional_int(payload.get("step_rows"))
     gap_rows = _optional_int(payload.get("gap_rows"))
     max_train_rows = _optional_int(payload.get("max_train_rows"))
     folds = _optional_int(payload.get("folds"))
+    purge_mode = str(payload.get("purge_mode", ""))
+    fold_summaries = payload.get("fold_summaries", [])
     reasons: list[str] = []
 
     if min_train_rows is not None and min_train_rows < 1000:
@@ -1612,6 +1736,32 @@ def _build_walk_forward_setup_review(payload: dict[str, object]) -> dict[str, ob
         reasons.append(f"max_train_rows={max_train_rows} is below 1000")
     if folds is not None and folds > 5000:
         reasons.append(f"folds={folds} is above 5000")
+    if horizon_min is None or horizon_min <= 0:
+        reasons.append("horizon_min is missing or invalid")
+    if purge_mode != "event_time_strict_after_horizon":
+        reasons.append("event-time horizon purge metadata is missing")
+
+    actual_gaps: list[float] = []
+    if not isinstance(fold_summaries, list) or not fold_summaries:
+        reasons.append("fold_summaries are missing")
+    else:
+        for fold in fold_summaries:
+            if not isinstance(fold, dict):
+                reasons.append("fold summary is malformed")
+                continue
+            try:
+                actual_gap = float(fold["actual_gap_minutes"])
+                fold_horizon = int(fold["purge_horizon_min"])
+            except (KeyError, TypeError, ValueError):
+                reasons.append("fold temporal purge evidence is missing")
+                continue
+            actual_gaps.append(actual_gap)
+            if horizon_min is not None and (
+                fold_horizon != horizon_min or actual_gap <= horizon_min
+            ):
+                reasons.append(
+                    f"fold temporal gap={actual_gap:.4f}m does not clear horizon={horizon_min}m"
+                )
 
     return {
         "status": "needs_review" if reasons else "ok",
@@ -1622,6 +1772,9 @@ def _build_walk_forward_setup_review(payload: dict[str, object]) -> dict[str, ob
         "gap_rows": gap_rows,
         "max_train_rows": max_train_rows,
         "folds": folds,
+        "horizon_min": horizon_min,
+        "purge_mode": purge_mode or None,
+        "minimum_actual_gap_minutes": min(actual_gaps) if actual_gaps else None,
     }
 
 
@@ -1649,6 +1802,9 @@ def _build_walk_forward_gate(payload: dict[str, object] | None) -> dict[str, obj
         "test_window_rows": setup_review["test_window_rows"],
         "step_rows": setup_review["step_rows"],
         "folds": setup_review["folds"],
+        "horizon_min": setup_review["horizon_min"],
+        "purge_mode": setup_review["purge_mode"],
+        "minimum_actual_gap_minutes": setup_review["minimum_actual_gap_minutes"],
     }
 
     weakest_fold_accuracy = None
@@ -2426,12 +2582,18 @@ def _run_lightgbm_walk_forward(
     collect_trade_ledger: bool = False,
     collect_prediction_stats: bool = True,
 ) -> dict[str, object]:
-    if len(rows) < train_rows + gap_rows + test_rows:
-        raise ValueError("Not enough rows for LightGBM walk-forward evaluation.")
-    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
-    if max_folds > 0 and len(train_end_values) > max_folds:
-        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
-        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+    fold_slices = _purged_walk_forward_slices(
+        rows,
+        min_train_rows=train_rows,
+        test_rows=test_rows,
+        step_rows=step_rows,
+        gap_rows=gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=train_rows,
+        max_folds=max_folds,
+    )
+    if not fold_slices:
+        raise ValueError("Not enough rows for purged LightGBM walk-forward evaluation.")
 
     aggregate_rows = 0
     aggregate_trades = 0
@@ -2454,11 +2616,13 @@ def _run_lightgbm_walk_forward(
     effective_trade_cost_pct = _effective_trade_cost_pct(settings, trade_cost_pct)
     effective_signal_confidence = _effective_signal_confidence(settings, signal_confidence_threshold)
 
-    for fold_number, train_end in enumerate(train_end_values, start=1):
-        train_start = max(0, train_end - train_rows)
+    for fold_number, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
         fold_train = rows[train_start:train_end]
-        test_start = train_end + gap_rows
-        fold_test = rows[test_start : test_start + test_rows]
+        fold_test = rows[test_start:test_end]
         if not _has_complete_direction_labels(fold_train) or not fold_test:
             continue
         model = _fit_lightgbm_model(
@@ -2517,6 +2681,8 @@ def _run_lightgbm_walk_forward(
                 "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
                 "test_start_event_time": fold_test[0]["event_time"].isoformat(),
                 "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                "purge_horizon_min": int(split["purge_horizon_min"]),
                 "overall_accuracy": float(metrics["overall_accuracy"]),
                 "trades_taken": trades_taken,
                 "trade_hit_rate": float(metrics["trade_hit_rate"]),
@@ -2581,6 +2747,8 @@ def _run_lightgbm_walk_forward(
         "train_rows": train_rows,
         "test_rows": test_rows,
         "gap_rows": gap_rows,
+        "purge_mode": "event_time_strict_after_horizon",
+        "purge_horizon_min": horizon_min,
         "step_rows": step_rows,
         "max_folds": max_folds,
         "fold_summaries": fold_summaries,
@@ -2609,12 +2777,18 @@ def _run_lightgbm_walk_forward_train_only_threshold(
     threshold_calibration_rows: int = 20_000,
     min_train_trades: int = 10,
 ) -> dict[str, object]:
-    if len(rows) < train_rows + gap_rows + test_rows:
-        raise ValueError("Not enough rows for threshold walk-forward evaluation.")
-    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
-    if max_folds > 0 and len(train_end_values) > max_folds:
-        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
-        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+    fold_slices = _purged_walk_forward_slices(
+        rows,
+        min_train_rows=train_rows,
+        test_rows=test_rows,
+        step_rows=step_rows,
+        gap_rows=gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=train_rows,
+        max_folds=max_folds,
+    )
+    if not fold_slices:
+        raise ValueError("Not enough rows for purged threshold walk-forward evaluation.")
 
     aggregate_rows = 0
     aggregate_trades = 0
@@ -2631,11 +2805,13 @@ def _run_lightgbm_walk_forward_train_only_threshold(
     thresholds = tuple(sorted({float(item) for item in threshold_grid}))
     default_threshold = _effective_signal_confidence(settings)
 
-    for fold_number, train_end in enumerate(train_end_values, start=1):
-        train_start = max(0, train_end - train_rows)
+    for fold_number, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
         fold_train = rows[train_start:train_end]
-        test_start = train_end + gap_rows
-        fold_test = rows[test_start : test_start + test_rows]
+        fold_test = rows[test_start:test_end]
         if not _has_complete_direction_labels(fold_train) or not fold_test:
             continue
         model = _fit_lightgbm_model(
@@ -2726,6 +2902,8 @@ def _run_lightgbm_walk_forward_train_only_threshold(
                 "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
                 "test_start_event_time": fold_test[0]["event_time"].isoformat(),
                 "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                "purge_horizon_min": int(split["purge_horizon_min"]),
                 "selected_threshold": selected_threshold,
                 "threshold_selection": selected,
                 "threshold_candidates": threshold_candidates,
@@ -2765,6 +2943,8 @@ def _run_lightgbm_walk_forward_train_only_threshold(
         "train_rows": train_rows,
         "test_rows": test_rows,
         "gap_rows": gap_rows,
+        "purge_mode": "event_time_strict_after_horizon",
+        "purge_horizon_min": horizon_min,
         "step_rows": step_rows,
         "max_folds": max_folds,
         "fold_summaries": fold_summaries,
@@ -2855,12 +3035,18 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
     calibration_rows: int,
     min_calibration_trades: int,
 ) -> dict[str, object]:
-    if len(rows) < train_rows + gap_rows + test_rows:
-        raise ValueError("Not enough rows for expected-value walk-forward evaluation.")
-    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
-    if max_folds > 0 and len(train_end_values) > max_folds:
-        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
-        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+    fold_slices = _purged_walk_forward_slices(
+        rows,
+        min_train_rows=train_rows,
+        test_rows=test_rows,
+        step_rows=step_rows,
+        gap_rows=gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=train_rows,
+        max_folds=max_folds,
+    )
+    if not fold_slices:
+        raise ValueError("Not enough rows for purged expected-value walk-forward evaluation.")
 
     thresholds = tuple(sorted({float(item) for item in threshold_grid}))
     aggregate_rows = 0
@@ -2876,11 +3062,13 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
     aggregate_trade_ledger: list[dict[str, object]] = []
     fold_summaries: list[dict[str, object]] = []
 
-    for fold_number, train_end in enumerate(train_end_values, start=1):
-        train_start = max(0, train_end - train_rows)
+    for fold_number, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
         fold_train = rows[train_start:train_end]
-        test_start = train_end + gap_rows
-        fold_test = rows[test_start : test_start + test_rows]
+        fold_test = rows[test_start:test_end]
         if not fold_test:
             continue
         calibration_size = min(calibration_rows, max(1, len(fold_train) // 5))
@@ -2963,6 +3151,8 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
                 "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
                 "test_start_event_time": fold_test[0]["event_time"].isoformat(),
                 "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                "purge_horizon_min": int(split["purge_horizon_min"]),
                 "selected_threshold": selected_threshold,
                 "threshold_selection_reason": selection["selection_reason"],
                 "selected_train_candidate": selection["selected_candidate"],
@@ -3017,6 +3207,8 @@ def _run_lightgbm_walk_forward_train_only_expected_value(
         "train_rows": train_rows,
         "test_rows": test_rows,
         "gap_rows": gap_rows,
+        "purge_mode": "event_time_strict_after_horizon",
+        "purge_horizon_min": horizon_min,
         "step_rows": step_rows,
         "max_folds": max_folds,
         "fold_summaries": fold_summaries,
@@ -3373,21 +3565,31 @@ def _run_rule_walk_forward(
     step_rows: int,
     max_folds: int,
     trade_cost_pct: float,
+    horizon_min: int = 15,
 ) -> dict[str, object]:
-    if len(rows) < train_rows + gap_rows + test_rows:
-        raise ValueError("Not enough rows for Cybos rule challenger walk-forward evaluation.")
-    train_end_values = list(range(train_rows, len(rows) - gap_rows - test_rows + 1, step_rows))
-    if max_folds > 0 and len(train_end_values) > max_folds:
-        selected_indices = np.linspace(0, len(train_end_values) - 1, max_folds, dtype=int)
-        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+    fold_slices = _purged_walk_forward_slices(
+        rows,
+        min_train_rows=train_rows,
+        test_rows=test_rows,
+        step_rows=step_rows,
+        gap_rows=gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=train_rows,
+        max_folds=max_folds,
+    )
+    if not fold_slices:
+        raise ValueError("Not enough rows for purged Cybos rule challenger walk-forward evaluation.")
 
     strategy_ledgers: dict[str, list[dict[str, object]]] = {name: [] for name in strategy_names}
     strategy_rows_evaluated: dict[str, int] = {name: 0 for name in strategy_names}
     fold_summaries: dict[str, list[dict[str, object]]] = {name: [] for name in strategy_names}
 
-    for fold_number, train_end in enumerate(train_end_values, start=1):
-        test_start = train_end + gap_rows
-        fold_test = rows[test_start : test_start + test_rows]
+    for fold_number, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
+        fold_test = rows[test_start:test_end]
         if not fold_test:
             continue
         for strategy_name in strategy_names:
@@ -3402,12 +3604,14 @@ def _run_rule_walk_forward(
             fold_summaries[strategy_name].append(
                 {
                     "fold": fold_number,
-                    "train_start_row": max(0, train_end - train_rows),
+                    "train_start_row": train_start,
                     "train_end_row": train_end - 1,
                     "test_start_row": test_start,
                     "test_end_row": test_start + len(fold_test) - 1,
                     "test_start_event_time": fold_test[0]["event_time"].isoformat(),
                     "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                    "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                    "purge_horizon_min": int(split["purge_horizon_min"]),
                     "trades_taken": int(metrics["trades_taken"]),
                     "trade_hit_rate": float(metrics["trade_hit_rate"]),
                     "cumulative_net_return_pct": float(metrics["cumulative_net_return_pct"]),
@@ -3427,10 +3631,12 @@ def _run_rule_walk_forward(
         strategy_results.append(metrics)
 
     return {
-        "folds": len(train_end_values),
+        "folds": len(fold_slices),
         "train_rows": train_rows,
         "test_rows": test_rows,
         "gap_rows": gap_rows,
+        "purge_mode": "event_time_strict_after_horizon",
+        "purge_horizon_min": horizon_min,
         "step_rows": step_rows,
         "max_folds": max_folds,
         "trade_cost_pct": trade_cost_pct,
@@ -4496,6 +4702,7 @@ def run_cybos_rule_challenger_review_from_sqlite(
         step_rows=walk_forward_step_rows,
         max_folds=walk_forward_max_folds,
         trade_cost_pct=trade_cost_pct,
+        horizon_min=15,
     )
     strategy_results = list(walk_forward["strategy_results"])
     leaderboard = sorted(
@@ -5077,10 +5284,7 @@ def train_lightgbm_from_sqlite(
                 artifact_path=str(artifact_path),
                 feature_set_version=settings.feature_set_version,
                 model_kind="lightgbm_artifact",
-                metadata={
-                    "framework": "lightgbm",
-                    "class_labels": model.artifact.class_labels,
-                },
+                metadata=_lightgbm_registry_metadata(model),
             ),
         )
 
@@ -5359,15 +5563,26 @@ def run_walk_forward_backtest_from_sqlite(
     aggregate_virtual_direction_gross = 0.0
     aggregate_virtual_direction_net = 0.0
 
+    fold_slices = _purged_walk_forward_slices(
+        dataset,
+        min_train_rows=min_train_rows,
+        test_rows=test_window_rows,
+        step_rows=step_rows,
+        gap_rows=gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=max_train_rows,
+    )
+    if not fold_slices:
+        raise ValueError("Not enough labeled rows for purged walk-forward backtesting.")
+
     fold_count = 0
-    max_train_end = len(dataset) - gap_rows - test_window_rows
-    for fold_index, train_end in enumerate(range(min_train_rows, max_train_end + 1, step_rows), start=1):
-        train_start = 0
-        if max_train_rows is not None:
-            train_start = max(0, train_end - max_train_rows)
+    for fold_index, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
         train_rows = dataset[train_start:train_end]
-        test_start = train_end + gap_rows
-        test_rows = dataset[test_start : test_start + test_window_rows]
+        test_rows = dataset[test_start:test_end]
         if len(train_rows) < min_train_rows:
             continue
         if not test_rows:
@@ -5440,6 +5655,8 @@ def run_walk_forward_backtest_from_sqlite(
                 "train_end_event_time": train_rows[-1]["event_time"].isoformat(),
                 "test_start_event_time": test_rows[0]["event_time"].isoformat(),
                 "test_end_event_time": test_rows[-1]["event_time"].isoformat(),
+                "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                "purge_horizon_min": int(split["purge_horizon_min"]),
                 "overall_accuracy": overall_accuracy,
                 "three_class_accuracy": float(fold_metrics["three_class_accuracy"]),
                 "up_hit_rate": float(fold_metrics["up_hit_rate"]),
@@ -5516,6 +5733,8 @@ def run_walk_forward_backtest_from_sqlite(
         "test_window_rows": test_window_rows,
         "step_rows": step_rows,
         "gap_rows": gap_rows,
+        "purge_mode": "event_time_strict_after_horizon",
+        "purge_horizon_min": horizon_min,
         "max_train_rows": max_train_rows,
         "parameter_profile": parameter_profile,
         "command_source": command_source,
@@ -5640,7 +5859,10 @@ def run_model_challenger_review_from_sqlite(
     lightgbm_training_summary: dict[str, object] | None = None
     if latest_lightgbm_artifact is not None:
         latest_lightgbm_model = LightGbmDirectionModel.from_path(latest_lightgbm_artifact)
-        lightgbm_training_row = _resolve_latest_training_run_row(
+        lightgbm_training_row = _resolve_training_run_row_by_id(
+            sqlite_store,
+            latest_lightgbm_model.artifact.training_run_id,
+        ) or _resolve_latest_training_run_row(
             sqlite_store,
             latest_lightgbm_model.artifact.model_version,
             horizon_min,
@@ -5820,10 +6042,7 @@ def run_model_challenger_review_from_sqlite(
                         artifact_path=str(latest_lightgbm_artifact),
                         feature_set_version=settings.feature_set_version,
                         model_kind="lightgbm_artifact",
-                        metadata={
-                            "framework": "lightgbm",
-                            "class_labels": latest_lightgbm_model.artifact.class_labels,
-                        },
+                        metadata=_lightgbm_registry_metadata(latest_lightgbm_model),
                     ),
                     **lightgbm_metrics,
                 }

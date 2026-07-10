@@ -11,9 +11,12 @@ from unittest.mock import patch
 from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel
 from app.config.settings import load_settings
 from app.services.research import (
+    _apply_horizon_purge,
+    _build_walk_forward_gate,
     _load_labeled_feature_dataset,
     _lightgbm_artifact_training_status,
     _resolve_feature_row_source,
+    _purged_walk_forward_slices,
     _split_dataset_with_challenger_holdout,
     _split_dataset_with_training_holdout_anchor,
     _training_run_holdout_status,
@@ -41,6 +44,71 @@ from app.utils.time import get_timezone
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_horizon_purge_fails_closed_when_remaining_labels_are_incomplete(self) -> None:
+        kst = get_timezone("Asia/Seoul")
+        base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)
+        train_rows = [
+            {"event_time": base_time, "label": "down"},
+            {"event_time": base_time + timedelta(minutes=5), "label": "flat"},
+            {"event_time": base_time + timedelta(minutes=10), "label": "up"},
+        ]
+
+        purged = _apply_horizon_purge(
+            train_rows,
+            validation_rows=[{"event_time": base_time + timedelta(minutes=20)}],
+            horizon_min=15,
+        )
+
+        self.assertEqual(purged, [train_rows[0]])
+
+    def test_walk_forward_slices_use_event_time_gap_without_splitting_symbols(self) -> None:
+        kst = get_timezone("Asia/Seoul")
+        base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)
+        rows = [
+            {"event_time": base_time + timedelta(minutes=minute), "symbol": symbol}
+            for minute in range(60)
+            for symbol in ("005930", "000660", "035420")
+        ]
+
+        slices = _purged_walk_forward_slices(
+            rows,
+            min_train_rows=45,
+            test_rows=18,
+            step_rows=18,
+            gap_rows=15,
+            horizon_min=15,
+            max_train_rows=60,
+        )
+
+        self.assertGreater(len(slices), 0)
+        for split in slices:
+            train_end = int(split["train_end"])
+            test_start = int(split["test_start"])
+            test_end = int(split["test_end"])
+            self.assertGreater(float(split["actual_gap_minutes"]), 15.0)
+            self.assertNotEqual(rows[train_end - 1]["event_time"], rows[train_end]["event_time"])
+            self.assertNotEqual(rows[test_start - 1]["event_time"], rows[test_start]["event_time"])
+            if test_end < len(rows):
+                self.assertNotEqual(rows[test_end - 1]["event_time"], rows[test_end]["event_time"])
+
+    def test_walk_forward_gate_rejects_legacy_row_gap_report(self) -> None:
+        payload = {
+            "horizon_min": 15,
+            "overall_accuracy": 0.75,
+            "cumulative_net_return_pct": 1.0,
+            "min_train_rows": 10_000,
+            "test_window_rows": 1_000,
+            "step_rows": 1_000,
+            "gap_rows": 15,
+            "folds": 1,
+            "fold_summaries": [{"overall_accuracy": 0.75}],
+        }
+
+        gate = _build_walk_forward_gate(payload)
+
+        self.assertEqual(gate["status"], "needs_review")
+        self.assertIn("temporal purge", gate["reason"])
+
     def test_challenger_holdout_split_keeps_validation_before_holdout(self) -> None:
         kst = get_timezone("Asia/Seoul")
         base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)
@@ -235,7 +303,7 @@ class ResearchPipelineTests(unittest.TestCase):
             base_time = datetime(2026, 4, 11, 9, 15, tzinfo=kst)
             for minute_index in range(0, 80):
                 event_time = base_time + timedelta(minutes=minute_index)
-                price = 70000 + int(math.sin(minute_index / 5) * 140) + (minute_index * 2)
+                price = 70000 + int(math.sin(minute_index / 3) * 800)
                 writer.write_market_tick(
                     MarketTickEvent(
                         symbol="005930",

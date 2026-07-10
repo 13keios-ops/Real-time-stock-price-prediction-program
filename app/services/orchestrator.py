@@ -18,7 +18,6 @@ from app.services.research import (
     run_model_challenger_review_from_sqlite,
     run_signal_backtest_from_sqlite,
     run_walk_forward_backtest_from_sqlite,
-    train_centroid_baseline_from_sqlite,
     train_lightgbm_from_sqlite,
 )
 from app.services.synthetic import SyntheticSeedResult, seed_synthetic_intraday_data
@@ -63,17 +62,12 @@ def run_synthetic_dev_cycle(
     )
     minute_result: MinuteBarBuildResult = build_minute_bars_from_sqlite(project_root=project_root)
     feature_result: FeatureDatasetBuildResult = build_feature_dataset_from_sqlite(project_root=project_root)
-    try:
-        training_result = train_lightgbm_from_sqlite(
-            project_root=project_root,
-            horizon_min=train_horizon_min,
-            set_active=False,
-        )
-    except ValueError:
-        training_result = train_centroid_baseline_from_sqlite(
-            project_root=project_root,
-            horizon_min=train_horizon_min,
-        )
+    # Keep LightGBM training failures visible; do not report a different model as the result.
+    training_result = train_lightgbm_from_sqlite(
+        project_root=project_root,
+        horizon_min=train_horizon_min,
+        set_active=False,
+    )
     backtest_result: BacktestResult = run_signal_backtest_from_sqlite(
         project_root=project_root,
         horizon_min=train_horizon_min,
@@ -122,17 +116,11 @@ def run_kis_dev_cycle(
     walk_forward_result: WalkForwardBacktestResult | None = None
     challenger_result: ChallengerRunResult | None = None
     try:
-        try:
-            training_result = train_lightgbm_from_sqlite(
-                project_root=project_root,
-                horizon_min=train_horizon_min,
-                set_active=False,
-            )
-        except ValueError:
-            training_result = train_centroid_baseline_from_sqlite(
-                project_root=project_root,
-                horizon_min=train_horizon_min,
-            )
+        training_result = train_lightgbm_from_sqlite(
+            project_root=project_root,
+            horizon_min=train_horizon_min,
+            set_active=False,
+        )
         backtest_result = run_signal_backtest_from_sqlite(
             project_root=project_root,
             horizon_min=train_horizon_min,

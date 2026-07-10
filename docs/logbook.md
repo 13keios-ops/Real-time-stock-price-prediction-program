@@ -6560,3 +6560,14 @@ python -m app --build-dashboard
 ./scripts/get_hourly_repo_audit_status.sh
 ./scripts/bump_version.sh -Version 0.2.1
 ```
+
+
+## 2026-07-10 저장소 전체 심층리뷰 및 개선
+- 장후 상태에서 변경된 LightGBM 연구/registry/walk-forward 경로를 전체 호출부와 대조했다.
+- LightGBM 실패를 Centroid로 숨기던 orchestration fallback을 제거하고, 짧은 synthetic cycle의 3분류 라벨 생성을 보강했다.
+- shadow artifact 선택을 유효성 검증 기반으로 바꾸고 registry lock PID 확인 및 history 100개 보관 상한을 추가했다.
+- 새 walk-forward 증거: 119 folds, event_time_strict_after_horizon, 최소 actual gap 30분, 모든 fold horizon 초과.
+- challenger는 baseline-h15-v1 유지, keep_active, promotion_applied=false, gate needs_review, top challenger 거래 4건이다.
+- 전체 unittest 459개 통과, compileall 및 git diff --check 통과.
+- 작업 리포트: docs/cowork-reports/2026-07-10-repo-deep-review-work_ver_30.md
+- 실전 주문, active model 승격, app/risk, config, VERSION, NAS 백업은 실행하지 않았다.

@@ -40,15 +40,15 @@ def seed_synthetic_intraday_data(project_root: Path, symbol: str = "005930", min
 
     for minute_index in range(minutes):
         event_time = base_time + timedelta(minutes=minute_index)
-        regime = (minute_index // 20) % 4
-        if regime == 0:
-            drift = minute_index * 28
-        elif regime == 1:
-            drift = (20 * 28) + ((minute_index - 20) * 4)
-        elif regime == 2:
-            drift = (20 * 28) + (20 * 4) - ((minute_index - 40) * 32)
-        else:
-            drift = (20 * 28) + (20 * 4) - (20 * 32) + ((minute_index - 60) * 24)
+        # Keep all three direction labels present in a short development run.
+        # Regime boundaries are continuous so the down segment is not masked by
+        # an artificial upward jump at the next segment.
+        segment = minute_index // 12
+        local_index = minute_index % 12
+        regime = segment % 3
+        regime_base = (0, 720, 0)[regime]
+        slope = (60, -60, 0)[regime]
+        drift = regime_base + local_index * slope
 
         wave = math.sin(minute_index / 3) * 55
         micro = ((minute_index % 5) - 2) * 6

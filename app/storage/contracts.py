@@ -118,6 +118,9 @@ class Prediction(RecordMixin):
     probability_up: float
     probability_flat: float
     probability_down: float
+    training_run_id: str | None = None
+    artifact_id: str | None = None
+    artifact_sha256: str | None = None
 
 
 @dataclass(slots=True)

@@ -181,7 +181,10 @@ class SQLiteRuntimeStore:
                 model_version TEXT NOT NULL,
                 probability_up REAL NOT NULL,
                 probability_flat REAL NOT NULL,
-                probability_down REAL NOT NULL
+                probability_down REAL NOT NULL,
+                training_run_id TEXT,
+                artifact_id TEXT,
+                artifact_sha256 TEXT
             )
             """,
             """
@@ -636,6 +639,9 @@ class SQLiteRuntimeStore:
             self._ensure_column(connection, "paper_orders", "prediction_id", "TEXT")
             self._ensure_column(connection, "paper_orders", "signal_id", "TEXT")
             self._ensure_column(connection, "paper_orders", "target_id", "TEXT")
+            self._ensure_column(connection, "serving_predictions", "training_run_id", "TEXT")
+            self._ensure_column(connection, "serving_predictions", "artifact_id", "TEXT")
+            self._ensure_column(connection, "serving_predictions", "artifact_sha256", "TEXT")
             connection.commit()
             return active_mode
         except sqlite3.OperationalError:
@@ -946,8 +952,10 @@ class SQLiteRuntimeStore:
         self._run_write_query(
             """
             INSERT OR REPLACE INTO serving_predictions(
-                prediction_id, symbol, event_time, horizon_min, model_version, probability_up, probability_flat, probability_down
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                prediction_id, symbol, event_time, horizon_min, model_version,
+                probability_up, probability_flat, probability_down,
+                training_run_id, artifact_id, artifact_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prediction.prediction_id,
@@ -958,6 +966,9 @@ class SQLiteRuntimeStore:
                 prediction.probability_up,
                 prediction.probability_flat,
                 prediction.probability_down,
+                prediction.training_run_id,
+                prediction.artifact_id,
+                prediction.artifact_sha256,
             ),
         )
 

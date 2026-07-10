@@ -36,6 +36,7 @@ from app.services.research import (
     _get_research_sqlite_store,
     _has_complete_direction_labels,
     _metrics_from_scored_predictions,
+    _purged_walk_forward_slices,
     _score_rows_with_model,
     _source_bar_train_validation_rows,
 )
@@ -748,21 +749,27 @@ def build_reports(
         }
     )
     runtime_baseline_replay = _runtime_baseline_replay_status(row_value_keys)
-    if len(rows) < train_max_rows + walk_forward_gap_rows + walk_forward_test_rows:
-        raise ValueError("Not enough Cybos rows for buy-avoid proxy diagnostics.")
-    train_end_values = list(
-        range(train_max_rows, len(rows) - walk_forward_gap_rows - walk_forward_test_rows + 1, walk_forward_step_rows)
+    fold_slices = _purged_walk_forward_slices(
+        rows,
+        min_train_rows=train_max_rows,
+        test_rows=walk_forward_test_rows,
+        step_rows=walk_forward_step_rows,
+        gap_rows=walk_forward_gap_rows,
+        horizon_min=horizon_min,
+        max_train_rows=train_max_rows,
+        max_folds=walk_forward_max_folds,
     )
-    if walk_forward_max_folds > 0 and len(train_end_values) > walk_forward_max_folds:
-        selected_indices = np.linspace(0, len(train_end_values) - 1, walk_forward_max_folds, dtype=int)
-        train_end_values = [train_end_values[int(index)] for index in selected_indices]
+    if not fold_slices:
+        raise ValueError("Not enough Cybos rows for purged buy-avoid proxy diagnostics.")
 
     fold_summaries: list[dict[str, Any]] = []
-    for fold_number, train_end in enumerate(train_end_values, start=1):
-        train_start = max(0, train_end - train_max_rows)
+    for fold_number, split in enumerate(fold_slices, start=1):
+        train_start = int(split["train_start"])
+        train_end = int(split["train_end"])
+        test_start = int(split["test_start"])
+        test_end = int(split["test_end"])
         fold_train = rows[train_start:train_end]
-        test_start = train_end + walk_forward_gap_rows
-        fold_test = rows[test_start : test_start + walk_forward_test_rows]
+        fold_test = rows[test_start:test_end]
         if not fold_test:
             continue
         calibration_size = min(calibration_rows, max(1, len(fold_train) // 5))
@@ -833,6 +840,8 @@ def build_reports(
                 "train_end_event_time": fold_train[-1]["event_time"].isoformat(),
                 "test_start_event_time": fold_test[0]["event_time"].isoformat(),
                 "test_end_event_time": fold_test[-1]["event_time"].isoformat(),
+                "actual_gap_minutes": float(split["actual_gap_minutes"]),
+                "purge_horizon_min": int(split["purge_horizon_min"]),
                 "baseline": buy_avoid["baseline"],
                 "buy_avoid_targets": buy_avoid["target_results"],
                 "buy_rescue": {
@@ -844,7 +853,7 @@ def build_reports(
             }
         )
         print(
-            f"completed fold {fold_number}/{len(train_end_values)} "
+            f"completed fold {fold_number}/{len(fold_slices)} "
             f"test_rows={len(scored_test)} baseline_trades={buy_avoid['baseline']['trades']}",
             flush=True,
         )
@@ -897,6 +906,8 @@ def build_reports(
             "walk_forward_test_rows": walk_forward_test_rows,
             "walk_forward_step_rows": walk_forward_step_rows,
             "walk_forward_gap_rows": walk_forward_gap_rows,
+            "purge_mode": "event_time_strict_after_horizon",
+            "purge_horizon_min": horizon_min,
             "walk_forward_max_folds": walk_forward_max_folds,
             "calibration_rows": calibration_rows,
             "target_skip_rates": list(target_skip_rates),
