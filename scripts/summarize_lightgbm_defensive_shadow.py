@@ -11,7 +11,7 @@ import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -85,6 +85,28 @@ class PredictionPrice:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def _validate_date_range(start_date: str | None, end_date: str | None) -> None:
+    start = date.fromisoformat(start_date) if start_date else None
+    end = date.fromisoformat(end_date) if end_date else None
+    if start is not None and end is not None and end < start:
+        raise ValueError("end_date must be on or after start_date")
+
+
+def _filter_shadow_rows_by_date(
+    rows: list[ShadowRow],
+    *,
+    start_date: str | None,
+    end_date: str | None,
+) -> list[ShadowRow]:
+    _validate_date_range(start_date, end_date)
+    return [
+        row
+        for row in rows
+        if (start_date is None or row.event_time[:10] >= start_date)
+        and (end_date is None or row.event_time[:10] <= end_date)
+    ]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -480,13 +502,26 @@ def build_summary(
     horizon_min: int,
     thresholds: list[float],
     require_down_argmax: bool,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    evaluate_early_exit: bool = True,
 ) -> dict[str, Any]:
     trade_cost_pct = _trade_cost_pct(diagnostics_path)
+    _validate_date_range(start_date, end_date)
     with _connect_readonly(database_path) as connection:
         label_threshold_pct = _choose_label_threshold(connection, horizon_min)
-        rows = _load_rows(connection, horizon_min, label_threshold_pct) if label_threshold_pct is not None else []
-        closed_lots = _load_closed_lots(connection)
-        predictions_by_symbol = _load_prediction_prices(connection, horizon_min)
+        loaded_rows = _load_rows(connection, horizon_min, label_threshold_pct) if label_threshold_pct is not None else []
+        rows = _filter_shadow_rows_by_date(
+            loaded_rows,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        closed_lots = _load_closed_lots(connection) if evaluate_early_exit else []
+        predictions_by_symbol = (
+            _load_prediction_prices(connection, horizon_min)
+            if evaluate_early_exit
+            else {}
+        )
     threshold_summaries = [
         _threshold_summary(
             rows,
@@ -551,6 +586,10 @@ def build_summary(
         "model_version": f"lightgbm-h{horizon_min}-v1",
         "baseline_signal_filter": "serving_trade_signals.side='buy' AND allowed=1",
         "joined_rows": len(rows),
+        "requested_date_range": {
+            "start_date": start_date,
+            "end_date": end_date,
+        },
         "date_range": {
             "start": rows[0].event_time if rows else None,
             "end": rows[-1].event_time if rows else None,
@@ -567,7 +606,13 @@ def build_summary(
             "random_control_gate": random_control_gate,
         },
         "early_exit_shadow": {
-            "status": "evaluated_from_closed_paper_lots" if closed_lots else "no_closed_paper_lots",
+            "status": (
+                "not_evaluated_for_windowed_e5"
+                if not evaluate_early_exit
+                else "evaluated_from_closed_paper_lots"
+                if closed_lots
+                else "no_closed_paper_lots"
+            ),
             "closed_lots_total": len(closed_lots),
             "thresholds": early_exit_summaries,
             "best_by_net_delta": best_early_exit_by_net,
@@ -673,6 +718,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- horizon_min: `{summary.get('horizon_min')}`",
         f"- model_version: `{summary.get('model_version')}`",
         f"- joined_rows: `{summary.get('joined_rows')}`",
+        f"- requested_date_range: `{summary.get('requested_date_range', {}).get('start_date')}` ~ `{summary.get('requested_date_range', {}).get('end_date')}`",
         f"- date_range: `{summary.get('date_range', {}).get('start')}` ~ `{summary.get('date_range', {}).get('end')}`",
         f"- trade_cost_pct: `{summary.get('trade_cost_pct')}`",
         f"- label_threshold_pct: `{summary.get('label_threshold_pct')}`",
@@ -801,6 +847,9 @@ def main() -> int:
     parser.add_argument("--horizon-min", type=int, default=15)
     parser.add_argument("--threshold", action="append", dest="thresholds")
     parser.add_argument("--allow-non-argmax-down", action="store_true")
+    parser.add_argument("--start-date")
+    parser.add_argument("--end-date")
+    parser.add_argument("--skip-early-exit", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
 
@@ -810,6 +859,9 @@ def main() -> int:
         horizon_min=args.horizon_min,
         thresholds=_parse_thresholds(args.thresholds),
         require_down_argmax=not args.allow_non_argmax_down,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        evaluate_early_exit=not args.skip_early_exit,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     json_path = args.output_dir / f"latest-lightgbm-defensive-shadow-h{args.horizon_min}.json"

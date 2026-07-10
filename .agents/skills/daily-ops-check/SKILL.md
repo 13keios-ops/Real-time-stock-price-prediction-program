@@ -125,6 +125,19 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - Phase 1b 보고에서는 token/account/system clock/WS blocker와 `market_status`·`kill_switch` 비차단 여부를 분리하고, precomputed override가 아니라 sanitized artifact에서 재계산됐는지와 dashboard의 별도 Phase 1b 행까지 확인한다.
 - 장외 Phase 1b 통합 점검은 `./scripts/run_phase1b_readiness_cycle.sh`를 우선 사용한다. 기본 실행은 외부 KIS 네트워크 0회다. 실제 관측은 해당 작업 승인과 자격정보 준비 뒤 `--execute`로만 요청하며, dashboard 갱신은 `--execute --refresh-dashboard` 조합에서만 사용한다. protected session이면 cycle 전체가 시작 전에 차단되어야 한다.
 
+### 2026-07-20 장후 E1/E5 사전등록 라운드
+
+- 2026-07-20 장후 label refresh가 완료됐고 `runtime-data/reports/research/preregistered-e1-e5-20260718/latest-completed-round.json`의 `status=ok` 완료 파일이 없을 때만 아래 명령을 1회 실행한다.
+
+```bash
+./scripts/run_preregistered_e1_e5_round.sh --execute
+```
+
+- 기본 실행은 dry-run이다. `2026-07-20 15:30 KST` 이전과 `pre-open`/`regular-session`에는 `--execute`도 snapshot 생성 전에 차단돼야 한다.
+- 실행기는 `2026-07-04~2026-07-18` 고정 구간만 읽고 E1 전체/분해, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` excess/z를 한 라운드로 기록한다.
+- 결과는 진단 전용이다. threshold/EV tuning, 종목별 주문 정책, h60 정책, active model/gate 변경으로 자동 연결하지 않는다.
+- `status=insufficient_data`이면 완료로 잠그지 않고 label/date coverage를 확인한 뒤 다음 장외에 재실행할 수 있다. `status=ok` 완료 파일이 있으면 중복 실행하지 않는다.
+
 ### paper/KIS 정합성
 
 장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. 실제 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 쓰며, dry-run과 차단된 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 분리해 마지막 정상 증거를 덮지 않는다.

@@ -67,6 +67,8 @@
 - 대시보드의 `실전 전환 readiness dry-run` 표는 범용 readiness와 `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`을 분리해 표시한다.
 - 장외 Phase 1b readiness cycle.
   `run_phase1b_readiness_cycle.sh` 기본 실행은 외부 KIS 네트워크 없이 local premarket/WS/preflight/fixture/readiness를 순서대로 갱신한다. 실제 live 조회는 `--execute`에서만 요청하고, `pre-open`/`regular-session`은 step 시작 전에 차단한다. preflight·실행 미시작·실제 실행 readiness 파일을 분리한다.
+- review_ver_27 사전등록 E1/E5 단일 라운드.
+  `run_preregistered_e1_e5_round.sh`는 기본 dry-run이며 `2026-07-20 15:30 KST` 이전, `pre-open`/`regular-session`, 또는 2026-07-20 장후 label refresh 미완료 상태에는 실제 계산을 fail-closed로 차단한다. `--execute`가 허용되는 첫 장후에는 D드라이브 연구 스냅샷을 만들고 고정 구간 `2026-07-04~2026-07-18`만 읽어 E1 전체/분해 IC, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` random-control excess/z를 한 번에 기록한다. 이 라운드는 학습·네트워크·주문 호출과 정책/model/gate 변경을 하지 않는다.
 
 ## 데이터 흐름
 

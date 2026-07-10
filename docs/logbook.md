@@ -6654,3 +6654,20 @@ python -m app --build-dashboard
 - 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-5.md`
 - 다음 실제 단계는 live 조회 자격정보 준비 뒤 장외에 `./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 1회 실행하는 것이다.
 - 실전 주문/취소, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 신규 모델 실험, NAS 백업은 변경하거나 실행하지 않았다.
+
+
+## [2026-07-11] E1/E5 사전등록 실행 준비와 장후 운영 마감
+
+- 주말 상태에서 live runtime 정상 정지, watchdog/dashboard/startup launcher 정상 실행을 확인했다.
+- 2026-07-10 장후 ML은 `status=ok`, `completed_at=16:17:58`, `mode=quick-live-train`이고 label refresh도 `status=ok`, `completed_at=16:50:42`다. 정상 완료된 학습을 중복 실행하지 않았다.
+- `scripts/run_preregistered_e1_e5_round.py/.sh`를 추가해 review_ver_27의 2026-07-20 장후 E1/E5 라운드를 단일 명령으로 고정했다.
+- 실행기는 `2026-07-20 15:30 KST` 이전, `pre-open`/`regular-session`, 또는 2026-07-20 장후 label refresh 미완료 상태를 snapshot 생성 전에 차단한다. 허용 시 D드라이브 연구 snapshot에서 고정 구간 `2026-07-04~2026-07-18`만 read-only로 읽는다.
+- E1은 전체/분해 daily IC, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계를 기록한다. E5는 threshold `0.40`의 random-control excess/z를 기록한다.
+- 2026-07-11 dry-run은 `before_preregistered_not_before`로 정상 차단됐고, 네트워크·주문 호출과 신규 research snapshot은 0건이다. 실제 E1/E5 결과는 아직 생성하지 않았다.
+- hold-rescue paper replay를 갱신했다. threshold `0.40`은 eligible `161`, 적용 `37`, `delta_cash_sum=-26,387원`으로 `diagnostic_only_no_hold_rescue_candidate`를 유지한다.
+- runtime report와 dashboard snapshot을 갱신했다. dashboard는 `http://127.0.0.1:8765`에서 정상 응답한다.
+- 전체 unittest `495 tests OK`, 전체 pytest `495 passed, 67 subtests passed`, compileall, bash parse/help, `git diff --check`를 통과했다.
+- 전용 생성 산출물 cleanup dry-run에서 `.tmp-tests`/`__pycache__` 92개, 약 `2.28GB`를 확인한 뒤 `--apply`로 정리했다. `runtime-data/`, 운영 DB, 모델, 수집 데이터, `app/risk/`, `.tmp-tests/codex-ops/`는 보존됐다.
+- 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-6.md`
+- 다음 외부 게이트는 다음 거래일 장후 mismatch 4종목 1회 재확인, 다음 정규장 장시간 상태 관찰, live read-only 자격정보 준비, 2026-07-20 장후 실제 E1/E5 라운드다.
+- 실전 주문/취소, active model/gate/threshold, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 신규 모델 학습 실험, NAS 백업은 변경하거나 실행하지 않았다.

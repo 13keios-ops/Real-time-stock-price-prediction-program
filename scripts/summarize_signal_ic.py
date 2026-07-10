@@ -23,6 +23,7 @@ try:
         DEFAULT_DIAGNOSTICS,
         _choose_label_threshold,
         _connect_readonly,
+        _filter_shadow_rows_by_date,
         _load_rows,
         _trade_cost_pct,
     )
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - direct script run
         DEFAULT_DIAGNOSTICS,
         _choose_label_threshold,
         _connect_readonly,
+        _filter_shadow_rows_by_date,
         _load_rows,
         _trade_cost_pct,
     )
@@ -46,6 +48,12 @@ DECOMPOSITION_MIN_USABLE_DAYS = 5
 DECOMPOSITION_VOL_LOOKBACK_BARS = 5
 TIME_BUCKET_ORDER = ("open_early", "midday", "close", "outside_regular")
 VOLATILITY_BUCKET_ORDER = ("low", "medium", "high", "unknown")
+REPRODUCTION_T_STAT_THRESHOLD = 2.0
+PREREGISTERED_REPRODUCTION_CANDIDATES = (
+    {"symbol": "005380", "signal": "probability_up", "prior_direction": "positive"},
+    {"symbol": "035420", "signal": "probability_down", "prior_direction": "negative"},
+    {"symbol": "105560", "signal": "probability_down", "prior_direction": "positive"},
+)
 
 PREREGISTERED_CRITERIA = {
     "source_document": "docs/cowork-reports/2026-07-05-alternative-approaches-validation-plan.md",
@@ -83,6 +91,7 @@ class IcRow:
     symbol: str
     event_time: str
     probability_up: float | None
+    probability_flat: float | None
     probability_down: float | None
     future_return_pct: float
     time_bucket: str
@@ -240,8 +249,19 @@ def _volatility_bucket(value: float | None, low_cutoff: float | None, high_cutof
     return "high"
 
 
-def _rows_from_shadow(connection: sqlite3.Connection, horizon_min: int, label_threshold_pct: float) -> list[IcRow]:
-    shadow_rows = _load_rows(connection, horizon_min, label_threshold_pct)
+def _rows_from_shadow(
+    connection: sqlite3.Connection,
+    horizon_min: int,
+    label_threshold_pct: float,
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[IcRow]:
+    shadow_rows = _filter_shadow_rows_by_date(
+        _load_rows(connection, horizon_min, label_threshold_pct),
+        start_date=start_date,
+        end_date=end_date,
+    )
     volatility_map = _recent_volatility_map(connection, shadow_rows)
     low_cutoff, high_cutoff = _volatility_cutoffs(volatility_map, shadow_rows)
     result: list[IcRow] = []
@@ -254,6 +274,7 @@ def _rows_from_shadow(connection: sqlite3.Connection, horizon_min: int, label_th
                 symbol=row.symbol,
                 event_time=row.event_time,
                 probability_up=row.probability_up,
+                probability_flat=row.probability_flat,
                 probability_down=row.probability_down,
                 future_return_pct=row.future_return_pct,
                 time_bucket=_time_bucket(row.event_time),
@@ -437,12 +458,161 @@ def _decompose_rows(rows: list[IcRow], min_daily_rows: int) -> dict[str, Any]:
     }
 
 
+def _candidate_reproducibility(decomposition: dict[str, Any]) -> dict[str, Any]:
+    symbol_entries = {
+        str(entry.get("group_key")): entry
+        for entry in decomposition.get("families", {}).get("symbol", [])
+    }
+    results: list[dict[str, Any]] = []
+    for candidate in PREREGISTERED_REPRODUCTION_CANDIDATES:
+        symbol = candidate["symbol"]
+        signal = candidate["signal"]
+        prior_direction = candidate["prior_direction"]
+        entry = symbol_entries.get(symbol, {})
+        signal_block = entry.get(signal, {})
+        summary = signal_block.get("summary", {})
+        mean_ic = summary.get("mean_daily_ic")
+        t_stat = summary.get("t_stat")
+        same_direction = False
+        if mean_ic is not None:
+            same_direction = float(mean_ic) > 0 if prior_direction == "positive" else float(mean_ic) < 0
+        passes = bool(
+            same_direction
+            and t_stat is not None
+            and abs(float(t_stat)) >= REPRODUCTION_T_STAT_THRESHOLD
+        )
+        if mean_ic is None or t_stat is None:
+            status = "insufficient_data"
+        elif passes:
+            status = "reproduced"
+        else:
+            status = "not_reproduced"
+        results.append(
+            {
+                "symbol": symbol,
+                "signal": signal,
+                "prior_direction": prior_direction,
+                "rows": int(entry.get("rows") or 0),
+                "days_usable": int(summary.get("days_usable") or 0),
+                "mean_daily_ic": mean_ic,
+                "t_stat": t_stat,
+                "same_direction": same_direction,
+                "passes_review_ver_27_gate": passes,
+                "status": status,
+            }
+        )
+    return {
+        "source_review": "docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_27.md",
+        "criteria": "same symbol, same IC direction, abs(t_stat) >= 2.0",
+        "candidates": results,
+        "reproduced_count": sum(1 for result in results if result["passes_review_ver_27_gate"]),
+        "all_reproduced": bool(results) and all(
+            result["passes_review_ver_27_gate"] for result in results
+        ),
+    }
+
+
+def _daily_ic_map(rows: list[dict[str, Any]]) -> dict[str, float]:
+    return {
+        str(row["trade_date"]): float(row["ic"])
+        for row in rows
+        if row.get("ic") is not None
+    }
+
+
+def _build_105560_probability_relationship(
+    rows: list[IcRow],
+    *,
+    min_daily_rows: int,
+) -> dict[str, Any]:
+    symbol_rows = [row for row in rows if row.symbol == "105560"]
+    daily_by_signal = {
+        signal: _daily_ic(symbol_rows, signal, min_daily_rows=min_daily_rows)
+        for signal in ("probability_down", "probability_up", "probability_flat")
+    }
+    summary_by_signal = {
+        signal: _summarize_daily(daily)
+        for signal, daily in daily_by_signal.items()
+    }
+    down_map = _daily_ic_map(daily_by_signal["probability_down"])
+    up_map = _daily_ic_map(daily_by_signal["probability_up"])
+    flat_map = _daily_ic_map(daily_by_signal["probability_flat"])
+    paired_dates = sorted(set(down_map) & set(up_map))
+    relationship_rows = [
+        {
+            "trade_date": trade_date,
+            "probability_down_ic": down_map[trade_date],
+            "probability_up_ic": up_map[trade_date],
+            "probability_flat_ic": flat_map.get(trade_date),
+        }
+        for trade_date in paired_dates
+    ]
+    return {
+        "symbol": "105560",
+        "rows": len(symbol_rows),
+        "trade_days": sorted({row.trade_date for row in symbol_rows}),
+        "probability_down": {
+            "daily": daily_by_signal["probability_down"],
+            "summary": summary_by_signal["probability_down"],
+        },
+        "probability_up": {
+            "daily": daily_by_signal["probability_up"],
+            "summary": summary_by_signal["probability_up"],
+        },
+        "probability_flat": {
+            "daily": daily_by_signal["probability_flat"],
+            "summary": summary_by_signal["probability_flat"],
+        },
+        "down_up_daily_ic_relationship": {
+            "method": "Pearson correlation across paired daily Spearman IC values",
+            "paired_days": len(paired_dates),
+            "pearson": _pearson(
+                [down_map[trade_date] for trade_date in paired_dates],
+                [up_map[trade_date] for trade_date in paired_dates],
+            ),
+            "same_sign_days": sum(
+                1
+                for trade_date in paired_dates
+                if down_map[trade_date] * up_map[trade_date] > 0
+            ),
+            "daily": relationship_rows,
+        },
+    }
+
+
+def _build_preregistered_remeasurement(
+    rows: list[IcRow],
+    decomposition: dict[str, Any],
+    *,
+    min_daily_rows: int,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict[str, Any]:
+    return {
+        "source_review": "docs/cowork-reports/2026-07-05-buy-avoid-validation-verification-review_ver_27.md",
+        "requested_window": {
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        "window_locked_to_review_ver_27": start_date == "2026-07-04" and end_date == "2026-07-18",
+        "candidate_reproducibility": _candidate_reproducibility(decomposition),
+        "special_105560_probability_relationship": _build_105560_probability_relationship(
+            rows,
+            min_daily_rows=min_daily_rows,
+        ),
+        "interpretation": "diagnostic_only",
+        "automatic_policy_change": False,
+    }
+
+
 def build_summary(
     *,
     database_path: Path,
     diagnostics_path: Path,
     horizon_min: int,
     min_daily_rows: int = 2,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, Any]:
     with _connect_readonly(database_path) as connection:
         threshold = _choose_label_threshold(connection, horizon_min)
@@ -451,17 +621,37 @@ def build_summary(
                 "status": "no_joinable_shadow_rows",
                 "generated_at": _now_iso(),
                 "horizon_min": horizon_min,
+                "requested_date_range": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
                 "preregistered_criteria": PREREGISTERED_CRITERIA,
             }
-        rows = _rows_from_shadow(connection, horizon_min, threshold)
+        rows = _rows_from_shadow(
+            connection,
+            horizon_min,
+            threshold,
+            start_date=start_date,
+            end_date=end_date,
+        )
     down_daily = _daily_ic(rows, "probability_down", min_daily_rows=min_daily_rows)
     up_daily = _daily_ic(rows, "probability_up", min_daily_rows=min_daily_rows)
+    flat_daily = _daily_ic(rows, "probability_flat", min_daily_rows=min_daily_rows)
     down_summary = _summarize_daily(down_daily)
     up_summary = _summarize_daily(up_daily)
+    flat_summary = _summarize_daily(flat_daily)
     pooled_down_pairs = [(row.probability_down, row.future_return_pct) for row in rows if row.probability_down is not None]
     pooled_up_pairs = [(row.probability_up, row.future_return_pct) for row in rows if row.probability_up is not None]
+    pooled_flat_pairs = [(row.probability_flat, row.future_return_pct) for row in rows if row.probability_flat is not None]
     down_decision = _classify_down_signal(down_summary)
     decomposition = _decompose_rows(rows, min_daily_rows)
+    remeasurement = _build_preregistered_remeasurement(
+        rows,
+        decomposition,
+        min_daily_rows=min_daily_rows,
+        start_date=start_date,
+        end_date=end_date,
+    )
     return {
         "status": "ok" if rows else "no_joinable_shadow_rows",
         "generated_at": _now_iso(),
@@ -471,6 +661,10 @@ def build_summary(
         "trade_cost_pct_reference": _trade_cost_pct(diagnostics_path),
         "label_threshold_pct": threshold,
         "joined_rows": len(rows),
+        "requested_date_range": {
+            "start_date": start_date,
+            "end_date": end_date,
+        },
         "trade_days": sorted({row.trade_date for row in rows}),
         "min_daily_rows": min_daily_rows,
         "preregistered_criteria": PREREGISTERED_CRITERIA,
@@ -489,7 +683,15 @@ def build_summary(
                 [float(p) for p, _r in pooled_up_pairs], [r for _p, r in pooled_up_pairs]
             ),
         },
+        "probability_flat": {
+            "daily": flat_daily,
+            "summary": flat_summary,
+            "pooled_spearman_reference_only": spearman(
+                [float(p) for p, _r in pooled_flat_pairs], [r for _p, r in pooled_flat_pairs]
+            ),
+        },
         "decomposition": decomposition,
+        "preregistered_remeasurement": remeasurement,
     }
 
 
@@ -514,6 +716,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
     down_summary = down.get("summary", {})
     up = summary.get("probability_up", {})
     up_summary = up.get("summary", {})
+    flat = summary.get("probability_flat", {})
+    flat_summary = flat.get("summary", {})
+    remeasurement = summary.get("preregistered_remeasurement", {})
     decision = down.get("decision", {})
     lines = [
         "# Signal Information Coefficient h15",
@@ -525,6 +730,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- joined_rows: `{summary.get('joined_rows')}`",
         f"- trade_days: `{len(summary.get('trade_days') or [])}`",
         f"- label_threshold_pct: `{summary.get('label_threshold_pct')}`",
+        f"- requested_date_range: `{summary.get('requested_date_range', {}).get('start_date')}` ~ `{summary.get('requested_date_range', {}).get('end_date')}`",
         "",
         "## Preregistered Criteria",
         "",
@@ -540,6 +746,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "| --- | ---: | ---: | ---: | ---: | ---: |",
         f"| probability_down | {_fmt(down_summary.get('days_usable'), 0)} | {_fmt(down_summary.get('mean_daily_ic'))} | {_fmt(down_summary.get('std_daily_ic'))} | {_fmt(down_summary.get('t_stat'))} | {_fmt(down.get('pooled_spearman_reference_only'))} |",
         f"| probability_up | {_fmt(up_summary.get('days_usable'), 0)} | {_fmt(up_summary.get('mean_daily_ic'))} | {_fmt(up_summary.get('std_daily_ic'))} | {_fmt(up_summary.get('t_stat'))} | {_fmt(up.get('pooled_spearman_reference_only'))} |",
+        f"| probability_flat | {_fmt(flat_summary.get('days_usable'), 0)} | {_fmt(flat_summary.get('mean_daily_ic'))} | {_fmt(flat_summary.get('std_daily_ic'))} | {_fmt(flat_summary.get('t_stat'))} | {_fmt(flat.get('pooled_spearman_reference_only'))} |",
         "",
         "## Decision",
         "",
@@ -603,6 +810,57 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append("")
     else:
         lines.extend(["- No subset passed the preregistered decomposition threshold.", ""])
+    reproduction = remeasurement.get("candidate_reproducibility", {})
+    reproduction_candidates = reproduction.get("candidates") or []
+    lines.extend(["## Review Ver 27 Reproduction Gate", ""])
+    lines.append(
+        f"- window_locked_to_review_ver_27: `{remeasurement.get('window_locked_to_review_ver_27')}`"
+    )
+    lines.append(f"- criteria: `{reproduction.get('criteria')}`")
+    lines.append(f"- reproduced_count: `{reproduction.get('reproduced_count')}`")
+    lines.append("")
+    if reproduction_candidates:
+        lines.extend(
+            [
+                "| symbol | signal | prior_direction | rows | days | mean_ic | t_stat | same_direction | pass | status |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            ]
+        )
+        for row in reproduction_candidates:
+            lines.append(
+                "| {symbol} | {signal} | {direction} | {rows} | {days} | {mean_ic} | {t_stat} | {same_direction} | {passed} | {status} |".format(
+                    symbol=row.get("symbol"),
+                    signal=row.get("signal"),
+                    direction=row.get("prior_direction"),
+                    rows=row.get("rows"),
+                    days=row.get("days_usable"),
+                    mean_ic=_fmt(row.get("mean_daily_ic")),
+                    t_stat=_fmt(row.get("t_stat")),
+                    same_direction=row.get("same_direction"),
+                    passed=row.get("passes_review_ver_27_gate"),
+                    status=row.get("status"),
+                )
+            )
+        lines.append("")
+
+    relationship = remeasurement.get("special_105560_probability_relationship", {})
+    relation = relationship.get("down_up_daily_ic_relationship", {})
+    flat_105560 = relationship.get("probability_flat", {}).get("summary", {})
+    lines.extend(
+        [
+            "## 105560 Probability Relationship",
+            "",
+            f"- rows: `{relationship.get('rows')}`",
+            f"- probability_flat_mean_daily_ic: `{_fmt(flat_105560.get('mean_daily_ic'))}`",
+            f"- probability_flat_t_stat: `{_fmt(flat_105560.get('t_stat'))}`",
+            f"- paired_down_up_days: `{relation.get('paired_days')}`",
+            f"- down_up_daily_ic_pearson: `{_fmt(relation.get('pearson'))}`",
+            f"- same_sign_days: `{relation.get('same_sign_days')}`",
+            "",
+            "- Diagnostic only. This report does not change thresholds, gates, active models, or order policy.",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -622,6 +880,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--horizon-min", type=int, default=15)
     parser.add_argument("--min-daily-rows", type=int, default=2)
+    parser.add_argument("--start-date")
+    parser.add_argument("--end-date")
     return parser.parse_args()
 
 
@@ -632,6 +892,8 @@ def main() -> int:
         diagnostics_path=args.diagnostics_path,
         horizon_min=args.horizon_min,
         min_daily_rows=args.min_daily_rows,
+        start_date=args.start_date,
+        end_date=args.end_date,
     )
     json_path, md_path = write_outputs(summary, args.output_dir, args.horizon_min)
     print(json.dumps({"status": summary.get("status"), "json_path": str(json_path), "md_path": str(md_path)}, ensure_ascii=False))

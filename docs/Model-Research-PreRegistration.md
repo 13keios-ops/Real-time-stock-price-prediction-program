@@ -109,7 +109,7 @@ h60은 h15보다 가격 변동폭이 커서 비용 여유가 있다. 하지만 h
 
 1. 07-18 전까지는 신규 KIS live 판정과 threshold tuning을 동결한다.
 2. 다음 거래일 장후 paper/KIS mismatch가 같은 root_cause_scope로 유지되는지 다시 본다.
-3. 07-18 이후 첫 거래일 장후 E1 재측정과 E5 역발상 관찰을 한 라운드로 실행한다.
+3. 07-18 이후 첫 거래일인 2026-07-20 장후 `./scripts/run_preregistered_e1_e5_round.sh --execute`로 E1 재측정과 E5 역발상 관찰을 한 라운드로 실행한다. 이 실행기는 `2026-07-20 15:30 KST` 이전과 장중을 차단하며, 고정 구간 `2026-07-04~2026-07-18`을 D드라이브 연구 스냅샷에서 read-only로 측정한다. E1은 후보 3건의 같은 종목·같은 방향·`abs(t_stat) >= 2.0` 재현성과 `105560`의 p_flat 및 p_down/p_up 일별 IC 관계를 기록한다. E5는 threshold `0.40`의 random-control excess 부호와 z를 기록하며, 결과와 무관하게 정책/model/gate/order 변경은 하지 않는다.
 4. 같은 라운드에서 orderbook 피처 daily IC와 h60 1차 측정표를 생성할 수 있는지 확인하되, 결과 해석은 사전 등록 기준을 따른다.
 5. cowork 리뷰는 07-18 이후 재측정 결과가 나온 뒤 요청한다.
 

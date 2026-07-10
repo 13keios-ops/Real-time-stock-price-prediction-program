@@ -729,7 +729,7 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 
 1. 완료(2026-07-10): `scripts/trace_paper_kis_mismatch.py`로 최신 4종목이 모두 KIS 계좌 snapshot과 order/fill 원장 사이 divergence임을 재확인했다.
 2. 완료(2026-07-10): order-fill 기본 helper, 장후 batch, 장중 종료 force sync를 모두 HTTP 1회로 제한하고 최초 제한부터 2시간 cooldown을 기록하도록 보강했다.
-3. 예약(2026-07-20 장후): E1 재측정과 E5 역발상 관찰 결과로 신호 품질 개선 또는 horizon 전환 후보를 판정한다. 그 전까지 threshold/EV tuning은 하지 않는다.
+3. 실행 준비 완료·실측 예약(2026-07-20 장후): `./scripts/run_preregistered_e1_e5_round.sh --execute` 한 명령으로만 E1 재측정과 E5 역발상 관찰을 수행한다. 실행기는 `2026-07-20 15:30 KST` 이전과 장중을 차단하고, 고정 구간 `2026-07-04~2026-07-18`, 후보 3건, `105560` p_flat/p_down/p_up 관계, threshold `0.40` excess/z를 바꾸지 못하게 고정했다. 그 전까지 threshold/EV tuning은 하지 않는다.
 4. 예약(2026-07-20 장후): KIS live feature 후보는 `probability_down` 자체의 정보가 약하다는 전제에서 E1 결과와 함께 재검토한다.
 5. 보류: gate walk-forward 극단 fold 추가 분석은 사전등록된 E1/E5 결과를 본 뒤 필요성을 다시 판정한다.
 6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.

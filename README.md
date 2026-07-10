@@ -571,6 +571,14 @@ Phase 1b 관측 결과를 기존 장전 fixture와 합쳐 전용 readiness로 �
 
 cycle은 `pre-open`과 `regular-session`에서 모든 단계를 시작 전에 차단한다. 기본 실행은 fresh local premarket/WS 증거를 만들지만 실제 관측 readiness를 덮지 않고 `latest-readiness-preflight.json`에 분리한다. `--execute`를 줬어도 실제 네트워크 시도가 0회이면 `latest-readiness-attempt.json`, bounded 관측이 1회 이상 시작된 경우에만 `latest-readiness.json`을 갱신한다.
 
+2026-07-20 장후 사전등록 E1/E5 재측정은 아래 단일 명령으로 실행한다.
+
+```bash
+./scripts/run_preregistered_e1_e5_round.sh --execute
+```
+
+기본 실행은 dry-run이고, `2026-07-20 15:30 KST` 이전, 장중, 또는 2026-07-20 장후 label refresh 미완료 상태에는 `--execute`도 snapshot 생성 전에 차단된다. 허용 시 D드라이브 연구 snapshot에서 고정 구간 `2026-07-04~2026-07-18`만 read-only로 측정하며 학습·네트워크·주문·정책/model/gate 변경은 수행하지 않는다.
+
 월요일 시작 루틴 1회 실행:
 
 ```bash

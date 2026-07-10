@@ -20,6 +20,16 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-11 02:45 KST 장외 스냅샷
+
+- 주말 상태에서 live runtime은 정상 정지, watchdog/dashboard/startup launcher는 정상 실행 중이다.
+- 금요일 장후 ML은 `status=ok`, `completed_at=2026-07-10 16:17:58 +0900`, `mode=quick-live-train`이고 label refresh도 `status=ok`, `completed_at=2026-07-10 16:50:42 +0900`다. 중복 학습은 실행하지 않았다.
+- review_ver_27의 2026-07-20 장후 E1/E5 라운드를 `scripts/run_preregistered_e1_e5_round.py/.sh`로 단일 실행화했다. 날짜·장 상태·2026-07-20 label refresh gate, D드라이브 연구 snapshot, 고정 구간 `2026-07-04~2026-07-18`, E1 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 관계, E5 threshold `0.40` random-control 비교를 코드와 합성 테스트로 잠갔다.
+- 현재 dry-run은 `before_preregistered_not_before`로 정상 차단됐고 네트워크·주문 호출은 각각 0건이다. 실제 E1/E5 결과는 아직 생성하지 않았으며 첫 허용 시각은 `2026-07-20 15:30 KST`다.
+- Phase 1b 실제 관측은 구조 준비가 끝났지만 live read-only 자격정보가 없어 token/account/system clock 증거 3종이 미검증이다. 실전 주문 경로와는 분리된 blocker다.
+- 다음 외부 시점 작업은 다음 거래일 장후 mismatch 4종목 1회 재확인, 정규장 dashboard/watchdog 장시간 관측, 2026-07-20 장후 E1/E5 실측이다.
+- 주문 정책, gate, active model, KIS live shadow 범위, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다.
+
 ### 2026-07-10 22:10 KST 장후 스냅샷
 
 - live runtime은 `stopped/post-close`, watchdog과 dashboard는 `running`이고 오류 없이 정상 응답 중이다.

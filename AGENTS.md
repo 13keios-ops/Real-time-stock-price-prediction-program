@@ -1,4 +1,4 @@
-﻿# 작업 지침
+# 작업 지침
 
 > 이 파일은 이 저장소에서 Codex가 따라야 할 로컬 실행 지침이다.
 > `D:/GitHub/ref_AGENTS.md`는 공통 설계 기준서일 뿐이며, 이 파일에는 현재 저장소에 실제로 존재하는 경로와 명령만 둔다.
@@ -262,6 +262,7 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 - 버전은 작업 마지막에 바꾸고, 감시기 또는 수동 commit/push 흐름과 충돌하지 않게 한다.
 - 매시간 저장소 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 남기고 git 추적 파일을 직접 수정하지 않는다.
 - Codex 운영 job 산출물은 `runtime-data/reports/codex/ops/` 아래에 남긴다. 장중 운영 job은 `app/services/codex_ops.py`의 manifest/권한 모델을 통과해야 하며, root 코드 적용, 운영 DB schema apply, runtime restart, 실전 주문 관련 flag 변경은 자동 실행하지 않는다. 현재 구현된 wrapper는 `scripts/run_codex_ops_job.sh --job-type premarket-readiness` dry-run report 생성, `scripts/run_live_readiness_dry_run.sh` fixture 기반 10개 check readiness report 생성, `scripts/probe_kis_clock_reference.sh` read-only KIS quote 기반 system_clock check 및 `--compare-paper-live` paper/live reference 비교 생성, `scripts/probe_kis_token_refresh.sh` KIS auth-only token_refresh check 생성, `scripts/probe_kis_account_snapshot.sh` KIS read-only account_snapshot check 생성, `scripts/probe_kis_ws_recovery.sh` synthetic WS recovery check 생성, `scripts/probe_market_status_snapshot.sh` repo-local manual market_status check 생성, `scripts/build_live_readiness_fixture_snapshot.sh` 로컬 증적 fixture snapshot 생성까지다. readiness DB 기록은 기본값이 아니며 `--record`와 repo 내부 `--database-path`가 함께 있어야 한다. `scripts/set_live_kill_switch.sh`는 기본 dry-run/status이고, 실제 kill switch ON/OFF 파일 기록은 `--apply`가 있을 때만 수행한다. OFF 해제는 `--disable --apply --confirm-disable` 조합을 요구한다.
+- 2026-07-20 장후 사전등록 E1/E5 라운드는 `scripts/run_preregistered_e1_e5_round.sh --execute` 한 명령으로만 실행한다. 이 wrapper는 `2026-07-20 15:30 KST` 이전과 장중을 fail-closed로 차단하고, 고정 날짜 구간의 D드라이브 연구 snapshot을 read-only로 읽는다. 결과로 threshold/EV, 주문 정책, active model/gate를 자동 변경하지 않는다.
 - Phase 2/3 live submit caller는 `LiveOrderGuard.assert_can_submit()` 또는 `LiveOrderManager.submit_intent()`에 실제 WS 복구 관측 evidence type을 넘겨야 한다. 넘기지 않거나 synthetic 값이면 `ws_recovery_real_evidence_required`로 차단한다.
 
 ## 11. 완료 기준

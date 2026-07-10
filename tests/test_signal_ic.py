@@ -192,5 +192,118 @@ class SignalIcTests(unittest.TestCase):
         self.assertIn("probability_down", open_entry)
         self.assertIn("probability_up", open_entry)
 
+
+    def test_windowed_remeasurement_filters_dates_and_reports_preregistered_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "ic-window.db"
+            diagnostics_path = Path(tmp) / "diagnostics.json"
+            diagnostics_path.write_text('{"trade_cost_pct": 0.108}\n', encoding="utf-8")
+            conn = sqlite3.connect(db_path)
+            self.addCleanup(conn.close)
+            conn.executescript(
+                """
+                CREATE TABLE serving_trade_signals (
+                    signal_id TEXT,
+                    symbol TEXT,
+                    event_time TEXT,
+                    side TEXT,
+                    confidence REAL,
+                    reason TEXT,
+                    allowed INTEGER
+                );
+                CREATE TABLE serving_predictions (
+                    prediction_id TEXT,
+                    symbol TEXT,
+                    event_time TEXT,
+                    horizon_min INTEGER,
+                    model_version TEXT,
+                    probability_up REAL,
+                    probability_flat REAL,
+                    probability_down REAL
+                );
+                CREATE TABLE feature_labels (
+                    symbol TEXT,
+                    event_time TEXT,
+                    horizon_min INTEGER,
+                    label TEXT,
+                    threshold_pct REAL,
+                    future_return_pct REAL
+                );
+                """
+            )
+            inside_days = ["2026-07-10", "2026-07-13", "2026-07-14"]
+            all_days = ["2026-07-03", *inside_days]
+            idx = 0
+            for day in all_days:
+                for symbol in ("005380", "035420", "105560"):
+                    for rank in range(4):
+                        event_time = f"{day}T09:{10 + rank:02d}:00+09:00"
+                        future_return = -1.5 + rank
+                        if symbol == "005380":
+                            probability_up = 0.10 + rank * 0.10
+                            probability_down = 0.70 - rank * 0.10
+                            probability_flat = 1.0 - probability_up - probability_down
+                        elif symbol == "035420":
+                            probability_down = 0.40 - rank * 0.10
+                            probability_up = 0.20 + rank * 0.05
+                            probability_flat = 1.0 - probability_up - probability_down
+                        else:
+                            probability_down = 0.10 + rank * 0.10
+                            probability_up = 0.20 + rank * 0.05
+                            probability_flat = 1.0 - probability_up - probability_down
+                        conn.execute(
+                            "INSERT INTO serving_trade_signals VALUES (?, ?, ?, 'buy', 0.5, 'baseline', 1)",
+                            (f"sig-{idx}", symbol, event_time),
+                        )
+                        conn.execute(
+                            "INSERT INTO serving_predictions VALUES (?, ?, ?, 15, 'lightgbm-h15-v1', ?, ?, ?)",
+                            (
+                                f"pred-{idx}",
+                                symbol,
+                                event_time,
+                                probability_up,
+                                probability_flat,
+                                probability_down,
+                            ),
+                        )
+                        conn.execute(
+                            "INSERT INTO feature_labels VALUES (?, ?, 15, 'flat', 0.35, ?)",
+                            (symbol, event_time, future_return),
+                        )
+                        idx += 1
+            conn.commit()
+
+            summary = build_summary(
+                database_path=db_path,
+                diagnostics_path=diagnostics_path,
+                horizon_min=15,
+                min_daily_rows=2,
+                start_date="2026-07-04",
+                end_date="2026-07-18",
+            )
+
+        self.assertEqual(summary["joined_rows"], 36)
+        self.assertEqual(summary["trade_days"], inside_days)
+        self.assertEqual(
+            summary["requested_date_range"],
+            {"start_date": "2026-07-04", "end_date": "2026-07-18"},
+        )
+        self.assertIn("probability_flat", summary)
+        remeasurement = summary["preregistered_remeasurement"]
+        self.assertTrue(remeasurement["window_locked_to_review_ver_27"])
+        candidates = remeasurement["candidate_reproducibility"]
+        self.assertEqual(candidates["reproduced_count"], 3)
+        self.assertTrue(candidates["all_reproduced"])
+        relationship = remeasurement["special_105560_probability_relationship"]
+        self.assertEqual(relationship["probability_flat"]["summary"]["days_usable"], 3)
+        self.assertEqual(
+            relationship["down_up_daily_ic_relationship"]["paired_days"],
+            3,
+        )
+        self.assertEqual(
+            relationship["down_up_daily_ic_relationship"]["same_sign_days"],
+            3,
+        )
+
 if __name__ == "__main__":
     unittest.main()
