@@ -20,6 +20,19 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-10 22:10 KST 장후 스냅샷
+
+- live runtime은 `stopped/post-close`, watchdog과 dashboard는 `running`이고 오류 없이 정상 응답 중이다.
+- 장후 ML은 `status=ok`, `completed_at=2026-07-10 16:17:58 +0900`, `mode=quick-live-train`이다. label refresh도 `status=ok`, `completed_at=2026-07-10 16:50:42 +0900`로 완료됐다.
+- active model은 `baseline-h15-v1`을 유지한다. challenger 권고는 `keep_active`, `promotion_applied=false`, gate는 `needs_review`다. top challenger `fresh_centroid`는 3분류 정확도 `0.314705`, 매수 신호 적중률 `0.75`, 누적 순수익률 합 `+5.444049%p`, 거래 `4건`이라 표본 부족을 먼저 본다.
+- KIS live data quality는 `assessment.status=ok`, 최신 거래일 `2026-07-10`, 거래일 `50일`, feature/bar 비율 `1.0`, h15 label/feature 비율 `0.973009`다. 다만 Cybos와 KIS 사이 `bid_ask_imbalance`, `spread_bps` source drift와 단일 피처 신호 부족은 계속 관찰한다.
+- `./scripts/recheck_paper_kis_mismatch.sh`를 장후 1회 실행했다. broker sync는 `status=ok`, open order `0`, pending symbol 없음이지만 reconciliation은 4종목(`035420`, `086520`, `105560`, `247540`) 불일치로 `needs_review`다. 네 종목 모두 local paper 수량은 KIS order/fill 원장 순수량과 맞고, KIS 계좌 snapshot 수량만 달라 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. 자동 align과 `SyncInitialCash`는 계속 보류한다.
+- order/fill 조회 중 `EGW00201` 제한 경고가 3회 발생했으나 10/30/60초 대기 후 wrapper는 정상 완료됐다. 같은 endpoint는 오늘 다시 호출하지 않는다.
+- buy-avoid threshold `0.40`은 2026-06-11~2026-07-10 `joined_rows=33,007`, skip `9,002`, raw net delta `+846.0341%p`다. 그러나 random control 대비 excess가 `+238.2658%p`, z-score `4.1266`, verdict `filter_worse_than_random_p95`이므로 주문 정책 후보로 승격하지 않고 관측만 유지한다.
+- buy-rescue는 Cybos 결과 `buy_avoid_candidate_only`를 유지한다. KIS live no-trade ledger가 없어 live 실패로 단정하지 않는다.
+- hold-rescue replay는 eligible lot `161`, 적용 lot `37`, `delta_cash_sum=-26,387원`, 개선 비율 `35.135%`, 비음수 거래일 비율 `21.429%`로 `diagnostic_only_no_hold_rescue_candidate`다.
+- 주문 정책, gate, active model, KIS live shadow 범위, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다. 2026-07-18 이후 첫 거래일 장후 E1/E5 예약과 실험 동결도 유지한다.
+
 ### 2026-07-07 01:15 KST 스냅샷
 
 - review_ver_29 §5 운영자 승인에 따라 Phase 1 readiness 규격 준비를 시작했다.
@@ -349,13 +362,14 @@
     2026-06-05, 2026-06-08, 2026-06-09에 반복된 `watch` 원인은
     2026-06-13 read-only 조회로 1차 정리했고, 현재는 2026-06-08처럼
     raw market symbol-minute 가 약한 구간이 재발하는지만 다음 거래일에 관찰한다.
-  - 2026-06-15 장후 현재 broker paper sync 는 KIS `EGW00201` rate limit 으로
-    `status=rate_limited`, open order `5건`이다.
-  - 최신 reconciliation 은 `status=needs_review`, mismatch count `5`다.
-    local 은 `005930`, `035420` 보유로 보고 broker 는 `068270`, `105560`, `247540`
-    보유로 보므로, 수량 mismatch 해소 전까지 marker-only alignment 를 적용하지 않는다.
-  - `trace_paper_kis_mismatch.py`는 최신 `paper-account-sync` mismatch 목록을
-    우선 기준으로 쓰도록 보강됐고, 현재 trace 기준 mismatch count 는 `0`이다.
+  - 2026-07-10 장후 broker paper sync 는 `status=ok`, open order `0`,
+    pending symbol 없음이다.
+  - 최신 reconciliation 은 `status=needs_review`, mismatch count `4`다.
+    대상은 `035420`, `086520`, `105560`, `247540`이며, local paper 수량은 KIS
+    order/fill 원장 순수량과 맞고 KIS 계좌 snapshot 수량만 다르다. root cause scope는
+    `kis_account_snapshot_vs_order_fill_ledger_divergence`다.
+  - 수량 불일치가 계좌 snapshot과 원장 사이에 남아 있으므로 marker-only alignment와
+    `SyncInitialCash`는 적용하지 않는다.
   - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
     30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 재호출하지 않고
     `cooldown_active=true`, `skipped_broker_call=true`를 남기도록 보강했다.
@@ -446,10 +460,10 @@
   - 다음 거래일 첫 신규 제출 뒤에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
   - 2026-06-08과 같은 raw market 약한 구간이 다음 거래일에도 반복되는지
     watchdog heartbeat, KIS WS frame, raw market/orderbook coverage 로 비교한다.
-  - 장후 label refresh 최신 상태 파일은 2026-06-15 기준 `status=ok`로 갱신됐다.
-  - 2026-06-15 KIS order-fill 조회가 `EGW00201`로 막혀 paper/KIS position mismatch 가
-    `needs_review`로 남았다. 다음 제한 해제 뒤 broker paper sync 를 1회만 재시도하고,
-    그 뒤에도 mismatch 가 남으면 자동 align 하지 않고 원인 분석을 계속한다.
+  - 장후 label refresh 최신 상태 파일은 2026-07-10 기준 `status=ok`다.
+  - 2026-07-10 장후 재확인에서도 paper/KIS position mismatch 4종목이 남았다.
+    KIS order/fill 조회는 제한 대기 뒤 완료됐으므로 단순 조회 실패가 아니라 계좌 snapshot과
+    order/fill 원장 사이 divergence로 본다. 다음 장후에 1회만 재확인하고 자동 align은 하지 않는다.
 
 ### Phase 1a: KIS 모의투자 read-only 리허설
 
@@ -557,16 +571,16 @@
 
 ### broker paper sync / initial cash mismatch
 
-- 상태: blocker 재발, KIS order-fill rate limit 해제 대기
+- 상태: blocker 유지, 계좌 snapshot과 order/fill 원장 divergence 관찰
 - 현재 판단:
   - 2026-06-14 장외 broker paper sync 보강과 1회 실제 sync 로 기존 backlog 는 닫혔다.
-  - 2026-06-15 장중 신규 제출 뒤 KIS order-fill 조회가 `EGW00201`와 timeout 으로 막히며
-    `runtime-data/reports/broker-paper/latest-sync.json`은 `status=rate_limited`다.
-  - 최신 reconciliation 은 `status=needs_review`, mismatch count `5`다.
+  - 2026-07-10 장후 broker paper sync는 `status=ok`, open order `0`, pending symbol 없음이다.
+  - 최신 reconciliation 은 `status=needs_review`, mismatch count `4`다.
   - 수량 mismatch 가 있으므로 `-SyncInitialCash`와 marker-only `-AlignToBroker`는 실행하지 않는다.
-  - 현재 local 은 `005930` 1주, `035420` 2주를 보유로 보고,
-    broker 는 `068270`, `105560`, `247540` 각 3주를 보유로 본다.
-  - 이는 order-fill 조회 실패로 로컬 장부가 장중 broker 체결 상태를 따라가지 못한 상황으로 본다.
+  - 대상은 `035420`, `086520`, `105560`, `247540`이다. local paper 수량은 KIS
+    order/fill 원장 순수량과 맞고 KIS 계좌 snapshot 수량만 다르다.
+  - root cause scope는 `kis_account_snapshot_vs_order_fill_ledger_divergence`이며,
+    단순 order/fill 조회 실패로 보지 않는다.
 - 보존되는 기존 판단:
   - 2026-06-14 기준 `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`은
     `assessment.status=ok`, mismatch count `0`이었다.
@@ -583,13 +597,13 @@
     과거 주문일 잔량이면 `expired` 또는 `expired_partial`로 닫는다.
 - 다음 작업:
   - 같은 KIS order-fill endpoint 반복 호출은 중지한다.
-  - 다음 장후 또는 제한 해제 뒤 broker paper sync 를 1회만 재시도한다.
+  - 다음 장후 broker paper sync를 1회만 재시도한다.
   - 그 뒤 reconciliation 을 다시 확인한다.
   - 수량 mismatch 가 0으로 닫히기 전까지 `SyncInitialCash`와 추가 `AlignToBroker`는 실행하지 않는다.
   - 누적 paper-vs-broker 자동 집계와 dashboard 표시가 최신 marker 상태를 잘 설명하는지 확인한다.
 - 권장안:
   - Phase 0 계좌 정합성 blocker 는 다시 열린 상태로 본다.
-  - 오늘은 추가 KIS order-fill 호출을 멈추고, 다음 안전한 재시도 시점에 1회만 재확인한다.
+  - 오늘은 추가 KIS order-fill 호출을 멈추고, 다음 장후에 1회만 재확인한다.
 
 ### dashboard/watchdog daemon 유지
 

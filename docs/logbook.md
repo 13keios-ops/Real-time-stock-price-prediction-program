@@ -6571,3 +6571,19 @@ python -m app --build-dashboard
 - 전체 unittest 462개 통과, compileall 및 git diff --check 통과.
 - 작업 리포트: docs/cowork-reports/2026-07-10-repo-deep-review-work_ver_30.md
 - 실전 주문, active model 승격, app/risk, config, VERSION, NAS 백업은 실행하지 않았다.
+
+## 2026-07-10 장후 수동 운영 체크
+
+- 사용자 명시 요청으로 정규 자동화 시각이 지난 뒤 장후 운영 작업을 수동 실행했다.
+- live runtime은 `stopped/post-close`, watchdog과 dashboard는 `running`이며 오류 없이 정상이다.
+- 장후 ML은 `status=ok`, `completed_at=2026-07-10 16:17:58 +0900`, `mode=quick-live-train`이다. label refresh도 `status=ok`, `completed_at=2026-07-10 16:50:42 +0900`다.
+- active model은 `baseline-h15-v1` 유지, challenger 권고는 `keep_active`, `promotion_applied=false`, gate는 `needs_review`다. top challenger `fresh_centroid`는 3분류 정확도 `0.314705`, 매수 신호 적중률 `0.75`, 누적 순수익률 합 `+5.444049%p`, 거래 `4건`으로 표본이 너무 작다.
+- KIS live data quality는 `assessment.status=ok`, 최신 거래일 `2026-07-10`, 거래일 `50일`, feature/bar 비율 `1.0`, h15 label/feature 비율 `0.973009`다.
+- `./scripts/recheck_paper_kis_mismatch.sh`를 1회 실행했다. sync는 `status=ok`, open order `0`, pending symbol 없음이지만 reconciliation은 4종목(`035420`, `086520`, `105560`, `247540`) 불일치로 `needs_review`다.
+- 네 종목은 local paper 수량과 KIS order/fill 원장 순수량이 일치하고 KIS 계좌 snapshot 수량만 달라 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. 자동 align과 `SyncInitialCash`는 실행하지 않았다.
+- KIS order/fill 조회에서 `EGW00201` 제한 경고가 3회 발생했으나 10/30/60초 대기 후 wrapper는 정상 완료됐다. 같은 endpoint는 오늘 추가 호출하지 않는다.
+- buy-avoid threshold `0.40`: 2026-06-11~2026-07-10, `joined_rows=33,007`, skip `9,002`, raw net delta `+846.0341%p`. random control 대비 excess `+238.2658%p`, z-score `4.1266`, verdict `filter_worse_than_random_p95`이므로 주문 정책 후보로 승격하지 않는다.
+- buy-rescue는 Cybos 진단 `buy_avoid_candidate_only`를 유지한다. KIS live no-trade ledger가 없어 live 실패로 단정하지 않는다.
+- hold-rescue replay는 eligible lot `161`, 적용 lot `37`, `delta_cash_sum=-26,387원`, 개선 비율 `35.135%`, 비음수 거래일 비율 `21.429%`로 `diagnostic_only_no_hold_rescue_candidate`다.
+- runtime report와 dashboard snapshot을 갱신했다. 실전 주문/취소, 주문 정책, gate, active model, KIS live shadow 확장, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 건드리지 않았다.
+- 다음 권장 작업은 같은 KIS endpoint를 반복 호출하지 않고 다음 장후에 mismatch를 1회만 재확인하는 것이다. 모델 실험은 2026-07-18 이후 첫 거래일 장후 E1/E5 예약 전까지 동결한다.
