@@ -28,6 +28,8 @@
 - KIS live data quality는 `assessment.status=ok`, 최신 거래일 `2026-07-10`, 거래일 `50일`, feature/bar 비율 `1.0`, h15 label/feature 비율 `0.973009`다. 다만 Cybos와 KIS 사이 `bid_ask_imbalance`, `spread_bps` source drift와 단일 피처 신호 부족은 계속 관찰한다.
 - `./scripts/recheck_paper_kis_mismatch.sh`를 장후 1회 실행했다. broker sync는 `status=ok`, open order `0`, pending symbol 없음이지만 reconciliation은 4종목(`035420`, `086520`, `105560`, `247540`) 불일치로 `needs_review`다. 네 종목 모두 local paper 수량은 KIS order/fill 원장 순수량과 맞고, KIS 계좌 snapshot 수량만 달라 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. 자동 align과 `SyncInitialCash`는 계속 보류한다.
 - order/fill 조회 중 `EGW00201` 제한 경고가 3회 발생했으나 10/30/60초 대기 후 wrapper는 정상 완료됐다. 같은 endpoint는 오늘 다시 호출하지 않는다.
+- 이 관측으로 미완료였던 P0 호출량 축소를 적용했다. 기본 helper, 장후 batch, 장중 종료 force sync는 이제 HTTP 1회만 시도하고, 최초 제한부터 2시간 cooldown과 남은 초를 기록한다.
+- recheck wrapper도 보강해 실제 실행 결과와 dry-run/차단 시도 파일을 분리했다. 자기검토 중 덮인 최신 wrapper 요약은 보존된 sync·reconciliation·trace 증거에서 복원했고, dry-run 전후 SHA-256이 동일함을 확인했다.
 - buy-avoid threshold `0.40`은 2026-06-11~2026-07-10 `joined_rows=33,007`, skip `9,002`, raw net delta `+846.0341%p`다. 그러나 random control 대비 excess가 `+238.2658%p`, z-score `4.1266`, verdict `filter_worse_than_random_p95`이므로 주문 정책 후보로 승격하지 않고 관측만 유지한다.
 - buy-rescue는 Cybos 결과 `buy_avoid_candidate_only`를 유지한다. KIS live no-trade ledger가 없어 live 실패로 단정하지 않는다.
 - hold-rescue replay는 eligible lot `161`, 적용 lot `37`, `delta_cash_sum=-26,387원`, 개선 비율 `35.135%`, 비음수 거래일 비율 `21.429%`로 `diagnostic_only_no_hold_rescue_candidate`다.
@@ -370,8 +372,8 @@
     `kis_account_snapshot_vs_order_fill_ledger_divergence`다.
   - 수량 불일치가 계좌 snapshot과 원장 사이에 남아 있으므로 marker-only alignment와
     `SyncInitialCash`는 적용하지 않는다.
-  - 2026-06-11 작업에서 broker paper sync 는 최근 rate-limit 리포트가
-    30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 재호출하지 않고
+  - 2026-07-10 작업에서 broker paper sync 는 한 실행당 HTTP 1회만 시도하고,
+    최초 rate-limit부터 2시간 cooldown을 기록하며 후속 실행은 endpoint를 호출하지 않고
     `cooldown_active=true`, `skipped_broker_call=true`를 남기도록 보강했다.
   - 2026-06-11 최신 challenger 기준 active 는 `baseline-h15-v1`,
     권장은 `keep_active`다. LightGBM은 shadow/관찰 대상이며 승격되지 않았다.

@@ -6587,3 +6587,16 @@ python -m app --build-dashboard
 - hold-rescue replay는 eligible lot `161`, 적용 lot `37`, `delta_cash_sum=-26,387원`, 개선 비율 `35.135%`, 비음수 거래일 비율 `21.429%`로 `diagnostic_only_no_hold_rescue_candidate`다.
 - runtime report와 dashboard snapshot을 갱신했다. 실전 주문/취소, 주문 정책, gate, active model, KIS live shadow 확장, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 건드리지 않았다.
 - 다음 권장 작업은 같은 KIS endpoint를 반복 호출하지 않고 다음 장후에 mismatch를 1회만 재확인하는 것이다. 모델 실험은 2026-07-18 이후 첫 거래일 장후 E1/E5 예약 전까지 동결한다.
+
+
+## [2026-07-10] 정리된 미완료 작업 이행 - KIS order-fill 단일 호출
+
+- 기준 문서와 최신 cowork/work 리포트를 완료 증거 기준으로 대조해, 다음 거래일 장후 mismatch 지속 시 order-fill 호출량을 줄이기로 한 작업이 아직 미구현임을 확인했다.
+- `app/services/broker_paper.py` 기본 retry, `app/services/broker_paper_sync.py` 장후 batch retry, `app/services/streaming.py` 종료 force sync retry를 모두 빈 지연 목록으로 고정해 한 실행당 HTTP 1회만 허용했다.
+- 최초 `EGW00201`부터 `cooldown_active=true`, `retry_after_seconds=7200`을 리포트에 남긴다. 2시간 안의 후속 sync는 KIS를 호출하지 않고 `skipped_broker_call=true`로 끝난다.
+- 최신 mismatch는 4종목(`035420`, `086520`, `105560`, `247540`)이며 local paper 수량과 KIS order/fill 순수량은 일치하고 KIS 계좌 snapshot만 다르다. 자동 align과 `SyncInitialCash`는 계속 보류한다.
+- 관련 테스트 28개 통과, 전체 unittest 464개 통과, 전체 pytest 464개와 subtest 62개 통과, `git diff --check` 통과.
+- 종료 전 자기검토에서 default `--dry-run`이 authoritative `latest-paper-kis-mismatch-recheck.json`을 덮는 문제를 발견했다. 실제 실행과 attempt 출력 경로를 분리하고 회귀 테스트를 추가했다.
+- 보존돼 있던 broker sync, paper reconciliation, mismatch trace 증거로 최신 recheck 요약을 `mode=reconstructed_existing_evidence`로 복원했다. 추가 KIS 호출은 없었고, 이후 dry-run 전후 authoritative 파일 SHA-256이 동일했다.
+- 신규 모델 실험, E2/E3 tuning, 종목별 주문 정책, h60 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다.
+- 지금 실행하면 유효하지 않은 다음 장전 readiness 증거는 08:20~08:40에 생성하고, E1/E5 라운드는 2026-07-18 이후 첫 거래일인 2026-07-20 장후 예약을 유지한다.

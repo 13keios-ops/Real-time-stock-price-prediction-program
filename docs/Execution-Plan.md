@@ -132,7 +132,7 @@ git status --short --branch
 - 월요일 장중에는 watchdog heartbeat 가 10분 이내 fresh 로 유지되는지 P0-4 증거를 남긴다.
 - 월요일 장후에는 broker order-fill sync 에서 `EGW00201` rate limit 이 재발하는지 확인한다.
 - 당일 주문이 생긴 경우 `broker_paper_sync.py`의 final-state 보존 경로가 당일 open 주문을 조기 final 처리하지 않는지 주문일, 조회 성공 여부, rate-limit 여부를 함께 본다.
-- 2026-07-05 최신 mismatch 5종목은 로컬 paper 수량과 KIS order-fill 순수량이 일치하고 KIS 계좌 잔고 snapshot 만 다른 상태로 좁혔다. 이 경우 자동 align 대신 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 두고 다음 거래일 장후 `./scripts/recheck_paper_kis_mismatch.sh`로 계좌 snapshot 과 order-fill snapshot 을 재비교한다. 이 wrapper 는 `pre-open`, `regular-session`, live runtime 실행 중뿐 아니라 `weekend`/`holiday`도 기본 차단해 주말 재실행 결과를 완료 증거로 오해하지 않게 한다.
+- 2026-07-10 최신 mismatch 4종목은 로컬 paper 수량과 KIS order-fill 순수량이 일치하고 KIS 계좌 잔고 snapshot만 다른 상태다. 자동 align 대신 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 두고 다음 거래일 장후 `./scripts/recheck_paper_kis_mismatch.sh`로 1회만 재비교한다. wrapper는 `pre-open`, `regular-session`, live runtime 실행 중, `weekend`/`holiday`를 기본 차단한다. 실제 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 쓰고, dry-run이나 차단된 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 분리해 정상 증거를 덮지 않는다.
 
 ### 이유
 
@@ -716,15 +716,15 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 
 현재 기준 다음 실제 작업 순서는 아래가 권장안이다.
 
-1. broker paper sync rate limit과 local-only mismatch 원장을 `scripts/trace_paper_kis_mismatch.py`로 확인한다.
-2. 다음 거래일 장후에도 mismatch가 남으면 P0 운영 blocker로 보고 order-fill 호출량 설계를 줄인다.
-3. E1/E6 결과에 따라 h15 threshold/EV 튜닝은 보류하고, 먼저 신호 품질 개선 또는 horizon 전환 후보를 설계한다.
-4. KIS live feature 후보는 `probability_down` 자체가 정보가 약하다는 전제에서 재검토한다.
-5. gate walk-forward 극단 저성능 fold를 `scripts/summarize_walk_forward_extreme_folds.py`로 추적하고, 원인 분석 후보 기간을 고른다.
-6. dashboard/watchdog 장시간 유지 상태를 다음 장중에 read-only로 확인한다.
-7. 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
-8. Phase 1a readiness 증거를 최신화한다.
-9. Phase 1b 실전 read-only는 주문 메서드 없는 client 준비와 비밀값 로컬 준비가 끝난 뒤 진행한다.
+1. 완료(2026-07-10): `scripts/trace_paper_kis_mismatch.py`로 최신 4종목이 모두 KIS 계좌 snapshot과 order/fill 원장 사이 divergence임을 재확인했다.
+2. 완료(2026-07-10): order-fill 기본 helper, 장후 batch, 장중 종료 force sync를 모두 HTTP 1회로 제한하고 최초 제한부터 2시간 cooldown을 기록하도록 보강했다.
+3. 예약(2026-07-20 장후): E1 재측정과 E5 역발상 관찰 결과로 신호 품질 개선 또는 horizon 전환 후보를 판정한다. 그 전까지 threshold/EV tuning은 하지 않는다.
+4. 예약(2026-07-20 장후): KIS live feature 후보는 `probability_down` 자체의 정보가 약하다는 전제에서 E1 결과와 함께 재검토한다.
+5. 보류: gate walk-forward 극단 fold 추가 분석은 사전등록된 E1/E5 결과를 본 뒤 필요성을 다시 판정한다.
+6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.
+7. 대기: 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
+8. 다음 장전: Phase 1a readiness 증거는 08:20~08:40에만 새로 만들어야 유효하므로 야간 선행 실행하지 않는다.
+9. 대기: Phase 1b 실전 read-only는 Phase 0 mismatch와 fail-closed readiness blocker가 정리되고 주문 메서드 없는 client·로컬 비밀값 준비가 끝난 뒤 진행한다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.

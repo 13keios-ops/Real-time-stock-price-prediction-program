@@ -4,11 +4,13 @@ from datetime import datetime
 from pathlib import Path
 import unittest
 import uuid
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_rest import KisDailyOrderFillRecord
 from app.config.settings import load_settings
+from app.services.broker_paper import BrokerPaperMirror, ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS
 from app.services.broker_paper_sync import (
     BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS,
     BrokerPaperExecutionSync,
@@ -34,6 +36,22 @@ class BrokerPaperSyncTests(unittest.TestCase):
             "KIS_PRODUCT_CODE_PAPER": "01",
         }
         return root, env
+
+    def test_order_fill_fetch_does_not_retry_rate_limit_by_default(self) -> None:
+        mirror = object.__new__(BrokerPaperMirror)
+        mirror.settings = SimpleNamespace(timezone="Asia/Seoul")
+        mirror.client = Mock()
+        mirror.client.get_daily_order_fills.side_effect = KisApiError(
+            "KIS REST quote error: EGW00201 rate limit"
+        )
+
+        with patch("app.services.broker_paper.time.sleep") as mocked_sleep:
+            with self.assertRaises(KisApiError):
+                mirror.fetch_recent_order_fills()
+
+        self.assertEqual(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS, ())
+        self.assertEqual(mirror.client.get_daily_order_fills.call_count, 1)
+        mocked_sleep.assert_not_called()
 
     def test_sync_broker_paper_orders_applies_broker_fill_to_local_book(self) -> None:
         root, env = self._prepare_runtime()
@@ -172,6 +190,9 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(result.open_order_count, 1)
         self.assertEqual(result.pending_symbols, ["005930"])
         self.assertIsNotNone(result.error)
+        self.assertTrue(result.cooldown_active)
+        self.assertFalse(result.skipped_broker_call)
+        self.assertEqual(result.retry_after_seconds, 2 * 60 * 60)
         self.assertIsNotNone(latest_order)
         self.assertEqual(str(latest_order["status"]), "submitted")
 
@@ -616,7 +637,7 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertIn("fill-broker-sync-", first_id)
         self.assertIn("fill-broker-sync-", second_id)
 
-    def test_app_level_sync_uses_slow_batch_retry_delays(self) -> None:
+    def test_app_level_sync_uses_single_attempt_and_two_hour_cooldown(self) -> None:
         root, env = self._prepare_runtime()
         dummy_result = BrokerPaperSyncResult(
             ok=True,
@@ -637,6 +658,8 @@ class BrokerPaperSyncTests(unittest.TestCase):
             with patch.object(BrokerPaperExecutionSync, "sync_recent_orders", return_value=dummy_result) as mocked_sync:
                 result = sync_broker_paper_orders(project_root=root)
 
+        self.assertEqual(ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS, ())
+        self.assertEqual(BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS, ())
         self.assertIs(result, dummy_result)
         self.assertEqual(
             mocked_sync.call_args.kwargs["retry_delays_seconds"],

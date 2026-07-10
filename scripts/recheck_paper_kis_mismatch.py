@@ -6,6 +6,8 @@ regular-session, weekend/holiday, or while live runtime is running unless
 explicitly overridden. It performs no alignment and sends no orders. The default
 flow refreshes broker paper order/fill sync, refreshes paper/account
 reconciliation, then rebuilds the read-only mismatch trace report.
+Dry-run and blocked attempts are written to a separate attempt report so they
+cannot replace the latest completed operational evidence.
 """
 
 from __future__ import annotations
@@ -22,15 +24,29 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_PATH = Path("runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck.json")
+DEFAULT_ATTEMPT_OUTPUT_PATH = Path(
+    "runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck-attempt.json"
+)
 DEFAULT_TRACE_PATH = Path("runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json")
 PROTECTED_SESSION_STATUSES = {"pre-open", "regular-session"}
 NON_TRADING_DAY_STATUSES = {"weekend", "holiday"}
 
 
+def choose_default_output_path(
+    *,
+    dry_run: bool,
+    protected_blocked: bool,
+    non_trading_blocked: bool,
+) -> Path:
+    if dry_run or protected_blocked or non_trading_blocked:
+        return DEFAULT_ATTEMPT_OUTPUT_PATH
+    return DEFAULT_OUTPUT_PATH
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", default=str(REPO_ROOT))
-    parser.add_argument("--output-path", default=str(DEFAULT_OUTPUT_PATH))
+    parser.add_argument("--output-path")
     parser.add_argument("--limit-per-table", type=int, default=12)
     parser.add_argument("--allow-protected-session", action="store_true")
     parser.add_argument("--allow-non-trading-day", action="store_true")
@@ -38,14 +54,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     project_root = Path(args.project_root).expanduser().resolve()
-    output_path = _resolve_inside_repo(args.output_path, project_root, "output_path")
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     runtime_status = load_live_runtime_status(project_root)
     planned_commands = build_command_plan(project_root, limit_per_table=args.limit_per_table)
+    protected_blocked = is_protected_runtime_status(runtime_status) and not args.allow_protected_session
+    non_trading_blocked = is_non_trading_day_status(runtime_status) and not args.allow_non_trading_day
+    default_output = choose_default_output_path(
+        dry_run=args.dry_run,
+        protected_blocked=protected_blocked,
+        non_trading_blocked=non_trading_blocked,
+    )
+    output_path = _resolve_inside_repo(str(args.output_path or default_output), project_root, "output_path")
 
-    if is_protected_runtime_status(runtime_status) and not args.allow_protected_session:
+    if protected_blocked:
         payload = {
             "status": "blocked",
+            "mode": "attempt",
             "generated_at": generated_at,
             "summary": "paper/KIS mismatch recheck blocked during protected runtime session",
             "runtime_status": runtime_status,
@@ -57,10 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
         return 2
 
-    if is_non_trading_day_status(runtime_status) and not args.allow_non_trading_day:
+    if non_trading_blocked:
         payload = {
             "status": "blocked",
             "generated_at": generated_at,
+            "mode": "attempt",
             "summary": "paper/KIS mismatch recheck blocked on non-trading day; wait for next trading-day post-close",
             "runtime_status": runtime_status,
             "planned_commands": [display_command(command, project_root) for command in planned_commands],
@@ -75,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "status": "dry_run",
             "generated_at": generated_at,
+            "mode": "attempt",
             "summary": "paper/KIS mismatch recheck command plan only",
             "runtime_status": runtime_status,
             "planned_commands": [display_command(command, project_root) for command in planned_commands],
@@ -105,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "status": status,
         "generated_at": generated_at,
+        "mode": "executed_recheck",
         "summary": build_recheck_summary(status, trace_summary),
         "runtime_status": runtime_status,
         "steps": steps,

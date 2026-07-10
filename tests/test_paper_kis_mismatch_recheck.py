@@ -1,12 +1,15 @@
+from pathlib import Path
 import unittest
 
 from scripts.recheck_paper_kis_mismatch import (
+    DEFAULT_ATTEMPT_OUTPUT_PATH,
+    DEFAULT_OUTPUT_PATH,
     build_command_plan,
+    choose_default_output_path,
     is_non_trading_day_status,
     is_protected_runtime_status,
     summarize_trace_payload,
 )
-from pathlib import Path
 
 
 class PaperKisMismatchRecheckTests(unittest.TestCase):
@@ -20,6 +23,27 @@ class PaperKisMismatchRecheckTests(unittest.TestCase):
         self.assertTrue(is_non_trading_day_status({"current_session_status": "weekend"}))
         self.assertTrue(is_non_trading_day_status({"session_status": "holiday"}))
         self.assertFalse(is_non_trading_day_status({"current_session_status": "post-close"}))
+
+    def test_attempts_do_not_use_authoritative_latest_output_by_default(self) -> None:
+        self.assertEqual(
+            choose_default_output_path(
+                dry_run=False,
+                protected_blocked=False,
+                non_trading_blocked=False,
+            ),
+            DEFAULT_OUTPUT_PATH,
+        )
+        for kwargs in (
+            {"dry_run": True, "protected_blocked": False, "non_trading_blocked": False},
+            {"dry_run": False, "protected_blocked": True, "non_trading_blocked": False},
+            {"dry_run": False, "protected_blocked": False, "non_trading_blocked": True},
+        ):
+            with self.subTest(kwargs=kwargs):
+                self.assertEqual(
+                    choose_default_output_path(**kwargs),
+                    DEFAULT_ATTEMPT_OUTPUT_PATH,
+                )
+
 
     def test_command_plan_is_sync_reconcile_then_trace(self) -> None:
         plan = build_command_plan(Path("/repo"), limit_per_table=12)

@@ -30,7 +30,7 @@ from app.utils.time import now_local
 EXPIRED_BROKER_ORDER_STATUSES = {"expired", "expired_partial"}
 FINAL_BROKER_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "rejected"} | EXPIRED_BROKER_ORDER_STATUSES
 OPEN_BROKER_ORDER_STATUSES = {"submitted", "pending_lookup", "open", "partially_filled"}
-BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (10.0, 30.0, 60.0, 120.0)
+BATCH_ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS: tuple[float, ...] = ()
 BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS = 2.0 * 60.0 * 60.0
 
 
@@ -483,6 +483,12 @@ class BrokerPaperExecutionSync:
             payload = build_rate_limited_payload(
                 error=str(exc),
                 rate_limited_at=synced_at.isoformat(),
+                cooldown_active=rate_limit_cooldown_seconds > 0,
+                retry_after_seconds=(
+                    max(int(math.ceil(rate_limit_cooldown_seconds)), 0)
+                    if rate_limit_cooldown_seconds > 0
+                    else None
+                ),
             )
             _write_report(markdown_path, json_path, payload)
             return BrokerPaperSyncResult(

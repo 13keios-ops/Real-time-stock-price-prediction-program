@@ -85,6 +85,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 ### KIS rate limit
 
 - 같은 endpoint를 계속 반복 호출하지 않는다.
+- order-fill sync는 한 실행에서 HTTP 1회만 시도하며, `EGW00201` 뒤 in-call retry를 하지 않는다.
 - `EGW00201`이 나오면 모의투자 REST 제한이 낮은 상황으로 보고, 같은 order-fill endpoint는 기본 2시간 cooldown 뒤 1회만 재시도한다.
 - cooldown 중에는 `runtime-data/reports/broker-paper/latest-sync.json`의 `cooldown_active`, `skipped_broker_call`, `retry_after_seconds`, `pending_symbols`를 보고 추가 KIS 호출을 하지 않는다.
 - 계속 `EGW00201`이면 추가 호출을 멈추고 logbook에 남긴다.
@@ -114,7 +115,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 관련 문서/코드 경로: `docs/Manual-Market-Status-Runbook.md`, `docs/KIS-Connection-Runbook.md`, `scripts/probe_kis_ws_recovery.sh`, `scripts/probe_kis_token_refresh.sh`, `scripts/probe_kis_account_snapshot.sh`, `scripts/prepare_market_status_snapshot_template.sh`, `scripts/probe_market_status_snapshot.sh`, `scripts/set_live_kill_switch.sh`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/run_live_readiness_dry_run.sh`
 ### paper/KIS 정합성
 
-장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. weekend/holiday 차단은 주말 재실행 결과를 다음 거래일 장후 증거로 오해하지 않기 위한 것이다.
+장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. 실제 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 쓰며, dry-run과 차단된 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 분리해 마지막 정상 증거를 덮지 않는다.
 
 ```bash
 ./scripts/recheck_paper_kis_mismatch.sh

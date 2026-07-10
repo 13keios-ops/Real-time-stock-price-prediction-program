@@ -52,8 +52,9 @@
 기본 판단:
 
 - `EGW00201`이 뜨면 같은 KIS 일별 주문/체결 조회 endpoint를 즉시 반복 호출하지 않는다.
-- 이 저장소의 기본 cooldown은 2026-06-12부터 2시간이다.
-- cooldown 중에는 broker paper sync가 KIS order-fill 조회를 건너뛰고 `cooldown_active=true`, `skipped_broker_call=true`, `retry_after_seconds`를 리포트에 남긴다.
+- 기본 helper, 장후 batch, 장중 종료 force sync 모두 한 실행에서 HTTP 1회만 시도하며 in-call retry는 하지 않는다.
+- 이 저장소의 기본 cooldown은 2시간이다. 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남긴다.
+- cooldown 중에는 broker paper sync가 KIS order-fill 조회를 건너뛰고 `skipped_broker_call=true`, 남은 `retry_after_seconds`를 리포트에 남긴다.
 - order-fill이 복구되지 않은 상태에서 `AlignToBroker`나 `SyncInitialCash`를 자동 적용하지 않는다.
 
 권장 절차:
@@ -69,9 +70,9 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 변경 전 | order-fill rate limit 후 기본 cooldown이 30분이라 같은 장후 세션 안에서 다시 KIS 제한을 맞을 수 있었다. |
-| 변경 후 | 기본 cooldown을 2시간으로 늘려 모의투자 REST 제한이 낮은 상황에서 같은 endpoint 반복 호출을 줄인다. |
-| 영향 범위 | `app/services/broker_paper_sync.py`, `tests/test_broker_paper_sync.py`, 장후 paper/KIS reconciliation 운영 절차. |
+| 변경 전 | 장후 batch는 한 실행에서 최대 5회, 기본 helper는 최대 4회까지 같은 order-fill endpoint를 재시도할 수 있었다. |
+| 변경 후 | 모든 운영 경로를 HTTP 1회로 제한하고, 최초 `EGW00201`부터 2시간 cooldown과 남은 초를 명시한다. |
+| 영향 범위 | `app/services/broker_paper.py`, `app/services/broker_paper_sync.py`, `app/services/streaming.py`, 관련 테스트와 장후 reconciliation 절차. |
 | 회귀 위험 | 체결 복구가 최대 2시간 늦어질 수 있다. 대신 rate limit 연쇄와 잘못된 자동 align 위험을 줄인다. |
 
 관련 문서/코드 경로: `app/services/broker_paper_sync.py`, `tests/test_broker_paper_sync.py`, `.agents/skills/daily-ops-check/SKILL.md`

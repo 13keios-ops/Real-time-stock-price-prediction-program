@@ -261,7 +261,7 @@ class OnlinePipelineProcessor:
             return
         try:
             result = self.broker_paper_sync.sync_recent_orders(
-                retry_delays_seconds=None if force else (),
+                retry_delays_seconds=(),
             )
         except Exception:
             LOGGER.exception("Broker paper sync failed; keeping live runtime active.")

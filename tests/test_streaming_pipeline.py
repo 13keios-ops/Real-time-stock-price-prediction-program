@@ -373,9 +373,10 @@ class StreamingPipelineTests(unittest.TestCase):
             processor._run_broker_sync(bar_time=first_time)
             processor._run_broker_sync(bar_time=first_time.replace(minute=16))
             processor._run_broker_sync(bar_time=first_time.replace(minute=20))
+            processor._run_broker_sync(bar_time=first_time.replace(minute=21), force=True)
 
-        self.assertEqual(fake_sync.calls, 2)
-        self.assertEqual(fake_sync.retry_delays_seen, [(), ()])
+        self.assertEqual(fake_sync.calls, 3)
+        self.assertEqual(fake_sync.retry_delays_seen, [(), (), ()])
 
     def test_broker_sync_exception_keeps_runtime_alive_and_enters_cooldown(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -20,7 +20,7 @@ from app.utils.time import now_local
 
 
 LOGGER = logging.getLogger(__name__)
-ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
+ORDER_FILL_RATE_LIMIT_RETRY_DELAYS_SECONDS: tuple[float, ...] = ()
 
 
 def is_kis_rate_limit_error(exc: KisApiError) -> bool:

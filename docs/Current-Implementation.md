@@ -401,10 +401,10 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 따라서 대시보드와 reconciliation 은 `total_asset_amount - stock_evaluation_amount` 로 계산한 브로커 유효현금을 기준으로 비교하고, 원시 현금 차이는 `raw_cash_gap` 으로 따로 남긴다.
 브로커 기준 paper baseline alignment 도 보유 종목 유무와 관계없이 같은 유효현금 기준으로 로컬 `cash_balance`를 만든다.
 
-수동 브로커 주문/체결 조회가 KIS `EGW00201` rate-limit 에 걸리면 짧게 재시도한다.
-계속 막히면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
-최근 `rate_limited` 리포트가 30분 cooldown 안에 있으면 같은 KIS order-fill endpoint 를 다시 호출하지 않고 `cooldown_active=true`, `skipped_broker_call=true`를 남긴다.
-실시간 수집 중 브로커 체결 동기화는 분 단위로 제한하고, rate-limit 이 발생하면 즉시 재시도하지 않은 뒤 5분 동안 추가 조회를 쉬어 KIS 호출 제한, 지연, 로그 증가를 줄인다.
+KIS 주문/체결 조회는 수동·장후 배치·장중 종료 동기화 모두 HTTP 1회만 시도하고, `EGW00201` rate-limit 뒤 같은 호출 안에서 재시도하지 않는다.
+제한이 발생하면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
+최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남기고, 2시간 안의 후속 실행은 같은 endpoint 를 호출하지 않은 채 `skipped_broker_call=true`로 끝낸다.
+실시간 수집기는 별도로 5분 process pause를 유지하지만, service의 2시간 cooldown이 실제 KIS order-fill 추가 호출을 차단한다.
 
 브로커 order-fill 조회가 정상 응답했는데 특정 주문이 최신 KIS lookback 에서 사라지면, paper sync 는 이전 status snapshot 과 이미 적용한 체결 수량을 우선 보존한다.
 이전 적용 체결 수량이 주문 수량 이상이면 `filled`로 유지하고, 잔량이 남은 과거 주문일 row 는 다음 거래일에 새 체결로 이어질 수 없으므로 `expired` 또는 `expired_partial` final 상태로 해석한다.
@@ -412,7 +412,9 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 2026-06-14 수정 뒤 실제 broker paper sync 를 1회 실행해 marker 이후 현재 view 의 open order backlog 는 0건으로 닫혔다.
 같은 날 `-SyncInitialCash` 없이 marker-only `-AlignToBroker`를 적용한 뒤 최신 dual account match 는 `matched_waiting_first_submission`, effective cash gap 과 total asset gap 은 `0원`이다. 브로커 원시 예수금과 유효현금 차이는 `raw_cash_gap`으로 별도 표시한다.
 
-2026-07-05 재점검 기준 최신 paper/KIS position mismatch 5종목은 단순 로컬 장부 오류로 보지 않는다. `scripts/trace_paper_kis_mismatch.py`는 최신 KIS order-fill snapshot 의 종목별 순수량(`broker_order_fill_net_qty`)을 함께 계산한다. 현재 5종목 모두 로컬 paper 수량과 KIS order-fill 순수량은 일치하지만, KIS 계좌 잔고 snapshot 수량만 다르다. 따라서 즉시 `AlignToBroker`로 덮지 않고 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. 005380, 247540은 계좌 잔고에만 남은 residual position, 035420, 105560은 주문/체결 원장은 보유를 말하지만 계좌 잔고는 flat 이며 반복 청산 주문이 거부된 상태, 086520은 계좌 잔고가 order-fill 순수량보다 1주 적은 상태다. 다음 조치는 다음 거래일 장후 broker account snapshot 과 order-fill sync 를 다시 비교하고, 계속 유지되면 KIS 모의계좌의 수동/외부 체결 또는 계좌 snapshot 원천 차이를 사람 검토 대상으로 올리는 것이다.
+2026-07-10 재점검 기준 최신 paper/KIS position mismatch는 4종목(`035420`, `086520`, `105560`, `247540`)이다. `scripts/trace_paper_kis_mismatch.py`가 계산한 KIS order-fill 원장 순수량과 로컬 paper 수량은 네 종목 모두 일치하지만 KIS 계좌 잔고 snapshot 수량만 다르므로, 즉시 `AlignToBroker`로 덮지 않고 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. `035420`, `105560`은 주문/체결 원장은 보유를 말하지만 계좌 잔고가 flat 이고 반복 청산 주문이 거부된 상태이며, `086520`, `247540`은 계좌 잔고 수량이 order-fill 순수량과 다르다. `005380`은 최신 mismatch 목록에서 빠졌다. 다음 조치는 2시간 cooldown 이후의 다음 거래일 장후에 account snapshot과 order-fill sync를 1회만 비교하고, 계속 유지되면 KIS 모의계좌의 수동/외부 체결 또는 계좌 snapshot 원천 차이를 사람 검토 대상으로 올리는 것이다.
+
+`scripts/recheck_paper_kis_mismatch.py`는 실제 sync/reconcile/trace 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 기록한다. dry-run 또는 장중·주말 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 따로 기록해 마지막 정상 운영 증거를 덮지 않는다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 변경 전에는 KIS lookback 에서 사라진 주문이 이미 full fill 로 적용됐거나 과거 주문일 잔량으로 남아도 다음 sync 에서 `pending_lookup`으로 되돌아가 open count 를 부풀릴 수 있었다.
@@ -421,10 +423,10 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 회귀 위험은 당일 open 주문을 잘못 final 처리하는 경우인데, 주문일이 동기화일보다 이전인지 확인하고, 조회 실패(rate limit) 경로에서는 final 전환을 하지 않는 방식으로 줄였다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
-변경 전에는 `python -m app --sync-broker-paper-orders`나 장전/장후 점검이 짧은 시간 안에 반복 실행되면, 직전 실행에서 `EGW00201`가 났어도 같은 KIS order-fill endpoint 를 다시 호출할 수 있었다.
-변경 후에는 최근 rate-limit 리포트의 `rate_limited_at`이 30분 안이면 KIS 호출을 생략하고 cooldown 상태 리포트만 갱신한다.
-영향 범위는 `app/services/broker_paper_sync.py`의 브로커 모의계좌 order-fill 조회 진입 전 guard 와 관련 테스트에 한정된다.
-회귀 위험은 rate-limit 이 빨리 풀렸는데도 최대 30분 동안 체결 동기화를 늦추는 경우이며, 이 경우 안전 측으로 pending 상태를 유지하고 실제 주문/계좌 원장은 KIS 계좌 조회와 다음 sync 에서 다시 확인한다.
+변경 전에는 장후 batch가 한 실행에서 최대 5회(10/30/60/120초 대기), 기본 helper가 최대 4회, 장중 종료 force sync가 기본 재시도를 사용할 수 있었다.
+변경 후에는 모든 운영 order-fill 조회가 한 번의 HTTP 시도만 수행하고, 최초 `EGW00201`부터 2시간 cooldown과 남은 초를 리포트에 기록한다.
+영향 범위는 `app/services/broker_paper.py`, `app/services/broker_paper_sync.py`, `app/services/streaming.py`와 관련 테스트에 한정된다.
+회귀 위험은 제한이 빨리 풀려도 체결 감사 복구가 최대 2시간 늦어지는 경우다. 안전 측으로 pending 상태를 보존하고, 계좌 정렬이나 초기 현금 동기화로 원인을 덮지 않는다.
 
 ## KIS 계좌 설정 메모
 
