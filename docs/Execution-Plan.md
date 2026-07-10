@@ -607,6 +607,8 @@ Phase 1a는 주문 없는 리허설이므로 실전 자금 위험 없이 운영 
 관련 문서/코드 경로:
 `app/brokers/`,
 `app/services/live_phase_readiness.py`,
+`app/services/kis_account_shape_comparison.py`,
+`scripts/compare_kis_account_snapshot_checks.sh`,
 `docs/Production-Architecture.md`
 
 ## 15. 11단계: Phase 2 소액 canary 준비
@@ -724,7 +726,7 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.
 7. 대기: 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
 8. 다음 장전: Phase 1a readiness 증거는 08:20~08:40에만 새로 만들어야 유효하므로 야간 선행 실행하지 않는다.
-9. 대기: Phase 1b 실전 read-only는 Phase 0 mismatch와 fail-closed readiness blocker가 정리되고 주문 메서드 없는 client·로컬 비밀값 준비가 끝난 뒤 진행한다.
+9. 구조 준비 완료·실측 대기: 조회 전용 흐름은 주문 메서드 없는 client로 고정했고 sanitized paper/live shape 비교 도구도 준비했다. Phase 0 mismatch와 fail-closed blocker 정리, live credentials 준비 뒤 실제 Phase 1b probe를 진행한다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.

@@ -7,8 +7,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_profile
-from app.brokers.kis_quote_rest import KisRestQuoteClient
+from app.brokers.kis_auth import KisApiError
+from app.brokers.kis_readonly import get_kis_readonly_client
 from app.collectors.market_data import market_tick_from_kis_quote, orderbook_from_kis_quote
 from app.config.settings import load_settings
 from app.observability.logging import configure_logging
@@ -99,9 +99,7 @@ def collect_kis_watchlist_snapshots(
     if not resolved_symbols:
         raise ValueError("No symbols were provided and watchlist is empty.")
 
-    profile = get_active_kis_profile(settings)
-    token_manager = KisTokenManager(profile)
-    client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
+    client = get_kis_readonly_client(settings)
     writer = RuntimeWriter.from_settings(settings)
 
     succeeded: list[str] = []

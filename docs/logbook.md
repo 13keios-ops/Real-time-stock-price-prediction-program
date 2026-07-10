@@ -6600,3 +6600,14 @@ python -m app --build-dashboard
 - 보존돼 있던 broker sync, paper reconciliation, mismatch trace 증거로 최신 recheck 요약을 `mode=reconstructed_existing_evidence`로 복원했다. 추가 KIS 호출은 없었고, 이후 dry-run 전후 authoritative 파일 SHA-256이 동일했다.
 - 신규 모델 실험, E2/E3 tuning, 종목별 주문 정책, h60 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다.
 - 지금 실행하면 유효하지 않은 다음 장전 readiness 증거는 08:20~08:40에 생성하고, E1/E5 라운드는 2026-07-18 이후 첫 거래일인 2026-07-20 장후 예약을 유지한다.
+
+## [2026-07-10] Phase 1 read-only 흐름 구조 고정
+
+- 장후 상태에서 live runtime 정상 정지, watchdog/dashboard 정상, `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 확인했다.
+- 현재가·호가·과거분봉·계좌 조회와 CLI 조회 5개 경로를 `get_kis_readonly_client`로 전환했다.
+- direct `KisRestQuoteClient` 생성은 read-only factory와 KIS paper mirroring 경계 두 곳만 허용하도록 isolation 테스트를 강화했다.
+- paper/live sanitized account snapshot shape를 오프라인 비교하는 helper와 wrapper를 추가했다. 계좌번호, 잔액, token, raw response는 비교 결과에 포함하지 않는다.
+- live credentials 준비 여부를 boolean으로만 확인한 결과 미준비 상태다. 실제 live network probe는 실행하지 않았다.
+- 관련 테스트 30개, 전체 unittest 470개, 전체 pytest 470개와 subtest 67개, compileall, bash parse, wrapper help, `git diff --check`를 통과했다.
+- Phase 1b는 구조 준비 완료이지만 실제 live shape 증거와 사용자 명시 지시가 필요한 sanitized NAS drill이 남아 있다.
+- 신규 모델 실험, E2/E3 tuning, 종목별 주문 정책, h60 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.

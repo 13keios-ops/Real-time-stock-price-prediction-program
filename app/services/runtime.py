@@ -6,8 +6,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.brokers.kis_auth import KisTokenManager, get_active_kis_profile
-from app.brokers.kis_quote_rest import KisRestQuoteClient
+from app.brokers.kis_readonly import get_kis_readonly_client
 from app.collectors.market_data import (
     build_sample_orderbook,
     build_sample_ticks,
@@ -181,9 +180,7 @@ def run_demo_pipeline(project_root: Path, symbol: str = "005930") -> DemoPipelin
 def run_kis_snapshot_pipeline(project_root: Path, symbol: str = "005930") -> KisSnapshotPipelineResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
-    profile = get_active_kis_profile(settings)
-    token_manager = KisTokenManager(profile)
-    client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
+    client = get_kis_readonly_client(settings)
     writer = RuntimeWriter.from_settings(settings)
 
     current_quote = client.get_current_price(symbol=symbol)

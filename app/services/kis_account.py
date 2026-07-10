@@ -8,8 +8,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.brokers.kis_auth import KisApiError, KisTokenManager, get_kis_profile
-from app.brokers.kis_quote_rest import KisAccountBalanceSnapshot, KisRestQuoteClient
+from app.brokers.kis_auth import get_kis_profile
+from app.brokers.kis_quote_rest import KisAccountBalanceSnapshot
+from app.brokers.kis_readonly import get_kis_readonly_client
 from app.config.settings import load_settings
 from app.observability.logging import configure_logging
 from app.utils.time import now_local
@@ -187,7 +188,7 @@ def refresh_kis_account_report(
         )
 
     try:
-        client = KisRestQuoteClient(profile=profile, token_manager=KisTokenManager(profile))
+        client = get_kis_readonly_client(settings, mode=resolved_mode)
         snapshot = client.get_account_balance()
         payload = {
             "ok": True,

@@ -490,7 +490,7 @@
 
 ### Phase 1b: 실전 계좌 read-only 확인
 
-- 상태: 대기
+- 상태: 구조 준비 완료, 실제 관측 대기
 - 목적:
   - 실제 자금 운용 전에 실전 계좌의 조회 권한, 응답 shape, 예수금/주문가능금액,
     T+2 관련 필드가 실제로 어떻게 오는지 확인한다.
@@ -498,17 +498,20 @@
   - 주문 금지.
   - 실전 주문 메서드가 없는 read-only client로만 확인한다.
   - `ALLOW_LIVE_ORDERS=false` 유지.
-- 왜 필요한가:
-  - 모의투자와 실전 계좌의 응답 필드, 권한, 예수금/주문가능금액 계산이 다를 수 있다.
-  - 실제 운용 전 이 차이를 모르면 Phase 2에서 주문 가능 금액, 포지션,
-    정합성 판단이 틀어질 수 있다.
+- 완료:
+  - 현재가·호가·과거분봉·계좌 조회와 CLI 조회 경로를 `KisReadOnlyClient` factory로 고정했다.
+  - direct `KisRestQuoteClient` 생성은 read-only factory와 paper mirroring 경계 두 곳만 허용한다.
+  - `scripts/compare_kis_account_snapshot_checks.sh`로 paper/live sanitized shape를 오프라인 비교할 수 있다.
+- 현재 확인:
+  - 2026-07-10 장후 기준 live app key/secret과 live 계좌 항목은 준비되지 않았다.
+  - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
 - 남은 blocker:
-  - 실전 KIS 조회용 credentials를 비밀 저장소에 준비.
-  - live account read-only shape 확인.
-  - sanitized NAS 복구 drill 표본.
+  - 실전 KIS 조회용 credentials를 로컬 비밀 저장소에 준비.
+  - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
+  - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
-  - Phase 1a를 먼저 완료한다.
-  - 그다음 실전 계좌 read-only를 1회 연결한다.
+  - 실전 credentials 준비 뒤 paper/live account check를 서로 다른 파일에 1회씩 저장한다.
+  - 오프라인 비교가 통과하고 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
 
 ### Phase 2: 실전 1종목 소액 canary
 
@@ -625,13 +628,16 @@
 
 ### read-only 구조적 차단
 
-- 상태: 진행 중
+- 상태: 완료
 - 완료:
   - `KisReadOnlyClient` 골격과 isolation 테스트 구현.
+  - 조회 전용 KIS 흐름 5곳을 read-only factory로 고정.
+  - direct 원본 client 생성 경계를 read-only factory와 paper mirroring 두 곳으로 축소.
+  - paper/live sanitized account shape 비교 helper와 wrapper 구현.
 - 다음 작업:
-  - Phase 1a/1b flow에 read-only client를 고정.
+  - live credentials 준비 뒤 실제 Phase 1b read-only 증거를 생성한다.
 - 권장안:
-  - Phase 1 기본 client는 주문 메서드가 없는 read-only client로 고정한다.
+  - 구조적 차단은 완료로 보고, 실제 live 관측 증거와 NAS drill은 별도 외부 blocker로 유지한다.
 
 ### live enable guard
 

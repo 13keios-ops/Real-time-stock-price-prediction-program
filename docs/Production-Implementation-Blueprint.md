@@ -113,24 +113,21 @@ get_daily_order_fills(
 )
 ```
 
-현재 직접 `KisRestQuoteClient(`를 생성하는 기존 경로는 아래 allowlist로 관리한다. Slice 1 static isolation은 이 기존 경로를 무조건 0개로 만들지 않는다. 대신 allowlist를 두고, 새 Phase 1 live read-only service/factory가 live profile을 직접 `KisRestQuoteClient`에 넣지 않는다는 점을 잠근다.
+직접 `KisRestQuoteClient(`를 생성하는 경로는 2026-07-10 기준 아래 두 경계로 축소했다. 조회 전용 흐름은 원본 클라이언트를 직접 생성하지 않는다.
 
 | 경로 | mode 원천 | 호출 메서드 카테고리 | Phase 1 처리 |
 |---|---|---|---|
-| `app/collectors/historical.py` | `get_active_kis_profile(settings)` | 조회: `get_intraday_minute_chart` | live profile 가능 경로이므로 read-only wrapper 전환 후보 |
-| `app/services/runtime.py` | `get_active_kis_profile(settings)` | 조회: `get_current_price`, `get_orderbook` | live profile 가능 경로이므로 read-only wrapper 전환 후보 |
-| `app/services/collector.py` | `get_active_kis_profile(settings)` | 조회: `get_current_price`, `get_orderbook` | live profile 가능 경로이므로 read-only wrapper 전환 후보 |
-| `app/services/kis_account.py` | `get_kis_profile(settings, resolved_mode)` | 조회: `get_account_balance` | live read-only 계좌 조회 후보 |
-| `app/services/broker_paper.py` | `get_kis_profile(settings, "paper")` | paper 주문/조회: `submit_cash_order`, `get_account_balance`, `get_daily_order_fills` | paper mirroring 전용 예외로 유지 |
-| `app/__main__.py` | `get_active_kis_profile(settings)` | 조회: `get_current_price`, `get_orderbook` | CLI 조회 경로. live profile이면 read-only wrapper 전환 후보 |
+| `app/brokers/kis_readonly.py` | 명시적 `paper/live` | 조회 메서드만 공개하는 내부 delegate | 조회 전용 client를 만드는 유일한 경계 |
+| `app/services/broker_paper.py` | `get_kis_profile(settings, "paper")` | paper 주문/조회 | KIS 모의계좌 mirroring 전용 예외 |
+
+`app/collectors/historical.py`, `app/services/runtime.py`, `app/services/collector.py`, `app/services/kis_account.py`, `app/__main__.py`의 현재가·호가·과거분봉·계좌 조회는 모두 `get_kis_readonly_client`를 사용한다.
 
 allowlist 정책:
 
-- allowlist는 영구 예외가 아니라 Phase 1~2 전환 중 임시 통제 목록이다.
+- direct constructor allowlist는 `app/brokers/kis_readonly.py`와 paper mirroring 경계만 허용한다.
 - paper mirroring용 `app/services/broker_paper.py`는 paper profile 전용 예외로 남긴다.
-- live profile을 받을 수 있는 조회 경로는 Slice 1 이후 read-only wrapper 전환 후보로 추적한다.
-- grep 기반 static check는 주석, docstring, 문자열 리터럴 false positive가 생길 수 있다. false positive가 나오면 allowlist에 사유를 명시하고, 반복되면 AST 기반 검사로 전환한다.
-- 이 isolation 테스트는 실수 차단용이다. 의도적 dynamic import, subclass, `getattr` 우회까지 자동 차단하지는 않으며, 그런 우회는 코드 리뷰와 보안 리뷰에서 잡는다.
+- 새 조회 전용 경로는 `tests/test_live_client_isolation.py`에서 read-only factory 사용과 direct constructor 부재를 함께 확인한다.
+- 문자열 기반 static check는 의도적 dynamic import, subclass, `getattr` 우회까지 자동 차단하지 않으며, 그런 우회는 코드 리뷰와 보안 리뷰에서 잡는다.
 
 Phase 1 구현 원칙:
 
@@ -138,8 +135,8 @@ Phase 1 구현 원칙:
 - Phase 1 서비스는 반드시 `KisReadOnlyClient` 또는 같은 책임의 wrapper를 통해서만 live profile을 사용한다.
 - `ALLOW_LIVE_ORDERS=false`는 두 번째 방어선이다. 1차 방어선은 주문 메서드가 없는 구조다.
 - tests에서 `hasattr(readonly_client, "submit_cash_order") == False`를 확인한다. Codex 권장안은 hard fail 메서드가 아니라 메서드 미노출이다.
-- 새 Phase 1 live read-only 경로에서 live profile로 `KisRestQuoteClient(`를 직접 만드는 경로가 생기지 않도록 allowlist 기반 static grep 검사를 둔다.
-- Phase 1용 factory는 `live`만 받는다. paper 모의계좌 mirroring은 기존 paper 경로를 유지하고 readonly wrapper로 대체하지 않는다.
+- `get_kis_readonly_client`는 paper/live 조회에 공통 사용하고, `get_kis_live_readonly_client`는 live 전용 호출만 허용한다.
+- paper/live 계좌 shape 비교는 `scripts/compare_kis_account_snapshot_checks.sh`가 별도 저장된 sanitized check 두 개만 읽어 수행한다.
 - fault injection은 실제 장애가 우연히 발생하기를 기다리지 않고 token refresh, WS drop, stale account snapshot을 강제로 만든다.
 
 Slice 1 acceptance criteria:
@@ -153,7 +150,8 @@ Slice 1 acceptance criteria:
 | factory negative | `tests/test_live_readonly_guard.py::test_live_readonly_factory_rejects_non_live_mode` | paper 또는 알 수 없는 mode를 받는 API가 생기면 명시적으로 실패한다. |
 | import-time 부작용 없음 | `tests/test_live_readonly_guard.py::test_import_does_not_trigger_network` | `app.brokers.kis_readonly` import만으로 token 발급, hashkey 발급, REST 호출이 발생하지 않는다. |
 | paper mirroring 불변 | `tests/test_live_client_isolation.py::test_paper_mirroring_still_uses_paper_profile` | `app/services/broker_paper.py`의 paper profile 생성 경로를 readonly wrapper로 바꾸지 않는다. |
-| 우회 경로 잠금 | `tests/test_live_client_isolation.py::test_live_readonly_paths_do_not_bypass_wrapper` | 새 Phase 1 live read-only 경로가 allowlist 밖에서 `KisRestQuoteClient(`를 직접 만들지 않는다. |
+| 우회 경로 잠금 | `tests/test_live_client_isolation.py::test_live_readonly_paths_do_not_bypass_wrapper` | direct `KisRestQuoteClient(` 생성은 read-only factory와 paper mirroring 경계만 허용한다. |
+| 조회 흐름 고정 | `tests/test_live_client_isolation.py::test_query_only_kis_paths_use_readonly_factory` | 조회 전용 5개 경로가 read-only factory를 사용한다. |
 | 비밀값 노출 없음 | 코드 리뷰 체크 | test fixture와 assert message에 app key, app secret, token, 계좌번호를 쓰지 않는다. |
 
 Slice 1 테스트 fixture 원칙:

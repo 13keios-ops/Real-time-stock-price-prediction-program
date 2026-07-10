@@ -54,6 +54,7 @@
 - pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
 - Cybos 실제 15분봉 기반 bar-only LightGBM 연구 실험 경로
 - 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper
+- 현재가·호가·과거분봉·계좌 조회와 CLI 조회 경로의 read-only factory 고정, sanitized paper/live account shape 비교 wrapper
 - live 주문/체결/포지션/감사/승인/readiness 초기 원장과 순수 helper
 - 실전 전환 readiness dry-run, fail-closed market_status 템플릿 helper, kill switch dry-run/status/apply helper, KIS paper fixture redaction/export helper
 - Phase 1a 모의투자 read-only readiness 프로필.

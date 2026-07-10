@@ -43,16 +43,12 @@ class CollectorPollingTests(unittest.TestCase):
     @patch("app.services.collector.orderbook_from_kis_quote")
     @patch("app.services.collector.market_tick_from_kis_quote")
     @patch("app.services.collector.RuntimeWriter.from_settings")
-    @patch("app.services.collector.KisRestQuoteClient")
-    @patch("app.services.collector.KisTokenManager")
-    @patch("app.services.collector.get_active_kis_profile")
+    @patch("app.services.collector.get_kis_readonly_client")
     @patch("app.services.collector.load_settings")
     def test_collect_retries_on_rate_limit(
         self,
         mocked_load_settings,
-        mocked_get_profile,
-        mocked_token_manager,
-        mocked_client_cls,
+        mocked_readonly_factory,
         mocked_writer_factory,
         mocked_tick_factory,
         mocked_orderbook_factory,
@@ -65,16 +61,13 @@ class CollectorPollingTests(unittest.TestCase):
             runtime_data_dir=runtime_root,
             timezone="Asia/Seoul",
         )
-        mocked_get_profile.return_value = SimpleNamespace()
-        mocked_token_manager.return_value = SimpleNamespace()
-
         client = MagicMock()
         client.get_current_price.return_value = SimpleNamespace(current_price=70000)
         client.get_orderbook.side_effect = [
             KisApiError('KIS HTTP error 500: {"rt_cd":"1","msg1":"초당 거래건수를 초과하였습니다.","message":"EGW00201"}'),
             SimpleNamespace(ask_price_1=70010, bid_price_1=69990),
         ]
-        mocked_client_cls.return_value = client
+        mocked_readonly_factory.return_value = client
 
         writer = MagicMock()
         mocked_writer_factory.return_value = writer
@@ -88,6 +81,7 @@ class CollectorPollingTests(unittest.TestCase):
 
         self.assertEqual(result.symbols_succeeded, ["005930"])
         self.assertEqual(result.failed, [])
+        mocked_readonly_factory.assert_called_once_with(mocked_load_settings.return_value)
         self.assertEqual(client.get_orderbook.call_count, 2)
         self.assertGreaterEqual(mocked_sleep.call_count, 2)
         writer.write_market_tick.assert_called_once()

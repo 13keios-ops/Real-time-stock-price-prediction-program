@@ -43,6 +43,7 @@ class LiveReadOnlyGuardTests(unittest.TestCase):
         client = KisReadOnlyClient(delegate)
 
         self.assertEqual(client.describe(), {"transport": "rest", "access": "read-only"})
+        self.assertEqual(delegate.describe.return_value, {"transport": "rest"})
         delegate.describe.assert_called_once_with()
 
         self.assertIs(client.get_current_price("005930"), delegate.get_current_price.return_value)

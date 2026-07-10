@@ -25,7 +25,7 @@ class KisReadOnlyClient:
         self._client = client
 
     def describe(self) -> dict[str, str]:
-        description = self._client.describe()
+        description = dict(self._client.describe())
         description["access"] = "read-only"
         return description
 

@@ -9,8 +9,9 @@ from pathlib import Path
 from time import sleep
 from typing import Any
 
-from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_profile
-from app.brokers.kis_quote_rest import KisIntradayMinuteRecord, KisRestQuoteClient
+from app.brokers.kis_auth import KisApiError, get_active_kis_profile
+from app.brokers.kis_quote_rest import KisIntradayMinuteRecord
+from app.brokers.kis_readonly import KisReadOnlyClient, get_kis_readonly_client
 from app.config.settings import load_settings
 from app.observability.logging import configure_logging
 from app.services.research import build_feature_dataset_from_sqlite
@@ -583,7 +584,7 @@ def collect_pykrx_daily_proxy_history(
 
 
 def _fetch_kis_intraday_pages(
-    client: KisRestQuoteClient,
+    client: KisReadOnlyClient,
     symbol: str,
     *,
     max_pages: int = 20,
@@ -682,7 +683,7 @@ def collect_kis_rest_historical_minutes(
     if sqlite_store is None:
         raise ValueError("A sqlite database_url is required for KIS historical collection.")
 
-    client = KisRestQuoteClient(profile=profile, token_manager=KisTokenManager(profile), timeout_seconds=20)
+    client = get_kis_readonly_client(settings, mode=profile.mode, timeout_seconds=20)
     range_start_time = datetime.combine(start_date, time(0, 0), tzinfo=get_timezone(settings.timezone))
     range_end_time = datetime.combine(end_date, time(23, 59, 59), tzinfo=get_timezone(settings.timezone))
 

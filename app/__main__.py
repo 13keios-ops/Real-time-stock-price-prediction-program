@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from app.brokers.kis_auth import KisApiError, KisTokenManager, get_active_kis_profile
-from app.brokers.kis_quote_rest import KisRestQuoteClient
+from app.brokers.kis_readonly import get_kis_readonly_client
 from app.brokers.kis_quote_ws import KisWebSocketQuoteClient
 from app.config.settings import load_settings
 from app.collectors.historical import (
@@ -681,13 +681,13 @@ def main() -> int:
                 return 0
 
             if args.kis_current_price:
-                client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
+                client = get_kis_readonly_client(settings, mode=profile.mode)
                 quote = client.get_current_price(symbol=args.symbol)
                 print(json.dumps(asdict(quote), ensure_ascii=False, indent=2))
                 return 0
 
             if args.kis_orderbook:
-                client = KisRestQuoteClient(profile=profile, token_manager=token_manager)
+                client = get_kis_readonly_client(settings, mode=profile.mode)
                 quote = client.get_orderbook(symbol=args.symbol)
                 print(json.dumps(asdict(quote), ensure_ascii=False, indent=2))
                 return 0
