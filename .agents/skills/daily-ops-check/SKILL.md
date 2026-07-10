@@ -121,6 +121,8 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - 자동화 프롬프트나 watcher에 `--execute`를 상시 등록하지 않는다.
 - 결과는 token/account/raw response/계좌 식별자를 출력하지 않고 preflight/attempt/observation 파일을 분리한다.
 - 실행 뒤 주문 함수 호출 0건, `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 다시 확인한다.
+- 실행/차단 결과 뒤에는 `./scripts/run_live_readiness_dry_run.sh --phase phase1b_live_readonly --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json --phase1b-observation-path <observation-or-attempt.json> --report-path runtime-data/reports/live-readiness/phase1b/latest-readiness.json`으로 전용 판정을 갱신한다.
+- Phase 1b 보고에서는 token/account/system clock/WS blocker와 `market_status`·`kill_switch` 비차단 여부를 분리하고, precomputed override가 아니라 sanitized artifact에서 재계산됐는지와 dashboard의 별도 Phase 1b 행까지 확인한다.
 
 ### paper/KIS 정합성
 

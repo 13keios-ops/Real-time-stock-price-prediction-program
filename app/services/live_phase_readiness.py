@@ -61,12 +61,15 @@ READINESS_FRESH_EVIDENCE_KEYS = set(READINESS_EVIDENCE_MAX_AGE_SECONDS)
 PHASE1A_PAPER_READONLY_REQUIRED_CHECK_KEYS = tuple(
     key for key in READINESS_CHECK_KEYS if key not in {"market_status", "kill_switch"}
 )
+PHASE1B_LIVE_READONLY_REQUIRED_CHECK_KEYS = PHASE1A_PAPER_READONLY_REQUIRED_CHECK_KEYS
 
 
 def readiness_required_check_keys_for_phase(phase: str) -> tuple[str, ...]:
     normalized = _normalize_phase_name(phase)
     if normalized in {"phase1a", "phase1a_paper_readonly", "phase1_paper_readonly_rehearsal"}:
         return PHASE1A_PAPER_READONLY_REQUIRED_CHECK_KEYS
+    if normalized in {"phase1b", "phase1b_live_readonly", "phase1_live_readonly_observation"}:
+        return PHASE1B_LIVE_READONLY_REQUIRED_CHECK_KEYS
     return READINESS_CHECK_KEYS
 
 

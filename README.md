@@ -547,6 +547,18 @@ Phase 1b 실전계좌 조회 준비 상태만 확인하면:
 
 이 명령은 네트워크를 사용하지 않는다. live 조회 자격정보를 위의 `--read-only-preparation` 방식으로 준비하고 제한된 조회 증거를 만들 때만 `./scripts/run_phase1b_readonly_observation.sh --execute`를 사용한다.
 
+Phase 1b 관측 결과를 기존 장전 fixture와 합쳐 전용 readiness로 판정할 때는 아래처럼 실행한다.
+
+```bash
+./scripts/run_live_readiness_dry_run.sh \
+  --phase phase1b_live_readonly \
+  --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json \
+  --phase1b-observation-path runtime-data/reports/live-readiness/phase1b/latest-phase1b-readonly-observation.json \
+  --report-path runtime-data/reports/live-readiness/phase1b/latest-readiness.json
+```
+
+`--phase1b-observation-path`를 주면 기존 paper fixture의 token/account/system clock 값 대신 해당 실계좌 read-only 관측값을 사용한다. 관측이 차단되거나 누락되면 paper 성공값으로 되돌아가지 않고 fail-closed로 차단한다. 관측 파일에 저장된 precomputed override는 판정 근거로 신뢰하지 않고 `execution_started`와 sanitized artifact에서 매번 다시 계산한다. `phase1b_live_readonly`에서는 `market_status`와 kill switch OFF가 주문 제출 전용 안전장치이므로 비차단 관측이며, WebSocket recovery와 나머지 운영 check는 필수다. 결과는 대시보드 `상태 및 설정 > 실전 전환 readiness dry-run`에서 별도 Phase 1b 행으로 확인한다.
+
 월요일 시작 루틴 1회 실행:
 
 ```bash

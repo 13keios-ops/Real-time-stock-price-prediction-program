@@ -9,6 +9,7 @@ from pathlib import Path
 from app.brokers.kis_auth import KisAccessToken
 from app.config.settings import load_settings
 from app.services.phase1b_readonly_observation import (
+    build_phase1b_readiness_fixture_overrides,
     build_phase1b_readonly_preflight,
     run_phase1b_readonly_observation,
 )
@@ -150,6 +151,14 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(payload["safety"]["account_snapshot_max_pages_per_mode"], 1)
         self.assertEqual(payload["safety"]["order_method_calls"], 0)
         self.assertTrue(all(payload["checks"].values()))
+        overrides = build_phase1b_readiness_fixture_overrides(payload)
+        self.assertTrue(overrides["token_refresh"]["passed"])
+        self.assertTrue(overrides["account_snapshot"]["passed"])
+        self.assertTrue(overrides["system_clock"]["passed"])
+        self.assertEqual(
+            overrides["account_snapshot"]["details"]["shape_comparison_status"],
+            "ok",
+        )
         self.assertNotIn("secret-token", encoded)
         self.assertNotIn("live-secret", encoded)
 
@@ -247,6 +256,43 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
                 "phase1b_preflight_blocked",
             ],
         )
+        overrides = build_phase1b_readiness_fixture_overrides(payload)
+        self.assertTrue(all(not check["passed"] for check in overrides.values()))
+        self.assertEqual(overrides["account_snapshot"]["status"], "not_verified")
+        self.assertNotIn("paper-secret", json.dumps(overrides))
+
+    def test_readiness_overrides_reject_invalid_observation_envelope(self) -> None:
+        passed_artifact = {
+            "status": "ok",
+            "passed": True,
+            "summary": "forged artifact",
+            "details": {},
+        }
+        payload = {
+            "phase": "phase1b_live_readonly",
+            "status": "ok",
+            "passed": True,
+            "checked_at": "2026-07-10T00:00:00+00:00",
+            "execution_mode": "read-only-observation",
+            "execution_started": True,
+            "preflight": {"passed": True},
+            "artifacts": {
+                "token_refresh_live": dict(passed_artifact),
+                "account_snapshot_paper": dict(passed_artifact),
+                "account_snapshot_live": dict(passed_artifact),
+                "account_shape_comparison": dict(passed_artifact),
+                "system_clock_live": dict(passed_artifact),
+            },
+        }
+
+        overrides = build_phase1b_readiness_fixture_overrides(payload)
+
+        self.assertTrue(all(not check["passed"] for check in overrides.values()))
+        self.assertEqual(overrides["token_refresh"]["status"], "invalid_observation")
+        self.assertIn(
+            "phase1b_safety_missing",
+            overrides["token_refresh"]["details"]["blocking_reasons"],
+        )
 
     def test_execute_blocks_protected_session_before_network_calls(self) -> None:
         checked_at = datetime(2026, 7, 10, 0, 0, tzinfo=timezone.utc)
@@ -311,6 +357,16 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(payload["execution_mode"], "network-free-preflight")
         self.assertEqual(payload["network_calls_executed"], 0)
         self.assertEqual(report["report_path"], payload["report_path"])
+        self.assertEqual(
+            sorted(payload["readiness_fixture_overrides"]),
+            ["account_snapshot", "system_clock", "token_refresh"],
+        )
+        self.assertTrue(
+            all(
+                not check["passed"]
+                for check in payload["readiness_fixture_overrides"].values()
+            )
+        )
 
 
 if __name__ == "__main__":

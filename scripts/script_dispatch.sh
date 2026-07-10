@@ -1737,6 +1737,7 @@ live_readiness_dry_run() {
   local premarket_report_path="$REPO_ROOT/runtime-data/reports/codex/ops/premarket-readiness/latest-premarket-readiness.json"
   local fixture_path=""
   local system_clock_check_path=""
+  local phase1b_observation_path=""
   local report_path="$REPO_ROOT/runtime-data/reports/live-readiness/latest-readiness.json"
   local record_db="false"
   local database_path=""
@@ -1747,6 +1748,7 @@ live_readiness_dry_run() {
       --premarket-report-path|-PremarketReportPath) premarket_report_path="$2"; shift 2 ;;
       --fixture-path|-FixturePath) fixture_path="$2"; shift 2 ;;
       --system-clock-check-path|-SystemClockCheckPath) system_clock_check_path="$2"; shift 2 ;;
+      --phase1b-observation-path|-Phase1bObservationPath) phase1b_observation_path="$2"; shift 2 ;;
       --report-path|-ReportPath) report_path="$2"; shift 2 ;;
       --record|-Record) record_db="true"; shift ;;
       --database-path|-DatabasePath) database_path="$2"; shift 2 ;;
@@ -1755,13 +1757,14 @@ live_readiness_dry_run() {
       *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
   done
-  "$PYTHON_BIN" - "$REPO_ROOT" "$phase" "$trading_day" "$premarket_report_path" "$fixture_path" "$system_clock_check_path" "$report_path" "$record_db" "$database_path" <<'PY'
+  "$PYTHON_BIN" - "$REPO_ROOT" "$phase" "$trading_day" "$premarket_report_path" "$fixture_path" "$system_clock_check_path" "$phase1b_observation_path" "$report_path" "$record_db" "$database_path" <<'PY'
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from app.services.live_phase_readiness import build_fault_injection_dry_run_report
+from app.services.phase1b_readonly_observation import build_phase1b_readiness_fixture_overrides
 from app.storage.contracts import LiveReadinessRun
 from app.storage.sqlite_store import SQLiteRuntimeStore
 
@@ -1790,9 +1793,10 @@ trading_day = sys.argv[3]
 premarket_report_path = Path(sys.argv[4]).expanduser().resolve()
 fixture_path_text = sys.argv[5]
 system_clock_check_path_text = sys.argv[6]
-report_path = Path(sys.argv[7]).expanduser().resolve()
-record_db = sys.argv[8] == "true"
-database_path_text = sys.argv[9]
+phase1b_observation_path_text = sys.argv[7]
+report_path = Path(sys.argv[8]).expanduser().resolve()
+record_db = sys.argv[9] == "true"
+database_path_text = sys.argv[10]
 
 if not is_relative_to(report_path, root):
     raise SystemExit(f"report_path must stay inside repository root: {report_path}")
@@ -1804,6 +1808,19 @@ if fixture_path is not None and not is_relative_to(fixture_path, root):
 system_clock_check_path = Path(system_clock_check_path_text).expanduser().resolve() if system_clock_check_path_text else None
 if system_clock_check_path is not None and not is_relative_to(system_clock_check_path, root):
     raise SystemExit(f"system_clock_check_path must stay inside repository root: {system_clock_check_path}")
+phase1b_observation_path = (
+    Path(phase1b_observation_path_text).expanduser().resolve()
+    if phase1b_observation_path_text
+    else None
+)
+if phase1b_observation_path is not None and not is_relative_to(phase1b_observation_path, root):
+    raise SystemExit(f"phase1b_observation_path must stay inside repository root: {phase1b_observation_path}")
+if phase1b_observation_path is not None and phase.strip().lower() not in {
+    "phase1b",
+    "phase1b_live_readonly",
+    "phase1_live_readonly_observation",
+}:
+    raise SystemExit("--phase1b-observation-path requires a Phase 1b read-only phase")
 database_path = Path(database_path_text).expanduser().resolve() if database_path_text else None
 if record_db and database_path is None:
     raise SystemExit("--record requires --database-path")
@@ -1839,6 +1856,22 @@ if system_clock_check_path is not None:
             "summary": "system clock check file must contain a system_clock check payload",
             "details": {"path": str(system_clock_check_path)},
         }
+if phase1b_observation_path is not None:
+    phase1b_observation = load_json(phase1b_observation_path)
+    overrides = build_phase1b_readiness_fixture_overrides(phase1b_observation)
+    fixture_results = dict(fixture_results)
+    for key in ("token_refresh", "account_snapshot", "system_clock"):
+        value = overrides.get(key)
+        if isinstance(value, dict):
+            fixture_results[key] = value
+        else:
+            fixture_results[key] = {
+                "key": key,
+                "status": "invalid_fixture",
+                "passed": False,
+                "summary": f"Phase 1b observation override missing: {key}",
+                "details": {"source": "phase1b_readonly_observation"},
+            }
 
 payload = build_fault_injection_dry_run_report(
     phase=phase,
@@ -1851,6 +1884,9 @@ payload = build_fault_injection_dry_run_report(
 payload["dry_run"] = True
 payload["fixture_path"] = str(fixture_path) if fixture_path is not None else None
 payload["system_clock_check_path"] = str(system_clock_check_path) if system_clock_check_path is not None else None
+payload["phase1b_observation_path"] = (
+    str(phase1b_observation_path) if phase1b_observation_path is not None else None
+)
 payload["recorded"] = False
 payload["database_path"] = str(database_path) if database_path is not None else None
 if record_db:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -223,6 +224,152 @@ def run_phase1b_readonly_observation(
         execution_started=True,
         artifacts=artifacts,
     )
+
+
+def build_phase1b_readiness_fixture_overrides(
+    observation: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Convert a sanitized Phase 1b observation into readiness overrides."""
+
+    artifacts_value = observation.get("artifacts")
+    artifacts = artifacts_value if isinstance(artifacts_value, dict) else {}
+    checked_at = str(observation.get("checked_at") or "")
+    execution_started = bool(observation.get("execution_started", False))
+    observation_blockers = _phase1b_observation_envelope_blockers(observation)
+    token = _phase1b_artifact_override(
+        artifacts,
+        artifact_key="token_refresh_live",
+        readiness_key="token_refresh",
+        checked_at=checked_at,
+        observation_blockers=observation_blockers,
+    )
+    clock = _phase1b_artifact_override(
+        artifacts,
+        artifact_key="system_clock_live",
+        readiness_key="system_clock",
+        checked_at=checked_at,
+        observation_blockers=observation_blockers,
+    )
+
+    account_parts = {
+        "paper_account": artifacts.get("account_snapshot_paper"),
+        "live_account": artifacts.get("account_snapshot_live"),
+        "shape_comparison": artifacts.get("account_shape_comparison"),
+    }
+    account_blockers: list[str] = list(observation_blockers)
+    for label, value in account_parts.items():
+        if not isinstance(value, dict) or not bool(value.get("passed", False)):
+            account_blockers.append(f"{label}_not_passed")
+    account_details: dict[str, Any] = {
+        "source": "phase1b_paper_live_shape_comparison",
+        "checked_at": checked_at or None,
+        "observation_status": observation.get("status"),
+        "observation_blocking_reasons": list(observation.get("blocking_reasons") or []),
+        "observation_envelope_blocking_reasons": list(observation_blockers),
+        "paper_account_status": _phase1b_status(account_parts["paper_account"]),
+        "live_account_status": _phase1b_status(account_parts["live_account"]),
+        "shape_comparison_status": _phase1b_status(account_parts["shape_comparison"]),
+        "blocking_reasons": account_blockers,
+    }
+    account_passed = not account_blockers
+    account = {
+        "key": "account_snapshot",
+        "status": "ok" if account_passed else "not_verified" if not execution_started else "failed",
+        "passed": account_passed,
+        "summary": (
+            "Phase 1b paper/live account snapshot shapes are compatible"
+            if account_passed
+            else "Phase 1b paper/live account snapshot evidence is incomplete"
+        ),
+        "details": account_details,
+    }
+    return {
+        "token_refresh": token,
+        "account_snapshot": account,
+        "system_clock": clock,
+    }
+
+
+def _phase1b_observation_envelope_blockers(observation: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    if observation.get("phase") != PHASE1B_NAME:
+        blockers.append("phase1b_observation_phase_invalid")
+    execution_started = bool(observation.get("execution_started", False))
+    if not execution_started:
+        blockers.append("phase1b_execution_not_started")
+    if observation.get("execution_mode") != "read-only-observation":
+        blockers.append("phase1b_execution_mode_invalid")
+    if observation.get("status") != "ok" or not bool(observation.get("passed", False)):
+        blockers.append("phase1b_observation_not_passed")
+
+    preflight = observation.get("preflight")
+    if not isinstance(preflight, dict) or not bool(preflight.get("passed", False)):
+        blockers.append("phase1b_preflight_not_passed")
+    safety = observation.get("safety")
+    if not isinstance(safety, dict):
+        blockers.append("phase1b_safety_missing")
+    else:
+        if safety.get("order_method_calls") != 0:
+            blockers.append("phase1b_order_calls_not_zero")
+        if bool(safety.get("allow_live_orders", True)):
+            blockers.append("phase1b_live_orders_not_disabled")
+        for key in (
+            "raw_response_included",
+            "account_identifier_included",
+            "credential_values_included",
+        ):
+            if bool(safety.get(key, True)):
+                blockers.append(f"phase1b_{key}")
+        if safety.get("account_snapshot_max_pages_per_mode") != 1:
+            blockers.append("phase1b_account_page_limit_invalid")
+    return list(dict.fromkeys(blockers))
+
+def _phase1b_artifact_override(
+    artifacts: dict[str, Any],
+    *,
+    artifact_key: str,
+    readiness_key: str,
+    checked_at: str,
+    observation_blockers: list[str],
+) -> dict[str, Any]:
+    artifact = artifacts.get(artifact_key)
+    if not isinstance(artifact, dict):
+        return {
+            "key": readiness_key,
+            "status": "not_verified",
+            "passed": False,
+            "summary": f"Phase 1b {readiness_key} evidence is missing",
+            "details": {
+                "source": "phase1b_readonly_observation",
+                "checked_at": checked_at or None,
+                "blocking_reasons": list(dict.fromkeys([f"{artifact_key}_missing", *observation_blockers])),
+            },
+        }
+    override = deepcopy(artifact)
+    override["key"] = readiness_key
+    details_value = override.get("details")
+    details = deepcopy(details_value) if isinstance(details_value, dict) else {}
+    details.setdefault("source", "phase1b_readonly_observation")
+    if readiness_key != "system_clock":
+        details.setdefault("checked_at", checked_at or None)
+    override["details"] = details
+    override["passed"] = bool(override.get("passed", False))
+    if observation_blockers:
+        override["status"] = (
+            "not_verified"
+            if "phase1b_execution_not_started" in observation_blockers
+            else "invalid_observation"
+        )
+        override["passed"] = False
+        override["summary"] = f"Phase 1b {readiness_key} observation envelope is invalid"
+        existing = details.get("blocking_reasons")
+        existing_reasons = list(existing) if isinstance(existing, list) else []
+        details["blocking_reasons"] = list(dict.fromkeys([*existing_reasons, *observation_blockers]))
+    return override
+
+
+def _phase1b_status(value: Any) -> str:
+    return str(value.get("status") or "missing") if isinstance(value, dict) else "missing"
 
 
 def _build_readonly_client(

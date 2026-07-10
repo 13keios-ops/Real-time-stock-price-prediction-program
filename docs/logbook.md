@@ -6627,3 +6627,15 @@ python -m app --build-dashboard
 - 실제 Phase 1b 통과가 아니다. live 자격정보 준비와 `--execute` 1회 증거가 남았다.
 - 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-3.md`
 - 실전 주문/취소, 모델 실험, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.
+
+## [2026-07-11] Phase 1b 관측 증거와 readiness 연결
+
+- Phase 1b 전용 `phase1b_live_readonly` readiness profile을 추가했다. 주문 없는 read-only 단계에서는 `market_status`와 kill switch OFF만 비차단이고, token/account/system clock/WS 및 운영 check는 필수다.
+- `run_phase1b_readonly_observation.sh` 산출물에 sanitized readiness override를 포함하고, `run_live_readiness_dry_run.sh --phase1b-observation-path`가 live 관측을 paper fixture보다 우선 병합하도록 연결했다. 관측 누락·차단 시 paper 성공값으로 fallback하지 않으며, 파일의 precomputed override는 신뢰하지 않고 실행 여부와 sanitized artifact에서 매번 다시 계산한다.
+- 전용 결과를 `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`에 만들고 대시보드에서 generic readiness와 별도 행으로 표시한다.
+- 현재 실제 장외 dry-run은 `status=blocked`다. live token/account/system clock 관측이 미검증이고 WS recovery가 stale하다. `market_status`와 `kill_switch`는 비차단이며 database/disk/dashboard/storage migration은 통과했다.
+- 관련 테스트 64개, 전체 unittest 484개, 전체 pytest 484개와 subtest 67개, compileall, bash parse, dashboard build, `git diff --check`를 통과했다.
+- dashboard/watchdog은 running, watchdog heartbeat는 fresh, live runtime은 weekend 정상 정지다.
+- 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-4.md`
+- 다음 의미 있는 증거는 live read-only credentials 준비 뒤 bounded `--execute` 1회와 fresh WS recovery를 합친 재판정이다. 다음 거래일 장후에는 4종목 mismatch를 1회 제한 wrapper로 재확인하고, 모델 실험은 2026-07-20 장후 E1/E5 전까지 동결한다.
+- 실전 주문/취소, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.

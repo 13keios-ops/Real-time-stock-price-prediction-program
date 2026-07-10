@@ -167,6 +167,18 @@ account_snapshot probe와 paper/KIS mismatch 연관성:
 
 산출물은 `runtime-data/reports/live-readiness/phase1b/` 아래에 둔다. preflight 차단, 실행 시도 차단, 실제 관측 성공/실패를 서로 다른 latest 파일로 저장해 마지막 유효 증거를 덮지 않는다. 자동화는 별도 승인 없이 `--execute`를 붙이지 않는다.
 
+관측 결과와 공통 운영 fixture를 합친 Phase 1b 전용 readiness는 아래처럼 만든다. 실제 실행 성공 파일이 아직 없으면 차단된 `latest-phase1b-readonly-attempt.json`을 넣어 blocker를 정직하게 보존할 수 있다.
+
+```bash
+./scripts/run_live_readiness_dry_run.sh \
+  --phase phase1b_live_readonly \
+  --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json \
+  --phase1b-observation-path runtime-data/reports/live-readiness/phase1b/latest-phase1b-readonly-observation.json \
+  --report-path runtime-data/reports/live-readiness/phase1b/latest-readiness.json
+```
+
+이 옵션은 live token/account/system clock 값을 paper fixture보다 우선하며 실패 시 paper 값으로 fallback하지 않는다. 관측 JSON의 precomputed override는 신뢰하지 않고 `execution_started`와 sanitized artifact에서 다시 계산한다. `market_status`와 kill switch OFF는 Phase 1b read-only에서는 비차단이고 Phase 2 live-submit readiness부터 필수다. WebSocket recovery와 database/disk/dashboard/storage migration은 Phase 1b에서도 필수다.
+
 ### 3.4. WebSocket `No close frame received`
 
 기본 판단:

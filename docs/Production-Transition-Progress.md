@@ -504,13 +504,16 @@
   - `scripts/compare_kis_account_snapshot_checks.sh`로 paper/live sanitized shape를 오프라인 비교할 수 있다.
   - `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`은 paper 모드 보존과 live order 비활성화를 강제한다.
   - `run_phase1b_readonly_observation.sh`는 기본 네트워크 0회 사전검사와 명시적 제한 실행을 분리하고 `pre-open`/`regular-session` 실행을 차단한다.
+  - `phase1b_live_readonly` 전용 readiness 프로필과 `--phase1b-observation-path` 병합을 구현했다. live token/account/system clock은 paper fixture보다 우선하며 관측 누락·차단 시 fallback하지 않고 dashboard에 별도 표시한다.
 - 현재 확인:
   - 2026-07-10 장후 사전검사에서 paper mode, live order 비활성, paper 계좌 자격정보, 주문 메서드 미노출은 통과했다.
   - live quote 자격정보와 live account 자격정보 두 항목은 미준비로 차단됐다.
   - 네트워크 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
+  - 전용 readiness는 현재 `blocked`다. 필수 blocker는 live token 미검증, live account shape 미검증, live system clock 미검증, stale WebSocket recovery다. `market_status`와 kill switch OFF는 Phase 1b read-only에서 비차단이다.
 - 남은 blocker:
   - 실전 KIS 조회용 credentials를 로컬 비밀 저장소에 준비.
   - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
+  - 같은 판정 시점의 최신 WebSocket recovery 증거 확보.
   - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
   - 위 read-only preparation 옵션으로 실전 credentials를 준비한다.
@@ -719,6 +722,13 @@
   - Phase 1a read-only에서는 kill switch OFF를 요구하지 않는다.
   - Phase 1b와 Phase 2의 live-submit readiness는 별도 기준으로 유지한다.
   - Phase 2/3은 synthetic WS evidence를 통과시키지 않는다.
+- Phase 1b 전용 dry-run 현황:
+  - 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`
+  - 상태: `blocked`
+  - 필수 blocker: token/account/system clock 실계좌 관측 미검증, WebSocket recovery stale
+  - 비차단: `market_status`, `kill_switch`
+  - database, disk space, dashboard, storage migration state는 통과
+  - 실제 주문/취소 및 readiness DB 기록은 실행하지 않았다.
 
 ### Windows 장전 자동화
 

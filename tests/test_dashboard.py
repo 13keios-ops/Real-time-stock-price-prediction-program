@@ -527,6 +527,7 @@ class DashboardTests(unittest.TestCase):
         (reports_root / "codex" / "automation" / "backlog").mkdir(parents=True, exist_ok=True)
         (reports_root / "codex" / "ops" / "premarket-readiness").mkdir(parents=True, exist_ok=True)
         (reports_root / "live-readiness").mkdir(parents=True, exist_ok=True)
+        (reports_root / "live-readiness" / "phase1b").mkdir(parents=True, exist_ok=True)
 
         (reports_root / "recovery" / "latest-local-setup-check.json").write_text(
             json.dumps(
@@ -625,6 +626,33 @@ class DashboardTests(unittest.TestCase):
                                 "disk_space": False,
                                 "dashboard": False,
                                 "storage_migration_state": False,
+                            }
+                        },
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (reports_root / "live-readiness" / "phase1b" / "latest-readiness.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "blocked",
+                    "generated_at": "2026-05-16T02:05:17+09:00",
+                    "phase": "phase1b_live_readonly",
+                    "blocking_reasons": ["token_refresh_not_verified_by_fault_dry_run"],
+                    "readiness_run": {
+                        "phase": "phase1b_live_readonly",
+                        "status": "blocked",
+                        "passed": False,
+                        "checks_json": {
+                            "checks": {
+                                "token_refresh": False,
+                                "ws_recovery": True,
+                                "account_snapshot": False,
+                                "system_clock": False,
                             }
                         },
                     },
@@ -1114,11 +1142,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("실전 전환 readiness dry-run", html)
         self.assertIn("DB 기록", html)
         self.assertIn("ws_recovery_not_verified_by_fault_dry_run", html)
+        self.assertIn("Phase 1b readiness", html)
+        self.assertIn("token_refresh_not_verified_by_fault_dry_run", html)
         self.assertIn("WS evidence type", html)
         self.assertIn("synthetic_fault_injection", html)
         self.assertIn("42.123s / max 1800.0s", html)
         self.assertIn("누적 1, 연속 0, storm 아니오", html)
         self.assertEqual(snapshot.payload["latest_live_readiness"]["status"], "blocked")
+        self.assertEqual(snapshot.payload["latest_phase1b_readiness"]["phase"], "phase1b_live_readonly")
         self.assertIn("최근 raw minute 지연", html)
         self.assertIn("분봉 coverage(닫힌 분)", html)
         self.assertIn("장전 호가나 REST snapshot 때문에 raw coverage는 100%를 넘을 수 있고", html)
@@ -1281,8 +1312,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("data-subtab-group", html)
         self.assertIn("실전 전환 readiness dry-run", html)
         self.assertIn("ws_recovery_not_verified_by_fault_dry_run", html)
+        self.assertIn("Phase 1b readiness", html)
+        self.assertIn("token_refresh_not_verified_by_fault_dry_run", html)
         self.assertIn("synthetic_fault_injection", html)
         self.assertEqual(json.loads(payload)["latest_live_readiness"]["status"], "blocked")
+        self.assertEqual(json.loads(payload)["latest_phase1b_readiness"]["status"], "blocked")
 
     def test_dashboard_reconciliation_uses_full_local_account_state(self) -> None:
         root = Path(__file__).resolve().parents[1]

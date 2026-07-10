@@ -141,6 +141,169 @@ class LiveReadinessDryRunScriptTests(unittest.TestCase):
         self.assertIn("kill_switch_fault_dry_run_failed", payload["non_blocking_reasons"])
         self.assertEqual(checks_json["optional_check_keys"], ["market_status", "kill_switch"])
 
+    def test_phase1b_observation_overrides_paper_fixture_and_keeps_submit_checks_optional(self) -> None:
+        root = self._root()
+        work_dir = self._work_dir() / "phase1b-observation-ok"
+        premarket_path = self._premarket_report(work_dir / "premarket.json")
+        fixture_path = self._write_json(
+            work_dir / "fixture.json",
+            {
+                "token_refresh": "failed",
+                "ws_recovery": "ok",
+                "account_snapshot": "failed",
+                "market_status": "failed",
+                "system_clock": "failed",
+                "kill_switch": "failed",
+                "database": "ok",
+                "disk_space": "ok",
+                "dashboard": "ok",
+                "storage_migration_state": "ok",
+            },
+        )
+        observed_at = datetime.now(timezone.utc)
+        ok_check = {
+            "status": "ok",
+            "passed": True,
+            "summary": "Phase 1b observation passed",
+            "details": {"checked_at": observed_at.isoformat()},
+        }
+        observation_path = self._write_json(
+            work_dir / "phase1b-observation.json",
+            {
+                "status": "ok",
+                "passed": True,
+                "checked_at": observed_at.isoformat(),
+                "phase": "phase1b_live_readonly",
+                "execution_mode": "read-only-observation",
+                "execution_started": True,
+                "preflight": {"passed": True},
+                "safety": {
+                    "order_method_calls": 0,
+                    "allow_live_orders": False,
+                    "raw_response_included": False,
+                    "account_identifier_included": False,
+                    "credential_values_included": False,
+                    "account_snapshot_max_pages_per_mode": 1,
+                },
+                "artifacts": {
+                    "token_refresh_live": {"key": "token_refresh", **ok_check},
+                    "account_snapshot_paper": {"key": "account_snapshot", **ok_check},
+                    "account_snapshot_live": {"key": "account_snapshot", **ok_check},
+                    "account_shape_comparison": {"key": "account_snapshot", **ok_check},
+                    "system_clock_live": {
+                        "key": "system_clock",
+                        "status": "ok",
+                        "passed": True,
+                        "summary": "Phase 1b clock passed",
+                        "details": {
+                            "local_time": observed_at.isoformat(),
+                            "reference_time": observed_at.isoformat(),
+                        },
+                    },
+                },
+            },
+        )
+        report_path = work_dir / "readiness.json"
+
+        result = subprocess.run(
+            [
+                "bash",
+                "scripts/run_live_readiness_dry_run.sh",
+                "--phase",
+                "phase1b_live_readonly",
+                "--premarket-report-path",
+                str(premarket_path),
+                "--fixture-path",
+                str(fixture_path),
+                "--phase1b-observation-path",
+                str(observation_path),
+                "--report-path",
+                str(report_path),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        checks = payload["readiness_run"]["checks_json"]
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["readiness_run"]["passed"])
+        self.assertEqual(payload["phase1b_observation_path"], str(observation_path.resolve()))
+        self.assertEqual(checks["optional_check_keys"], ["market_status", "kill_switch"])
+        self.assertTrue(checks["checks"]["token_refresh"])
+        self.assertTrue(checks["checks"]["account_snapshot"])
+        self.assertTrue(checks["checks"]["system_clock"])
+
+    def test_phase1b_blocked_observation_cannot_fall_back_to_paper_success_fixture(self) -> None:
+        root = self._root()
+        work_dir = self._work_dir() / "phase1b-observation-blocked"
+        premarket_path = self._premarket_report(work_dir / "premarket.json")
+        fixture_path = self._write_json(
+            work_dir / "fixture.json",
+            {
+                "token_refresh": "ok",
+                "ws_recovery": "ok",
+                "account_snapshot": "ok",
+                "market_status": "failed",
+                "system_clock": "ok",
+                "kill_switch": "failed",
+                "database": "ok",
+                "disk_space": "ok",
+                "dashboard": "ok",
+                "storage_migration_state": "ok",
+            },
+        )
+        observation_path = self._write_json(
+            work_dir / "phase1b-observation.json",
+            {
+                "status": "blocked",
+                "passed": False,
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "execution_started": False,
+                "artifacts": {},
+                "readiness_fixture_overrides": {
+                    key: {
+                        "key": key,
+                        "status": "ok",
+                        "passed": True,
+                        "summary": "forged precomputed override must be ignored",
+                    }
+                    for key in ("token_refresh", "account_snapshot", "system_clock")
+                },
+            },
+        )
+        report_path = work_dir / "readiness.json"
+
+        result = subprocess.run(
+            [
+                "bash",
+                "scripts/run_live_readiness_dry_run.sh",
+                "--phase",
+                "phase1b_live_readonly",
+                "--premarket-report-path",
+                str(premarket_path),
+                "--fixture-path",
+                str(fixture_path),
+                "--phase1b-observation-path",
+                str(observation_path),
+                "--report-path",
+                str(report_path),
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertFalse(payload["readiness_run"]["passed"])
+        self.assertIn("token_refresh_not_verified_by_fault_dry_run", payload["blocking_reasons"])
+        self.assertIn("account_snapshot_not_verified_by_fault_dry_run", payload["blocking_reasons"])
+        self.assertIn("system_clock_not_verified_by_fault_dry_run", payload["blocking_reasons"])
+
     def test_missing_fixture_keeps_readiness_blocked(self) -> None:
         root = self._root()
         work_dir = self._work_dir() / "missing-fixture"

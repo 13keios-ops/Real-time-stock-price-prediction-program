@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.config.settings import load_settings
 from app.services.phase1b_readonly_observation import (
+    build_phase1b_readiness_fixture_overrides,
     build_phase1b_readonly_preflight,
     run_phase1b_readonly_observation,
 )
@@ -96,6 +97,7 @@ def main() -> int:
         }
         summary_name = "latest-phase1b-readonly-preflight.json"
 
+    payload["readiness_fixture_overrides"] = build_phase1b_readiness_fixture_overrides(payload)
     output_dir.mkdir(parents=True, exist_ok=True)
     artifact_paths: dict[str, str] = {}
     for key, artifact in payload.get("artifacts", {}).items():

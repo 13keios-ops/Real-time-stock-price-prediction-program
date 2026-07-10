@@ -62,6 +62,9 @@
 - Phase 1a 모의투자 read-only readiness 프로필.
   `phase1a_paper_readonly`는 token/account/system clock/database/dashboard를 필수로 보고,
   `market_status`와 `kill_switch`는 live submit 전용 안전장치로 비차단 관측한다.
+- Phase 1b 실전계좌 read-only readiness 프로필.
+  `phase1b_live_readonly`도 주문 제출 전용 `market_status`와 kill switch OFF는 비차단으로 두되, Phase 1b 관측 JSON의 live token/account/system clock 증거를 paper fixture보다 우선한다. 관측 누락·차단 시 paper 성공값으로 되돌아가지 않으며, 관측 파일의 precomputed override 대신 실행 여부와 sanitized artifact에서 다시 계산하고 WebSocket recovery와 운영 check를 포함해 fail-closed로 판정한다.
+- 대시보드의 `실전 전환 readiness dry-run` 표는 범용 readiness와 `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`을 분리해 표시한다.
 
 ## 데이터 흐름
 

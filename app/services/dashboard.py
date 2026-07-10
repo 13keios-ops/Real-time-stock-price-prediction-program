@@ -2675,6 +2675,9 @@ def collect_dashboard_payload(
     latest_live_readiness = _safe_load_json(
         settings.runtime_data_dir / "reports" / "live-readiness" / "latest-readiness.json"
     )
+    latest_phase1b_readiness = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "live-readiness" / "phase1b" / "latest-readiness.json"
+    )
     latest_local_setup_freshness = _build_freshness_snapshot(
         latest_local_setup_check.get("checked_at") if isinstance(latest_local_setup_check, dict) else None,
         timezone_name=settings.timezone,
@@ -2881,6 +2884,7 @@ def collect_dashboard_payload(
         "latest_local_setup_freshness": latest_local_setup_freshness,
         "latest_codex_premarket_readiness": latest_codex_premarket_readiness,
         "latest_live_readiness": latest_live_readiness,
+        "latest_phase1b_readiness": latest_phase1b_readiness,
         "live_fill_consistency": live_fill_consistency,
         "live_order_attention": live_order_attention,
         "live_phase2_parent_order_limit": live_phase2_parent_order_limit,
@@ -4136,9 +4140,13 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     local_setup_mirroring_status = latest_local_setup.get("broker_paper_mirroring_status") or "-"
     latest_codex_premarket_readiness = payload.get("latest_codex_premarket_readiness", {}) or {}
     latest_live_readiness = payload.get("latest_live_readiness", {}) or {}
+    latest_phase1b_readiness = payload.get("latest_phase1b_readiness", {}) or {}
     live_readiness_run = latest_live_readiness.get("readiness_run") or {}
     live_readiness_checks = (live_readiness_run.get("checks_json") or {}).get("checks") or {}
     live_readiness_blockers = latest_live_readiness.get("blocking_reasons") or []
+    phase1b_readiness_run = latest_phase1b_readiness.get("readiness_run") or {}
+    phase1b_readiness_checks = (phase1b_readiness_run.get("checks_json") or {}).get("checks") or {}
+    phase1b_readiness_blockers = latest_phase1b_readiness.get("blocking_reasons") or []
     ws_recovery_check = _readiness_fixture_check(latest_live_readiness, "ws_recovery")
     ws_recovery_details = _as_dict(ws_recovery_check.get("details"))
     ws_recovery_stable = _as_dict(ws_recovery_details.get("stable"))
@@ -4175,6 +4183,22 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     ]
     live_readiness_rows = [
         ["Codex premarket", latest_codex_premarket_readiness.get("status") or "-"],
+        [
+            "Phase 1b readiness",
+            latest_phase1b_readiness.get("status") or phase1b_readiness_run.get("status") or "-",
+        ],
+        [
+            "Phase 1b 통과",
+            "예" if phase1b_readiness_run.get("passed") else "아니오" if phase1b_readiness_run else "-",
+        ],
+        [
+            "Phase 1b blockers",
+            ", ".join(phase1b_readiness_blockers) if phase1b_readiness_blockers else "none",
+        ],
+        ["Phase 1b token", "ok" if phase1b_readiness_checks.get("token_refresh") else "미검증/차단"],
+        ["Phase 1b account", "ok" if phase1b_readiness_checks.get("account_snapshot") else "미검증/차단"],
+        ["Phase 1b clock", "ok" if phase1b_readiness_checks.get("system_clock") else "미검증/차단"],
+        ["Phase 1b WS", "ok" if phase1b_readiness_checks.get("ws_recovery") else "미검증/차단"],
         ["Live readiness", latest_live_readiness.get("status") or live_readiness_run.get("status") or "-"],
         ["phase", latest_live_readiness.get("phase") or live_readiness_run.get("phase") or "-"],
         ["trading day", latest_live_readiness.get("trading_day") or live_readiness_run.get("trading_day") or "-"],
