@@ -6608,6 +6608,7 @@ python -m app --build-dashboard
 - direct `KisRestQuoteClient` 생성은 read-only factory와 KIS paper mirroring 경계 두 곳만 허용하도록 isolation 테스트를 강화했다.
 - paper/live sanitized account snapshot shape를 오프라인 비교하는 helper와 wrapper를 추가했다. 계좌번호, 잔액, token, raw response는 비교 결과에 포함하지 않는다.
 - live credentials 준비 여부를 boolean으로만 확인한 결과 미준비 상태다. 실제 live network probe는 실행하지 않았다.
-- 관련 테스트 30개, 전체 unittest 470개, 전체 pytest 470개와 subtest 67개, compileall, bash parse, wrapper help, `git diff --check`를 통과했다.
+- 기존 interactive helper가 live 자격정보 입력 시 `TRADING_MODE=live`로 전환하던 위험을 확인해 `--read-only-preparation`을 추가했다. 이 옵션은 현재 trading mode를 보존하고 `ALLOW_LIVE_ORDERS=false`를 강제한다.
+- 관련 테스트 32개, 전체 unittest 472개, 전체 pytest 472개와 subtest 67개, compileall, bash parse, wrapper help, `git diff --check`를 통과했다.
 - Phase 1b는 구조 준비 완료이지만 실제 live shape 증거와 사용자 명시 지시가 필요한 sanitized NAS drill이 남아 있다.
 - 신규 모델 실험, E2/E3 tuning, 종목별 주문 정책, h60 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.

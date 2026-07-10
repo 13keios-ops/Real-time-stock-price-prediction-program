@@ -587,6 +587,7 @@ Phase 1a는 주문 없는 리허설이므로 실전 자금 위험 없이 운영 
 
 ### 방법
 
+- `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`으로 현재 paper 모드를 유지한 채 live 조회 자격정보만 저장한다.
 - 실전 계좌는 주문 메서드가 없는 read-only client로만 연결한다.
 - `ALLOW_LIVE_ORDERS=false`를 유지한다.
 - token, account snapshot, current price, system clock만 조회한다.

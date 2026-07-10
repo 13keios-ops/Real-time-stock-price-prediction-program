@@ -373,25 +373,37 @@ export_to_nas() {
 }
 
 restore_kis_env_interactive() {
-  local mode="paper" include="false" workspace="$REPO_ROOT"
+  local mode="paper" include="false" read_only_preparation="false" workspace="$REPO_ROOT"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --trading-mode|-TradingMode) mode="$2"; shift 2 ;;
       --include-account-fields|-IncludeAccountFields) include="true"; shift ;;
+      --read-only-preparation|-ReadOnlyPreparation) read_only_preparation="true"; shift ;;
       --workspace-root|-WorkspaceRoot) workspace="$2"; shift 2 ;;
       *) shift ;;
     esac
   done
+  [[ "$mode" == "paper" || "$mode" == "live" ]] || { echo "TradingMode must be paper or live" >&2; exit 2; }
+  if [[ "$read_only_preparation" == "true" && "$mode" != "live" ]]; then
+    echo "--read-only-preparation requires --trading-mode live" >&2
+    exit 2
+  fi
   local env_path="$workspace/.env"
   [[ -f "$env_path" ]] || cp "$workspace/.env.example" "$env_path"
   local prefix="PAPER"
   [[ "$mode" == "live" ]] && prefix="LIVE"
-  echo "KIS .env restore ($mode)"
+  if [[ "$read_only_preparation" == "true" ]]; then
+    echo "KIS .env restore (live read-only preparation; trading mode preserved)"
+  else
+    echo "KIS .env restore ($mode)"
+  fi
   read -r -s -p "KIS_APP_KEY_$prefix: " app_key
   echo
   read -r -s -p "KIS_APP_SECRET_$prefix: " app_secret
   echo
-  set_dotenv_value "$env_path" "TRADING_MODE" "$mode"
+  if [[ "$read_only_preparation" != "true" ]]; then
+    set_dotenv_value "$env_path" "TRADING_MODE" "$mode"
+  fi
   set_dotenv_value "$env_path" "KIS_APP_KEY_$prefix" "$app_key"
   set_dotenv_value "$env_path" "KIS_APP_SECRET_$prefix" "$app_secret"
   if [[ "$include" == "true" ]]; then
@@ -404,7 +416,9 @@ restore_kis_env_interactive() {
       set_dotenv_value "$env_path" "KIS_PRODUCT_CODE_$prefix" "$product_code"
     fi
   fi
-  [[ "$mode" == "paper" ]] && set_dotenv_value "$env_path" "ALLOW_LIVE_ORDERS" "false"
+  if [[ "$mode" == "paper" || "$read_only_preparation" == "true" ]]; then
+    set_dotenv_value "$env_path" "ALLOW_LIVE_ORDERS" "false"
+  fi
   echo ".env saved: $env_path"
 }
 

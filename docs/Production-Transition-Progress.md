@@ -502,6 +502,7 @@
   - 현재가·호가·과거분봉·계좌 조회와 CLI 조회 경로를 `KisReadOnlyClient` factory로 고정했다.
   - direct `KisRestQuoteClient` 생성은 read-only factory와 paper mirroring 경계 두 곳만 허용한다.
   - `scripts/compare_kis_account_snapshot_checks.sh`로 paper/live sanitized shape를 오프라인 비교할 수 있다.
+  - `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`은 paper 모드 보존과 live order 비활성화를 강제한다.
 - 현재 확인:
   - 2026-07-10 장후 기준 live app key/secret과 live 계좌 항목은 준비되지 않았다.
   - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
@@ -510,7 +511,7 @@
   - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
   - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
-  - 실전 credentials 준비 뒤 paper/live account check를 서로 다른 파일에 1회씩 저장한다.
+  - 위 read-only preparation 옵션으로 실전 credentials를 준비한 뒤 paper/live account check를 서로 다른 파일에 1회씩 저장한다.
   - 오프라인 비교가 통과하고 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
 
 ### Phase 2: 실전 1종목 소액 canary

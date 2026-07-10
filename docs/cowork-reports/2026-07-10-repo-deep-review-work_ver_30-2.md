@@ -24,12 +24,13 @@
 - `app/services/kis_account_shape_comparison.py`와 `scripts/compare_kis_account_snapshot_checks.sh`를 추가했다.
 - 비교 도구는 계좌번호, 잔액, token, raw response를 복사하지 않고 required field, 타입, presence, row count만 비교한다.
 - paper와 live의 보유 행 수 차이는 정상일 수 있으므로 equality gate로 쓰지 않고 관측값으로만 남긴다.
+- 기존 live 자격정보 helper가 `TRADING_MODE=live`로 바꾸던 위험을 발견해 `--read-only-preparation` 옵션을 추가했다. 이 옵션은 기존 trading mode를 보존하고 `ALLOW_LIVE_ORDERS=false`를 강제한다.
 
 ## 검증
 
-- 관련 단위 테스트 30개 통과.
-- 전체 unittest 470개 통과.
-- 전체 pytest 470개와 subtest 67개 통과.
+- 관련 단위 테스트 32개 통과.
+- 전체 unittest 472개 통과.
+- 전체 pytest 472개와 subtest 67개 통과.
 - read-only direct constructor 검색 결과 허용 경계 2곳만 남음.
 - Python compileall 통과.
 - bash parse와 wrapper help 통과.
@@ -43,7 +44,7 @@
 
 ## 다음 방향
 
-1. live credentials를 저장소 밖 로컬 비밀 저장소에 준비한다.
+1. `./scripts/restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`으로 live credentials를 로컬 비밀 저장소에 준비한다.
 2. 주문 메서드 없는 client로 live token, account, current price/system clock probe를 1회만 실행한다.
 3. paper/live account check를 서로 다른 파일로 저장하고 새 비교 wrapper로 shape 차이를 판정한다.
 4. sanitized NAS recovery drill은 사용자 명시 지시가 있을 때만 별도로 실행한다.

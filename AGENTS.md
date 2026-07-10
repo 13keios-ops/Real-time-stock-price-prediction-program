@@ -165,6 +165,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 ```bash
 ./scripts/check_local_setup.sh
 ./scripts/restore_kis_env_interactive.sh
+./scripts/restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation
 ./scripts/connect_kis_paper_account_interactive.sh
 ./scripts/start_runtime_autoboot.sh
 ./scripts/install_runtime_startup_launcher.sh

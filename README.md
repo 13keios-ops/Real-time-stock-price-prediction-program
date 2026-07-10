@@ -141,7 +141,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - live runtime 이 정상 중지된 상태에서는 마지막 INFO 로그를 실패 사유로 표시하지 않는다.
 - dashboard / watchdog / repo review / hourly audit background helper 는 이제 저장된 pid 만 믿지 않고 실제 명령줄까지 확인해, pid 재사용으로 `running` 오판이나 잘못된 `Stop-Process` 가 나지 않도록 보강했다.
 - `scripts/check_local_setup.sh` 는 복구 직후 root `.env`, Python module, dashboard, live runtime, watchdog, runtime startup launcher, NAS recovery root 상태를 한 번에 점검하고 recovery report를 남긴다.
-- `scripts/restore_kis_env_interactive.sh` 는 WSL 터미널에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장하고, 바로 live runtime / watchdog / KIS verification 까지 이어서 점검한다. 계좌 값은 나중에 `-IncludeAccountFields` 로 별도 복구할 수 있다.
+- `scripts/restore_kis_env_interactive.sh` 는 WSL 터미널에서 기본적으로 `paper` 기준 KIS app key/secret 만 받아 root `.env` 를 저장한다. 계좌 값은 `-IncludeAccountFields` 로 함께 입력할 수 있다. Phase 1b용 live 자격정보만 준비할 때는 `--trading-mode live --include-account-fields --read-only-preparation`을 사용한다. 이 옵션은 현재 `TRADING_MODE=paper`를 보존하고 `ALLOW_LIVE_ORDERS=false`를 강제한다.
 - 대시보드 탭 선택 상태를 새로고침 뒤에도 유지하는 localStorage 처리
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
