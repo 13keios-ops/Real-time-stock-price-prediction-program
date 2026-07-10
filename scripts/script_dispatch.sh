@@ -1899,6 +1899,10 @@ compare_kis_account_snapshot_checks() {
   "$PYTHON_BIN" "$REPO_ROOT/scripts/compare_kis_account_snapshot_checks.py" --project-root "$REPO_ROOT" "$@"
 }
 
+run_phase1b_readonly_observation() {
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/run_phase1b_readonly_observation.py" --project-root "$REPO_ROOT" "$@"
+}
+
 probe_kis_ws_recovery() {
   "$PYTHON_BIN" "$REPO_ROOT/scripts/probe_kis_ws_recovery.py" --project-root "$REPO_ROOT" "$@"
 }
@@ -2170,6 +2174,7 @@ case "$SCRIPT_NAME" in
   probe_kis_token_refresh.sh) probe_kis_token_refresh "$@" ;;
   probe_kis_account_snapshot.sh) probe_kis_account_snapshot "$@" ;;
   compare_kis_account_snapshot_checks.sh) compare_kis_account_snapshot_checks "$@" ;;
+  run_phase1b_readonly_observation.sh) run_phase1b_readonly_observation "$@" ;;
   probe_kis_ws_recovery.sh) probe_kis_ws_recovery "$@" ;;
   probe_market_status_snapshot.sh) probe_market_status_snapshot "$@" ;;
   prepare_market_status_snapshot_template.sh) prepare_market_status_snapshot_template "$@" ;;

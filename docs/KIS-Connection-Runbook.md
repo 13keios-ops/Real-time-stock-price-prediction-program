@@ -147,7 +147,27 @@ account_snapshot probe와 paper/KIS mismatch 연관성:
 | 회귀 위험 | 없음. 다만 문서 기준과 실제 `kis_probe_errors.py`의 category 목록이 달라지면 함께 갱신해야 한다. |
 
 관련 문서/코드 경로: `app/services/kis_probe_errors.py`, `app/services/kis_token_probe.py`, `app/services/kis_account_probe.py`, `app/services/system_clock_probe.py`, `runtime-data/reports/live-readiness/token-refresh-check.json`, `runtime-data/reports/live-readiness/account-snapshot-check.json`, `runtime-data/reports/live-readiness/system-clock-check.json`, `runtime-data/reports/live-readiness/latest-readiness.json`, `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json`
-### 3.3. WebSocket `No close frame received`
+### 3.3. Phase 1b 실전계좌 read-only 관측
+
+먼저 네트워크 없는 사전검사만 실행한다.
+
+```bash
+./scripts/run_phase1b_readonly_observation.sh
+```
+
+통과 조건은 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, paper/live 조회 자격정보 존재, 주문 메서드 미노출이다. 자격정보 값과 계좌 식별자는 출력하지 않는다.
+
+사전검사가 통과하고 계좌 소유자 또는 실전 운용 승인권자가 해당 작업을 승인한 경우에만 아래를 1회 실행한다.
+
+```bash
+./scripts/run_phase1b_readonly_observation.sh --execute
+```
+
+허용 호출은 live token refresh 1회, paper/live account snapshot 각 최대 1페이지, live current price 기반 system clock 1회다. 앞 단계가 실패하면 뒤 단계는 `not_run`으로 남기고 중단한다. `pre-open`과 `regular-session`이면 `protected_market_session`으로 네트워크 시작 전에 차단한다. system clock은 token/account 단계 시작 시각이 아니라 quote 직전 UTC 시각을 사용한다. 주문/취소 호출은 0건이어야 한다.
+
+산출물은 `runtime-data/reports/live-readiness/phase1b/` 아래에 둔다. preflight 차단, 실행 시도 차단, 실제 관측 성공/실패를 서로 다른 latest 파일로 저장해 마지막 유효 증거를 덮지 않는다. 자동화는 별도 승인 없이 `--execute`를 붙이지 않는다.
+
+### 3.4. WebSocket `No close frame received`
 
 기본 판단:
 

@@ -490,7 +490,7 @@
 
 ### Phase 1b: 실전 계좌 read-only 확인
 
-- 상태: 구조 준비 완료, 실제 관측 대기
+- 상태: 구조와 네트워크 0회 사전검사 완료, 실제 관측 대기
 - 목적:
   - 실제 자금 운용 전에 실전 계좌의 조회 권한, 응답 shape, 예수금/주문가능금액,
     T+2 관련 필드가 실제로 어떻게 오는지 확인한다.
@@ -503,16 +503,19 @@
   - direct `KisRestQuoteClient` 생성은 read-only factory와 paper mirroring 경계 두 곳만 허용한다.
   - `scripts/compare_kis_account_snapshot_checks.sh`로 paper/live sanitized shape를 오프라인 비교할 수 있다.
   - `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`은 paper 모드 보존과 live order 비활성화를 강제한다.
+  - `run_phase1b_readonly_observation.sh`는 기본 네트워크 0회 사전검사와 명시적 제한 실행을 분리하고 `pre-open`/`regular-session` 실행을 차단한다.
 - 현재 확인:
-  - 2026-07-10 장후 기준 live app key/secret과 live 계좌 항목은 준비되지 않았다.
-  - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
+  - 2026-07-10 장후 사전검사에서 paper mode, live order 비활성, paper 계좌 자격정보, 주문 메서드 미노출은 통과했다.
+  - live quote 자격정보와 live account 자격정보 두 항목은 미준비로 차단됐다.
+  - 네트워크 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
 - 남은 blocker:
   - 실전 KIS 조회용 credentials를 로컬 비밀 저장소에 준비.
   - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
   - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
-  - 위 read-only preparation 옵션으로 실전 credentials를 준비한 뒤 paper/live account check를 서로 다른 파일에 1회씩 저장한다.
-  - 오프라인 비교가 통과하고 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
+  - 위 read-only preparation 옵션으로 실전 credentials를 준비한다.
+  - `./scripts/run_phase1b_readonly_observation.sh`로 사전검사를 다시 통과시킨 뒤, 승인된 작업 안에서 `--execute`를 1회만 실행한다.
+  - 생성된 paper/live account check의 오프라인 비교와 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
 
 ### Phase 2: 실전 1종목 소액 canary
 
@@ -635,8 +638,9 @@
   - 조회 전용 KIS 흐름 5곳을 read-only factory로 고정.
   - direct 원본 client 생성 경계를 read-only factory와 paper mirroring 두 곳으로 축소.
   - paper/live sanitized account shape 비교 helper와 wrapper 구현.
+  - Phase 1b 네트워크 0회 preflight와 bounded read-only observation wrapper 구현.
 - 다음 작업:
-  - live credentials 준비 뒤 실제 Phase 1b read-only 증거를 생성한다.
+  - live credentials 준비 뒤 preflight 재통과와 `--execute` 1회로 실제 Phase 1b read-only 증거를 생성한다.
 - 권장안:
   - 구조적 차단은 완료로 보고, 실제 live 관측 증거와 NAS drill은 별도 외부 blocker로 유지한다.
 
@@ -747,10 +751,10 @@
 ### 권장 절차
 
 1. Phase 1a 모의투자 read-only 리허설을 먼저 완료한다.
-2. 실전 credentials를 로컬 비밀 저장소에 준비한다.
-3. read-only client로 token/account/current-price probe를 1회 실행한다.
-4. 주문 함수 호출 0건을 확인한다.
-5. paper/live 응답 shape 차이를 문서화한다.
+2. 실전 credentials를 `--read-only-preparation`으로 로컬 비밀 저장소에 준비한다.
+3. 네트워크 없는 Phase 1b preflight를 통과한다.
+4. 승인된 작업 안에서 `--execute` 1회로 token/account/current-price probe를 실행한다.
+5. 주문 함수 호출 0건과 paper/live 응답 shape 차이를 문서화한다.
 6. 문제가 없으면 Phase 1b 관측 기간을 시작한다.
 
 ### 주의

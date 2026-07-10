@@ -70,12 +70,17 @@ def probe_kis_account_snapshot_check(
     *,
     mode: str,
     checked_at: datetime | None = None,
+    max_pages: int | None = None,
 ) -> dict[str, Any]:
     """Build a readiness-compatible account_snapshot check without account identifiers."""
 
     observed_at = checked_at or datetime.now(timezone.utc)
     try:
-        snapshot = readonly_client.get_account_balance()
+        snapshot = (
+            readonly_client.get_account_balance()
+            if max_pages is None
+            else readonly_client.get_account_balance(max_pages=max_pages)
+        )
     except Exception as exc:  # pragma: no cover - network/client failures vary.
         error_details = build_sanitized_kis_probe_error(exc)
         return {

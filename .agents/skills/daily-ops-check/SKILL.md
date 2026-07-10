@@ -113,6 +113,15 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - 장전 재확인에서 `token_refresh`, `account_snapshot`, `system_clock`이 다시 ok인지 별도 줄로 보고한다. 단일 야간 증거가 장전 증거를 대체한다고 쓰지 않는다.
 
 관련 문서/코드 경로: `docs/Manual-Market-Status-Runbook.md`, `docs/KIS-Connection-Runbook.md`, `scripts/probe_kis_ws_recovery.sh`, `scripts/probe_kis_token_refresh.sh`, `scripts/probe_kis_account_snapshot.sh`, `scripts/prepare_market_status_snapshot_template.sh`, `scripts/probe_market_status_snapshot.sh`, `scripts/set_live_kill_switch.sh`, `scripts/build_live_readiness_fixture_snapshot.sh`, `scripts/run_live_readiness_dry_run.sh`
+
+### Phase 1b 실전계좌 read-only
+
+- 일반 daily ops에서는 `./scripts/run_phase1b_readonly_observation.sh` 기본 사전검사만 실행할 수 있다. 이 실행은 네트워크 호출 0회다.
+- `--execute`는 계좌 소유자 또는 실전 운용 승인권자가 해당 작업에서 승인했고, 장중 보호 모드가 아니며, 사전검사가 통과한 경우에만 1회 사용한다. wrapper도 `pre-open`/`regular-session`을 `protected_market_session`으로 차단한다.
+- 자동화 프롬프트나 watcher에 `--execute`를 상시 등록하지 않는다.
+- 결과는 token/account/raw response/계좌 식별자를 출력하지 않고 preflight/attempt/observation 파일을 분리한다.
+- 실행 뒤 주문 함수 호출 0건, `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 다시 확인한다.
+
 ### paper/KIS 정합성
 
 장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. 실제 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 쓰며, dry-run과 차단된 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 분리해 마지막 정상 증거를 덮지 않는다.

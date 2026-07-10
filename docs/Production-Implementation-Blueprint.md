@@ -137,6 +137,8 @@ Phase 1 구현 원칙:
 - tests에서 `hasattr(readonly_client, "submit_cash_order") == False`를 확인한다. Codex 권장안은 hard fail 메서드가 아니라 메서드 미노출이다.
 - `get_kis_readonly_client`는 paper/live 조회에 공통 사용하고, `get_kis_live_readonly_client`는 live 전용 호출만 허용한다.
 - paper/live 계좌 shape 비교는 `scripts/compare_kis_account_snapshot_checks.sh`가 별도 저장된 sanitized check 두 개만 읽어 수행한다.
+- `scripts/run_phase1b_readonly_observation.sh` 기본 실행은 네트워크 0회 사전검사다. `--execute`를 명시한 경우에만 live token refresh 1회, paper/live account snapshot 각 최대 1페이지, live current-price 기반 clock check 1회를 순차 실행하며 앞 단계 실패 시 뒤 호출을 중단하고 `pre-open`/`regular-session`은 네트워크 시작 전에 차단한다. system clock은 token/account 단계의 소요시간이 skew에 섞이지 않도록 quote 직전 UTC 시각을 사용한다.
+- 실행 결과는 `runtime-data/reports/live-readiness/phase1b/`에 preflight/attempt/observation을 서로 다른 파일로 저장하고 raw response, 계좌 식별자, 자격정보 값을 넣지 않는다.
 - fault injection은 실제 장애가 우연히 발생하기를 기다리지 않고 token refresh, WS drop, stale account snapshot을 강제로 만든다.
 
 Slice 1 acceptance criteria:

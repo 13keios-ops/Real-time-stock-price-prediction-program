@@ -6612,3 +6612,18 @@ python -m app --build-dashboard
 - 관련 테스트 32개, 전체 unittest 472개, 전체 pytest 472개와 subtest 67개, compileall, bash parse, wrapper help, `git diff --check`를 통과했다.
 - Phase 1b는 구조 준비 완료이지만 실제 live shape 증거와 사용자 명시 지시가 필요한 sanitized NAS drill이 남아 있다.
 - 신규 모델 실험, E2/E3 tuning, 종목별 주문 정책, h60 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.
+
+
+## [2026-07-11] Phase 1b fail-closed read-only 관측 절차 구현
+
+- 장후 상태에서 live runtime 정상 정지, watchdog/dashboard 정상 실행을 확인했다.
+- Phase 1b 실행 순서를 `app/services/phase1b_readonly_observation.py`와 `scripts/run_phase1b_readonly_observation.sh`로 통합했다.
+- 기본 실행은 네트워크 0회 preflight이며, `--execute`를 명시한 경우에만 live token refresh 1회, paper/live account snapshot 각 최대 1페이지, live current-price clock 1회를 순차 실행한다.
+- system clock 기준 시각은 앞선 token/account 단계 시작 시각이 아니라 quote 직전 UTC 시각으로 분리했다.
+- token/client 생성 실패와 preflight blocker는 raw 오류 본문이나 자격정보 값을 남기지 않고 fail-closed 처리한다.
+- preflight/blocked attempt/actual observation 파일을 분리해 차단된 실행이 마지막 유효 증거를 덮지 않게 했다.
+- 2026-07-10 23:59 KST 실제 preflight는 paper mode, live 주문 비활성, paper 자격정보, 주문 메서드 미노출을 통과했고 live quote/account 자격정보 미준비 두 항목만 차단했다. KIS 네트워크 호출은 0회였다. 자격정보가 없는 상태에서 `--execute`도 확인했으며 `execution_started=false`로 별도 attempt 파일에 차단됐다.
+- 관련 테스트 34개, 전체 unittest 480개, 전체 pytest 480개와 subtest 67개, compileall, bash parse를 통과했다.
+- 실제 Phase 1b 통과가 아니다. live 자격정보 준비와 `--execute` 1회 증거가 남았다.
+- 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-3.md`
+- 실전 주문/취소, 모델 실험, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.

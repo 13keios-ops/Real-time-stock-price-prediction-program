@@ -522,7 +522,7 @@ canary 운용은 1종목/소액/1일 1부모주문 제한 실전 운용 정책 �
 
 🟢 다음 단계 권장: Slice 4 live order guard를 실제 주문 경로에 연결하기 전, `app/services/live_phase_readiness.py`를 fault injection runner/report와 연결해 phase approval/readiness를 자동 기록하게 한다. Codex CLI 운영 자동화는 `app/services/codex_ops.py` manifest를 먼저 통과하도록 wrapper를 만든다.
 
-🟢 다음 단계 권장: Phase 1 runtime flow에 `KisReadOnlyClient`를 연결하기 전, 기존 live 조회 후보 경로가 직접 `KisRestQuoteClient`를 우회하지 않는지 allowlist를 유지한다.
+🟢 완료(2026-07-10): Phase 1 조회 후보 경로를 `KisReadOnlyClient` factory로 고정하고 direct `KisRestQuoteClient` allowlist를 read-only factory와 paper mirroring 경계 두 곳으로 제한했다. Phase 1b는 네트워크 0회 사전검사와 명시적 `--execute` 제한 관측 wrapper까지 준비됐으며, 현재 실제 관측은 live 조회 자격정보 미준비로 fail-closed 차단 중이다.
 
 🟢 다음 단계 권장: 상한가/하한가/거래정지/VI/T+2/부분 체결/corporate action 중 현재 순수 로직에 들어간 항목은 fixture를 유지하고, T+2/부분 체결은 주문/계좌 sync slice에서 별도로 잠근다.
 
