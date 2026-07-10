@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -119,6 +121,40 @@ class ModelLoaderTests(unittest.TestCase):
 
         self.assertIs(model, fake_model)
         from_path.assert_called_once_with(latest_artifact)
+
+    def test_load_latest_lightgbm_shadow_model_skips_invalid_newer_artifact(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "model-loader-lightgbm-shadow-invalid" / str(uuid.uuid4())
+        model_dir = runtime_root / "ml" / "models"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        valid_artifact = model_dir / "lightgbm-h15-valid.joblib"
+        invalid_artifact = model_dir / "lightgbm-h15-invalid.joblib"
+        valid_artifact.write_text("valid", encoding="utf-8")
+        invalid_artifact.write_text("invalid", encoding="utf-8")
+        current_time = time.time()
+        os.utime(valid_artifact, (current_time - 10, current_time - 10))
+        os.utime(invalid_artifact, (current_time, current_time))
+        valid_model = SimpleNamespace(
+            artifact=SimpleNamespace(
+                horizon_min=15,
+                feature_set_version="feature-set-v1",
+                class_labels=["down", "flat", "up"],
+            )
+        )
+
+        with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
+            settings = load_settings(project_root=root)
+            with patch(
+                "app.models.loader.LightGbmDirectionModel.from_path",
+                side_effect=[ValueError("corrupt artifact"), valid_model],
+            ) as from_path:
+                model = load_latest_lightgbm_shadow_model(settings, horizon_min=15)
+
+        self.assertIs(model, valid_model)
+        self.assertEqual(
+            [call.args[0] for call in from_path.call_args_list],
+            [invalid_artifact, valid_artifact],
+        )
 
 
 if __name__ == "__main__":

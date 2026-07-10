@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -90,6 +91,36 @@ class ModelRegistryTests(unittest.TestCase):
 
         self.assertEqual(payload["active_models"]["15"]["model_kind"], "builtin")
         self.assertEqual(payload["active_models"]["15"]["builtin_name"], "linear_score")
+
+    def test_registry_history_keeps_latest_one_hundred_files(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "registry-history" / str(uuid.uuid4())
+        registry = ModelRegistry(runtime_root)
+        registry.history_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(105):
+            (registry.history_dir / f"{index:03d}.json").write_text("{}", encoding="utf-8")
+
+        registry._prune_history(max_files=100)
+
+        names = sorted(path.name for path in registry.history_dir.glob("*.json"))
+        self.assertEqual(len(names), 100)
+        self.assertEqual(names[0], "005.json")
+        self.assertEqual(names[-1], "104.json")
+
+    def test_registry_lock_does_not_remove_live_owner(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "registry-live-lock" / str(uuid.uuid4())
+        registry = ModelRegistry(runtime_root)
+        registry.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        registry.lock_path.write_text(str(os.getpid()), encoding="ascii")
+        old_time = time.time() - 60
+        os.utime(registry.lock_path, (old_time, old_time))
+
+        with self.assertRaises(TimeoutError):
+            with registry._exclusive_lock(timeout_seconds=0.01):
+                self.fail("live owner lock must not be acquired")
+
+        self.assertTrue(registry.lock_path.exists())
 
 
 if __name__ == "__main__":

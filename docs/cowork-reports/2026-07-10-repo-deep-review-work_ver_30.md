@@ -17,7 +17,7 @@
 - challenger: active baseline-h15-v1 유지, keep_active, promotion_applied=false.
 - gate: needs_review, 3분류 정확도 0.4145.
 - 1위 fresh_centroid 거래 수 4건으로 표본 부족.
-- 전체 unittest: 459개 통과.
+- 전체 unittest: 462개 통과.
 - compileall 통과.
 - git diff --check 통과.
 - 실시간 runtime 정지, watchdog/dashboard 정상.
