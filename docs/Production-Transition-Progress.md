@@ -505,19 +505,21 @@
   - `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`은 paper 모드 보존과 live order 비활성화를 강제한다.
   - `run_phase1b_readonly_observation.sh`는 기본 네트워크 0회 사전검사와 명시적 제한 실행을 분리하고 `pre-open`/`regular-session` 실행을 차단한다.
   - `phase1b_live_readonly` 전용 readiness 프로필과 `--phase1b-observation-path` 병합을 구현했다. live token/account/system clock은 paper fixture보다 우선하며 관측 누락·차단 시 fallback하지 않고 dashboard에 별도 표시한다.
+  - `run_phase1b_readiness_cycle.sh`로 local premarket, synthetic WS, 관측, fixture, readiness를 장외 한 명령으로 고정했다. 기본은 외부 KIS 네트워크 0회이고 protected session은 step 시작 전에 차단하며 preflight/attempt/actual readiness를 분리 보존한다.
 - 현재 확인:
   - 2026-07-10 장후 사전검사에서 paper mode, live order 비활성, paper 계좌 자격정보, 주문 메서드 미노출은 통과했다.
   - live quote 자격정보와 live account 자격정보 두 항목은 미준비로 차단됐다.
   - 네트워크 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
-  - 전용 readiness는 현재 `blocked`다. 필수 blocker는 live token 미검증, live account shape 미검증, live system clock 미검증, stale WebSocket recovery다. `market_status`와 kill switch OFF는 Phase 1b read-only에서 비차단이다.
+  - 전용 readiness는 현재 `blocked`다. 필수 blocker는 live token 미검증, live account shape 미검증, live system clock 미검증 세 가지다. fresh synthetic WebSocket recovery는 통과했고 `market_status`와 kill switch OFF는 Phase 1b read-only에서 비차단이다.
+  - 2026-07-11 주말 기본 cycle을 실제 실행했다. `network_calls_executed=0`, synthetic WS는 fresh/ok였고 preflight readiness blocker는 live token, live account shape, live system clock 미검증 세 가지로 줄었다. `market_status`와 kill switch OFF는 계속 비차단이다.
+  - 같은 날 `--execute` cycle도 실행했으나 live quote/account credentials 미준비로 관측 시작 전에 차단됐다. `observation_execution_started=false`, `network_calls_executed=0`, `order_method_calls=0`이며 attempt 파일이 실제 readiness를 덮지 않았다.
 - 남은 blocker:
   - 실전 KIS 조회용 credentials를 로컬 비밀 저장소에 준비.
   - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
-  - 같은 판정 시점의 최신 WebSocket recovery 증거 확보.
   - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
   - 위 read-only preparation 옵션으로 실전 credentials를 준비한다.
-  - `./scripts/run_phase1b_readonly_observation.sh`로 사전검사를 다시 통과시킨 뒤, 승인된 작업 안에서 `--execute`를 1회만 실행한다.
+  - 장외에 `./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 1회 실행한다. cycle이 fresh WS를 같은 판정 시점에 자동 생성한다.
   - 생성된 paper/live account check의 오프라인 비교와 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
 
 ### Phase 2: 실전 1종목 소액 canary
@@ -723,12 +725,14 @@
   - Phase 1b와 Phase 2의 live-submit readiness는 별도 기준으로 유지한다.
   - Phase 2/3은 synthetic WS evidence를 통과시키지 않는다.
 - Phase 1b 전용 dry-run 현황:
-  - 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`
+  - preflight 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness-preflight.json`
+  - cycle 경로: `runtime-data/reports/live-readiness/phase1b/latest-cycle-preflight.json`
   - 상태: `blocked`
-  - 필수 blocker: token/account/system clock 실계좌 관측 미검증, WebSocket recovery stale
+  - 필수 blocker: token/account/system clock 실계좌 관측 미검증
+  - 통과: fresh synthetic WebSocket recovery, database, disk space, dashboard, storage migration state
   - 비차단: `market_status`, `kill_switch`
-  - database, disk space, dashboard, storage migration state는 통과
-  - 실제 주문/취소 및 readiness DB 기록은 실행하지 않았다.
+  - 외부 KIS 호출, 실제 주문/취소, readiness DB 기록은 실행하지 않았다.
+  - 실제 bounded 관측 readiness만 `latest-readiness.json`을 갱신하고 preflight/attempt는 별도 파일로 보존한다.
 
 ### Windows 장전 자동화
 

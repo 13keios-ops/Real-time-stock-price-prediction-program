@@ -1,4 +1,4 @@
-﻿# 실시간 주가 예측 프로그램
+# 실시간 주가 예측 프로그램
 
 국내 주식의 실시간 시세, 호가, 공시, 뉴스, 반응 데이터를 바탕으로 주가 변동을 연구하고 예측하는 로컬 연구용 프로그램이다.
 현재 목표는 자동 실전 매매가 아니라 `실시간 수집 -> 특징 생성 -> 예측 -> 모의투자 검증 -> 리포트` 흐름을 안정적으로 만드는 것이다.
@@ -558,6 +558,18 @@ Phase 1b 관측 결과를 기존 장전 fixture와 합쳐 전용 readiness로 �
 ```
 
 `--phase1b-observation-path`를 주면 기존 paper fixture의 token/account/system clock 값 대신 해당 실계좌 read-only 관측값을 사용한다. 관측이 차단되거나 누락되면 paper 성공값으로 되돌아가지 않고 fail-closed로 차단한다. 관측 파일에 저장된 precomputed override는 판정 근거로 신뢰하지 않고 `execution_started`와 sanitized artifact에서 매번 다시 계산한다. `phase1b_live_readonly`에서는 `market_status`와 kill switch OFF가 주문 제출 전용 안전장치이므로 비차단 관측이며, WebSocket recovery와 나머지 운영 check는 필수다. 결과는 대시보드 `상태 및 설정 > 실전 전환 readiness dry-run`에서 별도 Phase 1b 행으로 확인한다.
+
+위 단계를 한 번에 안전하게 실행하려면:
+
+```bash
+# 기본: 외부 KIS 네트워크 0회 preflight + local readiness
+./scripts/run_phase1b_readiness_cycle.sh
+
+# 실계좌 자격정보 준비 후 장외 bounded read-only 관측
+./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard
+```
+
+cycle은 `pre-open`과 `regular-session`에서 모든 단계를 시작 전에 차단한다. 기본 실행은 fresh local premarket/WS 증거를 만들지만 실제 관측 readiness를 덮지 않고 `latest-readiness-preflight.json`에 분리한다. `--execute`를 줬어도 실제 네트워크 시도가 0회이면 `latest-readiness-attempt.json`, bounded 관측이 1회 이상 시작된 경우에만 `latest-readiness.json`을 갱신한다.
 
 월요일 시작 루틴 1회 실행:
 

@@ -2211,6 +2211,7 @@ case "$SCRIPT_NAME" in
   probe_kis_account_snapshot.sh) probe_kis_account_snapshot "$@" ;;
   compare_kis_account_snapshot_checks.sh) compare_kis_account_snapshot_checks "$@" ;;
   run_phase1b_readonly_observation.sh) run_phase1b_readonly_observation "$@" ;;
+  run_phase1b_readiness_cycle.sh) "$PYTHON_BIN" "$REPO_ROOT/scripts/run_phase1b_readiness_cycle.py" --project-root "$REPO_ROOT" "$@" ;;
   probe_kis_ws_recovery.sh) probe_kis_ws_recovery "$@" ;;
   probe_market_status_snapshot.sh) probe_market_status_snapshot "$@" ;;
   prepare_market_status_snapshot_template.sh) prepare_market_status_snapshot_template "$@" ;;

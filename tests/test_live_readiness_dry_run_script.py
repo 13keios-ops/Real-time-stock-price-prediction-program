@@ -176,6 +176,7 @@ class LiveReadinessDryRunScriptTests(unittest.TestCase):
                 "phase": "phase1b_live_readonly",
                 "execution_mode": "read-only-observation",
                 "execution_started": True,
+                "network_calls_executed": 4,
                 "preflight": {"passed": True},
                 "safety": {
                     "order_method_calls": 0,
@@ -262,6 +263,7 @@ class LiveReadinessDryRunScriptTests(unittest.TestCase):
                 "passed": False,
                 "checked_at": datetime.now(timezone.utc).isoformat(),
                 "execution_started": False,
+                "network_calls_executed": 0,
                 "artifacts": {},
                 "readiness_fixture_overrides": {
                     key: {

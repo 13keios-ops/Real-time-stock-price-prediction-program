@@ -6639,3 +6639,18 @@ python -m app --build-dashboard
 - 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-4.md`
 - 다음 의미 있는 증거는 live read-only credentials 준비 뒤 bounded `--execute` 1회와 fresh WS recovery를 합친 재판정이다. 다음 거래일 장후에는 4종목 mismatch를 1회 제한 wrapper로 재확인하고, 모델 실험은 2026-07-20 장후 E1/E5 전까지 동결한다.
 - 실전 주문/취소, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.
+
+## [2026-07-11] Phase 1b 통합 readiness cycle
+
+- `scripts/run_phase1b_readiness_cycle.py/.sh`를 추가해 local premarket, synthetic WS recovery, Phase 1b preflight/관측, fixture snapshot, 전용 readiness를 장외 한 순서로 고정했다.
+- 기본 실행은 외부 KIS 네트워크 0회다. `--execute`에서만 bounded live read-only 관측을 요청하며 `--refresh-dashboard`는 `--execute`와 함께만 허용한다.
+- `pre-open`/`regular-session`에서는 subprocess를 시작하기 전에 cycle 전체를 차단한다. step 실패 summary에는 stdout/stderr 원문을 넣지 않는다.
+- 종료 전 자기검토에서 token client 생성만 실패해도 `execution_started=true`가 될 수 있던 경계를 수정했다. 실제 네트워크 시도 수를 0~4로 계수하고 0회는 attempt로만 보존하며, forged/누락된 count는 readiness에서 차단한다.
+- preflight, 실행 미시작 attempt, 실제 bounded 실행 readiness 파일을 분리해 단순 점검이 마지막 실제 관측 증거를 덮지 않게 했다.
+- 2026-07-11 01:34 KST 주말 기본 cycle을 실제 실행했다. observation network call 0건, order method call 0건, synthetic WS `network_called=false/ok`를 확인했다.
+- 같은 날 01:48 KST `--execute` cycle도 실제 실행했다. live quote/account credentials preflight에서 `observation_execution_started=false`, `network_calls_executed=0`, `order_method_calls=0`으로 차단됐고 attempt/readiness-attempt 파일에 분리 보존됐다.
+- fresh WS가 같은 cycle에서 통과해 남은 Phase 1b 필수 blocker는 live token, live account shape, live system clock 미검증 세 가지다. `market_status`와 `kill_switch`는 read-only 비차단이다.
+- cycle 전용 테스트 5개, Phase 1b 관련 테스트 70개, 전체 unittest 490개, 전체 pytest 490개와 subtest 67개, compileall, bash parse, `git diff --check`를 통과했다.
+- 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-5.md`
+- 다음 실제 단계는 live 조회 자격정보 준비 뒤 장외에 `./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 1회 실행하는 것이다.
+- 실전 주문/취소, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 신규 모델 실험, NAS 백업은 변경하거나 실행하지 않았다.

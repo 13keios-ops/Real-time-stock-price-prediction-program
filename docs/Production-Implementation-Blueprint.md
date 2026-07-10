@@ -140,6 +140,7 @@ Phase 1 구현 원칙:
 - `scripts/run_phase1b_readonly_observation.sh` 기본 실행은 네트워크 0회 사전검사다. `--execute`를 명시한 경우에만 live token refresh 1회, paper/live account snapshot 각 최대 1페이지, live current-price 기반 clock check 1회를 순차 실행하며 앞 단계 실패 시 뒤 호출을 중단하고 `pre-open`/`regular-session`은 네트워크 시작 전에 차단한다. system clock은 token/account 단계의 소요시간이 skew에 섞이지 않도록 quote 직전 UTC 시각을 사용한다.
 - 실행 결과는 `runtime-data/reports/live-readiness/phase1b/`에 preflight/attempt/observation을 서로 다른 파일로 저장하고 raw response, 계좌 식별자, 자격정보 값을 넣지 않는다.
 - `phase1b_live_readonly` readiness 프로필은 관측 JSON의 live token/account/system clock을 paper fixture보다 우선 적용하고, 누락·차단 시 fallback하지 않는다. `market_status`와 kill switch OFF만 read-only 비차단으로 두며 전용 결과를 `phase1b/latest-readiness.json`과 dashboard에 분리 노출한다.
+- `run_phase1b_readiness_cycle.sh`는 local premarket, synthetic WS, bounded observation, fixture 병합, 전용 readiness를 장외 한 순서로 묶는다. 기본은 외부 네트워크 0회이고 `--execute`만 live read-only 관측을 허용하며, preflight/attempt/actual readiness 파일을 분리한다.
 - fault injection은 실제 장애가 우연히 발생하기를 기다리지 않고 token refresh, WS drop, stale account snapshot을 강제로 만든다.
 
 Slice 1 acceptance criteria:

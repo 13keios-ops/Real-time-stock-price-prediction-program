@@ -123,6 +123,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - 실행 뒤 주문 함수 호출 0건, `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 다시 확인한다.
 - 실행/차단 결과 뒤에는 `./scripts/run_live_readiness_dry_run.sh --phase phase1b_live_readonly --fixture-path runtime-data/reports/live-readiness/local-fixture-snapshot.json --phase1b-observation-path <observation-or-attempt.json> --report-path runtime-data/reports/live-readiness/phase1b/latest-readiness.json`으로 전용 판정을 갱신한다.
 - Phase 1b 보고에서는 token/account/system clock/WS blocker와 `market_status`·`kill_switch` 비차단 여부를 분리하고, precomputed override가 아니라 sanitized artifact에서 재계산됐는지와 dashboard의 별도 Phase 1b 행까지 확인한다.
+- 장외 Phase 1b 통합 점검은 `./scripts/run_phase1b_readiness_cycle.sh`를 우선 사용한다. 기본 실행은 외부 KIS 네트워크 0회다. 실제 관측은 해당 작업 승인과 자격정보 준비 뒤 `--execute`로만 요청하며, dashboard 갱신은 `--execute --refresh-dashboard` 조합에서만 사용한다. protected session이면 cycle 전체가 시작 전에 차단되어야 한다.
 
 ### paper/KIS 정합성
 

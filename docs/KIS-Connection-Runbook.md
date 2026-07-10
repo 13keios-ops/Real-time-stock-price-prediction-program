@@ -179,6 +179,18 @@ account_snapshot probe와 paper/KIS mismatch 연관성:
 
 이 옵션은 live token/account/system clock 값을 paper fixture보다 우선하며 실패 시 paper 값으로 fallback하지 않는다. 관측 JSON의 precomputed override는 신뢰하지 않고 `execution_started`와 sanitized artifact에서 다시 계산한다. `market_status`와 kill switch OFF는 Phase 1b read-only에서는 비차단이고 Phase 2 live-submit readiness부터 필수다. WebSocket recovery와 database/disk/dashboard/storage migration은 Phase 1b에서도 필수다.
 
+권장 운영 명령은 개별 명령 대신 아래 cycle이다.
+
+```bash
+# 외부 KIS 네트워크 0회 사전 판정
+./scripts/run_phase1b_readiness_cycle.sh
+
+# 자격정보 준비 후 장외 bounded 관측과 dashboard 갱신
+./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard
+```
+
+cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `latest-cycle-preflight.json`과 `latest-readiness-preflight.json`, 실행 요청은 `latest-cycle-execute.json`, 실행 미시작 readiness는 `latest-readiness-attempt.json`, bounded 관측이 시작된 readiness만 `latest-readiness.json`에 남긴다. 실제 네트워크 시도 수는 `network_calls_executed=0..4`로 기록하고 0회는 관측 시작으로 인정하지 않는다. 따라서 단순 preflight나 local client 생성 실패가 마지막 실제 관측 증거를 덮지 않는다.
+
 ### 3.4. WebSocket `No close frame received`
 
 기본 판단:

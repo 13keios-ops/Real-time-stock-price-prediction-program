@@ -65,6 +65,8 @@
 - Phase 1b 실전계좌 read-only readiness 프로필.
   `phase1b_live_readonly`도 주문 제출 전용 `market_status`와 kill switch OFF는 비차단으로 두되, Phase 1b 관측 JSON의 live token/account/system clock 증거를 paper fixture보다 우선한다. 관측 누락·차단 시 paper 성공값으로 되돌아가지 않으며, 관측 파일의 precomputed override 대신 실행 여부와 sanitized artifact에서 다시 계산하고 WebSocket recovery와 운영 check를 포함해 fail-closed로 판정한다.
 - 대시보드의 `실전 전환 readiness dry-run` 표는 범용 readiness와 `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`을 분리해 표시한다.
+- 장외 Phase 1b readiness cycle.
+  `run_phase1b_readiness_cycle.sh` 기본 실행은 외부 KIS 네트워크 없이 local premarket/WS/preflight/fixture/readiness를 순서대로 갱신한다. 실제 live 조회는 `--execute`에서만 요청하고, `pre-open`/`regular-session`은 step 시작 전에 차단한다. preflight·실행 미시작·실제 실행 readiness 파일을 분리한다.
 
 ## 데이터 흐름
 

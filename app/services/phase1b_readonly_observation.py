@@ -114,6 +114,7 @@ def run_phase1b_readonly_observation(
         settings,
         readonly_client_factory=readonly_client_factory,
     )
+    network_calls_executed = 0
     normalized_session = str(session_status or "").strip().lower()
     if normalized_session:
         preflight["detail"]["market_session_status"] = normalized_session
@@ -122,6 +123,7 @@ def run_phase1b_readonly_observation(
             observed_at=observed_at,
             preflight=preflight,
             execution_started=False,
+            network_calls_executed=network_calls_executed,
             artifacts={},
             additional_blockers=["protected_market_session"],
         )
@@ -130,6 +132,7 @@ def run_phase1b_readonly_observation(
             observed_at=observed_at,
             preflight=preflight,
             execution_started=False,
+            network_calls_executed=network_calls_executed,
             artifacts={},
             additional_blockers=["phase1b_preflight_blocked"],
         )
@@ -149,6 +152,7 @@ def run_phase1b_readonly_observation(
             },
         }
     else:
+        network_calls_executed += 1
         token_check = probe_kis_token_refresh_check(
             token_manager,
             mode="live",
@@ -161,8 +165,14 @@ def run_phase1b_readonly_observation(
         return _build_result(
             observed_at=observed_at,
             preflight=preflight,
-            execution_started=True,
+            execution_started=network_calls_executed > 0,
+            network_calls_executed=network_calls_executed,
             artifacts=artifacts,
+            additional_blockers=(
+                None
+                if network_calls_executed > 0
+                else ["live_token_client_creation_failed"]
+            ),
         )
 
     paper_client, paper_factory_error = _build_readonly_client(
@@ -177,30 +187,31 @@ def run_phase1b_readonly_observation(
         mode="live",
         timeout_seconds=timeout_seconds,
     )
-    paper_account = (
-        probe_kis_account_snapshot_check(
+    if paper_client is not None:
+        network_calls_executed += 1
+        paper_account = probe_kis_account_snapshot_check(
             paper_client,
             mode="paper",
             checked_at=observed_at,
             max_pages=1,
         )
-        if paper_client is not None
-        else _failed_check("account_snapshot", "paper", paper_factory_error)
-    )
-    live_account = (
-        probe_kis_account_snapshot_check(
+    else:
+        paper_account = _failed_check("account_snapshot", "paper", paper_factory_error)
+    if live_client is not None:
+        network_calls_executed += 1
+        live_account = probe_kis_account_snapshot_check(
             live_client,
             mode="live",
             checked_at=observed_at,
             max_pages=1,
         )
-        if live_client is not None
-        else _failed_check("account_snapshot", "live", live_factory_error)
-    )
+    else:
+        live_account = _failed_check("account_snapshot", "live", live_factory_error)
     artifacts["account_snapshot_paper"] = paper_account
     artifacts["account_snapshot_live"] = live_account
 
     if live_client is not None and live_account["passed"]:
+        network_calls_executed += 1
         live_clock = probe_kis_system_clock_check(
             live_client,
             symbol=symbol,
@@ -222,6 +233,7 @@ def run_phase1b_readonly_observation(
         observed_at=observed_at,
         preflight=preflight,
         execution_started=True,
+        network_calls_executed=network_calls_executed,
         artifacts=artifacts,
     )
 
@@ -299,6 +311,18 @@ def _phase1b_observation_envelope_blockers(observation: dict[str, Any]) -> list[
         blockers.append("phase1b_execution_not_started")
     if observation.get("execution_mode") != "read-only-observation":
         blockers.append("phase1b_execution_mode_invalid")
+    network_calls = observation.get("network_calls_executed")
+    valid_network_call_count = (
+        isinstance(network_calls, int)
+        and not isinstance(network_calls, bool)
+        and (
+            1 <= network_calls <= 4
+            if execution_started
+            else network_calls == 0
+        )
+    )
+    if not valid_network_call_count:
+        blockers.append("phase1b_network_call_count_invalid")
     if observation.get("status") != "ok" or not bool(observation.get("passed", False)):
         blockers.append("phase1b_observation_not_passed")
 
@@ -432,6 +456,7 @@ def _build_result(
     observed_at: datetime,
     preflight: dict[str, Any],
     execution_started: bool,
+    network_calls_executed: int,
     artifacts: dict[str, dict[str, Any]],
     additional_blockers: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -462,6 +487,7 @@ def _build_result(
         "checked_at": observed_at.isoformat(),
         "execution_mode": "read-only-observation" if execution_started else "preflight-blocked",
         "execution_started": execution_started,
+        "network_calls_executed": network_calls_executed,
         "preflight": preflight,
         "checks": checks,
         "blocking_reasons": list(dict.fromkeys(blockers)),

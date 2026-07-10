@@ -595,6 +595,7 @@ Phase 1a는 주문 없는 리허설이므로 실전 자금 위험 없이 운영 
 - raw response와 계좌번호는 저장하지 않고 shape와 count만 sanitized 증거로 남긴다.
 - 모의투자 응답과 실전 응답의 필드 차이를 문서화한다.
 - 관측 JSON을 `run_live_readiness_dry_run.sh --phase phase1b_live_readonly --phase1b-observation-path ...`에 합친다. live token/account/system clock은 paper fixture보다 우선하고 누락·차단 시 fallback하지 않는다. read-only 단계에서는 `market_status`와 kill switch OFF만 비차단으로 둔다.
+- 반복 실행은 `run_phase1b_readiness_cycle.sh` 한 명령으로 고정한다. 기본은 네트워크 0회 preflight이며 `--execute`에서만 bounded live 조회를 요청한다. protected session은 시작 전 차단하고 preflight/attempt/actual readiness를 서로 다른 파일로 보존한다.
 
 ### 이유
 
@@ -734,7 +735,7 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.
 7. 대기: 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
 8. 다음 장전: Phase 1a readiness 증거는 08:20~08:40에만 새로 만들어야 유효하므로 야간 선행 실행하지 않는다.
-9. 구조 준비 완료·실측 대기: 조회 전용 흐름, sanitized paper/live shape 비교, 네트워크 0회 사전검사, 제한 실행 wrapper, Phase 1b 전용 readiness profile·dashboard 연결까지 준비했다. 현재 전용 readiness는 live quote/account 자격정보 미준비로 token/account/system clock이 미검증이고 WebSocket recovery 증거도 stale이라 `blocked`다. `market_status`와 kill switch OFF는 read-only 단계에서 비차단이다. 자격정보 준비 뒤 `--execute` 1회와 최신 WS recovery 증거로 실제 Phase 1b 판정을 갱신한다.
+9. 구조 준비 완료·실측 대기: 조회 전용 흐름, sanitized paper/live shape 비교, 전용 readiness profile·dashboard 연결, 장외 통합 cycle까지 준비했다. 2026-07-11 기본 cycle은 외부 KIS 네트워크 0회로 fresh synthetic WS를 통과시켰고, `--execute` cycle도 자격정보 preflight에서 `network_calls_executed=0`, `order_method_calls=0`으로 안전 차단됐다. 남은 필수 blocker는 live token, live account shape, live system clock 미검증 세 가지다. 자격정보 준비 뒤 같은 명령을 `--execute --refresh-dashboard`로 다시 실행해 실제 Phase 1b를 판정한다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.

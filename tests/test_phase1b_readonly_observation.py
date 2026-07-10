@@ -148,6 +148,7 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(live_client.account_max_pages, [1])
         self.assertEqual(live_client.quote_calls, 1)
         self.assertEqual(clock_times, [checked_at])
+        self.assertEqual(payload["network_calls_executed"], 4)
         self.assertEqual(payload["safety"]["account_snapshot_max_pages_per_mode"], 1)
         self.assertEqual(payload["safety"]["order_method_calls"], 0)
         self.assertTrue(all(payload["checks"].values()))
@@ -187,6 +188,8 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(factory_calls, ["live"])
         self.assertEqual(client.account_calls, 0)
         self.assertEqual(client.quote_calls, 0)
+        self.assertTrue(payload["execution_started"])
+        self.assertEqual(payload["network_calls_executed"], 1)
         self.assertEqual(payload["artifacts"]["token_refresh_live"]["details"]["error_category"], "client_error")
         self.assertNotIn("secret failure body", encoded)
 
@@ -212,7 +215,9 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
 
         encoded = json.dumps(payload)
         self.assertFalse(payload["passed"])
-        self.assertTrue(payload["execution_started"])
+        self.assertFalse(payload["execution_started"])
+        self.assertEqual(payload["network_calls_executed"], 0)
+        self.assertIn("live_token_client_creation_failed", payload["blocking_reasons"])
         self.assertEqual(factory_calls, ["live"])
         self.assertEqual(client.account_calls, 0)
         self.assertEqual(client.quote_calls, 0)
@@ -243,6 +248,7 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
 
         self.assertFalse(payload["passed"])
         self.assertFalse(payload["execution_started"])
+        self.assertEqual(payload["network_calls_executed"], 0)
         self.assertEqual(payload["checks"], {})
         self.assertEqual(payload["artifacts"], {})
         self.assertEqual(profile_calls, 0)
@@ -275,6 +281,7 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
             "checked_at": "2026-07-10T00:00:00+00:00",
             "execution_mode": "read-only-observation",
             "execution_started": True,
+            "network_calls_executed": 4,
             "preflight": {"passed": True},
             "artifacts": {
                 "token_refresh_live": dict(passed_artifact),
@@ -291,6 +298,47 @@ class Phase1bReadOnlyObservationTests(unittest.TestCase):
         self.assertEqual(overrides["token_refresh"]["status"], "invalid_observation")
         self.assertIn(
             "phase1b_safety_missing",
+            overrides["token_refresh"]["details"]["blocking_reasons"],
+        )
+
+    def test_readiness_overrides_reject_invalid_network_call_count(self) -> None:
+        passed_artifact = {
+            "status": "ok",
+            "passed": True,
+            "summary": "passed artifact",
+            "details": {},
+        }
+        payload = {
+            "phase": "phase1b_live_readonly",
+            "status": "ok",
+            "passed": True,
+            "checked_at": "2026-07-10T00:00:00+00:00",
+            "execution_mode": "read-only-observation",
+            "execution_started": True,
+            "network_calls_executed": 0,
+            "preflight": {"passed": True},
+            "artifacts": {
+                "token_refresh_live": dict(passed_artifact),
+                "account_snapshot_paper": dict(passed_artifact),
+                "account_snapshot_live": dict(passed_artifact),
+                "account_shape_comparison": dict(passed_artifact),
+                "system_clock_live": dict(passed_artifact),
+            },
+            "safety": {
+                "order_method_calls": 0,
+                "allow_live_orders": False,
+                "raw_response_included": False,
+                "account_identifier_included": False,
+                "credential_values_included": False,
+                "account_snapshot_max_pages_per_mode": 1,
+            },
+        }
+
+        overrides = build_phase1b_readiness_fixture_overrides(payload)
+
+        self.assertTrue(all(not check["passed"] for check in overrides.values()))
+        self.assertIn(
+            "phase1b_network_call_count_invalid",
             overrides["token_refresh"]["details"]["blocking_reasons"],
         )
 
