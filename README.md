@@ -447,6 +447,7 @@ python -m app --reconcile-paper-accounts
 ```
 
 이 결과는 실행 리포트와 대시보드의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
+실제 reconciliation 실행은 계좌번호나 원문 응답 없이 최근 10개 유효 장후 거래일을 `runtime-data/reports/reconciliation/paper-account-history/`와 `latest-paper-account-history.json/.md`에 누적한다. 대시보드의 `10거래일 누적 정합성`, `거래일별 정합성` 카드에서 현재 `needs_review / insufficient_history / ready` 상태와 차이 종목을 확인할 수 있다.
 
 브로커 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추려면:
 

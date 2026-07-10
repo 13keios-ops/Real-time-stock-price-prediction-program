@@ -467,8 +467,14 @@
     `open_order_count=0`, `final_order_count=173`, `pending_symbols=[]`까지 닫혔다.
     이후 marker-only alignment 를 적용했고, 최신 `latest-open-order-backlog-analysis.json`은
     현재 view 기준 `backlog_cleared_no_action`이다.
+- 2026-07-11 장외 보강:
+  - paper/KIS reconciliation 실행 때 계좌 식별자와 원문 응답을 제외한 거래일별 정합성 기록을 `runtime-data/reports/reconciliation/paper-account-history/YYYY-MM-DD.json`에 자동 저장한다.
+  - `latest-paper-account-history.json/.md`는 최근 10개 유효 장후 거래일의 정합/불일치, 연속 정합 일수, 현금/총자산 최대 차이를 집계한다.
+  - 유효일은 `post-close`, KIS 계좌 조회 성공, 브로커 제출 이력 존재 조건을 모두 만족해야 한다. 불일치가 있으면 표본 부족보다 `needs_review`를 우선 표시한다.
+  - dashboard 계좌 영역에 `10거래일 누적 정합성`과 `거래일별 정합성` 카드를 추가했다.
+  - 기존 2026-07-10 장후 증거를 최초 기록으로 반영한 현재 상태는 `1/10`, `matched_days=0`, `mismatch_days=1`, mismatch 4종목이라 구현은 완료됐지만 Phase 0 gate는 통과하지 않았다.
 - 남은 blocker:
-  - 누적 paper-vs-broker 자동 집계와 dashboard 노출 확인.
+  - 10개 유효 장후 거래일에서 모두 정합한 실제 증거를 누적하고, 현재 mismatch 4종목을 먼저 해소해야 한다.
   - 다음 거래일 첫 신규 제출 뒤에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.
   - 2026-06-08과 같은 raw market 약한 구간이 다음 거래일에도 반복되는지
     watchdog heartbeat, KIS WS frame, raw market/orderbook coverage 로 비교한다.
@@ -624,7 +630,7 @@
   - 다음 장후 broker paper sync를 1회만 재시도한다.
   - 그 뒤 reconciliation 을 다시 확인한다.
   - 수량 mismatch 가 0으로 닫히기 전까지 `SyncInitialCash`와 추가 `AlignToBroker`는 실행하지 않는다.
-  - 누적 paper-vs-broker 자동 집계와 dashboard 표시가 최신 marker 상태를 잘 설명하는지 확인한다.
+  - 누적 자동 집계와 dashboard 표시는 구현 완료됐다. 다음 유효 장후 reconciliation부터 자동 누적되는지 확인하고, `1/10`에서 `10/10`까지 실제 정합 증거를 쌓는다.
 - 권장안:
   - Phase 0 계좌 정합성 blocker 는 다시 열린 상태로 본다.
   - 오늘은 추가 KIS order-fill 호출을 멈추고, 다음 장후에 1회만 재확인한다.

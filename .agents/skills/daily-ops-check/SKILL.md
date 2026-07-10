@@ -47,6 +47,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`
 - `runtime-data/reports/broker-paper/latest-sync.json`
 - `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
+- `runtime-data/reports/reconciliation/latest-paper-account-history.json`
 - `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
 - `runtime-data/reports/recovery/latest-local-setup-check.json`
 - `runtime-data/reports/dashboard/latest-dashboard.json`
@@ -146,6 +147,15 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 ./scripts/recheck_paper_kis_mismatch.sh
 ```
 
+reconciliation이 실행되면 sanitized 일별 기록과 최근 10개 유효 장후 거래일 집계가 자동 갱신돼야 한다. `post-close`, 브로커 조회 성공, 브로커 제출 이력 존재 조건을 모두 만족한 날만 Phase 0 분모에 포함한다. 불일치가 하나라도 있으면 `insufficient_history`보다 `needs_review`를 우선 보고한다.
+
+기존 최신 reconciliation 증거를 네트워크 호출 없이 이력에 반영하거나 현재 집계만 읽을 때는 아래 명령을 쓴다.
+
+```bash
+python scripts/summarize_paper_reconciliation_history.py --record-latest
+python scripts/summarize_paper_reconciliation_history.py
+```
+
 수동으로 나눠서 확인해야 할 때만 아래 순서로 실행한다.
 
 ```bash
@@ -242,6 +252,7 @@ NAS 백업은 사용자가 명시적으로 지시한 경우에만 실행한다.
   - `hold-rescue`: 장후/장외이고 안전하면 `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 paper-only replay 를 갱신한 뒤 `latest-hold-rescue-paper-replay-h15.json`의 `decision.status`, replay 가능 lot, 적용 lot, `delta_cash_sum`을 요약한다. 장중 보호 모드이면 기존 파일만 읽는다.
   - 세 항목은 모두 관측/진단용이며, 주문 정책, gate, active model, KIS live shadow 확장을 바꾸지 않았는지 함께 적는다.
 - paper/KIS 정합성 조치 전후.
+- paper/KIS 최근 10거래일 누적 상태: `status`, `days_available/required_days`, `matched_days`, `mismatch_days`, 최근 차이 종목. 표본 부족과 실제 불일치를 구분한다.
 - dashboard/runtime 갱신 여부.
 - 변경 파일과 검증 명령.
 - 남은 위험과 다음 권장안.

@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -130,6 +131,10 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertEqual(result.mismatch_count, 0)
         self.assertTrue(result.comparison["positions_match"])
         self.assertTrue(result.comparison["balance_match"])
+        report_payload = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+        history_recording = report_payload["history_recording"]
+        self.assertNotEqual(history_recording["status"], "recording_failed")
+        self.assertTrue(Path(history_recording["summary_json_path"]).is_file())
 
     def test_reconcile_paper_accounts_reports_qty_mismatch(self) -> None:
         root, env = self._prepare_runtime()

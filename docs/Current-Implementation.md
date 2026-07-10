@@ -352,6 +352,16 @@ python -m app --kis-account-balance
 python -m app --reconcile-paper-accounts
 ```
 
+reconciliation을 실제 실행하면 계좌 식별자와 원문 응답을 제외한 일별 요약을 `runtime-data/reports/reconciliation/paper-account-history/YYYY-MM-DD.json`에 자동 기록한다.
+최근 10개 유효 장후 거래일 집계는 `latest-paper-account-history.json/.md`에 남고, 대시보드 계좌 화면의 `10거래일 누적 정합성`과 `거래일별 정합성` 카드에서 확인한다.
+`post-close`, 브로커 조회 성공, 브로커 제출 이력 존재가 모두 확인된 날만 Phase 0 분모에 포함한다. 10일이 차기 전에는 `insufficient_history`, 한 날이라도 불일치하면 `needs_review`, 10일 모두 정합할 때만 `ready`다.
+기존 최신 보고서를 네트워크 호출 없이 이력으로 반영하거나 현재 집계만 읽을 때는 아래 명령을 쓴다.
+
+```bash
+python scripts/summarize_paper_reconciliation_history.py --record-latest
+python scripts/summarize_paper_reconciliation_history.py
+```
+
 브로커 기준으로 로컬 가상 계좌 현재 상태 정렬:
 
 ```bash

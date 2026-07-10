@@ -30,7 +30,11 @@ from app.services.live_order_monitoring import (
 )
 from app.services.ws_recovery_evidence import is_real_ws_recovery_evidence_type
 from app.services.paper_alignment import apply_alignment_baseline, filter_rows_after_alignment
-from app.services.paper_reconciliation import build_paper_account_reconciliation_payload, load_local_paper_account_state
+from app.services.paper_reconciliation import (
+    build_paper_account_reconciliation_payload,
+    load_local_paper_account_state,
+)
+from app.services.paper_reconciliation_history import load_paper_reconciliation_history
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.runtime_writer import get_sqlite_store
 from app.universe.symbol_metadata import load_symbol_names, resolve_symbol_label, resolve_symbol_name
@@ -2746,6 +2750,9 @@ def collect_dashboard_payload(
         order_mirroring_enabled=settings.strategy.enable_broker_paper_mirroring,
         mirrored_order_count=len(broker_submission_rows_all),
     )
+    paper_account_reconciliation_history = load_paper_reconciliation_history(
+        settings.runtime_data_dir
+    )
     lightgbm_status = _build_lightgbm_status(
         settings=settings,
         latest_training=latest_training,
@@ -2897,6 +2904,7 @@ def collect_dashboard_payload(
         "account_views": account_views,
         "account_sync": account_sync,
         "paper_account_reconciliation": paper_account_reconciliation,
+        "paper_account_reconciliation_history": paper_account_reconciliation_history,
         "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
         "prediction_details": prediction_details,
@@ -3879,6 +3887,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     live_account = account_views.get("live_broker", {}) or {}
     account_sync = payload.get("account_sync", {}) or {}
     paper_account_reconciliation = payload.get("paper_account_reconciliation", {}) or {}
+    paper_account_reconciliation_history = payload.get("paper_account_reconciliation_history", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
 
@@ -4380,6 +4389,44 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["총자산 차이", _money(paper_account_reconciliation.get("total_asset_gap"))],
         ["최근 브로커 제출 시각", paper_account_reconciliation.get("latest_broker_submission_time") or "-"],
         ["최근 브로커 조회 시각", paper_account_reconciliation.get("latest_broker_fetch_time") or "-"],
+    ]
+    reconciliation_history_status_label = {
+        "ready": "10거래일 통과",
+        "needs_review": "불일치 확인 필요",
+        "insufficient_history": "표본 누적 중",
+        "no_history": "누적 기록 없음",
+    }.get(
+        str(paper_account_reconciliation_history.get("status") or ""),
+        str(paper_account_reconciliation_history.get("status") or "-"),
+    )
+    reconciliation_history_rows = [
+        ["Phase 0 누적 판정", reconciliation_history_status_label],
+        [
+            "유효 거래일",
+            f"{paper_account_reconciliation_history.get('days_available') or 0} / {paper_account_reconciliation_history.get('required_days') or 10}",
+        ],
+        ["남은 거래일", paper_account_reconciliation_history.get("days_remaining") or 0],
+        ["정합 거래일", paper_account_reconciliation_history.get("matched_days") or 0],
+        ["불일치 거래일", paper_account_reconciliation_history.get("mismatch_days") or 0],
+        ["연속 정합 거래일", paper_account_reconciliation_history.get("consecutive_matched_days") or 0],
+        [
+            "누적 구간",
+            f"{paper_account_reconciliation_history.get('date_range', {}).get('start') or '-'} ~ {paper_account_reconciliation_history.get('date_range', {}).get('end') or '-'}",
+        ],
+        ["최대 절대 예수금 차이", _money(paper_account_reconciliation_history.get("max_abs_cash_gap"))],
+        ["최대 절대 총자산 차이", _money(paper_account_reconciliation_history.get("max_abs_total_asset_gap"))],
+    ]
+    reconciliation_history_day_rows = [
+        [
+            row.get("trade_date"),
+            row.get("status"),
+            "예" if row.get("matched") else "아니오",
+            row.get("mismatch_count"),
+            _money(row.get("cash_gap")),
+            _money(row.get("total_asset_gap")),
+            ", ".join(row.get("mismatch_symbols") or []) or "-",
+        ]
+        for row in paper_account_reconciliation_history.get("days", [])
     ]
     reconciliation_mismatch_rows = [
         [
@@ -5003,6 +5050,24 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         "최근 동기화 점검",
                         _table(["항목", "값"], reconciliation_rows, "동기화 점검 정보가 없습니다.", scroll_height=280),
                         note=_esc(paper_account_reconciliation.get("note")),
+                    ),
+                    _section_card(
+                        "10거래일 누적 정합성",
+                        _table(
+                            ["항목", "값"],
+                            reconciliation_history_rows,
+                            "누적 정합성 기록이 없습니다.",
+                            scroll_height=300,
+                        ),
+                        note=_esc(paper_account_reconciliation_history.get("interpretation")),
+                    ),
+                    _section_card(
+                        "거래일별 정합성",
+                        _table(
+                            ["거래일", "상태", "정합", "차이 건수", "예수금 차이", "총자산 차이", "차이 종목"],
+                            reconciliation_history_day_rows,
+                            "아직 유효한 장후 거래일 기록이 없습니다.",
+                        ),
                     ),
                     _section_card(
                         "차이 상세",

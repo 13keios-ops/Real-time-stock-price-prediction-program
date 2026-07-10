@@ -1,5 +1,42 @@
 # 작업 기록
 
+## [2026-07-11] Codex -> 지연된 장후 점검 마감과 10거래일 정합성 자동 집계
+
+- 사용자 목표:
+  - 전날 장후 작업 시간이 지났더라도 현재 장외에 안전하게 가능한 점검과 누락 작업을 마무리한다.
+- 시작 상태:
+  - 현재 session은 `weekend`, live runtime은 정지 상태라 정상이다.
+  - watchdog은 running/fresh, dashboard는 `http://127.0.0.1:8765`에서 server/API 모두 응답한다.
+- 장후 학습 확인:
+  - 2026-07-10 post-close ML은 `status=ok`, `completed_at=16:17:58 KST`, `mode=quick-live-train`이다.
+  - label refresh는 `status=ok`, `completed_at=16:50:42 KST`다.
+  - active는 `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`다.
+  - top challenger는 3분류 정확도 `0.314705`, 매수/거래 적중률 `0.75`, 누적 순수익률 합 `+5.444049%p`지만 실제 거래 표본이 `4건`뿐이라 승격 근거가 아니다.
+- avoid/rescue 확인:
+  - buy-avoid는 2026-06-11~2026-07-10, `joined_rows=33,007`, threshold `0.40`, skip `9,002`, raw delta `+846.0341%p`다.
+  - 그러나 random-control excess가 `+238.2658%p`, z-score `+4.1266`, verdict `filter_worse_than_random_p95`라 무작위 회피보다 나쁜 선택이다. 주문 정책에는 반영하지 않는다.
+  - buy-rescue는 Cybos proxy 기준 `buy_avoid_candidate_only`이며, KIS live no-trade ledger가 없어 live 실패로 확정하지 않는다.
+  - hold-rescue는 `eligible_lots=161`, threshold 0.40 적용 `37 lot`, `delta_cash_sum=-26,387원`, `diagnostic_only_no_hold_rescue_candidate`다.
+- 누락 기능 조치:
+  - paper/KIS reconciliation 때 계좌 식별자와 원문 응답을 제외한 거래일별 sanitized 기록을 자동 저장하는 `app/services/paper_reconciliation_history.py`를 추가했다.
+  - 유효 장후 거래일 최근 10일의 정합/불일치, 연속 정합 일수, 최대 현금/총자산 차이를 `latest-paper-account-history.json/.md`에 집계한다.
+  - 유효 조건은 `post-close + 브로커 조회 성공 + 브로커 제출 이력 존재`다. 불일치는 표본 부족보다 우선 경고한다.
+  - 대시보드 계좌 영역에 `10거래일 누적 정합성`, `거래일별 정합성` 카드를 추가했다.
+  - 기존 2026-07-10 장후 증거를 네트워크 호출 없이 최초 기록으로 반영했다. 현재 `1/10`, 정합 `0일`, 불일치 `1일`, mismatch 4종목(`035420`, `086520`, `105560`, `247540`)으로 `needs_review`다.
+- 검증:
+  - 관련 테스트 30개 통과.
+  - 전체 unittest `498 tests OK`.
+  - 전체 pytest `498 passed, 67 subtests passed`.
+  - runtime report와 dashboard를 재생성했고 dashboard server/API 응답을 확인했다.
+  - 전체 검증 후 전용 cleanup wrapper로 테스트 임시 산출물 85개, 약 142.2MB를 정리했고 `.tmp-tests/codex-ops`와 `app/risk`는 보존했다.
+- 안전:
+  - KIS 추가 네트워크 호출, 계좌 align, 실전 주문/취소, active model/gate/threshold, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 변경 없음.
+  - NAS 백업은 실행하지 않았다.
+- 다음:
+  - 다음 거래일 장후 mismatch recheck를 한 번만 실행하고, 성공한 reconciliation부터 일별 기록이 자동 누적되는지 확인한다.
+  - Phase 0 계좌 정합성은 10개 유효 거래일 모두 정합하기 전까지 열린 상태다.
+  - 2026-07-20 장후 사전등록 E1/E5 라운드는 기존 동결 범위대로 별도 진행한다.
+
 ## [2026-07-07] Codex -> review_ver_29 Phase 1 readiness fail-closed 준비
 
 - 사용자 지시:

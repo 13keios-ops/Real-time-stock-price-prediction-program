@@ -1,4 +1,4 @@
-﻿"""Reconcile local virtual paper state against the broker paper account."""
+"""Reconcile local virtual paper state against the broker paper account."""
 
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ from app.services.paper_alignment import (
     apply_alignment_baseline,
     filter_rows_after_alignment,
 )
+from app.services.paper_reconciliation_history import record_paper_reconciliation_history
 from app.storage.runtime_writer import get_sqlite_store
-from app.utils.time import now_local
+from app.utils.time import get_market_session_status, now_local
 
 
 @dataclass(slots=True)
@@ -270,6 +271,8 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         f"- `ok`: {payload.get('ok')}",
         f"- `as_of`: {payload.get('as_of')}",
         f"- `status`: {comparison.get('status')}",
+        f"- `market_session_status`: {payload.get('market_session_status')}",
+        f"- `history_status`: {(payload.get('history_recording') or {}).get('status')}",
         f"- `mismatch_count`: {comparison.get('mismatch_count')}",
         f"- `cash_gap`: {comparison.get('cash_gap')}",
         f"- `total_asset_gap`: {comparison.get('total_asset_gap')}",
@@ -318,14 +321,35 @@ def reconcile_paper_accounts(
         mirrored_order_count=int(local_account_state.get("broker_order_submissions", 0) or 0),
     )
     as_of = now_local(settings.timezone)
+    market_session_status = get_market_session_status(settings.market_calendar, as_of)
     markdown_path, json_path = _report_paths(settings.runtime_data_dir)
     payload = {
         "ok": bool(broker_report.get("ok")),
         "as_of": as_of.isoformat(),
+        "market_session_status": market_session_status,
         "comparison": comparison,
         "local_account": local_account_state,
         "broker_account": broker_report.get("account_snapshot"),
     }
+    try:
+        history_result = record_paper_reconciliation_history(
+            settings.runtime_data_dir,
+            payload,
+            market_session_status=market_session_status,
+        )
+        history_summary = history_result["summary"]
+        payload["history_recording"] = {
+            "status": history_summary.get("status"),
+            "observation_status": history_summary.get("observation_status"),
+            "days_available": history_summary.get("days_available"),
+            "required_days": history_summary.get("required_days"),
+            "summary_json_path": history_result["summary_json_path"],
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        payload["history_recording"] = {
+            "status": "recording_failed",
+            "error_type": type(exc).__name__,
+        }
     _write_report(markdown_path, json_path, payload)
     return PaperAccountReconciliationResult(
         ok=bool(payload["ok"]),

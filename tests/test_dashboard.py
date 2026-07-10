@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1175,6 +1175,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("브로커 주문 자동 연동", html)
         self.assertIn("최근 브로커 제출 주문", html)
         self.assertIn("최근 동기화 점검", html)
+        self.assertIn("10거래일 누적 정합성", html)
+        self.assertIn("거래일별 정합성", html)
 
     def test_collect_dashboard_payload_uses_read_only_sqlite_path(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1194,6 +1196,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["runtime_summary"]["broker_order_submissions"], 0)
         self.assertIn("order_mirroring_enabled", payload["account_sync"])
         self.assertIn("paper_account_reconciliation", payload)
+        self.assertIn("paper_account_reconciliation_history", payload)
 
     def test_dashboard_shows_live_fill_consistency(self) -> None:
         root = Path(__file__).resolve().parents[1]
