@@ -1,5 +1,42 @@
 # 작업 기록
 
+## [2026-07-11] Codex -> Phase 1b 실전계좌 읽기 전용 관측 통과
+
+- 사용자 목표:
+  - 실전계좌용 KIS 자격정보를 로컬에 안전하게 준비하고 Phase 1b를 실제 주문 없이 진행한다.
+- 자격정보 준비:
+  - `restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation`으로 네 항목을 로컬 `.env`에 저장했다.
+  - 최초 GUI 실행은 PowerShell `bash -lc` 인수 전달 오류로 `PAPER` 프롬프트가 열렸다. 저장 전에 해당 프로세스를 종료했고 presence-only preflight로 live 값 미저장을 확인한 뒤 script 인수를 직접 전달해 `LIVE` 프롬프트로 재실행했다.
+  - 값은 로그·리포트·git 추적 파일에 출력하지 않았고 presence-only 사전검사만 수행했다.
+  - 사전검사는 live quote/account 자격정보 존재, paper 모드 보존, live 주문 비활성, 주문 메서드 미노출을 모두 통과했다.
+- 실제 제한 관측:
+  - 주말 장외에 `./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 1회 실행했다.
+  - 허용된 네트워크 작업은 live token refresh 1회, paper account snapshot 1페이지, live account snapshot 1페이지, live current-price/system clock 1회로 총 4회다.
+  - 주문 메서드 호출은 `0`, raw response·계좌 식별자·잔액 값 저장은 `false`다.
+  - live account position row 1개/summary row 1개, paper account position row 3개/summary row 1개였고 필수 필드 누락, 타입 오류, shape 차이는 없었다.
+  - live system clock skew는 `0.533151초`로 허용 기준 `2초` 이내였다.
+  - Phase 1b 전용 readiness는 `status=ok`, `passed=true`이며 dashboard snapshot도 갱신됐다.
+- 비차단 경고:
+  - 지난 거래일 수동 `market_status` 템플릿은 종목 tradable 미확인으로 실패했다.
+  - kill switch 상태 파일은 stale이라 실패했다.
+  - 두 항목은 조회 전용 Phase 1b에서는 비차단이지만 Phase 2 live-submit에서는 반드시 차단 조건으로 유지한다.
+- 보안 보강:
+  - `.env`가 git ignore 상태임을 확인하고 권한을 `600`으로 제한했다.
+  - `restore_kis_env_interactive`가 입력 전과 저장 후 `.env` 권한을 항상 `600`으로 강제하도록 수정했다.
+  - 자격정보 값 미출력과 권한 `0600`을 회귀 테스트로 확인했다.
+- 검증:
+  - `bash -n scripts/script_dispatch.sh` 통과.
+  - `python3 -m unittest tests.test_kis_env_restore_script -v` 통과, 2개 테스트.
+  - 전체 unittest `498 tests OK`.
+  - 전체 pytest `498 passed, 67 subtests passed`.
+  - 전용 cleanup wrapper로 테스트 임시 산출물 85개, 약 89.9MB를 정리하고 `.tmp-tests/codex-ops`와 `app/risk`는 보존했다.
+- 판단:
+  - Phase 1b의 live token/account shape/system clock blocker는 해소됐다.
+  - 이는 실전 주문 시작이 아니다. `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 유지하며 Phase 2는 미시작이다.
+  - 다음 우선순위는 Phase 0 paper/KIS 정합성 10거래일 증거, 전략 기대값, 실제 WebSocket recovery, fresh market status와 유효 kill switch다.
+- 안전:
+  - 실전 주문·취소, 계좌 align, active model/gate/threshold, `app/risk/`, `config/`, `VERSION`, NAS 백업 변경 없음.
+
 ## [2026-07-11] Codex -> 지연된 장후 점검 마감과 10거래일 정합성 자동 집계
 
 - 사용자 목표:
@@ -27,6 +64,7 @@
   - 관련 테스트 30개 통과.
   - 전체 unittest `498 tests OK`.
   - 전체 pytest `498 passed, 67 subtests passed`.
+  - 전용 cleanup wrapper로 테스트 임시 산출물 85개, 약 89.9MB를 정리하고 `.tmp-tests/codex-ops`와 `app/risk`는 보존했다.
   - runtime report와 dashboard를 재생성했고 dashboard server/API 응답을 확인했다.
   - 전체 검증 후 전용 cleanup wrapper로 테스트 임시 산출물 85개, 약 142.2MB를 정리했고 `.tmp-tests/codex-ops`와 `app/risk`는 보존했다.
 - 안전:

@@ -52,6 +52,7 @@ class KisEnvRestoreScriptTests(unittest.TestCase):
             self.assertEqual(values["KIS_APP_SECRET_LIVE"], "live-secret")
             self.assertEqual(values["KIS_ACCOUNT_NO_LIVE"], "12345678")
             self.assertEqual(values["KIS_PRODUCT_CODE_LIVE"], "01")
+            self.assertEqual((workspace / ".env").stat().st_mode & 0o777, 0o600)
             self.assertNotIn("live-key", result.stdout + result.stderr)
             self.assertNotIn("live-secret", result.stdout + result.stderr)
 

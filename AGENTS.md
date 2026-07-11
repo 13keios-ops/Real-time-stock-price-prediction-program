@@ -70,6 +70,7 @@
 - 장후 운영 체크 답변에는 `buy-avoid`, `buy-rescue`, `hold-rescue` 관측 결과도 함께 포함한다. 세 항목은 계속 같이 보되, 현재 주문 반영 권한은 없고 `buy-avoid`는 주 관측 후보, `buy-rescue`와 `hold-rescue`는 보조 진단 지표로 구분한다.
 - 장후 운영 체크 답변에는 `latest-paper-account-history.json`의 10거래일 누적 상태, 유효일 수, 정합/불일치 일수, 최근 차이 종목도 포함한다. 표본 부족보다 실제 불일치를 우선 보고한다.
 - 운영자는 Codex나 Claude cowork가 아니라 계좌 소유자 또는 실전 운용 승인권자를 뜻한다.
+- 비밀값 입력이 필요한 interactive helper는 Codex가 직접 창을 열고 `LIVE`/`PAPER` 프롬프트가 요청 범위와 맞는지 먼저 확인한다. 사용자는 비밀값 입력만 담당하며, PowerShell에서 WSL helper를 열 때는 `bash -lc` 문자열에 인수를 섞지 않고 script와 인수를 `--exec` 뒤에 각각 직접 전달한다.
 - 반복 누락이 다시 나오면 `docs/Codex-Operating-Feedback.md`에 체크 항목 또는 skill 후보로 반영한다.
 - cowork 전달용 `work_ver_*` 리포트에는 단순 결과만 쓰지 않고 Codex의 비판적 의견, 다음 진행 방향, 계속 진행/보류 기준, 다음 cowork 리뷰가 필요한 시점을 함께 적는다.
 
@@ -190,6 +191,7 @@ python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
 - 실전 주문은 기본 비활성화 상태로 둔다.
 - KIS 앱 키, 앱 시크릿, 계좌번호, 토큰, 원격 비공개 정보는 git 추적 파일에 쓰지 않는다.
 - 저장소 루트 `.env`는 로컬 실행용이며 커밋하지 않는다.
+- 저장소 루트 `.env`는 소유자 전용 권한 `0600`을 유지한다. 자격정보 복구 helper도 입력 전과 저장 후 이 권한을 강제하며 권한을 완화하지 않는다.
 - 모의투자 계좌 화면에 상품코드가 없으면 `KIS_PRODUCT_CODE_PAPER`는 빈 값으로 둘 수 있다.
 - `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 로컬 가상 주문이 KIS 모의계좌에도 제출될 수 있다.
 - 로컬 가상 계좌와 KIS 모의계좌 비교는 `총자산 - 주식평가액` 으로 계산한 브로커 유효현금을 기준으로 본다.

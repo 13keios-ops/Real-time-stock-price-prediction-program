@@ -26,7 +26,7 @@
 - 금요일 장후 ML은 `status=ok`, `completed_at=2026-07-10 16:17:58 +0900`, `mode=quick-live-train`이고 label refresh도 `status=ok`, `completed_at=2026-07-10 16:50:42 +0900`다. 중복 학습은 실행하지 않았다.
 - review_ver_27의 2026-07-20 장후 E1/E5 라운드를 `scripts/run_preregistered_e1_e5_round.py/.sh`로 단일 실행화했다. 날짜·장 상태·2026-07-20 label refresh gate, D드라이브 연구 snapshot, 고정 구간 `2026-07-04~2026-07-18`, E1 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 관계, E5 threshold `0.40` random-control 비교를 코드와 합성 테스트로 잠갔다.
 - 현재 dry-run은 `before_preregistered_not_before`로 정상 차단됐고 네트워크·주문 호출은 각각 0건이다. 실제 E1/E5 결과는 아직 생성하지 않았으며 첫 허용 시각은 `2026-07-20 15:30 KST`다.
-- Phase 1b 실제 관측은 구조 준비가 끝났지만 live read-only 자격정보가 없어 token/account/system clock 증거 3종이 미검증이다. 실전 주문 경로와는 분리된 blocker다.
+- Phase 1b 실전계좌 read-only 제한 관측을 2026-07-11 주말 장외에 완료했다. live token, paper/live account shape, live system clock 및 전용 readiness가 모두 통과했고 네트워크 호출은 4회, 주문 메서드 호출은 0회였다. 이는 실제 주문 단계 진입이 아니라 조회 경로 검증 완료다.
 - 다음 외부 시점 작업은 다음 거래일 장후 mismatch 4종목 1회 재확인, 정규장 dashboard/watchdog 장시간 관측, 2026-07-20 장후 E1/E5 실측이다.
 - 주문 정책, gate, active model, KIS live shadow 범위, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다.
 
@@ -506,7 +506,7 @@
 
 ### Phase 1b: 실전 계좌 read-only 확인
 
-- 상태: 구조와 네트워크 0회 사전검사 완료, 실제 관측 대기
+- 상태: 실제 제한 관측 1회와 전용 readiness 통과, 반복 관측 및 상위 단계 진입 조건 대기
 - 목적:
   - 실제 자금 운용 전에 실전 계좌의 조회 권한, 응답 shape, 예수금/주문가능금액,
     T+2 관련 필드가 실제로 어떻게 오는지 확인한다.
@@ -526,17 +526,26 @@
   - 2026-07-10 장후 사전검사에서 paper mode, live order 비활성, paper 계좌 자격정보, 주문 메서드 미노출은 통과했다.
   - live quote 자격정보와 live account 자격정보 두 항목은 미준비로 차단됐다.
   - 네트워크 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`는 유지된다.
-  - 전용 readiness는 현재 `blocked`다. 필수 blocker는 live token 미검증, live account shape 미검증, live system clock 미검증 세 가지다. fresh synthetic WebSocket recovery는 통과했고 `market_status`와 kill switch OFF는 Phase 1b read-only에서 비차단이다.
+  - 2026-07-10 당시 전용 readiness는 `blocked`였다. 필수 blocker는 live token 미검증, live account shape 미검증, live system clock 미검증 세 가지였고 fresh synthetic WebSocket recovery만 통과했다.
   - 2026-07-11 주말 기본 cycle을 실제 실행했다. `network_calls_executed=0`, synthetic WS는 fresh/ok였고 preflight readiness blocker는 live token, live account shape, live system clock 미검증 세 가지로 줄었다. `market_status`와 kill switch OFF는 계속 비차단이다.
   - 같은 날 `--execute` cycle도 실행했으나 live quote/account credentials 미준비로 관측 시작 전에 차단됐다. `observation_execution_started=false`, `network_calls_executed=0`, `order_method_calls=0`이며 attempt 파일이 실제 readiness를 덮지 않았다.
-- 남은 blocker:
-  - 실전 KIS 조회용 credentials를 로컬 비밀 저장소에 준비.
-  - live account read-only probe와 paper/live shape 비교의 실제 증거 확보.
-  - sanitized NAS 복구 drill 표본. NAS 작업은 사용자 명시 지시가 있을 때만 실행한다.
+- 2026-07-11 실제 제한 관측:
+  - `run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 주말 장외에 1회 실행했다.
+  - live token refresh 1회, paper/live account snapshot 각 1페이지, live current-price/system clock 1회로 네트워크 호출은 총 4회였다.
+  - live account는 position row 1개, summary row 1개, paper account는 position row 3개, summary row 1개였고 필수 필드 누락·타입 오류·shape 차이는 없었다. 잔액과 계좌 식별자는 저장하지 않았다.
+  - system clock skew는 `0.533151초`로 허용 기준 `2초` 이내였고 live token, account snapshot, system clock이 모두 통과했다.
+  - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, 주문 메서드 미노출과 `order_method_calls=0`을 재확인했다.
+  - 전용 readiness 필수 항목은 모두 통과했다. `market_status`는 지난 거래일 수동 템플릿, kill switch는 stale 상태라 실패했지만 Phase 1b 조회 전용 프로필에서는 비차단이다. Phase 2 live-submit에서는 그대로 차단 조건이다.
+  - dashboard snapshot도 같은 Phase 1b `status=ok`, `passed=true` 결과로 갱신됐다.
+  - 로컬 `.env`는 git ignore 상태이며 파일 권한을 `600`으로 제한했다.
+- 남은 항목:
+  - Phase 0 paper/KIS 계좌 정합성은 현재 유효 증거 `1/10`, mismatch 4종목이라 계속 열린 상태다.
+  - Phase 2/3용 실제 WebSocket recovery 증거, 당일 fresh market status, 유효한 kill switch OFF 상태와 전략 수익성 근거는 아직 없다.
+  - sanitized NAS 복구 drill 표본은 사용자 명시 지시가 있을 때만 실행한다.
 - 권장안:
-  - 위 read-only preparation 옵션으로 실전 credentials를 준비한다.
-  - 장외에 `./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 1회 실행한다. cycle이 fresh WS를 같은 판정 시점에 자동 생성한다.
-  - 생성된 paper/live account check의 오프라인 비교와 주문 함수 호출 0건을 재확인한 뒤 Phase 1b 관측을 시작한다.
+  - Phase 1b의 자격정보·token·account shape·system clock blocker는 해소된 것으로 기록한다.
+  - 필요 시 장외에서 같은 bounded read-only cycle을 반복해 fresh 증거를 만들되, `pre-open`과 `regular-session` 실행 차단은 유지한다.
+  - Phase 2 실제 주문 canary는 Phase 0 정합성, 모델/전략 기대값, 실제 WS recovery, market status, kill switch 조건이 모두 닫힐 때까지 시작하지 않는다.
 
 ### Phase 2: 실전 1종목 소액 canary
 
@@ -545,8 +554,9 @@
   - Phase 1a/1b 관측 통과.
   - submit guard, audit, alert, kill switch, model gate 통과.
 - 남은 blocker:
-  - Phase 1 미통과.
-  - active model 승격 기준 미충족.
+  - Phase 0 paper/KIS 계좌 정합성 10거래일 기준 미충족.
+  - 비용 차감 양수 기대값과 active model/전략 채택 기준 미충족.
+  - 실제 WebSocket recovery, fresh market status, 유효 kill switch OFF 증거 미충족.
 
 ### Phase 3: 다종목 일일 한도 운용
 
@@ -660,10 +670,10 @@
   - direct 원본 client 생성 경계를 read-only factory와 paper mirroring 두 곳으로 축소.
   - paper/live sanitized account shape 비교 helper와 wrapper 구현.
   - Phase 1b 네트워크 0회 preflight와 bounded read-only observation wrapper 구현.
-- 다음 작업:
-  - live credentials 준비 뒤 preflight 재통과와 `--execute` 1회로 실제 Phase 1b read-only 증거를 생성한다.
+- 실제 확인:
+  - 2026-07-11 bounded `--execute`로 live token, paper/live account shape, live system clock과 주문 메서드 호출 0건 증거를 생성했다.
 - 권장안:
-  - 구조적 차단은 완료로 보고, 실제 live 관측 증거와 NAS drill은 별도 외부 blocker로 유지한다.
+  - 구조적 차단과 Phase 1b 1회 실제 관측은 완료로 보고, 반복 관측·Phase 0 정합성·NAS drill은 별도 항목으로 유지한다.
 
 ### live enable guard
 
@@ -740,15 +750,15 @@
   - Phase 1a read-only에서는 kill switch OFF를 요구하지 않는다.
   - Phase 1b와 Phase 2의 live-submit readiness는 별도 기준으로 유지한다.
   - Phase 2/3은 synthetic WS evidence를 통과시키지 않는다.
-- Phase 1b 전용 dry-run 현황:
-  - preflight 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness-preflight.json`
-  - cycle 경로: `runtime-data/reports/live-readiness/phase1b/latest-cycle-preflight.json`
-  - 상태: `blocked`
-  - 필수 blocker: token/account/system clock 실계좌 관측 미검증
-  - 통과: fresh synthetic WebSocket recovery, database, disk space, dashboard, storage migration state
-  - 비차단: `market_status`, `kill_switch`
-  - 외부 KIS 호출, 실제 주문/취소, readiness DB 기록은 실행하지 않았다.
-  - 실제 bounded 관측 readiness만 `latest-readiness.json`을 갱신하고 preflight/attempt는 별도 파일로 보존한다.
+- Phase 1b 전용 readiness 현황:
+  - 사전검사 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness-preflight.json`
+  - 실제 관측 경로: `runtime-data/reports/live-readiness/phase1b/latest-phase1b-readonly-observation.json`
+  - 최종 경로: `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`
+  - 상태: `ok`, `passed=true`
+  - 필수 통과: live token, synthetic WebSocket recovery, paper/live account shape, live system clock, database, disk space, dashboard, storage migration state
+  - 비차단 실패: `market_status`, `kill_switch`
+  - 실제 관측은 읽기 전용 네트워크 4회, 주문 메서드 호출 0회였고 readiness DB 기록은 하지 않았다.
+  - preflight/attempt 파일은 실제 관측 결과와 분리해 계속 보존한다.
 
 ### Windows 장전 자동화
 

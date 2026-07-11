@@ -390,6 +390,7 @@ restore_kis_env_interactive() {
   fi
   local env_path="$workspace/.env"
   [[ -f "$env_path" ]] || cp "$workspace/.env.example" "$env_path"
+  chmod 600 "$env_path"
   local prefix="PAPER"
   [[ "$mode" == "live" ]] && prefix="LIVE"
   if [[ "$read_only_preparation" == "true" ]]; then
@@ -419,6 +420,7 @@ restore_kis_env_interactive() {
   if [[ "$mode" == "paper" || "$read_only_preparation" == "true" ]]; then
     set_dotenv_value "$env_path" "ALLOW_LIVE_ORDERS" "false"
   fi
+  chmod 600 "$env_path"
   echo ".env saved: $env_path"
 }
 

@@ -56,6 +56,7 @@
 - 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper
 - 현재가·호가·과거분봉·계좌 조회와 CLI 조회 경로의 read-only factory 고정, sanitized paper/live account shape 비교 wrapper
 - Phase 1b live 자격정보 준비 시 paper 모드를 보존하고 `ALLOW_LIVE_ORDERS=false`를 강제하는 interactive helper 옵션
+- KIS interactive env restore는 자격정보 입력 전과 저장 후 `.env` 권한을 모두 `0600`으로 강제한다. `.env`는 git ignore 상태이며 자격정보 값은 리포트와 로그에 포함하지 않는다.
 - 기본 네트워크 0회 사전검사와 명시적 `--execute` 제한 조회를 분리한 Phase 1b read-only 관측 wrapper. live token 1회, paper/live account 각 최대 1페이지, live clock quote 1회만 허용하고 앞 단계 실패 시 fail-closed로 중단하고 `pre-open`/`regular-session` 실행을 코드에서 차단한다. system clock은 앞선 probe 시작 시각이 아니라 quote 직전 UTC 시각으로 판정한다.
 - live 주문/체결/포지션/감사/승인/readiness 초기 원장과 순수 helper
 - 실전 전환 readiness dry-run, fail-closed market_status 템플릿 helper, kill switch dry-run/status/apply helper, KIS paper fixture redaction/export helper

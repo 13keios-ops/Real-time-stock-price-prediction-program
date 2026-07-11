@@ -37,6 +37,9 @@
   사용자 판단이 꼭 필요한 이유를 함께 적는다.
 - 운영자는 Codex나 Claude가 아니라
   계좌 소유자 또는 실전 운용 승인권자를 뜻한다.
+- KIS 자격정보처럼 비밀값 입력이 필요한 경우 명령 실행과 입력창 준비는 Codex가 담당하고 사용자는 값만 입력한다.
+  창을 띄운 직후 `LIVE`/`PAPER` 프롬프트를 확인하며, 잘못된 프롬프트면 저장 전에 종료하고 presence-only 검사 후 다시 연다.
+  PowerShell `Start-Process`에서 WSL script 인수는 `bash -lc` 명령 문자열이 아니라 `--exec /bin/bash <script> <args...>` 형태로 직접 전달한다.
 - NAS 백업은 사용자가 해당 작업에서 명시적으로 지시한 경우에만 실행한다.
 - side panel에서 열어야 하는 문서는 긴 표와 긴 한 줄을 피하고,
   짧은 section과 bullet 중심으로 작성한다.

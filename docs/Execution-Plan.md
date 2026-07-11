@@ -737,7 +737,7 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.
 7. 대기: 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
 8. 다음 장전: Phase 1a readiness 증거는 08:20~08:40에만 새로 만들어야 유효하므로 야간 선행 실행하지 않는다.
-9. 구조 준비 완료·실측 대기: 조회 전용 흐름, sanitized paper/live shape 비교, 전용 readiness profile·dashboard 연결, 장외 통합 cycle까지 준비했다. 2026-07-11 기본 cycle은 외부 KIS 네트워크 0회로 fresh synthetic WS를 통과시켰고, `--execute` cycle도 자격정보 preflight에서 `network_calls_executed=0`, `order_method_calls=0`으로 안전 차단됐다. 남은 필수 blocker는 live token, live account shape, live system clock 미검증 세 가지다. 자격정보 준비 뒤 같은 명령을 `--execute --refresh-dashboard`로 다시 실행해 실제 Phase 1b를 판정한다.
+9. Phase 1b 제한 관측 통과: 2026-07-11 주말 장외에 `run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 실행해 live token, paper/live account shape, live system clock과 전용 readiness를 통과시켰다. 읽기 전용 네트워크 호출은 4회, 주문 메서드 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 유지했다. Phase 2는 아직 시작하지 않으며 Phase 0 계좌 정합성 10거래일, 전략 기대값, 실제 WS recovery, fresh market status, 유효 kill switch 조건을 먼저 닫는다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.
