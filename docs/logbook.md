@@ -1,5 +1,31 @@
 # 작업 기록
 
+## [2026-07-11] Codex -> rescue/avoid 수익성 심층 리뷰
+
+- 사용자 우려:
+  - 프로그램이 학습만 반복하고 실제 수익을 만들지 못하는 구조인지, rescue/avoid가 제대로 평가되는지 비판적으로 검토한다.
+- 판정:
+  - 안전장치는 작동한다. buy-avoid, buy-rescue, hold-rescue 모두 주문 정책이나 active model로 승격되지 않았다.
+  - 수익 엔진으로는 작동하지 않는다. KIS buy-avoid는 random-control에서 역선별, buy-rescue는 근거 부족/비용 후 음수, hold-rescue는 실제 replay 손실이다.
+- 핵심 수치:
+  - KIS buy-avoid: 22거래일, 33,007행, threshold 0.40, skip 9,002행, random-control excess `+238.2658%p`, z `+4.1266`, `filter_worse_than_random_p95`.
+  - Cybos proxy: 무작위보다 선별력은 있으나 reference 적용 뒤 kept net `-170.3252%p`라 절대 흑자가 아니다.
+  - KIS both-up buy-rescue: 160행 합계 `+0.6318%p`, 평균 약 `+0.00395%p`, 손실 비중 50.625%, 최신성/일별 일관성/no-trade 실행 원장 부족.
+  - hold-rescue: eligible 161 lot, threshold 0.40 적용 37 lot, 현금 변화 `-26,387원`, 개선 13/악화 22.
+  - early-exit threshold 0.58은 실제 paper 청산 대비 `+316,794원`으로 보이지만, 5개 threshold 사후 선택, 같은 bar close 즉시 체결, 날짜 필터/runtime scope 미적용, 슬리피지 미반영이라 아직 유효 수익 후보가 아니다.
+  - 최신 challenger는 모두 naive majority class 정확도 약 41.83%를 넘지 못했고 walk-forward도 41.45%로 gate가 `needs_review`다.
+- 평가 구조 결함:
+  - 33,007개 allowed-buy 신호를 독립 거래처럼 퍼센트 합산하지만 실제 buy order는 258건, 총 fill event는 425건이다. 누적 수익률과 MDD가 계좌 수익률이 아니다.
+  - 후보 판정이 절대 흑자가 아니라 losing baseline 대비 delta를 우선한다.
+  - meta-policy가 defensive random-control을 입력으로 받지 않고, 7월 3일 overlay/meta 결과가 7월 10~11일 최신 결과보다 오래돼도 stale 차단이 없다.
+  - 82,583개 LightGBM shadow prediction의 training/artifact lineage가 모두 비어 있어 모델 세대별 재현성이 없다.
+  - Phase 0 계좌 mismatch 4종목과 총자산 gap 때문에 실제 계좌 손익 귀속도 아직 정본으로 쓸 수 없다.
+- 권장 방향:
+  - 신규 threshold 탐색 전에 candidate/status 의미, freshness, lineage, decision episode, 실제 portfolio replay를 먼저 고친다.
+  - 현재 hold-rescue 규칙은 기각하고 buy-rescue는 시작하지 않는다. buy-avoid는 2026-07-20 E1/E5 확인용 관측만 유지한다.
+  - 이후 entry 모델은 비용 후 기대값/하방 위험/no-trade를 직접 최적화하고 exit 모델은 별도로 설계한다.
+- 안전:
+  - 이번 작업은 read-only 데이터/코드 리뷰와 문서화만 수행했다. 모델 학습, threshold, 주문 정책, active model, gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업 변경 없음.
 ## [2026-07-11] Codex -> Phase 0 1/10 보존과 월요일 mismatch 재확인 자동화
 
 - 사용자 목표:

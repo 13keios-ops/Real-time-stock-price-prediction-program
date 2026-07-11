@@ -58,6 +58,30 @@
 9. Phase 2 canary는 모델과 운영 blocker가 닫힌 뒤에만 시작한다.
 10. Phase 3 다종목 운용은 Phase 2 관측 뒤에만 검토한다.
 
+### 2026-07-11 rescue/avoid 수익성 자기검토
+
+현재 rescue/avoid 구현은 나쁜 후보를 주문 정책으로 올리지 않는 안전장치로는 작동하지만, 수익 전략을 만들었다고 볼 수는 없다.
+
+- KIS LightGBM buy-avoid threshold `0.40`은 22거래일, 33,007개 allowed-buy 신호 행에서 9,002개를 제외했지만 random-control 대비 `excess=+238.2658%p`, `z=+4.1266`, `filter_worse_than_random_p95`다. 남긴 행의 평균 순손익도 `-0.13038%p`로 원래 `-0.12045%p`보다 나쁘다. 현재 표준 판정은 `KIS live buy-avoid 선별력 기각/관찰 전용`이다.
+- Cybos 5년 proxy에서는 동일 구조가 무작위보다 나쁜 행을 골라냈지만, reference coverage `0.3665` 적용 뒤 kept net도 `-170.3252%p`라 흑자 전략은 아니다. Cybos 선택성이 KIS에 전이되지도 않았다.
+- buy-rescue는 Cybos 고정 grid 전부 비용 후 음수다. KIS의 두 모델 동시 상승 후보는 과거 overlay에서 160행 합계 `+0.6318%p`, 평균 약 `+0.00395%p`에 불과하고 일별 재현성·random-control·실제 no-trade 실행 원장이 없어 후보로 보지 않는다.
+- hold-rescue 최신 paper replay는 161개 eligible lot 중 threshold `0.40` 적용 37건, 현금손익 변화 `-26,387원`, 개선 13건, 악화 22건이다. 현재 규칙은 기각한다.
+- 별도 early-exit replay는 threshold `0.58`에서 실제 paper 청산보다 `+316,794원`으로 유일하게 양수처럼 보인다. 그러나 5개 threshold 중 사후 최선값이고, 예측을 만든 같은 분봉의 close를 즉시 체결가로 사용하며, `build_summary(start_date/end_date)`의 날짜 필터가 early-exit lot/prediction에는 적용되지 않는다. 다음 bar의 실제 매도 가능 가격, 슬리피지, runtime scope, 미래 구간 검증 전에는 수익 후보로 인정하지 않는다.
+- 근본 문제는 baseline 자체의 비용 후 기대값이 음수라는 점이다. losing baseline에서 거래를 일부 제거하면 총손실 합은 기계적으로 줄어든다. 따라서 `baseline 대비 delta > 0`을 후보 조건으로 쓰지 않고, 절대 비용 후 기대값 양수와 실제 포트폴리오 재생 통과를 필수로 바꾼다.
+
+다음 구현 우선순위는 신규 threshold 탐색보다 평가 체계 교정이다.
+
+1. random-control 실패 시 legacy status도 후보가 아닌 `rejected_random_control` 계열로 일치시킨다.
+2. buy-avoid/meta-policy 후보 조건에 `policy net > 0`, 평균 거래 기대값 양수, 거래일 일관성, 최소 decision episode 수를 추가한다.
+3. 매분 중복·겹침 신호의 퍼센트 합을 계좌 수익률처럼 쓰지 않는다. allowed signal을 decision episode로 묶고, 현금·포지션·중복 보유·수수료·세금·슬리피지·강제청산을 반영한 portfolio replay를 승격 정본으로 만든다.
+4. meta-policy에 defensive random-control을 필수 입력으로 넣고, 입력 생성 시각/데이터 종료일/모델 artifact lineage가 다르면 stale로 차단한다.
+5. serving prediction마다 `training_run_id`, `artifact_id`, `artifact_sha256`를 보존하고 lineage 없는 기존 82,583개 LightGBM shadow 예측은 혼합-vintage 진단으로만 본다.
+6. buy-rescue 모집단은 단순 `not baseline allowed-buy`가 아니라 baseline 판단, gate, allocator, 보유·현금 제약, 주문·체결 여부를 분리한 decision ledger로 다시 정의한다.
+7. 현재 hold-rescue 규칙은 종료한다. early-exit은 같은 bar close 체결과 날짜 범위 누락을 바로잡은 미래 전용 portfolio replay에서만 재검토하고, 이후 별도 exit/hold 모델을 설계한다.
+8. 2026-07-20 사전등록 E1/E5 라운드는 그대로 실행하되, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
+
+그 다음 모델 개선은 3분류 정확도만 높이는 방향이 아니라 `비용 후 기대수익/하방 quantile/거래하지 않음`을 직접 다루는 entry 모델과 별도 exit 모델, 그리고 h15/h60 후보를 동일 portfolio replay에서 비교하는 방향으로 진행한다. Phase 2 실제 주문 canary는 이 평가 정본에서 절대 수익성이 확인되기 전까지 시작하지 않는다.
+
 2026-07-03 기준 모델 운용 방향은 단독 모델 선택보다 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`가 우선이다.
 따라서 LightGBM, linear-score, KIS-only orderbook, 시간대/모멘텀 후보는 `scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 하나의 Phase 1 shadow 관측판에 묶어 본다.
 SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으로 공식 API, 공개 feed, 수동 export 만 허용하고, `scripts/summarize_social_signal_shadow.py --horizon-min 15`로 사후 방향 적중률을 본다.
@@ -379,13 +403,13 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - 방어 신호가 좋아 보여도 active model 교체나 gate 기준값 변경 없이 별도 후보로만 둔다.
 - 기존 진단에서 후보를 추릴 때는 `scripts/summarize_lightgbm_defensive_signal_candidates.py`로 하락 예측 양수 후보를 먼저 요약한다.
 - 실제 baseline 매수 신호에 적용한 첫 비교는 `scripts/summarize_lightgbm_defensive_shadow.py`로 수행한다.
-- 같은 하락/회피 단서라도 `buy-avoid`와 `early-exit`은 분리해서 판정한다. 2026-06-13 첫 shadow 는 baseline 대비 손실 축소 delta 가 양수였지만, 2026-07-05 random-control 기준 KIS buy-avoid 는 `재검증 필요, 무작위 대조군 대비 우위 미확인`으로 정정되었다. 조기 청산은 실제 paper 청산보다 악화되어 보류다.
+- 같은 하락/회피 단서라도 `buy-avoid`와 `early-exit`은 분리해서 판정한다. 최신 KIS buy-avoid는 random-control에서 무작위보다 나쁜 행을 골라내는 역선별 결과라 현재 규칙을 기각한다. early-exit은 threshold `0.58`에서만 실제 paper 청산 대비 양수처럼 보였지만, 사후 threshold 선택, 같은 bar close 즉시 체결, 날짜 범위 누락 때문에 검증 무효 상태로 보류한다.
 
 ### 이유
 
-현재 증거는 “언제 사야 하는가”보다 “언제 사면 안 되는가” 쪽에 더 강하다.
-현물 계좌에서 하락 예측은 신규 숏으로 바로 쓸 수 없지만, 잘못된 매수를 줄이거나 손실 포지션을 빨리 닫는 데는 쓸 수 있다.
-이 경로는 실전 주문을 건드리지 않고도 paper shadow에서 검증할 수 있다.
+과거에는 회피 쪽 증거가 상대적으로 강해 보였지만, 최신 KIS random-control은 그 판단을 기각했다.
+현물 계좌에서 하락 예측은 신규 숏으로 바로 쓸 수 없으며, buy-avoid와 early-exit 모두 미래 구간의 실행 가능한 가격으로 portfolio replay를 통과하기 전까지 연구 가설로만 둔다.
+이 경로는 실전 주문을 건드리지 않는 paper shadow에서 계속 검증하되, 절대 비용 후 기대값이 양수가 아니면 적용하지 않는다.
 
 ### 변경 전 / 변경 후 / 영향 범위 / 회귀 위험
 
@@ -404,7 +428,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 - baseline 단독과 baseline+방어 필터를 같은 기간에서 비교한 리포트가 있다.
 - 방어 필터가 비용 차감 후 손실 거래, 최대 낙폭, 연속 손실 중 최소 하나를 의미 있게 줄인다.
 - 수익 기회 감소가 허용 범위 안인지 별도로 표시된다.
-- 조기 청산 후보는 실제 closed paper lot 기준 delta 가 양수로 바뀌기 전까지 적용하지 않는다.
+- 조기 청산 후보는 사전 고정한 규칙, 미래 구간, 다음 체결 가능 가격, 비용·슬리피지를 반영한 closed paper lot 기준에서 절대 순손익과 baseline 대비 delta가 모두 양수일 때만 적용을 검토한다.
 
 관련 문서/코드 경로:
 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`,
