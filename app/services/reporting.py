@@ -81,6 +81,7 @@ def build_runtime_report(project_root: Path) -> RuntimeReportResult:
         "labels": sqlite_store.count_rows("feature_labels"),
         "predictions": sqlite_store.count_rows("serving_predictions"),
         "signals": sqlite_store.count_rows("serving_trade_signals"),
+        "decisions": sqlite_store.count_rows("serving_decision_ledger"),
         "orders": sqlite_store.count_rows("paper_orders"),
         "fills": sqlite_store.count_rows("paper_fills"),
         "broker_order_submissions": sqlite_store.count_rows("broker_paper_order_submissions"),

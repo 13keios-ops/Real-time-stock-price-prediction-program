@@ -20,6 +20,18 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-11 19:30 KST rescue/avoid 수익성 교정
+
+- 주말 상태에서 live runtime은 정상 정지, watchdog은 정상 실행 중이다.
+- 겹치는 신호 수익률 합을 계좌 수익률에서 분리하고, decision episode와 현금·보유·비용을 반영한 portfolio replay를 구현했다.
+- LightGBM buy-avoid threshold `0.40`은 baseline `-16.4010%`, 필터 적용 `-15.3384%`, 차이 `+1.0626%p`다. 절대수익과 평균 기대값이 음수이고 signal-row random control도 실패해 주문 후보가 아니다.
+- buy-rescue용 `serving_decision_ledger`를 구현했다. 현재 0행이며 과거를 추정 backfill하지 않고 다음 정규장부터 실제 no-trade 결정을 축적한다.
+- hold-rescue threshold `0.40`은 eligible `161`, 적용 `37`, 현금손익 차이 `-26,387원`으로 현재 규칙을 기각한다.
+- prediction lineage를 모든 serving 모델에 추가하고, lineage 없는 LightGBM artifact를 loader에서 차단했다. 기존 저장 예측은 진단 전용으로 유지한다.
+- meta-policy는 `blocked_evidence`, primary candidate 없음이다. 챌린저 재평가에서도 모든 후보가 `promotable=false`이고 active `baseline-h15-v1`, `keep_active`, `promotion_applied=false`다.
+- Phase 1b read-only 완료 상태는 유지된다. 다만 Phase 2 canary는 Phase 0 계좌 정합성, 실제 WS recovery, fresh market status/kill switch 외에 절대 비용 후 수익이 양수인 portfolio 후보가 생길 때까지 시작하지 않는다.
+- 2026-07-20 E1/E5 전 실험 동결, 주문 정책, gate, active model, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS` 무변경을 유지했다.
+
 ### 2026-07-11 02:45 KST 장외 스냅샷
 
 - 주말 상태에서 live runtime은 정상 정지, watchdog/dashboard/startup launcher는 정상 실행 중이다.

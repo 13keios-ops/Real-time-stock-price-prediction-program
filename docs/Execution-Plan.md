@@ -82,6 +82,18 @@
 
 그 다음 모델 개선은 3분류 정확도만 높이는 방향이 아니라 `비용 후 기대수익/하방 quantile/거래하지 않음`을 직접 다루는 entry 모델과 별도 exit 모델, 그리고 h15/h60 후보를 동일 portfolio replay에서 비교하는 방향으로 진행한다. Phase 2 실제 주문 canary는 이 평가 정본에서 절대 수익성이 확인되기 전까지 시작하지 않는다.
 
+#### 2026-07-11 구현 완료 상태
+
+- 위 1~7번 평가 체계 교정을 코드와 회귀 테스트에 반영했다.
+- `buy-avoid`는 decision episode portfolio replay, signal-row random control, 절대 비용 후 수익, 평균 거래 기대값, 최소 표본, 거래일 일관성, prediction lineage를 모두 통과해야 후보가 된다.
+- 최신 threshold `0.40`은 계좌 기준 baseline `-16.4010%`, 필터 적용 `-15.3384%`다. `+1.0626%p` 개선은 손실 감소일 뿐 수익이 아니므로 `rejected_random_control`을 유지한다.
+- `serving_decision_ledger`와 모델 lineage를 구현했다. 과거 33,007개 lineage 없는 LightGBM joined row는 진단 전용이고, no-trade ledger는 다음 정규장부터 실제 결정만 축적한다.
+- meta-policy는 `blocked_evidence`, primary candidate 없음이다. 챌린저 재평가에서도 모든 후보가 `promotable=false`, active `baseline-h15-v1`, `keep_active`, 승격 미적용이다.
+- hold-rescue threshold `0.40`은 `-26,387원`으로 현재 규칙을 기각한다. buy-rescue는 실제 no-trade ledger 0행이라 아직 평가 시작 전이다.
+- 2026-07-20 전 실험 동결은 유지한다. 새 threshold, EV tuning, 주문 정책, active model, gate는 바꾸지 않았다.
+
+다음 순서는 `다음 정규장부터 decision ledger/lineage 축적 -> 2026-07-20 E1/E5 고정 라운드 -> candidate별 동일 portfolio replay 연결 -> 비용 후 수익을 직접 목표로 하는 entry/exit 모델 사전등록`이다. 10거래일은 조기 진단, 20/30/60거래일은 재현성 강화 checkpoint로 사용하며 중간 수치만으로 주문 정책을 바꾸지 않는다.
+
 2026-07-03 기준 모델 운용 방향은 단독 모델 선택보다 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`가 우선이다.
 따라서 LightGBM, linear-score, KIS-only orderbook, 시간대/모멘텀 후보는 `scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 하나의 Phase 1 shadow 관측판에 묶어 본다.
 SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으로 공식 API, 공개 feed, 수동 export 만 허용하고, `scripts/summarize_social_signal_shadow.py --horizon-min 15`로 사후 방향 적중률을 본다.

@@ -1,11 +1,11 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 import uuid
 import unittest
 from unittest.mock import patch
 
-from app.storage.contracts import PaperOrder
+from app.storage.contracts import PaperOrder, ServingDecision
 from app.storage.sqlite_store import (
     SQLITE_JOURNAL_MODE_FALLBACKS,
     SQLiteRuntimeStore,
@@ -119,6 +119,59 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
         self.assertTrue(created_path.exists())
         self.assertEqual(backup_store.count_rows("paper_orders"), 1)
 
+    def test_serving_decision_ledger_persists_context_and_shadow_lineage(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
+        store = SQLiteRuntimeStore(database_path)
+        decision = ServingDecision(
+            decision_id="decision-1",
+            symbol="005930",
+            event_time=datetime(2026, 7, 10, 9, 15, tzinfo=timezone.utc),
+            horizon_min=15,
+            active_prediction_id="pred-active",
+            active_model_version="baseline-h15-v1",
+            active_training_run_id="run-active",
+            active_artifact_id="artifact-active",
+            active_artifact_sha256="sha-active",
+            signal_id="signal-1",
+            signal_side="sell",
+            signal_allowed=False,
+            signal_confidence=0.6,
+            signal_reason="long_only_policy",
+            time_gate_allowed=True,
+            time_gate_reason="within_window",
+            spread_gate_allowed=True,
+            spread_gate_reason="spread_ok",
+            target_id="target-1",
+            target_qty=0,
+            target_notional=0.0,
+            cash_balance_before=1_000_000.0,
+            open_positions_before=1,
+            symbol_position_qty_before=0,
+            pending_order_before=False,
+            execution_enabled=True,
+            decision_stage="signal_blocked",
+            decision_reason="long_only_policy",
+            shadow_predictions=[
+                {
+                    "prediction_id": "pred-shadow",
+                    "model_version": "lightgbm-h15-v1",
+                    "training_run_id": "run-shadow",
+                    "artifact_id": "artifact-shadow",
+                    "artifact_sha256": "sha-shadow",
+                }
+            ],
+        )
+
+        store.insert_serving_decision(decision)
+        row = store.fetch_latest_row("serving_decision_ledger", "event_time")
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["decision_id"], "decision-1")
+        self.assertEqual(row["decision_stage"], "signal_blocked")
+        self.assertEqual(int(row["time_gate_allowed"]), 1)
+        self.assertIn("artifact-shadow", row["shadow_predictions_json"])
     def test_paper_order_lineage_ids_are_persisted(self) -> None:
         root = Path(__file__).resolve().parents[1]
         database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"

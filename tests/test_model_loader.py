@@ -112,7 +112,16 @@ class ModelLoaderTests(unittest.TestCase):
         latest_artifact = model_dir / "lightgbm-h15-v2.joblib"
         older_artifact.write_text("placeholder", encoding="utf-8")
         latest_artifact.write_text("placeholder", encoding="utf-8")
-        fake_model = object()
+        fake_model = SimpleNamespace(
+            artifact=SimpleNamespace(
+                horizon_min=15,
+                feature_set_version="feature-set-v1",
+                class_labels=["down", "flat", "up"],
+                training_run_id="run-latest",
+                artifact_id="artifact-latest",
+                artifact_sha256="sha-latest",
+            )
+        )
 
         with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
             settings = load_settings(project_root=root)
@@ -122,6 +131,33 @@ class ModelLoaderTests(unittest.TestCase):
         self.assertIs(model, fake_model)
         from_path.assert_called_once_with(latest_artifact)
 
+    def test_load_latest_lightgbm_shadow_model_rejects_missing_lineage(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "model-loader-lightgbm-shadow-lineage" / str(uuid.uuid4())
+        model_dir = runtime_root / "ml" / "models"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = model_dir / "lightgbm-h15-missing-lineage.joblib"
+        artifact_path.write_text("placeholder", encoding="utf-8")
+        model_without_lineage = SimpleNamespace(
+            artifact=SimpleNamespace(
+                horizon_min=15,
+                feature_set_version="feature-set-v1",
+                class_labels=["down", "flat", "up"],
+                training_run_id=None,
+                artifact_id=None,
+                artifact_sha256="sha",
+            )
+        )
+
+        with patch.dict(os.environ, {"RUNTIME_DATA_DIR": str(runtime_root)}, clear=False):
+            settings = load_settings(project_root=root)
+            with patch(
+                "app.models.loader.LightGbmDirectionModel.from_path",
+                return_value=model_without_lineage,
+            ):
+                model = load_latest_lightgbm_shadow_model(settings, horizon_min=15)
+
+        self.assertIsNone(model)
     def test_load_latest_lightgbm_shadow_model_skips_invalid_newer_artifact(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "model-loader-lightgbm-shadow-invalid" / str(uuid.uuid4())
@@ -139,6 +175,9 @@ class ModelLoaderTests(unittest.TestCase):
                 horizon_min=15,
                 feature_set_version="feature-set-v1",
                 class_labels=["down", "flat", "up"],
+                training_run_id="run-valid",
+                artifact_id="artifact-valid",
+                artifact_sha256="sha-valid",
             )
         )
 

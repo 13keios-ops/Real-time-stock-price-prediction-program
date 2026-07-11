@@ -6802,3 +6802,18 @@ python -m app --build-dashboard
 - 작업 리포트: `docs/cowork-reports/2026-07-11-repo-deep-review-work_ver_30-6.md`
 - 다음 외부 게이트는 다음 거래일 장후 mismatch 4종목 1회 재확인, 다음 정규장 장시간 상태 관찰, live read-only 자격정보 준비, 2026-07-20 장후 실제 E1/E5 라운드다.
 - 실전 주문/취소, active model/gate/threshold, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 신규 모델 학습 실험, NAS 백업은 변경하거나 실행하지 않았다.
+
+## [2026-07-11] Rescue/Avoid 수익성 평가 정본 교정
+
+- 겹치는 신호 퍼센트포인트 합을 계좌 수익률과 분리하고, 연속 신호를 decision episode로 묶는 portfolio replay를 추가했다.
+- replay는 다음 분봉 시가, 동일 현금, 종목별 최대 비중, 동시 보유, 수수료, 세금, 슬리피지를 적용한다.
+- LightGBM buy-avoid threshold `0.40`은 baseline `-16.4010%`, 필터 적용 `-15.3384%`, 차이 `+1.0626%p`다. 절대수익과 평균 기대값이 음수이고 random control도 실패해 `rejected_random_control`이다.
+- 모델 overlay의 수익률 합은 `*_pct_points`로 명시하고, 절대수익 양수 portfolio/random-control 증거가 없는 조합은 candidate가 될 수 없게 했다.
+- `serving_decision_ledger`에 active/shadow 예측 lineage, 신호, gate, allocator, 현금·보유·pending, 주문·체결 결과를 저장하도록 했다. 현재 0행이며 다음 정규장부터 실제 no-trade 결정만 축적한다.
+- 모든 serving 모델에 `training_run_id`, `artifact_id`, `artifact_sha256`를 추가하고 lineage 없는 LightGBM artifact는 loader에서 차단했다.
+- meta-policy는 freshness, data end, lineage, defensive random control, 절대수익 양수 portfolio 후보를 필수 blocker로 본다. 최신 상태는 `blocked_evidence`, primary candidate 없음이다.
+- hold-rescue threshold `0.40`은 eligible `161`, 적용 `37`, 현금손익 차이 `-26,387원`으로 현재 규칙을 기각한다.
+- 챌린저 재평가 결과 모든 후보가 `promotable=false`다. active `baseline-h15-v1`, `recommended_action=keep_active`, `promotion_applied=false`를 유지한다.
+- 전체 unittest `508 tests OK`, 전체 pytest `508 passed, 67 subtests passed`, changed Python compile, dashboard/runtime report build, `git diff --check`를 통과했다.
+- 신규 threshold/EV tuning, 주문 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 실전 주문/취소, NAS 백업은 변경하거나 실행하지 않았다.
+- 작업 리포트: `docs/cowork-reports/2026-07-11-rescue-avoid-profitability-review-work_ver_30-11.md`

@@ -49,6 +49,18 @@ class ModelOverlayComparisonTests(unittest.TestCase):
                     reason TEXT,
                     allowed INTEGER
                 );
+                CREATE TABLE serving_decision_ledger (
+                    symbol TEXT,
+                    event_time TEXT,
+                    signal_side TEXT,
+                    signal_allowed INTEGER,
+                    time_gate_allowed INTEGER,
+                    spread_gate_allowed INTEGER,
+                    decision_stage TEXT,
+                    decision_reason TEXT,
+                    order_id TEXT,
+                    fill_id TEXT
+                );
                 CREATE TABLE paper_orders (
                     order_id TEXT,
                     symbol TEXT,
@@ -116,6 +128,14 @@ class ModelOverlayComparisonTests(unittest.TestCase):
                 ("s4", "005930", "2026-06-11T09:18:00+09:00", "sell", 0.6, "baseline", 0),
             ]
             connection.executemany("INSERT INTO serving_trade_signals VALUES (?, ?, ?, ?, ?, ?, ?)", signals)
+            decisions = [
+                ("005930", "2026-06-11T09:17:00+09:00", "sell", 0, 1, 1, "signal_blocked", "long_only_policy", None, None),
+                ("005930", "2026-06-11T09:18:00+09:00", "sell", 0, 1, 1, "signal_blocked", "long_only_policy", None, None),
+            ]
+            connection.executemany(
+                "INSERT INTO serving_decision_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                decisions,
+            )
             orders = [
                 ("buy-1", "005930", "2026-06-11T09:20:00+09:00", "buy", 1, 100.0, "filled", None, None, None),
                 ("sell-1", "005930", "2026-06-11T09:25:00+09:00", "sell", 1, 101.0, "filled", None, None, None),
@@ -151,13 +171,18 @@ class ModelOverlayComparisonTests(unittest.TestCase):
         models = {model["name"]: model for model in report["models"]}
         self.assertIn("LightGBM", models)
         self.assertIn("linear-score", models)
-        self.assertGreater(models["LightGBM"]["buy_avoid"]["best"]["delta_net_return_pct"], 0)
-        self.assertGreater(models["linear-score"]["buy_avoid"]["best"]["delta_net_return_pct"], 0)
-        self.assertGreater(models["LightGBM"]["buy_rescue"]["best"]["rescued_net_return_pct"], 0)
-        self.assertGreater(models["linear-score"]["buy_rescue"]["best"]["rescued_net_return_pct"], 0)
+        self.assertGreater(models["LightGBM"]["buy_avoid"]["best"]["delta_net_return_pct_points"], 0)
+        self.assertGreater(models["linear-score"]["buy_avoid"]["best"]["delta_net_return_pct_points"], 0)
+        self.assertGreater(models["LightGBM"]["buy_rescue"]["best"]["rescued_net_return_pct_points"], 0)
+        self.assertGreater(models["linear-score"]["buy_rescue"]["best"]["rescued_net_return_pct_points"], 0)
+        self.assertFalse(models["LightGBM"]["buy_avoid"]["candidate"])
+        self.assertFalse(models["LightGBM"]["buy_rescue"]["candidate"])
+        self.assertEqual(report["decision_ledger"]["status"], "ok")
+        self.assertEqual(report["decision_ledger"]["rescue_eligible_rows"], 2)
         self.assertIn("combination_policy_review", report)
         self.assertEqual(report["combination_policy_review"]["status"], "ok")
-        self.assertIn("best_policy", report["combination_policy_review"])
+        self.assertIsNone(report["combination_policy_review"]["best_policy"])
+        self.assertIsNotNone(report["combination_policy_review"]["best_diagnostic_policy"])
         self.assertIn("strength_segments", models["LightGBM"]["classification"])
         self.assertIn("top_accuracy_segments", models["linear-score"]["classification"]["strength_segments"])
         markdown = render_markdown(report)

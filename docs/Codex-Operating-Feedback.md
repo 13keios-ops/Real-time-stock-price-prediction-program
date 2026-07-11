@@ -193,6 +193,16 @@
 `RECOVERY.md`, `scripts/run_weekly_nas_backup.sh`,
 `scripts/run_forced_nas_backup.sh`
 
+### 수익성 해석 고정
+
+- `baseline 대비 손실 감소`를 `수익 후보`로 부르지 않는다.
+- 겹치는 분 단위 신호의 퍼센트포인트 합과 현금·보유한도 기반 계좌 수익률을 반드시 분리한다.
+- rescue/avoid 후보는 절대 비용 후 수익 양수, 평균 거래 기대값 양수, random control 통과, 거래일 일관성, 최소 표본, lineage 완전성을 모두 확인한다.
+- buy-rescue는 실제 no-trade decision ledger가 없으면 성과를 단정하지 않는다. 안전 gate, 현금, 보유한도, pending, risk 차단을 rescue가 뒤집지 않게 한다.
+- hold/exit는 entry 모델 확률을 그대로 재사용했다는 이유만으로 후보가 되지 않는다. 실행 가능한 다음 가격과 별도 lifecycle 검증을 요구한다.
+- 챌린저 `promotable` 표시는 실제 승격 자격 조건을 모두 통과한 경우에만 사용하고, 작은 표본이나 단일 클래스 쏠림은 먼저 차단한다.
+- 최종 답변과 cowork 리포트에는 `현재 실제로 수익 후보가 있는지`를 첫 결론에 명시한다.
+
 ## 6. 다음 점검 방식
 
 - 작업 시작 전:

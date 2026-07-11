@@ -246,6 +246,70 @@ def _load_baseline_buy_keys(
     return {(str(row[0]), str(row[1])) for row in rows}
 
 
+def _load_decision_ledger_keys(
+    connection: sqlite3.Connection,
+    *,
+    since_date: str,
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]], dict[str, Any]]:
+    if "serving_decision_ledger" not in _tables(connection):
+        return set(), set(), {
+            "status": "not_available",
+            "reason": "serving_decision_ledger_was_added_for_future_runtime_rows",
+            "rows": 0,
+            "rescue_eligible_rows": 0,
+            "candidate_eligible": False,
+        }
+
+    rows = connection.execute(
+        """
+        SELECT
+            symbol,
+            event_time,
+            signal_side,
+            signal_allowed,
+            time_gate_allowed,
+            spread_gate_allowed,
+            decision_stage,
+            decision_reason,
+            order_id,
+            fill_id
+        FROM serving_decision_ledger
+        WHERE substr(event_time, 1, 10) >= ?
+        ORDER BY event_time ASC, symbol ASC
+        """,
+        (since_date,),
+    ).fetchall()
+    all_keys: set[tuple[str, str]] = set()
+    rescue_eligible: set[tuple[str, str]] = set()
+    stage_counts: dict[str, int] = {}
+    for row in rows:
+        key = (str(row[0]), str(row[1]))
+        all_keys.add(key)
+        stage = str(row[6] or "unknown")
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        has_order_or_fill = bool(row[8] or row[9])
+        safety_gates_pass = bool(row[4]) and bool(row[5])
+        baseline_did_not_buy = not bool(row[3]) or str(row[2]) != "buy"
+        if (
+            not has_order_or_fill
+            and safety_gates_pass
+            and baseline_did_not_buy
+            and stage == "signal_blocked"
+        ):
+            rescue_eligible.add(key)
+
+    return all_keys, rescue_eligible, {
+        "status": "ok" if rows else "empty",
+        "rows": len(rows),
+        "rescue_eligible_rows": len(rescue_eligible),
+        "stage_counts": stage_counts,
+        "eligibility_rule": (
+            "no order/fill, time and spread gates passed, baseline did not allow a buy, "
+            "and decision_stage=signal_blocked"
+        ),
+        "candidate_eligible": bool(rows),
+    }
+
 def _load_stored_prediction_rows(
     connection: sqlite3.Connection,
     *,
@@ -659,6 +723,23 @@ def _strength_segments(rows: list[OverlayRow], trade_cost_pct: float) -> dict[st
     }
 
 
+def _daily_policy_stats(rows: list[OverlayRow], trade_cost_pct: float) -> dict[str, Any]:
+    daily: dict[str, float] = {}
+    for row in rows:
+        day = _parse_datetime(row.event_time).date().isoformat()
+        daily[day] = daily.get(day, 0.0) + _long_net_return(row, trade_cost_pct)
+    values = list(daily.values())
+    return {
+        "trade_days": len(values),
+        "nonnegative_day_share": _round(sum(1 for value in values if value >= 0.0) / len(values))
+        if values
+        else 0.0,
+        "positive_day_share": _round(sum(1 for value in values if value > 0.0) / len(values))
+        if values
+        else 0.0,
+    }
+
+
 def _buy_avoid_summary(
     rows: list[OverlayRow],
     *,
@@ -678,6 +759,19 @@ def _buy_avoid_summary(
         kept = [row for row in rows if row.key not in skipped_keys]
         kept_net = sum(_long_net_return(row, trade_cost_pct) for row in kept)
         skipped_net = sum(_long_net_return(row, trade_cost_pct) for row in skipped)
+        daily = _daily_policy_stats(kept, trade_cost_pct)
+        absolute_profit_positive = kept_net > 0.0
+        average_trade_positive = bool(kept) and kept_net / len(kept) > 0.0
+        diagnostic_candidate = bool(
+            len(skipped) >= MIN_DIAGNOSTIC_TRADES
+            and kept
+            and absolute_profit_positive
+            and average_trade_positive
+            and kept_net > baseline_net
+            and 0.05 <= len(skipped) / len(rows) <= 0.80
+            and int(daily["trade_days"]) >= 10
+            and float(daily["nonnegative_day_share"]) >= (2.0 / 3.0)
+        )
         threshold_results.append(
             {
                 "threshold": float(threshold),
@@ -685,10 +779,20 @@ def _buy_avoid_summary(
                 "kept_trades": len(kept),
                 "skipped_trades": len(skipped),
                 "skip_rate": _round(len(skipped) / len(rows)) if rows else 0.0,
-                "baseline_net_return_pct": _round(baseline_net),
-                "filtered_net_return_pct": _round(kept_net),
-                "skipped_net_return_pct": _round(skipped_net),
-                "delta_net_return_pct": _round(kept_net - baseline_net),
+                "baseline_net_return_pct_points": _round(baseline_net),
+                "filtered_net_return_pct_points": _round(kept_net),
+                "skipped_net_return_pct_points": _round(skipped_net),
+                "delta_net_return_pct_points": _round(kept_net - baseline_net),
+                "avg_filtered_net_return_pct": _round(kept_net / len(kept)) if kept else 0.0,
+                "absolute_profit_positive": absolute_profit_positive,
+                "average_trade_positive": average_trade_positive,
+                **daily,
+                "diagnostic_candidate": diagnostic_candidate,
+                "candidate_eligible": False,
+                "candidate_blockers": [
+                    "overlapping_signal_rows_not_decision_episode_portfolio_replay",
+                    "random_same_count_control_not_available_in_overlay_report",
+                ],
                 "skipped_loss_share": _round(
                     sum(1 for row in skipped if _long_net_return(row, trade_cost_pct) < 0) / len(skipped)
                 )
@@ -696,20 +800,28 @@ def _buy_avoid_summary(
                 else 0.0,
             }
         )
-    best = max(threshold_results, key=lambda item: float(item["delta_net_return_pct"]), default=None)
-    candidate = bool(
-        best
-        and int(best["skipped_trades"]) >= MIN_DIAGNOSTIC_TRADES
-        and float(best["delta_net_return_pct"]) > 0.0
-        and 0.05 <= float(best["skip_rate"]) <= 0.80
+    best = max(
+        threshold_results,
+        key=lambda item: (
+            bool(item["diagnostic_candidate"]),
+            float(item["filtered_net_return_pct_points"]),
+            float(item["delta_net_return_pct_points"]),
+        ),
+        default=None,
     )
     return {
         "definition": "baseline buy allowed rows where model down probability can veto a long trade",
         "require_down_argmax": require_down_argmax,
         "rows": len(rows),
+        "metric_semantics": "percent-point sum over overlapping signal rows; not account return",
         "thresholds": threshold_results,
         "best": best,
-        "candidate": candidate,
+        "candidate": False,
+        "diagnostic_candidate": bool(best and best.get("diagnostic_candidate")),
+        "candidate_blockers": [
+            "authoritative decision-episode portfolio replay required",
+            "same-count random control required",
+        ],
     }
 
 
@@ -719,6 +831,7 @@ def _buy_rescue_summary(
     thresholds: Iterable[float],
     trade_cost_pct: float,
     require_up_argmax: bool,
+    decision_ledger_available: bool,
 ) -> dict[str, Any]:
     threshold_results: list[dict[str, Any]] = []
     for threshold in thresholds:
@@ -728,14 +841,28 @@ def _buy_rescue_summary(
             if row.probability_up >= threshold and (row.up_is_argmax or not require_up_argmax)
         ]
         rescue_net = sum(_long_net_return(row, trade_cost_pct) for row in rescued)
+        daily = _daily_policy_stats(rescued, trade_cost_pct)
+        average_net = rescue_net / len(rescued) if rescued else 0.0
+        diagnostic_candidate = bool(
+            decision_ledger_available
+            and len(rescued) >= MIN_DIAGNOSTIC_TRADES
+            and rescue_net > 0.0
+            and average_net > 0.0
+            and 0.01 <= len(rescued) / len(rows) <= 0.50
+            and int(daily["trade_days"]) >= 10
+            and float(daily["nonnegative_day_share"]) >= (2.0 / 3.0)
+        )
         threshold_results.append(
             {
                 "threshold": float(threshold),
                 "candidate_rows": len(rows),
                 "rescued_trades": len(rescued),
                 "rescue_rate": _round(len(rescued) / len(rows)) if rows else 0.0,
-                "rescued_net_return_pct": _round(rescue_net),
-                "avg_rescued_net_return_pct": _round(rescue_net / len(rescued)) if rescued else 0.0,
+                "rescued_net_return_pct_points": _round(rescue_net),
+                "avg_rescued_net_return_pct": _round(average_net),
+                "absolute_profit_positive": rescue_net > 0.0,
+                "average_trade_positive": average_net > 0.0,
+                **daily,
                 "up_precision": _round(sum(1 for row in rescued if row.label == "up") / len(rescued))
                 if rescued
                 else 0.0,
@@ -744,23 +871,35 @@ def _buy_rescue_summary(
                 )
                 if rescued
                 else 0.0,
+                "diagnostic_candidate": diagnostic_candidate,
+                "candidate_eligible": False,
+                "candidate_blockers": [
+                    "decision_episode_portfolio_replay_not_yet_available_for_rescue",
+                    "random_same_count_control_not_available",
+                ],
             }
         )
-    best = max(threshold_results, key=lambda item: float(item["rescued_net_return_pct"]), default=None)
-    candidate = bool(
-        best
-        and int(best["rescued_trades"]) >= MIN_DIAGNOSTIC_TRADES
-        and float(best["rescued_net_return_pct"]) > 0.0
-        and 0.01 <= float(best["rescue_rate"]) <= 0.50
+    best = max(
+        threshold_results,
+        key=lambda item: (
+            bool(item["diagnostic_candidate"]),
+            float(item["rescued_net_return_pct_points"]),
+        ),
+        default=None,
     )
     return {
-        "definition": "non-baseline-buy rows where model up probability can rescue a diagnostic long trade",
+        "definition": "explicit no-trade ledger rows where model up probability can rescue a diagnostic long trade",
         "require_up_argmax": require_up_argmax,
         "rows": len(rows),
+        "decision_ledger_available": decision_ledger_available,
         "thresholds": threshold_results,
         "best": best,
-        "candidate": candidate,
-        "scope_note": "diagnostic only; this is not a live no-trade ledger and does not expand KIS live shadow policy",
+        "candidate": False,
+        "diagnostic_candidate": bool(best and best.get("diagnostic_candidate")),
+        "scope_note": (
+            "diagnostic only; safety-gate blocks and position/cash constraints are never overridden, "
+            "and no KIS live rescue shadow/order policy is expanded"
+        ),
     }
 
 
@@ -932,7 +1071,9 @@ def _hold_rescue_summary(
         "replay": replay,
         "decision": decision,
         "best": best,
-        "candidate": decision.get("status") == "diagnostic_candidate_paper_only",
+        "candidate": False,
+        "diagnostic_candidate": decision.get("status") == "diagnostic_candidate_paper_only",
+        "candidate_blockers": ["same-count_random_control_and_independent_forward_validation_required"],
     }
 
 
@@ -950,6 +1091,15 @@ def _policy_result(
 ) -> dict[str, Any]:
     baseline_net = sum(_long_net_return(row, trade_cost_pct) for row in baseline_rows)
     executed_net = sum(_long_net_return(row, trade_cost_pct) for row in executed_rows)
+    average_net = executed_net / len(executed_rows) if executed_rows else 0.0
+    daily = _daily_policy_stats(executed_rows, trade_cost_pct)
+    diagnostic_candidate = bool(
+        executed_rows
+        and executed_net > 0.0
+        and average_net > 0.0
+        and int(daily["trade_days"]) >= 10
+        and float(daily["nonnegative_day_share"]) >= (2.0 / 3.0)
+    )
     return {
         "family": family,
         "policy": policy,
@@ -957,9 +1107,19 @@ def _policy_result(
         "executed_rows": len(executed_rows),
         "skipped_or_filtered_rows": len(baseline_rows) - len(executed_rows),
         "coverage": _round(len(executed_rows) / len(baseline_rows)) if baseline_rows else 0.0,
-        "baseline_net_return_pct": _round(baseline_net),
-        "policy_net_return_pct": _round(executed_net),
-        "delta_net_return_pct": _round(executed_net - baseline_net),
+        "baseline_net_return_pct_points": _round(baseline_net),
+        "policy_net_return_pct_points": _round(executed_net),
+        "delta_net_return_pct_points": _round(executed_net - baseline_net),
+        "avg_policy_net_return_pct": _round(average_net),
+        "absolute_profit_positive": executed_net > 0.0,
+        "average_trade_positive": average_net > 0.0,
+        **daily,
+        "diagnostic_candidate": diagnostic_candidate,
+        "candidate_eligible": False,
+        "candidate_blockers": [
+            "overlapping_signal_rows_not_decision_episode_portfolio_replay",
+            "same-count_random_control_missing",
+        ],
         "loss_share": _round(
             sum(1 for row in executed_rows if _long_net_return(row, trade_cost_pct) < 0) / len(executed_rows)
         )
@@ -971,13 +1131,15 @@ def _policy_result(
 def _combined_policy_summary(
     model_rows_by_name: dict[str, list[OverlayRow]],
     baseline_buy_keys: set[tuple[str, str]],
+    rescue_eligible_keys: set[tuple[str, str]],
+    decision_ledger_summary: dict[str, Any],
     trade_cost_pct: float,
 ) -> dict[str, Any]:
     lightgbm = _row_map(model_rows_by_name.get("LightGBM", []))
     linear = _row_map(model_rows_by_name.get("linear-score", []))
     common_keys = set(lightgbm) & set(linear)
     common_buy_keys = sorted(common_keys & baseline_buy_keys)
-    common_no_buy_keys = sorted(common_keys - baseline_buy_keys)
+    common_no_buy_keys = sorted(common_keys & rescue_eligible_keys)
     baseline_rows = [lightgbm[key] for key in common_buy_keys]
 
     def lightgbm_down(key: tuple[str, str], threshold: float = 0.40) -> bool:
@@ -1051,9 +1213,15 @@ def _combined_policy_summary(
             "executed_rows": len(rescue_rows),
             "skipped_or_filtered_rows": len(common_no_buy_keys) - len(rescue_rows),
             "coverage": _round(len(rescue_rows) / len(common_no_buy_keys)) if common_no_buy_keys else 0.0,
-            "baseline_net_return_pct": 0.0,
-            "policy_net_return_pct": _round(rescue_net),
-            "delta_net_return_pct": _round(rescue_net),
+            "baseline_net_return_pct_points": 0.0,
+            "policy_net_return_pct_points": _round(rescue_net),
+            "delta_net_return_pct_points": _round(rescue_net),
+            "avg_policy_net_return_pct": _round(rescue_net / len(rescue_rows)) if rescue_rows else 0.0,
+            "absolute_profit_positive": rescue_net > 0.0,
+            "average_trade_positive": bool(rescue_rows) and rescue_net / len(rescue_rows) > 0.0,
+            "diagnostic_candidate": False,
+            "candidate_eligible": False,
+            "candidate_blockers": ["decision_episode_portfolio_replay_and_random_control_required"],
             "loss_share": _round(
                 sum(1 for row in rescue_rows if _long_net_return(row, trade_cost_pct) < 0) / len(rescue_rows)
             )
@@ -1061,18 +1229,21 @@ def _combined_policy_summary(
             else 0.0,
         }
     )
-    ranked = sorted(
+    diagnostic_ranked = sorted(
         [row for row in policy_candidates if row["policy"] != "baseline_no_overlay"],
-        key=lambda item: float(item["delta_net_return_pct"]),
+        key=lambda item: float(item.get("delta_net_return_pct_points", 0.0)),
         reverse=True,
     )
+    eligible_ranked = [row for row in diagnostic_ranked if row.get("candidate_eligible") is True]
     return {
         "status": "ok" if common_keys else "missing_common_model_rows",
         "common_rows": len(common_keys),
         "common_baseline_buy_rows": len(common_buy_keys),
         "common_non_baseline_buy_rows": len(common_no_buy_keys),
+        "decision_ledger": decision_ledger_summary,
         "policy_candidates": policy_candidates,
-        "best_policy": ranked[0] if ranked else None,
+        "best_policy": eligible_ranked[0] if eligible_ranked else None,
+        "best_diagnostic_policy": diagnostic_ranked[0] if diagnostic_ranked else None,
         "decision": {
             "status": "diagnostic_only_no_order_policy_change",
             "recommended_action": "조합 정책은 후보 비교로만 유지하고 KIS live shadow/주문 정책 변경 전 누적 표본과 비용 후 일관성을 확인",
@@ -1162,6 +1333,10 @@ def build_report(
         model_summaries: list[dict[str, Any]] = []
         model_rows_by_name: dict[str, list[OverlayRow]] = {}
         baseline_buy_keys = _load_baseline_buy_keys(connection, since_date=since_date)
+        _, rescue_eligible_keys, decision_ledger_summary = _load_decision_ledger_keys(
+            connection,
+            since_date=since_date,
+        )
         for spec in _default_model_specs(horizon_min):
             builtin_model = (
                 load_named_builtin_model(settings, horizon_min=horizon_min, builtin_name=str(spec.builtin_name))
@@ -1180,7 +1355,7 @@ def build_report(
             )
             model_rows_by_name[spec.name] = all_rows
             buy_rows = [row for row in all_rows if row.key in baseline_buy_keys]
-            no_buy_rows = [row for row in all_rows if row.key not in baseline_buy_keys]
+            no_buy_rows = [row for row in all_rows if row.key in rescue_eligible_keys]
             model_summary = {
                 "name": spec.name,
                 "model_version": spec.model_version,
@@ -1198,6 +1373,7 @@ def build_report(
                     thresholds=rescue_thresholds,
                     trade_cost_pct=trade_cost_pct,
                     require_up_argmax=require_up_argmax,
+                    decision_ledger_available=decision_ledger_summary.get("status") == "ok",
                 ),
                 "hold_rescue": _hold_rescue_summary(
                     connection,
@@ -1218,6 +1394,8 @@ def build_report(
         combination_policy_review = _combined_policy_summary(
             model_rows_by_name,
             baseline_buy_keys,
+            rescue_eligible_keys,
+            decision_ledger_summary,
             trade_cost_pct,
         )
     finally:
@@ -1233,6 +1411,7 @@ def build_report(
         "label_threshold_pct": label_threshold_pct,
         "trade_cost_pct": trade_cost_pct,
         "models": model_summaries,
+        "decision_ledger": decision_ledger_summary,
         "combination_policy_review": combination_policy_review,
         "scope_guardrail": (
             "read-only diagnostic; no paper/live order, gate, config, active model, or KIS live shadow expansion change"
@@ -1283,8 +1462,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{_fmt(classification.get('three_class_accuracy'))} | "
             f"{_fmt((classification.get('predicted_up') or {}).get('precision'))} | "
             f"{_fmt((classification.get('predicted_down') or {}).get('precision'))} | "
-            f"{_fmt(buy_avoid_best.get('delta_net_return_pct'))}% | "
-            f"{_fmt(buy_rescue_best.get('rescued_net_return_pct'))}% | "
+            f"{_fmt(buy_avoid_best.get('delta_net_return_pct_points'))}% | "
+            f"{_fmt(buy_rescue_best.get('rescued_net_return_pct_points'))}% | "
             f"{_fmt(hold_best.get('delta_cash_sum'), 0)} | "
             f"{roles} |"
         )
@@ -1305,8 +1484,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{policy.get('family')} | "
             f"{policy.get('baseline_rows')} | "
             f"{policy.get('executed_rows')} | "
-            f"{_fmt(policy.get('policy_net_return_pct'))}% | "
-            f"{_fmt(policy.get('delta_net_return_pct'))}% | "
+            f"{_fmt(policy.get('policy_net_return_pct_points'))}% | "
+            f"{_fmt(policy.get('delta_net_return_pct_points'))}% | "
             f"{_fmt(policy.get('loss_share'))} |"
         )
     best_policy = combo.get("best_policy") or {}

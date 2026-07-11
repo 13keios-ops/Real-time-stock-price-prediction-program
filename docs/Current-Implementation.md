@@ -232,6 +232,21 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 
 현재 ML 기준은 아래와 같다.
 
+### 2026-07-11 수익성 평가 정본
+
+이 절은 아래의 과거 `promotable`, `defensive candidate`, rescue/avoid 기록보다 우선한다.
+
+- 겹치는 분 단위 신호의 수익률 합은 `sum_net_return_pct_points`로만 부르며 계좌 수익률로 해석하지 않는다.
+- 수익 후보는 다음 분봉 시가, 동일 현금, 종목별 비중, 동시 보유 수, 수수료, 세금, 슬리피지를 적용한 decision-episode portfolio replay에서 절대 비용 후 수익과 평균 거래 기대값이 모두 양수여야 한다.
+- LightGBM buy-avoid threshold `0.40`의 최신 portfolio replay는 baseline `-16.4010%`, 필터 적용 `-15.3384%`, 차이 `+1.0626%p`다. 손실은 줄였지만 여전히 적자이고 signal-row random control도 실패해 `rejected_random_control`이며 후보가 아니다.
+- `serving_decision_ledger`는 active/shadow 예측 lineage, 신호, 시간·spread gate, allocator, 현금·보유·pending 상태, 주문·체결 결과를 매 결정마다 기록한다. 기존 기간은 추정 backfill하지 않으므로 현재 0행이며 다음 정규장부터 buy-rescue 정본이 쌓인다.
+- buy-rescue는 안전 gate, 현금, 보유한도, pending, risk 차단을 뒤집지 않는다. 명시적 `signal_blocked` no-trade 결정만 진단한다.
+- hold-rescue threshold `0.40`의 최신 결과는 eligible `161`, 적용 `37`, 현금손익 차이 `-26,387원`, 개선 `13`, 악화 `22`로 현재 규칙을 기각한다.
+- 모든 serving prediction은 `training_run_id`, `artifact_id`, `artifact_sha256`를 갖는다. lineage가 없는 LightGBM artifact는 loader가 거부하며, 기존 33,007개 lineage 없는 joined prediction은 진단 전용이다.
+- 챌린저 `promotable=true`는 독립 holdout, 최소 30거래, 각 예측 클래스 비중 5% 이상, 다수 클래스 정확도 초과, 비용 후 평균·누적 수익 양수, 현금·보유한도 반영 portfolio replay 양수를 모두 충족해야 한다. 2026-07-11 재평가에서는 모든 후보가 `promotable=false`이고 active `baseline-h15-v1`을 유지한다.
+- meta-policy는 defensive random control, 입력 freshness, 데이터 종료일, lineage, 절대수익 양수 portfolio 후보를 필수로 확인한다. 현재 `blocked_evidence`이고 primary candidate는 없다.
+- early-exit은 같은 bar close를 체결가로 쓰지 않고 다음 분봉 시가를 사용한다. 미래 고정 구간 검증 전에는 진단으로만 둔다.
+
 - 운영 학습창: 최근 60거래일 + 오늘 데이터
 - 장중: 추론 중심
 - 장후 quick: runtime report, 품질 진단, 제한 LightGBM 재학습, challenger 평가, dashboard snapshot 갱신
@@ -239,7 +254,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - 활성 모델 자동 교체 금지
 - 도전자 모델이 워크포워드 관문을 통과하지 못하면 `review_required` 로 유지
 - LightGBM 학습은 마지막 tail `10%`를 challenger 전용 holdout으로 예약하고, 학습/validation은 그 이전 development 구간에서 수행한다. challenger 평가는 최신 LightGBM artifact의 학습 시점 holdout 시작 시각을 우선 anchor 로 사용해 `challenger_holdout_training_anchor` 평가 구간을 만든다. 이렇게 하면 장후 label refresh 로 데이터가 추가되어도 LightGBM 학습 때 예약한 holdout 경계가 유지된다. candidate별 `evaluation_independence_status`를 리포트에 남기고, DB 최신 training row와 artifact run id가 다르면 복구/복사 불일치로 보고 승격 후보에서 제외한다.
-- 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 독립 holdout/아티팩트 기준의 평가 자격일 뿐 실제 승격 적용이 아니며, 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 수익률, 운영자 승인까지 함께 봐야 한다.
+- 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 2026-07-11 수익성 평가 정본의 표본·클래스·다수 기준·비용 후 수익·portfolio replay 조건을 모두 통과한 실제 승격 심사 자격을 뜻한다. 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 운영자 승인까지 추가로 필요하다.
 - LightGBM 매수 신호 0건 원인은 `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15`로 진단한다. 이 명령은 threshold별 매수 신호 수, 적중률, 비용 차감 평균/누적 순수익률을 `runtime-data/reports/challengers/latest-lightgbm-buy-signal-diagnostics-h15.json`과 `.md`에 남기며, threshold 를 자동 채택하지 않는다.
 - LightGBM 성능 진단은 `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 를 저장된 독립 holdout 경계로 평가하고, 3분류 정확도, 클래스별 적중률, 혼동행렬, 확률 분포, 가상 방향 threshold별 비용 차감 수익률을 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`과 `.md`에 남긴다. 자동 승격과 threshold 자동 채택은 하지 않는다.
 - LightGBM feature source 분리 실험은 `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15`로 실행한다. 이 명령은 `mixed_recent`, `kis-ws`, `cybos-historical` 후보를 메모리 안에서만 학습/평가하고 artifact 를 덮어쓰지 않는다. 2026-06-12 기준 결과는 `mixed_recent`이 3개 피처로 소수 하락/회피 방향 양수 후보를 보였고, `kis-ws`는 6개 피처를 쓰지만 비용 차감 방향 기대값은 음수였다. 따라서 다음 단계는 KIS-only artifact 승격이 아니라 피처/라벨/확률 보정 연구다.

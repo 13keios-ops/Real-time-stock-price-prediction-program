@@ -11,6 +11,7 @@ from unittest.mock import patch
 from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel
 from app.config.settings import load_settings
 from app.services.research import (
+    _apply_challenger_promotion_eligibility,
     _apply_horizon_purge,
     _build_walk_forward_gate,
     _load_labeled_feature_dataset,
@@ -44,6 +45,61 @@ from app.utils.time import get_timezone
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_challenger_promotion_requires_portfolio_replay_and_balanced_predictions(self) -> None:
+        candidate = {
+            "candidate_name": "candidate",
+            "evaluation_independence_status": "independent_challenger_holdout",
+            "rows_evaluated": 100,
+            "trades_taken": 40,
+            "actual_label_counts": {"down": 40, "flat": 30, "up": 30},
+            "predicted_label_counts": {"down": 35, "flat": 30, "up": 35},
+            "three_class_accuracy": 0.45,
+            "average_net_return_pct": 0.02,
+            "cumulative_net_return_pct": 0.8,
+        }
+
+        _apply_challenger_promotion_eligibility([candidate])
+
+        self.assertFalse(candidate["promotable"])
+        self.assertIn(
+            "cash_position_constrained_portfolio_replay_positive",
+            candidate["promotion_eligibility"]["failed_reasons"],
+        )
+        self.assertTrue(candidate["diagnostic_economic_checks_passed"])
+
+        candidate["portfolio_replay_evidence"] = {
+            "passed": True,
+            "portfolio_return_pct": 0.5,
+        }
+        _apply_challenger_promotion_eligibility([candidate])
+
+        self.assertTrue(candidate["promotable"])
+        self.assertTrue(candidate["promotion_eligibility"]["passed"])
+
+    def test_challenger_promotion_rejects_single_class_prediction(self) -> None:
+        candidate = {
+            "candidate_name": "single-class",
+            "evaluation_independence_status": "independent_challenger_holdout",
+            "rows_evaluated": 100,
+            "trades_taken": 40,
+            "actual_label_counts": {"down": 40, "flat": 30, "up": 30},
+            "predicted_label_counts": {"down": 0, "flat": 0, "up": 100},
+            "three_class_accuracy": 0.45,
+            "average_net_return_pct": 0.02,
+            "cumulative_net_return_pct": 0.8,
+            "portfolio_replay_evidence": {
+                "passed": True,
+                "portfolio_return_pct": 0.5,
+            },
+        }
+
+        _apply_challenger_promotion_eligibility([candidate])
+
+        self.assertFalse(candidate["promotable"])
+        self.assertIn(
+            "all_predicted_classes_present",
+            candidate["promotion_eligibility"]["failed_reasons"],
+        )
     def test_horizon_purge_fails_closed_when_remaining_labels_are_incomplete(self) -> None:
         kst = get_timezone("Asia/Seoul")
         base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)

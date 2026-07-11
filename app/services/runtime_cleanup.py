@@ -48,6 +48,7 @@ def cleanup_non_actual_runtime_rows(project_root: Path) -> RuntimeCleanupResult:
         ("serving_predictions", "event_time"),
         ("serving_trade_signals", "event_time"),
         ("serving_target_positions", "event_time"),
+        ("serving_decision_ledger", "event_time"),
         ("paper_orders", "event_time"),
         ("paper_order_events", "event_time"),
         ("paper_fills", "event_time"),

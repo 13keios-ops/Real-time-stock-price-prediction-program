@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from app.models.lineage import deterministic_model_lineage
 from app.storage.contracts import FeatureSnapshot, Prediction
 
 
@@ -40,6 +41,18 @@ class LinearScoreDirectionModel:
         probability_up, probability_flat, probability_down = _softmax(
             [scaled_score, flat_logit, -scaled_score]
         )
+        training_run_id, artifact_id, artifact_sha256 = deterministic_model_lineage(
+            model_kind="linear-score",
+            model_version=self.config.model_version,
+            payload={
+                "feature_set_version": self.config.feature_set_version,
+                "horizon_min": self.config.horizon_min,
+                "weights": self.config.weights,
+                "bias": self.config.bias,
+                "score_scale": self.config.score_scale,
+                "flat_bias": self.config.flat_bias,
+            },
+        )
         return Prediction(
             prediction_id=prediction_id,
             symbol=feature_snapshot.symbol,
@@ -49,5 +62,8 @@ class LinearScoreDirectionModel:
             probability_up=probability_up,
             probability_flat=probability_flat,
             probability_down=probability_down,
+            training_run_id=training_run_id,
+            artifact_id=artifact_id,
+            artifact_sha256=artifact_sha256,
         )
 

@@ -39,7 +39,7 @@ from app.services.paper_alignment import (
     apply_alignment_baseline,
     filter_rows_after_alignment,
 )
-from app.storage.contracts import MarketTickEvent, OrderEvent, OrderbookSnapshot, RiskEvent
+from app.storage.contracts import MarketTickEvent, OrderEvent, OrderbookSnapshot, RiskEvent, ServingDecision
 from app.storage.runtime_writer import RuntimeWriter
 from app.universe.watchlist import load_watchlist
 from app.utils.time import now_local, parse_hhmm
@@ -393,6 +393,20 @@ class OnlinePipelineProcessor:
             target_id=self._next_scoped_id("target"),
         )
 
+        position_state_before = self.portfolio_book.positions.get(state.symbol)
+        cash_balance_before = float(self.portfolio_book.cash_balance)
+        open_positions_before = sum(
+            1
+            for position_state in self.portfolio_book.positions.values()
+            if position_state.qty > 0
+        )
+        symbol_position_qty_before = (
+            int(position_state_before.qty)
+            if position_state_before is not None
+            else 0
+        )
+        pending_order_before = state.symbol in self.pending_order_symbols
+
         self.writer.write_minute_bar(bar)
         self.writer.write_feature_snapshot(features)
         for prediction_row in predictions:
@@ -402,6 +416,12 @@ class OnlinePipelineProcessor:
         self.minute_bars_written += 1
         self.predictions_written += len(predictions)
         self.signals_written += 1
+
+        decision_stage = "no_order"
+        decision_reason = "not_evaluated"
+        decision_order_id: str | None = None
+        decision_order_status: str | None = None
+        decision_fill_id: str | None = None
 
         can_open, open_reason = self._can_open_with_pending(state.symbol)
         if close_reason is not None:
@@ -414,12 +434,18 @@ class OnlinePipelineProcessor:
                 order_id=self._next_scoped_id("paper-order"),
                 prediction_id=prediction.prediction_id,
             )
+            decision_stage = "order_created"
+            decision_reason = "all_execution_gates_passed"
+            decision_order_id = order.order_id
+            decision_order_status = order.status
             ack = self.engine.acknowledge(order, order_event_id=self._next_scoped_id("order-event"))
             self.writer.write_order_event(ack)
             if self.broker_paper_mirror.enabled:
                 submission = self._mirror_order_to_broker(order)
                 if submission is not None:
                     order.status = "submitted"
+                    decision_stage = "order_submitted"
+                    decision_order_status = order.status
                     self.pending_order_symbols.add(state.symbol)
                     self.pending_buy_symbols.add(state.symbol)
                     self.writer.write_paper_order(order)
@@ -434,6 +460,9 @@ class OnlinePipelineProcessor:
                     )
                 else:
                     order.status = "rejected"
+                    decision_stage = "order_rejected"
+                    decision_reason = "broker_paper_submission_failed"
+                    decision_order_status = order.status
                     self.writer.write_paper_order(order)
                     self.writer.write_order_event(
                         OrderEvent(
@@ -455,6 +484,9 @@ class OnlinePipelineProcessor:
                 self.writer.write_paper_order(order)
                 self.writer.write_order_event(fill_event)
                 self.writer.write_fill(fill)
+                decision_stage = "filled"
+                decision_order_status = order.status
+                decision_fill_id = fill.fill_id
                 self.portfolio_book.apply_buy_fill(symbol=state.symbol, fill=fill, fill_price=execution_price)
                 self.writer.write_paper_position(
                     self.portfolio_book.to_position_record(state.symbol, updated_at=fill.event_time)
@@ -467,6 +499,21 @@ class OnlinePipelineProcessor:
                 )
             self.orders_written += 1
         else:
+            if not signal.allowed:
+                decision_stage = "signal_blocked"
+                decision_reason = signal.reason
+            elif not self.settings.strategy.enable_paper_execution:
+                decision_stage = "execution_disabled"
+                decision_reason = "paper_execution_disabled"
+            elif target.target_qty <= 0:
+                decision_stage = "allocator_zero_target"
+                decision_reason = "target_qty_not_positive"
+            elif not can_open:
+                decision_stage = "position_or_pending_constraint"
+                decision_reason = open_reason
+            else:
+                decision_stage = "no_order"
+                decision_reason = "unclassified_no_order"
             risk_event = RiskEvent(
                 risk_event_id=self._next_scoped_id("risk"),
                 symbol=state.symbol,
@@ -475,6 +522,56 @@ class OnlinePipelineProcessor:
                 detail=f"signal_allowed={signal.allowed};open_reason={open_reason}",
             )
             self.writer.write_risk_event(risk_event)
+
+        self.writer.write_serving_decision(
+            ServingDecision(
+                decision_id=self._next_scoped_id("decision"),
+                symbol=state.symbol,
+                event_time=prediction.event_time,
+                horizon_min=prediction.horizon_min,
+                active_prediction_id=prediction.prediction_id,
+                active_model_version=prediction.model_version,
+                active_training_run_id=prediction.training_run_id,
+                active_artifact_id=prediction.artifact_id,
+                active_artifact_sha256=prediction.artifact_sha256,
+                signal_id=signal.signal_id,
+                signal_side=signal.side,
+                signal_allowed=signal.allowed,
+                signal_confidence=signal.confidence,
+                signal_reason=signal.reason,
+                time_gate_allowed=time_decision.allowed,
+                time_gate_reason=time_decision.reason,
+                spread_gate_allowed=spread_decision.allowed,
+                spread_gate_reason=spread_decision.reason,
+                target_id=target.target_id,
+                target_qty=target.target_qty,
+                target_notional=target.target_notional,
+                cash_balance_before=cash_balance_before,
+                open_positions_before=open_positions_before,
+                symbol_position_qty_before=symbol_position_qty_before,
+                pending_order_before=pending_order_before,
+                execution_enabled=self.settings.strategy.enable_paper_execution,
+                decision_stage=decision_stage,
+                decision_reason=decision_reason,
+                shadow_predictions=[
+                    {
+                        "prediction_id": row.prediction_id,
+                        "model_version": row.model_version,
+                        "probability_up": row.probability_up,
+                        "probability_flat": row.probability_flat,
+                        "probability_down": row.probability_down,
+                        "training_run_id": row.training_run_id,
+                        "artifact_id": row.artifact_id,
+                        "artifact_sha256": row.artifact_sha256,
+                    }
+                    for row in predictions
+                    if row.prediction_id != prediction.prediction_id
+                ],
+                order_id=decision_order_id,
+                order_status=decision_order_status,
+                fill_id=decision_fill_id,
+            )
+        )
 
     def _maybe_close_position(self, symbol: str, mark_price: float, event_time: datetime) -> str | None:
         state = self.portfolio_book.positions.get(symbol)

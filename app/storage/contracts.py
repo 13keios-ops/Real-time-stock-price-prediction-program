@@ -146,6 +146,42 @@ class TargetPosition(RecordMixin):
 
 
 @dataclass(slots=True)
+class ServingDecision(RecordMixin):
+    decision_id: str
+    symbol: str
+    event_time: datetime
+    horizon_min: int
+    active_prediction_id: str
+    active_model_version: str
+    active_training_run_id: str | None
+    active_artifact_id: str | None
+    active_artifact_sha256: str | None
+    signal_id: str
+    signal_side: str
+    signal_allowed: bool
+    signal_confidence: float
+    signal_reason: str
+    time_gate_allowed: bool
+    time_gate_reason: str
+    spread_gate_allowed: bool
+    spread_gate_reason: str
+    target_id: str
+    target_qty: int
+    target_notional: float
+    cash_balance_before: float
+    open_positions_before: int
+    symbol_position_qty_before: int
+    pending_order_before: bool
+    execution_enabled: bool
+    decision_stage: str
+    decision_reason: str
+    shadow_predictions: list[dict[str, Any]]
+    order_id: str | None = None
+    order_status: str | None = None
+    fill_id: str | None = None
+
+
+@dataclass(slots=True)
 class PaperOrder(RecordMixin):
     order_id: str
     symbol: str

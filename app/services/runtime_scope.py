@@ -193,6 +193,7 @@ def is_actual_row(
         "serving_predictions",
         "serving_trade_signals",
         "serving_target_positions",
+        "serving_decision_ledger",
         "paper_orders",
         "ops_risk_events",
     }:
@@ -205,6 +206,7 @@ def is_actual_row(
             "serving_predictions": "prediction_id",
             "serving_trade_signals": "signal_id",
             "serving_target_positions": "target_id",
+            "serving_decision_ledger": "decision_id",
             "paper_orders": "order_id",
             "ops_risk_events": "risk_event_id",
         }

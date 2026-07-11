@@ -265,6 +265,8 @@ class ChallengerCandidateResult:
     evaluation_independence_status: str
     artifact_training_status: str | None = None
     artifact_training_run_id: str | None = None
+    promotion_eligibility: dict[str, object] | None = None
+    majority_class_accuracy: float = 0.0
     buy_signal_hit_rate: float = 0.0
     three_class_accuracy: float = 0.0
     up_hit_rate: float = 0.0
@@ -296,6 +298,8 @@ class ChallengerCandidateResult:
             "evaluation_independence_status": self.evaluation_independence_status,
             "artifact_training_status": self.artifact_training_status,
             "artifact_training_run_id": self.artifact_training_run_id,
+            "promotion_eligibility": self.promotion_eligibility or {},
+            "majority_class_accuracy": round(self.majority_class_accuracy, 6),
             "buy_signal_hit_rate": round(self.buy_signal_hit_rate, 6),
             "three_class_accuracy": round(self.three_class_accuracy, 6),
             "up_hit_rate": round(self.up_hit_rate, 6),
@@ -1552,6 +1556,9 @@ def _write_centroid_artifact(
         "horizon_min": model.artifact.horizon_min,
         "feature_names": model.artifact.feature_names,
         "centroids": model.artifact.centroids,
+        "training_run_id": model.artifact.training_run_id,
+        "artifact_id": model.artifact.artifact_id,
+        "artifact_sha256": model.artifact.artifact_sha256,
     }
     artifact_path.write_text(json.dumps(artifact_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return artifact_path
@@ -1638,10 +1645,80 @@ def _resolve_builtin_model_version(settings, horizon_min: int, builtin_name: str
     raise ValueError(f"Unsupported builtin model name: {builtin_name}")
 
 
+MIN_CHALLENGER_PROMOTION_TRADES = 30
+MIN_CHALLENGER_PREDICTED_CLASS_SHARE = 0.05
+
+
+def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]]) -> None:
+    for candidate in candidates:
+        rows_evaluated = int(candidate.get("rows_evaluated", 0))
+        actual_counts = dict(candidate.get("actual_label_counts", {}))
+        predicted_counts = dict(candidate.get("predicted_label_counts", {}))
+        majority_accuracy = (
+            max((int(value) for value in actual_counts.values()), default=0) / rows_evaluated
+            if rows_evaluated
+            else 0.0
+        )
+        predicted_class_shares = {
+            label: (int(predicted_counts.get(label, 0)) / rows_evaluated if rows_evaluated else 0.0)
+            for label in DIRECTION_LABELS
+        }
+        portfolio_evidence = candidate.get("portfolio_replay_evidence")
+        portfolio_passed = bool(
+            isinstance(portfolio_evidence, dict)
+            and portfolio_evidence.get("passed") is True
+            and float(portfolio_evidence.get("portfolio_return_pct", 0.0)) > 0.0
+        )
+        checks = {
+            "independent_holdout": (
+                str(candidate.get("evaluation_independence_status"))
+                == "independent_challenger_holdout"
+            ),
+            "minimum_trades": int(candidate.get("trades_taken", 0)) >= MIN_CHALLENGER_PROMOTION_TRADES,
+            "all_predicted_classes_present": all(
+                share >= MIN_CHALLENGER_PREDICTED_CLASS_SHARE
+                for share in predicted_class_shares.values()
+            ),
+            "beats_majority_class_accuracy": (
+                float(candidate.get("three_class_accuracy", 0.0)) > majority_accuracy
+            ),
+            "average_after_cost_return_positive": (
+                float(candidate.get("average_net_return_pct", 0.0)) > 0.0
+            ),
+            "cumulative_after_cost_return_positive": (
+                float(candidate.get("cumulative_net_return_pct", 0.0)) > 0.0
+            ),
+            "cash_position_constrained_portfolio_replay_positive": portfolio_passed,
+        }
+        failed_reasons = [name for name, passed in checks.items() if not passed]
+        candidate["majority_class_accuracy"] = majority_accuracy
+        candidate["predicted_class_shares"] = predicted_class_shares
+        candidate["diagnostic_economic_checks_passed"] = all(
+            checks[name]
+            for name in checks
+            if name != "cash_position_constrained_portfolio_replay_positive"
+        )
+        candidate["promotion_eligibility"] = {
+            "passed": not failed_reasons,
+            "checks": checks,
+            "failed_reasons": failed_reasons,
+            "minimum_trades": MIN_CHALLENGER_PROMOTION_TRADES,
+            "minimum_predicted_class_share": MIN_CHALLENGER_PREDICTED_CLASS_SHARE,
+            "majority_class_accuracy": majority_accuracy,
+            "predicted_class_shares": predicted_class_shares,
+            "portfolio_replay_required": True,
+        }
+        candidate["promotable"] = not failed_reasons
+
 def _challenger_sort_key(candidate: dict[str, object]) -> tuple[float, ...]:
     trades_taken = int(candidate["trades_taken"])
     has_trades = 1.0 if trades_taken > 0 else 0.0
+    eligibility = dict(candidate.get("promotion_eligibility", {}))
+    eligible = 1.0 if eligibility.get("passed") is True else 0.0
+    diagnostic_checks = 1.0 if candidate.get("diagnostic_economic_checks_passed") is True else 0.0
     return (
+        eligible,
+        diagnostic_checks,
         has_trades,
         float(candidate["cumulative_net_return_pct"]),
         float(candidate["trade_hit_rate"]),
@@ -1674,7 +1751,7 @@ def _recommend_challenger_action(
     if str(best_promotable["model_version"]) == str(active_candidate["model_version"]):
         return "keep_active", str(active_candidate["model_version"]), "The top challenger matches the current active model."
 
-    if int(best_promotable["trades_taken"]) < 5:
+    if int(best_promotable["trades_taken"]) < MIN_CHALLENGER_PROMOTION_TRADES:
         return "keep_active", str(active_candidate["model_version"]), "The top challenger does not have enough trades."
 
     active_net = float(active_candidate["cumulative_net_return_pct"])
@@ -6087,6 +6164,8 @@ def run_model_challenger_review_from_sqlite(
         }
     )
 
+    _apply_challenger_promotion_eligibility(candidates)
+
     for candidate in candidates:
         split_name = f"challenger_holdout_h{horizon_min}_{candidate['candidate_name']}"
         writer.write_model_evaluation(
@@ -6105,6 +6184,9 @@ def run_model_challenger_review_from_sqlite(
                     "evaluation_independence_status": candidate["evaluation_independence_status"],
                     "horizon_min": horizon_min,
                     "promotable": bool(candidate["promotable"]),
+                    "promotion_eligibility": dict(candidate["promotion_eligibility"]),
+                    "majority_class_accuracy": float(candidate["majority_class_accuracy"]),
+                    "predicted_class_shares": dict(candidate["predicted_class_shares"]),
                     "trade_cost_pct": float(candidate["trade_cost_pct"]),
                     "trade_hit_rate": float(candidate["trade_hit_rate"]),
                     "buy_signal_hit_rate": float(candidate["buy_signal_hit_rate"]),
@@ -6158,6 +6240,8 @@ def run_model_challenger_review_from_sqlite(
                 artifact_training_run_id=(
                     str(candidate["artifact_training_run_id"]) if candidate.get("artifact_training_run_id") else None
                 ),
+                promotion_eligibility=dict(candidate["promotion_eligibility"]),
+                majority_class_accuracy=float(candidate["majority_class_accuracy"]),
                 buy_signal_hit_rate=float(candidate["buy_signal_hit_rate"]),
                 three_class_accuracy=float(candidate["three_class_accuracy"]),
                 up_hit_rate=float(candidate["up_hit_rate"]),

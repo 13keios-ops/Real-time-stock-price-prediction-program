@@ -41,14 +41,18 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result.signals_written, 1)
             self.assertGreater(sqlite_store.count_rows("raw_market_ticks"), 0)
             self.assertGreater(sqlite_store.count_rows("serving_predictions"), 0)
+            self.assertGreater(sqlite_store.count_rows("serving_decision_ledger"), 0)
             self.assertGreaterEqual(sqlite_store.count_rows("paper_positions"), 1)
             self.assertGreaterEqual(sqlite_store.count_rows("paper_portfolio_snapshots"), 1)
             latest_tick = sqlite_store.fetch_latest_row("raw_market_ticks", "event_time")
             latest_prediction = sqlite_store.fetch_latest_row("serving_predictions", "event_time")
+            latest_decision = sqlite_store.fetch_latest_row("serving_decision_ledger", "event_time")
             prediction_rows = sqlite_store.fetch_all_rows("serving_predictions", "event_time")
             horizons = {int(row["horizon_min"]) for row in prediction_rows}
             self.assertIsNotNone(latest_tick)
             self.assertIsNotNone(latest_prediction)
+            self.assertIsNotNone(latest_decision)
+            self.assertTrue(str(latest_decision["active_training_run_id"]))
             self.assertEqual(latest_tick["source"], "kis-ws-replay")
             self.assertIn("-replay-", str(latest_prediction["prediction_id"]))
             self.assertIn(15, horizons)
@@ -76,6 +80,9 @@ class StreamingPipelineTests(unittest.TestCase):
                     probability_up=0.05,
                     probability_flat=0.1,
                     probability_down=0.85,
+                    training_run_id="shadow-run-test",
+                    artifact_id="shadow-artifact-test",
+                    artifact_sha256="shadow-sha-test",
                 )
 
         def fake_shadow_loader(settings, horizon_min: int):
@@ -90,6 +97,7 @@ class StreamingPipelineTests(unittest.TestCase):
             self.assertIsNotNone(sqlite_store)
             prediction_rows = sqlite_store.fetch_all_rows("serving_predictions", "event_time")
             order_rows = sqlite_store.fetch_all_rows("paper_orders", "event_time")
+            decision_rows = sqlite_store.fetch_all_rows("serving_decision_ledger", "event_time")
 
         model_versions = {str(row["model_version"]) for row in prediction_rows}
         shadow_prediction_ids = [
@@ -102,6 +110,11 @@ class StreamingPipelineTests(unittest.TestCase):
         self.assertIn("lightgbm-h15-shadow-test", model_versions)
         self.assertTrue(shadow_prediction_ids)
         self.assertTrue(order_rows)
+        self.assertTrue(decision_rows)
+        recorded_shadow = json.loads(str(decision_rows[-1]["shadow_predictions_json"]))
+        self.assertTrue(
+            any(row.get("artifact_id") == "shadow-artifact-test" for row in recorded_shadow)
+        )
         for order in order_rows:
             prediction_id = str(order["prediction_id"] or "")
             if not prediction_id:

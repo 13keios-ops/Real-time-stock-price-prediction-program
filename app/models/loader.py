@@ -95,12 +95,19 @@ def load_latest_lightgbm_shadow_model(settings: AppSettings, horizon_min: int = 
             continue
         artifact = getattr(model, "artifact", None)
         if artifact is None:
-            return model
+            continue
         if int(artifact.horizon_min) != horizon_min:
             continue
         if str(artifact.feature_set_version) != str(settings.feature_set_version):
             continue
         if tuple(str(label) for label in artifact.class_labels) != tuple(DEFAULT_LABELS):
+            continue
+        lineage = (
+            getattr(artifact, "training_run_id", None),
+            getattr(artifact, "artifact_id", None),
+            getattr(artifact, "artifact_sha256", None),
+        )
+        if any(not str(value or "").strip() for value in lineage):
             continue
         return model
     return None

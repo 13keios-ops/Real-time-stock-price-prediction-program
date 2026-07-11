@@ -1,4 +1,4 @@
-﻿"""SQLite runtime store for local development and research workflows."""
+"""SQLite runtime store for local development and research workflows."""
 
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ from app.storage.contracts import (
     ReconciliationRun,
     ReplayRun,
     RiskEvent,
+    ServingDecision,
     TargetPosition,
     TradeSignal,
     TrainingRun,
@@ -208,6 +209,46 @@ class SQLiteRuntimeStore:
                 target_notional REAL NOT NULL,
                 portfolio_version TEXT NOT NULL
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS serving_decision_ledger (
+                decision_id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                event_time TEXT NOT NULL,
+                horizon_min INTEGER NOT NULL,
+                active_prediction_id TEXT NOT NULL,
+                active_model_version TEXT NOT NULL,
+                active_training_run_id TEXT,
+                active_artifact_id TEXT,
+                active_artifact_sha256 TEXT,
+                signal_id TEXT NOT NULL,
+                signal_side TEXT NOT NULL,
+                signal_allowed INTEGER NOT NULL,
+                signal_confidence REAL NOT NULL,
+                signal_reason TEXT NOT NULL,
+                time_gate_allowed INTEGER NOT NULL,
+                time_gate_reason TEXT NOT NULL,
+                spread_gate_allowed INTEGER NOT NULL,
+                spread_gate_reason TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                target_qty INTEGER NOT NULL,
+                target_notional REAL NOT NULL,
+                cash_balance_before REAL NOT NULL,
+                open_positions_before INTEGER NOT NULL,
+                symbol_position_qty_before INTEGER NOT NULL,
+                pending_order_before INTEGER NOT NULL,
+                execution_enabled INTEGER NOT NULL,
+                decision_stage TEXT NOT NULL,
+                decision_reason TEXT NOT NULL,
+                shadow_predictions_json TEXT NOT NULL,
+                order_id TEXT,
+                order_status TEXT,
+                fill_id TEXT
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_serving_decision_symbol_time
+            ON serving_decision_ledger(symbol, event_time)
             """,
             """
             CREATE TABLE IF NOT EXISTS paper_orders (
@@ -1004,6 +1045,61 @@ class SQLiteRuntimeStore:
                 target.target_qty,
                 target.target_notional,
                 target.portfolio_version,
+            ),
+        )
+
+    def insert_serving_decision(self, decision: ServingDecision) -> None:
+        self._run_write_query(
+            """
+            INSERT OR REPLACE INTO serving_decision_ledger(
+                decision_id, symbol, event_time, horizon_min,
+                active_prediction_id, active_model_version,
+                active_training_run_id, active_artifact_id, active_artifact_sha256,
+                signal_id, signal_side, signal_allowed, signal_confidence, signal_reason,
+                time_gate_allowed, time_gate_reason, spread_gate_allowed, spread_gate_reason,
+                target_id, target_qty, target_notional,
+                cash_balance_before, open_positions_before, symbol_position_qty_before,
+                pending_order_before, execution_enabled, decision_stage, decision_reason,
+                shadow_predictions_json, order_id, order_status, fill_id
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                decision.decision_id,
+                decision.symbol,
+                self._dt(decision.event_time),
+                decision.horizon_min,
+                decision.active_prediction_id,
+                decision.active_model_version,
+                decision.active_training_run_id,
+                decision.active_artifact_id,
+                decision.active_artifact_sha256,
+                decision.signal_id,
+                decision.signal_side,
+                int(decision.signal_allowed),
+                decision.signal_confidence,
+                decision.signal_reason,
+                int(decision.time_gate_allowed),
+                decision.time_gate_reason,
+                int(decision.spread_gate_allowed),
+                decision.spread_gate_reason,
+                decision.target_id,
+                decision.target_qty,
+                decision.target_notional,
+                decision.cash_balance_before,
+                decision.open_positions_before,
+                decision.symbol_position_qty_before,
+                int(decision.pending_order_before),
+                int(decision.execution_enabled),
+                decision.decision_stage,
+                decision.decision_reason,
+                json.dumps(decision.shadow_predictions, ensure_ascii=False, sort_keys=True),
+                decision.order_id,
+                decision.order_status,
+                decision.fill_id,
             ),
         )
 

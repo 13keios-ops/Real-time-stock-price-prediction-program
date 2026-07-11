@@ -32,6 +32,7 @@ from app.storage.contracts import (
     ReconciliationRun,
     ReplayRun,
     RiskEvent,
+    ServingDecision,
     TargetPosition,
     TradeSignal,
     TrainingRun,
@@ -131,6 +132,16 @@ class RuntimeWriter:
         self.jsonl_store.append("serving", "target_positions", target.to_record(), target.event_time)
         if self.sqlite_store:
             self.sqlite_store.insert_target_position(target)
+
+    def write_serving_decision(self, decision: ServingDecision) -> None:
+        self.jsonl_store.append(
+            "serving",
+            "decision_ledger",
+            decision.to_record(),
+            decision.event_time,
+        )
+        if self.sqlite_store:
+            self.sqlite_store.insert_serving_decision(decision)
 
     def write_paper_order(self, order: PaperOrder) -> None:
         self.jsonl_store.append("paper", "orders", order.to_record(), order.event_time)

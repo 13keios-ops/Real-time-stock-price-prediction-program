@@ -58,10 +58,12 @@ class RuntimeCleanupTests(unittest.TestCase):
         self.assertGreater(result.deleted_rows["raw_market_ticks"], 0)
         self.assertGreater(result.deleted_rows["raw_orderbook_ticks"], 0)
         self.assertGreater(result.deleted_rows["serving_predictions"], 0)
+        self.assertGreater(result.deleted_rows["serving_decision_ledger"], 0)
         self.assertGreater(result.deleted_rows["paper_orders"], 0)
         self.assertEqual(sqlite_store.count_rows("raw_market_ticks"), 0)
         self.assertEqual(sqlite_store.count_rows("raw_orderbook_ticks"), 0)
         self.assertEqual(sqlite_store.count_rows("serving_predictions"), 0)
+        self.assertEqual(sqlite_store.count_rows("serving_decision_ledger"), 0)
         self.assertEqual(sqlite_store.count_rows("paper_orders"), 0)
 
     def test_cleanup_keeps_actual_snapshot_written_at_fill_minute(self) -> None:
