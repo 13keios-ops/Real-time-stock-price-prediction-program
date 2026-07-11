@@ -437,6 +437,8 @@ KIS 주문/체결 조회는 수동·장후 배치·장중 종료 동기화 모�
 
 `scripts/recheck_paper_kis_mismatch.py`는 실제 sync/reconcile/trace 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 기록한다. dry-run 또는 장중·주말 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 따로 기록해 마지막 정상 운영 증거를 덮지 않는다.
 
+broker paper sync는 KIS 주문/체결 행과 로컬 broker 제출 원장의 연결 상태를 식별정보 없는 건수로 함께 기록한다. `broker_rows_unlinked_to_submissions`는 수동/외부 주문 또는 제출 원장 누락 후보, `fallback_matched_orders`는 주문일 없는 보조 매칭 사용, `ambiguous_fallback_key_count`는 보조키 중복을 뜻한다. 이 값은 mismatch 원인 범위를 좁히기 위한 진단이며 계좌 align, 주문 정책, position 원장을 자동 변경하지 않는다. 장후 자동화는 당일 유효 reconciliation history가 이미 있으면 broker endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 당일 기록이 없을 때만 통합 recheck를 한 번 실행한다.
+
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 변경 전에는 KIS lookback 에서 사라진 주문이 이미 full fill 로 적용됐거나 과거 주문일 잔량으로 남아도 다음 sync 에서 `pending_lookup`으로 되돌아가 open count 를 부풀릴 수 있었다.
 변경 후에는 이전 final/applied fill 상태를 보존하고, 정상 조회 후에도 남은 과거 주문일 잔량은 final 만료 상태로 해석해 현재 open backlog 를 부풀리지 않는다.

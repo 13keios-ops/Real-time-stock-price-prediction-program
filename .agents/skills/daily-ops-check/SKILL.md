@@ -143,6 +143,8 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 
 장후/장외에는 우선 통합 recheck wrapper 를 실행한다. 이 wrapper 는 broker sync, reconciliation, mismatch trace 를 순서대로 실행하고, align 은 수행하지 않는다. pre-open/regular-session, live runtime 실행 중, weekend/holiday 에는 기본 차단된다. 실제 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 쓰며, dry-run과 차단된 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 분리해 마지막 정상 증거를 덮지 않는다.
 
+실행 전에 `latest-paper-account-history.json`의 마지막 유효 거래일을 먼저 확인한다. 오늘 날짜의 유효 장후 기록이 이미 있으면 broker sync를 중복 실행하지 않는다. 오늘이 실제 거래일 장후이고 유효 기록이 없을 때만 recheck wrapper를 한 번 실행한다. 최신 reconciliation은 오늘 것인데 mismatch trace만 오래됐으면 KIS를 다시 호출하지 않고 `python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12`만 실행한다. 주말/휴장일 차단은 오류나 유효 거래일로 집계하지 않는다.
+
 ```bash
 ./scripts/recheck_paper_kis_mismatch.sh
 ```
@@ -167,6 +169,11 @@ python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
 확인 기준:
 
 - `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md`의 `root_cause_scope`를 먼저 본다.
+- `runtime-data/reports/broker-paper/latest-sync.json`의 식별정보 없는 연결 진단값도 함께 본다.
+  - `broker_rows_unlinked_to_submissions > 0`: KIS 조회 행 중 로컬 제출 원장과 연결되지 않은 행이 있으므로 수동/외부 주문 또는 로컬 제출 기록 누락 후보로 본다.
+  - `fallback_matched_orders > 0`: 주문일을 포함한 정확 매칭이 아니라 지점번호/주문번호 보조 매칭이 사용된 상태다. 날짜 경계와 lookback 범위를 확인한다.
+  - `ambiguous_fallback_key_count > 0`: 보조키가 중복돼 어느 주문과 연결할지 모호한 상태다. 자동 align을 하지 않는다.
+  - 세 값이 모두 0인데 mismatch가 유지되면 현재 조회된 주문/체결 원장보다 계좌 snapshot 원천 차이에 무게를 두고 다음 거래일 장후 재확인 또는 KIS 문의 증거로 남긴다.
 - `kis_account_snapshot_vs_order_fill_ledger_divergence`이면 로컬 paper 수량과 KIS order-fill 순수량은 맞고 KIS 계좌 snapshot만 다른 상태다. 이 경우 자동 align을 하지 않고 다음 거래일 장후 account snapshot과 order-fill snapshot을 다시 비교한다.
 - `local_ledger_divergence`이면 로컬 position restore/fill 적용 경로를 먼저 확인한다.
 - `broker_order_fill_lookup_blocked_by_rate_limit`이면 cooldown 뒤 order-fill sync를 1회만 재시도한다.

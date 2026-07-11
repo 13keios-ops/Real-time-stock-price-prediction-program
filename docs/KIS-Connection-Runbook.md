@@ -77,6 +77,29 @@
 
 관련 문서/코드 경로: `app/services/broker_paper_sync.py`, `tests/test_broker_paper_sync.py`, `.agents/skills/daily-ops-check/SKILL.md`
 
+### 3.1.1. order-fill 연결 진단
+
+`runtime-data/reports/broker-paper/latest-sync.json`은 계좌번호, 주문번호, 원문 응답을 노출하지 않고 아래 건수만 남긴다.
+
+| 필드 | 의미 | 운영 해석 |
+| --- | --- | --- |
+| `order_fill_lookback_days` | KIS 주문/체결 조회 기간 | 예상한 날짜 범위인지 확인한다. |
+| `broker_rows_returned` | KIS가 반환한 주문/체결 행 수 | 조회 자체가 비어 있는지 판단한다. |
+| `broker_rows_linked_to_submissions` | 로컬 broker 제출 원장과 연결된 KIS 행 수 | 현재 감사 원장으로 설명되는 범위다. |
+| `broker_rows_unlinked_to_submissions` | 로컬 제출 원장과 연결되지 않은 KIS 행 수 | 수동/외부 주문 또는 로컬 제출 기록 누락 후보다. |
+| `exact_matched_orders` | 주문일+지점번호+주문번호로 정확히 연결된 로컬 주문 수 | 정상 연결의 우선 근거다. |
+| `fallback_matched_orders` | 주문일 없이 지점번호+주문번호로 연결된 로컬 주문 수 | 날짜 경계 또는 lookback 범위 차이를 추가 확인한다. |
+| `ambiguous_fallback_key_count` | 보조 매칭 키가 둘 이상 겹친 수 | 자동 align을 금지하고 원장을 검토한다. |
+
+판정 순서는 다음과 같다.
+
+1. `broker_rows_unlinked_to_submissions > 0`이면 외부/수동 주문 또는 로컬 제출 이력 누락 가능성을 먼저 확인한다.
+2. `fallback_matched_orders > 0` 또는 `ambiguous_fallback_key_count > 0`이면 날짜 포함 정확 매칭이 깨진 원인을 확인한다.
+3. 위 세 값이 모두 0이고 로컬 수량과 KIS order-fill 순수량도 같지만 계좌 수량만 다르면 `kis_account_snapshot_vs_order_fill_ledger_divergence`를 유지한다.
+4. 어떤 경우에도 이 진단만으로 `AlignToBroker`나 `SyncInitialCash`를 자동 실행하지 않는다.
+
+장후 자동화는 먼저 `latest-paper-account-history.json`에서 오늘 유효 기록 존재 여부를 확인한다. 이미 있으면 같은 endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 기록이 없을 때만 통합 recheck를 한 번 실행한다. 주말/휴장일 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에만 남고 10거래일 분모에는 들어가지 않는다.
+
 ### 3.2. read-only probe 실패 분류
 
 기본 판단:

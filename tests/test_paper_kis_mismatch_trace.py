@@ -147,7 +147,18 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            broker_path.write_text(json.dumps({"status": "ok", "open_order_count": 0}), encoding="utf-8")
+            broker_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "open_order_count": 0,
+                        "broker_rows_unlinked_to_submissions": 1,
+                        "fallback_matched_orders": 0,
+                        "ambiguous_fallback_key_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             report = build_trace_report(
                 db_path=db_path,
@@ -159,6 +170,9 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
             )
 
         by_symbol = {row["symbol"]: row for row in report["symbol_summaries"]}
+        self.assertEqual(report["broker_sync"]["broker_rows_unlinked_to_submissions"], 1)
+        self.assertEqual(report["broker_sync"]["fallback_matched_orders"], 0)
+        self.assertEqual(report["broker_sync"]["ambiguous_fallback_key_count"], 0)
         self.assertEqual(
             by_symbol["035420"]["likely_issue"],
             "broker_account_flat_but_order_fill_net_positive",

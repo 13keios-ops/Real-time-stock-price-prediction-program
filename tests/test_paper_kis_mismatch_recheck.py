@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 from scripts.recheck_paper_kis_mismatch import (
@@ -23,6 +26,31 @@ class PaperKisMismatchRecheckTests(unittest.TestCase):
         self.assertTrue(is_non_trading_day_status({"current_session_status": "weekend"}))
         self.assertTrue(is_non_trading_day_status({"session_status": "holiday"}))
         self.assertFalse(is_non_trading_day_status({"current_session_status": "post-close"}))
+
+    def test_shell_wrapper_preserves_expected_exit_without_false_missing_implementation(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        temp_root = root / ".tmp-tests"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="mismatch-wrapper-", dir=temp_root) as tmp:
+            output_path = Path(tmp) / "attempt.json"
+            result = subprocess.run(
+                [
+                    "bash",
+                    "scripts/recheck_paper_kis_mismatch.sh",
+                    "--dry-run",
+                    "--output-path",
+                    str(output_path),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertIn(result.returncode, {0, 2})
+            self.assertNotIn("No bash implementation registered", result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertIn(payload["status"], {"dry_run", "blocked"})
 
     def test_attempts_do_not_use_authoritative_latest_output_by_default(self) -> None:
         self.assertEqual(

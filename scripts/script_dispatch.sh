@@ -2140,7 +2140,6 @@ direct_sequence() {
     cleanup_runtime_test_data.sh) run_app --cleanup-runtime-test-data; run_app --build-dashboard ;;
     rebuild_actual_ml_state.sh) run_app --rebuild-actual-ml --horizon-min 15; run_app --build-runtime-report; run_app --build-dashboard ;;
     reconcile_paper_accounts.sh) run_app --reconcile-paper-accounts ;;
-    recheck_paper_kis_mismatch.sh) "$PYTHON_BIN" "$REPO_ROOT/scripts/recheck_paper_kis_mismatch.py" --project-root "$REPO_ROOT" "$@" ;;
     refresh_kis_account.sh) run_app --kis-account-balance ;;
     run_backtest.sh) run_app --run-backtest --horizon-min 15 ;;
     run_challenger_review.sh) run_app --run-challengers --horizon-min 15 ;;
@@ -2205,6 +2204,7 @@ case "$SCRIPT_NAME" in
   check_local_setup.sh) ops check-local-setup "$@" ;;
   restore_kis_env_interactive.sh) restore_kis_env_interactive "$@" ;;
   connect_kis_paper_account_interactive.sh) connect_kis_paper_account_interactive "$@" ;;
+  recheck_paper_kis_mismatch.sh) "$PYTHON_BIN" "$REPO_ROOT/scripts/recheck_paper_kis_mismatch.py" --project-root "$REPO_ROOT" "$@" ;;
   run_post_close_ml_maintenance.sh) post_close_ml_maintenance "$@" ;;
   run_post_close_label_refresh.sh) post_close_label_refresh "$@" ;;
   run_codex_ops_job.sh) codex_ops_job "$@" ;;

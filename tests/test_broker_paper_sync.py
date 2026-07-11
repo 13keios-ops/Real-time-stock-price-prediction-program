@@ -1,5 +1,6 @@
 import os
 import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 import unittest
@@ -124,6 +125,15 @@ class BrokerPaperSyncTests(unittest.TestCase):
                     raw_output={"odno": "1234567890"},
                 )
             ]
+            broker_rows.append(
+                replace(
+                    broker_rows[0],
+                    broker_order_no="9999999999",
+                    symbol="000660",
+                    symbol_name="SK하이닉스",
+                    raw_output={"odno": "9999999999"},
+                )
+            )
             with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=broker_rows):
                 result = sync_broker_paper_orders(project_root=root)
 
@@ -132,6 +142,13 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.applied_fill_events, 1)
         self.assertEqual(result.applied_fill_qty, 3)
+        self.assertEqual(result.order_fill_lookback_days, 3)
+        self.assertEqual(result.broker_rows_returned, 2)
+        self.assertEqual(result.broker_rows_linked_to_submissions, 1)
+        self.assertEqual(result.broker_rows_unlinked_to_submissions, 1)
+        self.assertEqual(result.exact_matched_orders, 1)
+        self.assertEqual(result.fallback_matched_orders, 0)
+        self.assertEqual(result.ambiguous_fallback_key_count, 0)
         self.assertIsNotNone(sqlite_store)
         latest_position = sqlite_store.fetch_latest_row("paper_positions", "updated_at")
         latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")

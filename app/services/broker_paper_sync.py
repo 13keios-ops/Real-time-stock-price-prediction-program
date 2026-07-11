@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
@@ -54,6 +55,13 @@ class BrokerPaperSyncResult:
     cooldown_active: bool = False
     skipped_broker_call: bool = False
     retry_after_seconds: int | None = None
+    order_fill_lookback_days: int | None = None
+    broker_rows_returned: int | None = None
+    broker_rows_linked_to_submissions: int | None = None
+    broker_rows_unlinked_to_submissions: int | None = None
+    exact_matched_orders: int | None = None
+    fallback_matched_orders: int | None = None
+    ambiguous_fallback_key_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -81,6 +89,18 @@ class BrokerPaperSyncResult:
             payload["skipped_broker_call"] = self.skipped_broker_call
         if self.retry_after_seconds is not None:
             payload["retry_after_seconds"] = self.retry_after_seconds
+        for key in (
+            "order_fill_lookback_days",
+            "broker_rows_returned",
+            "broker_rows_linked_to_submissions",
+            "broker_rows_unlinked_to_submissions",
+            "exact_matched_orders",
+            "fallback_matched_orders",
+            "ambiguous_fallback_key_count",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                payload[key] = value
         return payload
 
 
@@ -195,6 +215,22 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         "## Pending Symbols",
         "",
     ]
+    diagnostic_keys = (
+        "order_fill_lookback_days",
+        "broker_rows_returned",
+        "broker_rows_linked_to_submissions",
+        "broker_rows_unlinked_to_submissions",
+        "exact_matched_orders",
+        "fallback_matched_orders",
+        "ambiguous_fallback_key_count",
+    )
+    diagnostic_lines = [
+        f"- `{key}`: {payload.get(key)}"
+        for key in diagnostic_keys
+        if key in payload
+    ]
+    if diagnostic_lines:
+        lines[-3:-3] = diagnostic_lines
     if payload.get("error"):
         lines.insert(10, f"- `error`: {payload.get('error')}")
     if payload.get("cooldown_active"):
@@ -498,13 +534,49 @@ class BrokerPaperExecutionSync:
             )
         broker_lookup: dict[tuple[str, str, str], Any] = {}
         broker_lookup_fallback: dict[tuple[str, str], Any] = {}
+        broker_fallback_key_counts: Counter[tuple[str, str]] = Counter()
         for row in broker_rows:
             key = (_normalize_order_date(row.order_date), row.broker_branch_no, row.broker_order_no)
+            fallback_key = (row.broker_branch_no, row.broker_order_no)
             broker_lookup[key] = row
-            broker_lookup_fallback[(row.broker_branch_no, row.broker_order_no)] = row
+            broker_lookup_fallback[fallback_key] = row
+            broker_fallback_key_counts[fallback_key] += 1
+
+        submission_exact_keys = {
+            (
+                _normalize_order_date(str(row.get("event_time") or "")[:10]),
+                str(row.get("broker_branch_no") or ""),
+                str(row.get("broker_order_no") or ""),
+            )
+            for row in submission_rows
+        }
+        submission_fallback_key_counts = Counter(
+            (str(row.get("broker_branch_no") or ""), str(row.get("broker_order_no") or ""))
+            for row in submission_rows
+        )
+        submission_fallback_keys = set(submission_fallback_key_counts)
+        ambiguous_fallback_keys = {
+            key
+            for key in set(broker_fallback_key_counts) | set(submission_fallback_key_counts)
+            if broker_fallback_key_counts.get(key, 0) > 1 or submission_fallback_key_counts.get(key, 0) > 1
+        }
+        broker_rows_unlinked_to_submissions = sum(
+            1
+            for row in broker_rows
+            if (
+                _normalize_order_date(row.order_date),
+                row.broker_branch_no,
+                row.broker_order_no,
+            )
+            not in submission_exact_keys
+            and (row.broker_branch_no, row.broker_order_no) not in submission_fallback_keys
+        )
+        broker_rows_linked_to_submissions = len(broker_rows) - broker_rows_unlinked_to_submissions
 
         updated_orders = 0
         matched_orders = 0
+        exact_matched_orders = 0
+        fallback_matched_orders = 0
         applied_fill_events = 0
         applied_fill_qty = 0
         open_order_count = 0
@@ -525,13 +597,17 @@ class BrokerPaperExecutionSync:
                     str(submission.get("broker_order_no") or ""),
                 )
             )
-            if broker_row is None:
+            if broker_row is not None:
+                exact_matched_orders += 1
+            else:
                 broker_row = broker_lookup_fallback.get(
                     (
                         str(submission.get("broker_branch_no") or ""),
                         str(submission.get("broker_order_no") or ""),
                     )
                 )
+                if broker_row is not None:
+                    fallback_matched_orders += 1
 
             matched = broker_row is not None
             if matched:
@@ -678,6 +754,13 @@ class BrokerPaperExecutionSync:
             "status": "ok",
             "total_submissions": len(submission_rows),
             "matched_orders": matched_orders,
+            "order_fill_lookback_days": lookback_days,
+            "broker_rows_returned": len(broker_rows),
+            "broker_rows_linked_to_submissions": broker_rows_linked_to_submissions,
+            "broker_rows_unlinked_to_submissions": broker_rows_unlinked_to_submissions,
+            "exact_matched_orders": exact_matched_orders,
+            "fallback_matched_orders": fallback_matched_orders,
+            "ambiguous_fallback_key_count": len(ambiguous_fallback_keys),
             "updated_orders": updated_orders,
             "applied_fill_events": applied_fill_events,
             "applied_fill_qty": applied_fill_qty,

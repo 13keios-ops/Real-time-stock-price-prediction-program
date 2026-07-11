@@ -473,6 +473,9 @@
   - 유효일은 `post-close`, KIS 계좌 조회 성공, 브로커 제출 이력 존재 조건을 모두 만족해야 한다. 불일치가 있으면 표본 부족보다 `needs_review`를 우선 표시한다.
   - dashboard 계좌 영역에 `10거래일 누적 정합성`과 `거래일별 정합성` 카드를 추가했다.
   - 기존 2026-07-10 장후 증거를 최초 기록으로 반영한 현재 상태는 `1/10`, `matched_days=0`, `mismatch_days=1`, mismatch 4종목이라 구현은 완료됐지만 Phase 0 gate는 통과하지 않았다.
+  - 2026-07-11 주말 재확인은 wrapper가 `non_trading_day`로 정상 차단했다. 주말을 두 번째 유효일로 세지 않았으므로 상태는 `1/10` 그대로다. 차단 실행 뒤 dispatcher가 잘못 `No bash implementation registered`를 덧붙이던 문제는 전용 분기로 수정하고 회귀 테스트를 추가했다.
+  - 다음 유효 재확인은 2026-07-13 거래일 장후다. Windows `RealTimeStockRuntime_PostCloseOps`가 16:40 KST에 reconciliation을 만들고, 20:25 KST 운영 자동화가 당일 유효 기록을 먼저 확인해 중복 조회 없이 누락 시에만 통합 recheck를 한 번 실행하도록 구성했다.
+  - broker sync 결과에는 주문/체결 조회 행의 로컬 제출 원장 연결 여부, 정확/보조 매칭 수, 보조키 중복 수를 식별정보 없이 남긴다. 다음 장후 결과로 외부/수동 주문 후보, 날짜 경계 보조 매칭, 계좌 snapshot 원천 차이를 구분한다.
 - 남은 blocker:
   - 10개 유효 장후 거래일에서 모두 정합한 실제 증거를 누적하고, 현재 mismatch 4종목을 먼저 해소해야 한다.
   - 다음 거래일 첫 신규 제출 뒤에도 stale open 주문이 active open 으로 재발하지 않는지 확인한다.

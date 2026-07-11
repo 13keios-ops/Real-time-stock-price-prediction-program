@@ -1,5 +1,35 @@
 # 작업 기록
 
+## [2026-07-11] Codex -> Phase 0 1/10 보존과 월요일 mismatch 재확인 자동화
+
+- 사용자 목표:
+  - Phase 0 계좌 정합성 `1/10` 누적 상태와 mismatch 4종목을 재확인하고 다음 유효 증거 수집을 진행한다.
+- 실제 확인:
+  - 현재는 토요일 `weekend`, live runtime은 정지, watchdog은 running/fresh 상태다.
+  - 최신 유효 증거는 2026-07-10 장후 1일뿐이며 `matched_days=0`, `mismatch_days=1`, mismatch 종목은 `035420`, `086520`, `105560`, `247540`이다.
+  - 네 종목 모두 로컬 position과 현재 KIS order-fill 원장 순수량은 일치하고 KIS 계좌 snapshot 수량만 다르다. 자동 align이나 `SyncInitialCash`로 덮지 않는다.
+  - 주말에 `./scripts/recheck_paper_kis_mismatch.sh`를 실행했으며 `non_trading_day`로 KIS 호출 없이 정상 차단됐다. 유효 거래일 분모는 `1/10`으로 보존했다.
+- 코드 보강:
+  - 주말 차단 JSON 뒤에 dispatcher의 `No bash implementation registered` 오류가 잘못 덧붙던 문제를 전용 분기로 수정했다.
+  - broker sync에 `broker_rows_unlinked_to_submissions`, `exact_matched_orders`, `fallback_matched_orders`, `ambiguous_fallback_key_count` 등 식별정보 없는 연결 진단 건수를 추가했다.
+  - mismatch trace가 같은 진단 건수를 전달하도록 연결했다. 다음 거래일 장후 외부/수동 주문 후보, 날짜 없는 보조 매칭, 계좌 snapshot 원천 차이를 구분하는 데 쓴다.
+- 자동화 확인:
+  - Windows `RealTimeStockRuntime_PostCloseOps`는 2026-07-13 16:40 KST 다음 실행 예정이고 최근 실행 결과는 성공이다.
+  - 20:25 KST 운영 자동화는 당일 유효 reconciliation history가 있으면 중복 broker sync를 하지 않고, 실제 거래일 장후인데 기록이 없을 때만 통합 recheck를 한 번 실행하도록 갱신했다.
+  - mismatch trace만 오래됐으면 KIS 재호출 없이 offline trace만 갱신한다. `--allow-non-trading-day`, align, `SyncInitialCash`는 금지했다.
+- 검증:
+  - 정합성/broker sync/dashboard 관련 51개 테스트 통과.
+  - 전체 unittest `499 tests OK`.
+  - 전체 pytest `499 passed, 67 subtests passed`.
+  - `bash -n scripts/script_dispatch.sh`, `git diff --check` 통과.
+  - 전용 cleanup wrapper로 테스트 임시 산출물 85개, 111,523,766 bytes를 정리하고 `.tmp-tests/codex-ops`와 `app/risk`는 보존했다.
+- 판단과 다음 방향:
+  - 토요일에는 두 번째 유효 거래일을 만들 수 없으므로 `1/10` 유지가 정확하다.
+  - 2026-07-13 장후 새 진단 건수와 계좌 snapshot을 확인한 뒤 mismatch 원인 범위를 다시 판정한다.
+  - 10개 유효 장후 거래일 모두 정합하기 전까지 Phase 0 gate는 열린 상태다.
+- 안전:
+  - KIS 주문/취소, 계좌 align, `SyncInitialCash`, active model/gate/threshold, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업 변경 없음.
+
 ## [2026-07-11] Codex -> Phase 1b 실전계좌 읽기 전용 관측 통과
 
 - 사용자 목표:

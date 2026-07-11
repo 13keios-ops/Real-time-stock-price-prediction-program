@@ -248,6 +248,13 @@ def _broker_sync_summary(report: dict[str, Any]) -> dict[str, Any]:
         "updated_orders",
         "applied_fill_events",
         "applied_fill_qty",
+        "order_fill_lookback_days",
+        "broker_rows_returned",
+        "broker_rows_linked_to_submissions",
+        "broker_rows_unlinked_to_submissions",
+        "exact_matched_orders",
+        "fallback_matched_orders",
+        "ambiguous_fallback_key_count",
         "pending_symbols",
         "error",
     )
