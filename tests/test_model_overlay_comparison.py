@@ -168,6 +168,7 @@ class ModelOverlayComparisonTests(unittest.TestCase):
             )
 
         self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["cost_model_version"], "legacy_or_custom_unversioned")
         models = {model["name"]: model for model in report["models"]}
         self.assertIn("LightGBM", models)
         self.assertIn("linear-score", models)
@@ -191,6 +192,7 @@ class ModelOverlayComparisonTests(unittest.TestCase):
         self.assertIn("모델 조합 후보", markdown)
         self.assertIn("모델별 강점 구간", markdown)
         self.assertIn("주문 정책", markdown)
+        self.assertIn("cost_model_version", markdown)
 
 
 if __name__ == "__main__":

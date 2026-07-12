@@ -107,10 +107,21 @@ SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_
 
 2026-07-05 review_ver_26 대응으로 07-18 전 범위를 E1 신호 분해와 baseline join 날짜 필터 정합 두 개로 제한했다. E1 분해는 시간대/종목/변동성 구간별 daily IC 를 같은 사전 기준(`abs(mean_daily_ic) >= 0.03`, `abs(t_stat) >= 2.5`, `days_usable >= 5`)으로 보며, 2026-07-18 전까지는 후속 관찰 후보만 만들고 E2/E3 threshold/EV 필터 튜닝은 하지 않는다. 실제 결과는 시간대와 변동성 bucket 통과 후보 0개, 종목 후보 3개(`005380 probability_up expected`, `035420 probability_down expected`, `105560 probability_down reverse`)다. baseline buy join 은 `event_time >= 2026-06-11` 필터를 적용해 h15 rows 가 `25,198`로 E1 joined row 와 정합해졌다.
 
-2026-07-05 Phase 1 구조 진단 E1/E6 결과도 닫혔다. `latest-signal-ic-h15` 기준 LightGBM `probability_down`의 일별 Spearman IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준의 올바른 음의 방향 신호가 아니다. 판정은 `signal_quality_insufficient`이며, E2/E3 threshold/EV 필터 튜닝은 바로 진행하지 않는다. review_ver_25 반영 후 `latest-cost-horizon-diagnostics`는 source 컬럼 부재를 명시하고 `KIS live 근사 = serving runtime 심볼 + 2026-06-11 이후`, `Cybos historical 근사 = 2026-06-11 이전`으로 E6를 분리한다. 전체 h15는 `median_abs=0.189394`, `below_2x_cost=true`지만 Cybos historical이 `99.02%`를 차지하는 참고 표본이다. 정책 판단 표본인 KIS live 근사 h15는 `rows=61,527`, `share=0.98%`, `median_abs=0.361446`, `2 * trade_cost_pct=0.216`, `decision=kis_live_h15_median_move_covers_2x_cost`다. 따라서 E6만으로 h15 비용 구조만으로 배제하지 않고, E1 신호 품질 부족을 우선 병목으로 본다. h60 KIS live 근사 표본은 `median_abs=0.717274`이나 h60 주문 정책은 별도 gate/label/체결 검증 전까지 만들지 않는다.
+2026-07-12 review_ver_31 대응 E6 재생성은 비용 정본 `krx-common-stock-2026-v1`, 왕복 `0.29%`, 2배 비용 기준 `0.58%`를 사용한다. KIS live h15 `median_abs=0.376648%`와 baseline-buy join h15 `0.365344%`는 기준에 미달하지만 p75는 `0.721772%`라 h15 전체를 구조적으로 불가능하다고 확정하지 않는다. KIS live h60 `median_abs=0.739523%`와 baseline-buy join h60 `0.718133%`는 기준을 넘으므로 상대 연구 우선순위가 높다. E1 신호 정보량 부족은 계속 별도 병목이며 h60 주문 정책은 별도 signal/portfolio/lifecycle 검증 전까지 만들지 않는다.
 
 2026-07-07 review_ver_29 대응으로 Phase 1 readiness blocker 중 `market_status`와 `kill_switch`의 규격 준비를 시작했다. `market_status`는 watchlist 기반 fail-closed 템플릿을 운영 경로에 만들되 사람 확인 전에는 `tradable_unknown`으로 차단한다. `kill_switch`는 상태 파일을 만들었지만 `enabled=true`로 둬 submit 차단을 유지한다. 다음 장전 체크에서는 `ws_recovery` synthetic evidence를 다시 만들고, `token_refresh`, `account_snapshot`, `system_clock`을 장전 시간대에 read-only로 다시 확인한 뒤 fixture dry-run을 갱신한다. 이 작업은 실전 주문 경로, active model, gate, `app/risk/`, `config/`, `VERSION`을 바꾸지 않는다.
 2026-07-11 장외 점검에서 누락돼 있던 paper/KIS 10거래일 자동 집계와 dashboard 노출을 구현했다. 이후 실제 reconciliation은 `post-close + 브로커 조회 성공 + 브로커 제출 이력 존재` 조건을 만족한 날만 일별 sanitized history로 남긴다. 현재는 2026-07-10 증거 1일만 반영돼 `1/10`, mismatch 4종목, `needs_review`다. 구현 항목은 닫혔지만 Phase 0 계좌 정합성 gate는 10개 유효 거래일 모두 정합하고 현재 divergence가 해소될 때까지 열린 상태다.
+
+### 2026-07-12 review_ver_31 비용/시간지평 교정
+
+- E6와 LightGBM 성능 진단을 학습·승격 없이 다시 생성했고 새 결과는 `cost_model_version=krx-common-stock-2026-v1`을 기록한다.
+- h15는 중위 변동폭이 보수적 2배 비용 기준에 미달해 빈번한 진입 구조에 경고가 생겼다. 상위 변동 구간은 기준을 넘으므로 저빈도 선별 가능성까지 폐기하지 않는다.
+- h60은 중위 변동폭 기준 비용 여유가 더 크지만 signal IC, 체결, 보유 lifecycle, h15 충돌, 동일 portfolio replay를 통과하지 않았다.
+- 수수료 `0.015%`와 편도 슬리피지 3bp는 연구 가정으로 표시하고 Phase 2 canary 실측 전에는 확정 실행비용으로 부르지 않는다.
+- 2026-07-20 E1/E5 동결 라운드, 주문 정책, threshold, active model, gate는 그대로 유지한다.
+
+다음 순서는 `다음 거래일 decision ledger/lineage 축적과 Phase 0 정합성 -> 2026-07-20 E1/E5 -> h15 저빈도 후보와 h60 후보를 같은 portfolio replay로 사전등록 비교`다.
+
 
 이 순서의 이유는 명확하다.
 실전 주문 안전장치가 있어도 모델의 비용 차감 기대값이 음수이면 안전하게 손실을 반복하는 시스템이 된다.

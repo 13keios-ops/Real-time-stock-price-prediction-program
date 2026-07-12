@@ -3,6 +3,9 @@ import unittest
 
 from app.paper_trading.costs import (
     DEFAULT_DOMESTIC_STOCK_SELL_TAX_RATE,
+    DOMESTIC_STOCK_COST_MODEL_VERSION,
+    LEGACY_OR_CUSTOM_COST_MODEL_VERSION,
+    build_domestic_stock_cost_model_metadata,
     calculate_domestic_stock_fill_tax,
     estimate_round_trip_cost_pct,
 )
@@ -27,6 +30,26 @@ class PaperTradingCostTests(unittest.TestCase):
             calculate_domestic_stock_fill_tax(side="sell", gross_notional=100_000.0),
             200.0,
         )
+
+    def test_cost_metadata_distinguishes_current_and_legacy_totals(self) -> None:
+        current = build_domestic_stock_cost_model_metadata()
+        legacy = build_domestic_stock_cost_model_metadata(round_trip_cost_pct=0.108)
+
+        self.assertEqual(current["version"], DOMESTIC_STOCK_COST_MODEL_VERSION)
+        self.assertTrue(current["matches_current_model"])
+        self.assertEqual(current["round_trip_cost_pct"], 0.29)
+        self.assertEqual(current["commission_rate_status"], "research_assumption_not_broker_statement")
+        self.assertEqual(current["slippage_status"], "research_assumption_not_observed_fill_calibration")
+        self.assertEqual(legacy["version"], LEGACY_OR_CUSTOM_COST_MODEL_VERSION)
+        self.assertFalse(legacy["matches_current_model"])
+
+        custom_slippage = build_domestic_stock_cost_model_metadata(slippage_bps=5.0)
+        self.assertEqual(
+            custom_slippage["version"],
+            LEGACY_OR_CUSTOM_COST_MODEL_VERSION,
+        )
+        self.assertFalse(custom_slippage["matches_current_assumptions"])
+        self.assertEqual(custom_slippage["round_trip_cost_pct"], 0.33)
 
     def test_paper_engine_applies_current_tax_only_to_sell_fill(self) -> None:
         kst = get_timezone("Asia/Seoul")

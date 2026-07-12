@@ -25,7 +25,7 @@ try:
         _connect_readonly,
         _filter_shadow_rows_by_date,
         _load_rows,
-        _trade_cost_pct,
+        _trade_cost_context,
     )
 except ImportError:  # pragma: no cover - direct script run
     from summarize_lightgbm_defensive_shadow import (  # type: ignore[no-redef]
@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - direct script run
         _connect_readonly,
         _filter_shadow_rows_by_date,
         _load_rows,
-        _trade_cost_pct,
+        _trade_cost_context,
     )
 
 
@@ -614,6 +614,7 @@ def build_summary(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
+    cost_model = _trade_cost_context(diagnostics_path)
     with _connect_readonly(database_path) as connection:
         threshold = _choose_label_threshold(connection, horizon_min)
         if threshold is None:
@@ -621,6 +622,8 @@ def build_summary(
                 "status": "no_joinable_shadow_rows",
                 "generated_at": _now_iso(),
                 "horizon_min": horizon_min,
+                "cost_model_version": cost_model["version"],
+                "cost_model": cost_model,
                 "requested_date_range": {
                     "start_date": start_date,
                     "end_date": end_date,
@@ -658,7 +661,9 @@ def build_summary(
         "horizon_min": horizon_min,
         "model_version": DEFAULT_MODEL_VERSION_TEMPLATE.format(horizon_min=horizon_min),
         "database_path": str(database_path),
-        "trade_cost_pct_reference": _trade_cost_pct(diagnostics_path),
+        "trade_cost_pct_reference": cost_model["round_trip_cost_pct"],
+        "cost_model_version": cost_model["version"],
+        "cost_model": cost_model,
         "label_threshold_pct": threshold,
         "joined_rows": len(rows),
         "requested_date_range": {

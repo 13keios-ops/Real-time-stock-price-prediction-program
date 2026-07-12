@@ -25,7 +25,10 @@ from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel, 
 from app.models.loader import load_named_builtin_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.observability.logging import configure_logging
-from app.paper_trading.costs import estimate_round_trip_cost_pct
+from app.paper_trading.costs import (
+    build_domestic_stock_cost_model_metadata,
+    estimate_round_trip_cost_pct,
+)
 from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.contracts import FeatureLabel, FeatureSnapshot, MinuteBar, ModelEvaluation, OrderbookSnapshot, TrainingRun
@@ -1031,6 +1034,14 @@ def _estimate_trade_cost_pct(settings) -> float:
     return estimate_round_trip_cost_pct(
         slippage_bps=settings.strategy.slippage_bps,
     )
+
+
+def _cost_model_version(settings, trade_cost_pct: float) -> str:
+    metadata = build_domestic_stock_cost_model_metadata(
+        slippage_bps=settings.strategy.slippage_bps,
+        round_trip_cost_pct=trade_cost_pct,
+    )
+    return str(metadata["version"])
 
 
 def _effective_trade_cost_pct(settings, override: float | None = None) -> float:
@@ -6871,6 +6882,7 @@ def run_lightgbm_buy_signal_diagnostics_from_sqlite(
         "evaluation_split": split_metadata,
         "rows_evaluated": len(scored_rows),
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "automatic_threshold_adoption": False,
         "status": status,
         "status_reason": status_reason,
@@ -7005,6 +7017,7 @@ def run_lightgbm_feature_profile_experiment_from_sqlite(
         "profile_candidates": list(profile_candidates),
         "max_rows": max_rows,
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "signal_confidence_threshold": round(signal_threshold, 6),
         "automatic_promotion": False,
         "automatic_threshold_adoption": False,
@@ -7160,6 +7173,7 @@ def run_lightgbm_label_band_experiment_from_sqlite(
         "label_thresholds": list(grid),
         "max_rows": max_rows,
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "signal_confidence_threshold": round(signal_threshold, 6),
         "automatic_label_threshold_adoption": False,
         "automatic_promotion": False,
@@ -7370,6 +7384,7 @@ def run_lightgbm_label_band_reproducibility_review_from_sqlite(
             "period_max_folds": period_max_folds,
         },
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "signal_confidence_threshold": round(signal_threshold, 6),
         "min_reliable_trades": min_reliable_trades,
         "selection_policy": "research_only_no_label_threshold_adoption",
@@ -7624,6 +7639,7 @@ def run_lightgbm_probability_calibration_experiment_from_sqlite(
         "evaluation_rows": len(evaluation_rows),
         "label_prior_from_calibration_rows": label_prior,
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "signal_confidence_threshold": round(signal_threshold, 6),
         "automatic_calibration_adoption": False,
         "automatic_promotion": False,
@@ -7779,6 +7795,7 @@ def run_lightgbm_performance_diagnostics_from_sqlite(
         "evaluation_split": split_metadata,
         "rows_evaluated": len(scored_rows),
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "default_signal_confidence_threshold": round(default_signal_threshold, 6),
         "automatic_promotion": False,
         "automatic_threshold_adoption": False,
@@ -8499,6 +8516,7 @@ def run_lightgbm_feature_source_experiment_from_sqlite(
         "generated_at": generated_at.isoformat(),
         "horizon_min": horizon_min,
         "trade_cost_pct": round(trade_cost_pct, 6),
+        "cost_model_version": _cost_model_version(settings, trade_cost_pct),
         "signal_confidence_threshold": round(signal_threshold, 6),
         "source_candidates": list(source_candidates),
         "max_rows": max_rows,

@@ -1,5 +1,40 @@
 # 작업 기록
 
+## [2026-07-12] Codex -> review_ver_31 E6 비용 재검증과 비용 세대 식별
+
+- 리뷰 판정:
+  - P0인 E6 신 비용 재생성은 타당하다. 과거 `0.108%` 기준 결론을 현재 `0.29%` 비용 정본에 그대로 유지할 수 없었다.
+  - 다만 `median_abs < 2 * cost`는 보수적 비용 여유 경고이지 h15 전략의 구조적 흑자 불가능 증명은 아니다. h15 폐기나 h60 정책 전환으로 확대 해석하지 않는다.
+  - 수수료와 슬리피지는 세금과 달리 연구 가정이라는 P1 지적도 수용했다.
+- 코드 조치:
+  - `app/paper_trading/costs.py`에 공통 비용 메타데이터 생성기를 추가했다. 현행/구형·custom 비용 세대, 연구 가정 상태, Phase 2 canary 재검증 필요성을 기록한다.
+  - defensive shadow와 model overlay가 진단 파일 부재 시 구형 `0.108%`로 fallback하던 경로를 현행 공통 비용 `0.29%`로 교정했다.
+  - E6, signal IC, defensive shadow, model overlay, LightGBM 연구 리포트에 `cost_model_version`을 추가했다. 과거 리포트는 소급 재작성하지 않고 다음 재생성부터 세대를 구분한다.
+- 실제 재생성:
+  - LightGBM performance diagnostics: `trade_cost_pct=0.29`, `cost_model_version=krx-common-stock-2026-v1`, status `positive_direction_small_sample_insufficient_evidence`. 학습·승격은 실행하지 않았다.
+  - E6 KIS live h15: `rows=79,422`, median `0.376648%`, p75 `0.721772%`, `2 * cost=0.58%`, 중위 기준 경고.
+  - E6 KIS live baseline-buy h15: `rows=33,007`, median `0.365344%`, 중위 기준 경고.
+  - E6 KIS live h60: `rows=69,962`, median `0.739523%`, baseline-buy h60 `rows=29,159`, median `0.718133%`, 중위 기준 통과.
+  - Cybos historical h15/h60 중위값은 각각 `0.188324%`, `0.339847%`로 둘 다 2배 비용 기준 미달이다. 이는 장기 bar 데이터의 구조 참고값이며 KIS 정책의 직접 근거가 아니다.
+- 판단:
+  - 현행 빈번한 h15 진입은 비용 여유가 얇다. h15는 저빈도 고확신 후보가 실제 신호 정보량과 portfolio replay를 통과하는지 봐야 한다.
+  - h60은 상대적으로 유리하지만 signal IC, 체결, 보유 lifecycle, 장마감 처리, h15 충돌을 검증하지 않았다.
+  - `breakeven_win_rate_long_reference`는 모델 적중률이나 수익 증거가 아니다.
+- 검증:
+  - 비용 메타데이터와 관련 생성기/연구 파이프라인 targeted pytest `32 passed`.
+  - 전체 pytest `515 passed, 67 subtests passed`.
+  - 전체 unittest `Ran 515 tests ... OK`.
+  - Python compile, `git diff --check` 통과.
+  - E6, LightGBM performance diagnostics, defensive shadow, model overlay 실제 재생성 완료.
+  - cleanup helper를 두 번 적용해 테스트/대시보드 임시 산출물과 허용 pycache 총 102개, 105,108,302 bytes를 정리하고 `.tmp-tests/codex-ops`, `app/risk/`, runtime-data를 보존했다.
+  - dashboard snapshot을 `2026-07-12 17:10 KST`로 갱신했고 server/API 응답, 주말 live runtime 정상 정지, watchdog running/fresh를 확인했다.
+- 동결/안전:
+  - 2026-07-20 E1/E5 전 신규 threshold/EV tuning, h60 주문 정책, active model, gate 변경 없음.
+  - 실전 주문/취소, KIS 네트워크 주문 호출, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업 변경 없음.
+- 다음:
+  - 다음 거래일에는 새 비용·완전 lineage decision ledger와 Phase 0 정합성을 관찰한다.
+  - 2026-07-20 E1/E5 이후 h15 저빈도 후보와 h60 후보를 같은 사전등록 portfolio replay에서 비교한다.
+
 ## [2026-07-11] Codex -> rescue/avoid 수익성 심층 리뷰
 
 - 사용자 우려:

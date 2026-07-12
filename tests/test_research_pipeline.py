@@ -625,6 +625,7 @@ class ResearchPipelineTests(unittest.TestCase):
             self.assertTrue(Path(str(diagnostics_result["report_json_path"])).exists())
             self.assertTrue(Path(str(diagnostics_result["report_markdown_path"])).exists())
             self.assertEqual(performance_diagnostics_result["review"], "lightgbm_performance_diagnostics")
+            self.assertEqual(performance_diagnostics_result["cost_model_version"], "krx-common-stock-2026-v1")
             self.assertFalse(performance_diagnostics_result["automatic_promotion"])
             self.assertFalse(performance_diagnostics_result["automatic_threshold_adoption"])
             self.assertIn("probability_diagnostics", performance_diagnostics_result)

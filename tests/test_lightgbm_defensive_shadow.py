@@ -3,10 +3,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_lightgbm_defensive_shadow import build_summary
+from scripts.summarize_lightgbm_defensive_shadow import _trade_cost_context, build_summary
 
 
 LINEAGE = ("train-1", "artifact-1", "sha-1")
+
+
+class LightGbmDefensiveCostContextTests(unittest.TestCase):
+    def test_missing_diagnostics_uses_current_shared_cost_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            context = _trade_cost_context(Path(tmp) / "missing.json")
+
+        self.assertEqual(context["version"], "krx-common-stock-2026-v1")
+        self.assertEqual(context["round_trip_cost_pct"], 0.29)
+        self.assertEqual(context["source"], "shared_current_default")
 
 
 def _create_schema(connection: sqlite3.Connection, *, include_paper: bool = True) -> None:
@@ -151,6 +161,8 @@ class LightGbmDefensiveShadowTests(unittest.TestCase):
             )
 
         self.assertEqual(summary["status"], "rejected_random_control")
+        self.assertEqual(summary["cost_model_version"], "legacy_or_custom_unversioned")
+        self.assertEqual(summary["cost_model"]["source"], "diagnostics_report")
         self.assertTrue(summary["prediction_lineage"]["candidate_eligible"])
         buy_avoid = summary["buy_avoid_shadow"]["thresholds"][0]
         self.assertEqual(buy_avoid["skipped"]["signals"], 1)

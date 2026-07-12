@@ -34,6 +34,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.config.settings import load_settings
+from app.paper_trading.costs import (
+    DEFAULT_RESEARCH_SLIPPAGE_BPS,
+    build_domestic_stock_cost_model_metadata,
+)
 from app.services.portfolio_replay import (
     DecisionPoint,
     ReplayBar,
@@ -163,10 +167,25 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
-def _trade_cost_pct(diagnostics_path: Path) -> float:
+def _trade_cost_context(diagnostics_path: Path) -> dict[str, object]:
     data = _read_json(diagnostics_path)
     value = _to_float(data.get("trade_cost_pct"))
-    return value if value is not None else 0.108
+    metadata = build_domestic_stock_cost_model_metadata(
+        slippage_bps=DEFAULT_RESEARCH_SLIPPAGE_BPS,
+        round_trip_cost_pct=value,
+    )
+    metadata.update(
+        {
+            "source": "diagnostics_report" if value is not None else "shared_current_default",
+            "source_path": str(diagnostics_path),
+            "source_reported_version": data.get("cost_model_version"),
+        }
+    )
+    return metadata
+
+
+def _trade_cost_pct(diagnostics_path: Path) -> float:
+    return float(_trade_cost_context(diagnostics_path)["round_trip_cost_pct"])
 
 
 def _connect_readonly(database_path: Path) -> sqlite3.Connection:
@@ -868,7 +887,8 @@ def build_summary(
     forced_flat_time: time = time(15, 20),
     random_simulations: int = DEFAULT_RANDOM_SIMULATIONS,
 ) -> dict[str, Any]:
-    trade_cost_pct = _trade_cost_pct(diagnostics_path)
+    cost_model = _trade_cost_context(diagnostics_path)
+    trade_cost_pct = float(cost_model["round_trip_cost_pct"])
     _validate_date_range(start_date, end_date)
     with _connect_readonly(database_path) as connection:
         label_threshold_pct = _choose_label_threshold(connection, horizon_min)
@@ -1032,6 +1052,8 @@ def build_summary(
         "database_path": str(database_path),
         "diagnostics_path": str(diagnostics_path),
         "trade_cost_pct": trade_cost_pct,
+        "cost_model_version": cost_model["version"],
+        "cost_model": cost_model,
         "label_threshold_pct": label_threshold_pct,
         "model_version": f"lightgbm-h{horizon_min}-v1",
         "prediction_lineage": lineage_summary,
@@ -1216,6 +1238,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- selected_lineage_rows: {summary.get('joined_rows')}",
         f"- date_range: {summary.get('date_range', {}).get('start')} ~ {summary.get('date_range', {}).get('end')}",
         f"- trade_cost_pct: {summary.get('trade_cost_pct')}",
+        f"- cost_model_version: {summary.get('cost_model_version')}",
         f"- portfolio_random_control_simulations: {summary.get('portfolio_parameters', {}).get('random_simulations')}",
         f"- portfolio_random_control_seed: {summary.get('portfolio_parameters', {}).get('random_seed')}",
         "- automatic_promotion: false",

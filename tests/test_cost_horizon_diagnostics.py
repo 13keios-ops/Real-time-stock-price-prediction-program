@@ -37,6 +37,8 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
             summary = build_summary(database_path=db_path, diagnostics_path=diagnostics_path, horizons=(15, 60))
 
         self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["cost_model_version"], "legacy_or_custom_unversioned")
+        self.assertEqual(summary["cost_model"]["source"], "diagnostics_report")
         self.assertEqual(summary["decision"]["policy_source"], "all_fallback_no_kis_live_subset")
         self.assertEqual(summary["decision"]["status"], "all_fallback_no_kis_live_subset_h15_median_move_below_2x_cost")
         self.assertTrue(summary["decision"]["filter_tuning_only_warning"])

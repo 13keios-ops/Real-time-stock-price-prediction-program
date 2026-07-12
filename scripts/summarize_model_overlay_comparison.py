@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.config.settings import load_settings
 from app.models.loader import load_named_builtin_model
 from app.storage.contracts import FeatureSnapshot
+from scripts.summarize_lightgbm_defensive_shadow import _trade_cost_context
 from scripts.summarize_hold_rescue_paper_replay import (
     _decision as _hold_decision,
     _eligibility as _hold_eligibility,
@@ -119,17 +120,6 @@ def _parse_datetime(value: Any) -> datetime:
     if text.endswith("Z"):
         text = f"{text[:-1]}+00:00"
     return datetime.fromisoformat(text)
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _trade_cost_pct(diagnostics_path: Path) -> float:
-    value = _to_float(_read_json(diagnostics_path).get("trade_cost_pct"))
-    return value if value is not None else 0.108
 
 
 def _connect_readonly(database_path: Path) -> sqlite3.Connection:
@@ -1302,7 +1292,8 @@ def build_report(
     forced_flat_time: str,
 ) -> dict[str, Any]:
     settings = load_settings(REPO_ROOT)
-    trade_cost_pct = _trade_cost_pct(diagnostics_path)
+    cost_model = _trade_cost_context(diagnostics_path)
+    trade_cost_pct = float(cost_model["round_trip_cost_pct"])
     connection = _connect_readonly(database_path)
     try:
         available_tables = _tables(connection)
@@ -1410,6 +1401,8 @@ def build_report(
         "since_date": since_date,
         "label_threshold_pct": label_threshold_pct,
         "trade_cost_pct": trade_cost_pct,
+        "cost_model_version": cost_model["version"],
+        "cost_model": cost_model,
         "models": model_summaries,
         "decision_ledger": decision_ledger_summary,
         "combination_policy_review": combination_policy_review,
@@ -1444,6 +1437,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- horizon_min: `{report.get('horizon_min')}`",
         f"- since_date: `{report.get('since_date')}`",
         f"- scope: `{report.get('scope_guardrail')}`",
+        f"- trade_cost_pct: `{report.get('trade_cost_pct')}`",
+        f"- cost_model_version: `{report.get('cost_model_version')}`",
         "",
         "## 비교 요약",
         "",

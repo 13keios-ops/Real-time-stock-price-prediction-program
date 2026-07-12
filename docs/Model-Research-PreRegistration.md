@@ -6,9 +6,11 @@
 
 - KIS live 주문 판단, active model, gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 2026-07-18 전까지 바꾸지 않는다.
 - Cybos-KIS transfer review 기준 공통 bar 피처에서 `source_stable_candidate`는 0개다.
-- KIS live h15는 비용 구조만으로 배제할 수 없다. KIS live 근사 h15 `median_abs=0.361446`은 `2 * trade_cost_pct=0.216`보다 크다.
-- h60은 KIS live 근사 `median_abs=0.717274`로 비용 여유가 더 커 보이지만, 신호·체결·포지션 정책은 아직 검증되지 않았다.
+- 2026-07-12 비용 정본 `krx-common-stock-2026-v1`의 왕복 연구 비용은 `0.29%`, 보수적 2배 비용 여유 기준은 `0.58%`다.
+- KIS live 근사 h15 `median_abs=0.376648%`와 baseline-buy join `median_abs=0.365344%`는 `0.58%`보다 작아 비용 여유 경고가 켜졌다. 다만 h15 상위 25% 절대변동은 `0.721772%`이므로 h15 전체의 수익 가능성을 구조적으로 부정하지 않고, 저빈도 선별 후보와 실제 신호 품질을 별도로 검증한다.
+- h60은 KIS live 근사 `median_abs=0.739523%`, baseline-buy join `median_abs=0.718133%`로 `0.58%`를 넘는다. 상대 연구 우선순위는 높아졌지만 신호·체결·보유 lifecycle·h15 충돌은 아직 검증되지 않았다.
 - 현재 병목은 h15 비용 구조 단정이 아니라 신호 정보량이다. `probability_down` daily IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준을 통과하지 못했다.
+- E6의 `breakeven_win_rate_long_reference`와 변동폭 분포는 구조 진단일 뿐 모델 수익성 증거가 아니다. h15 폐기나 h60 주문 정책 전환 근거로 단독 사용하지 않는다.
 
 관련 문서/코드 경로: `runtime-data/reports/research/latest-cybos-kis-transfer-review.md`, `runtime-data/reports/research/latest-cost-horizon-diagnostics.md`, `runtime-data/reports/research/latest-signal-ic-h15.md`
 
@@ -17,7 +19,7 @@
 1. 데이터 원천 차이: Cybos historical은 bar 중심이고, KIS live는 실시간 체결·호가 기반이다. `bid_ask_imbalance`, `spread_bps`는 Cybos 쪽에서 구조적으로 0에 가까워 Cybos backtest로 직접 검증할 수 없다.
 2. 시장 미시구조 차이: KIS live는 실제 watchlist 10종목의 장중 호가, 스프레드, VI/동시호가 영향, 체결 가능성, 모의계좌 체결 제약을 함께 받는다. Cybos bar-only 결과는 이 실행 제약을 포함하지 않는다.
 3. 표본 창 차이: Cybos proxy는 긴 역사 구간의 많은 종목을 보지만, 현재 KIS live는 최근 약 1~2개월 watchlist 중심이다. source split 없이 전체 평균을 보면 Cybos historical이 표본을 지배한다.
-4. 비용/라벨 차이: h15 전체 표본의 비용 경고는 Cybos historical 지배 표본의 착시일 수 있다. KIS live만 분리하면 h15 중위 변동폭은 비용을 넘지만, 실제 신호 품질이 부족하다.
+4. 비용/라벨 차이: source split 없이 전체 평균을 보면 Cybos historical이 구조 판단을 지배한다. KIS live만 분리해도 h15 중위 변동폭은 왕복 비용 `0.29%`는 넘지만 보수적 2배 비용 기준 `0.58%`에는 못 미치며, 실제 신호 품질도 부족하다.
 5. 실행 로그 차이: KIS live에는 paper 주문, 체결, rejected close, 계좌 snapshot mismatch 같은 운영 노이즈가 들어간다. 연구 지표와 실제 paper 손익을 섞으면 원인이 흐려진다.
 
 관련 문서/코드 경로: `runtime-data/reports/data-quality/latest-feature-source-drift.md`, `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.json`, `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`, `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.md`
@@ -72,7 +74,7 @@
 
 ### 연구 질문
 
-h60은 h15보다 가격 변동폭이 커서 비용 여유가 있다. 하지만 h60 예측이 실제 주문·체결·보유 정책으로도 더 나은지는 별도 질문이다. h60은 h15의 단순 대체가 아니라 별도 horizon track으로 검증한다.
+h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비용 기준 `0.58%`를 넘고, h15 `0.376648%`보다 상대 비용 여유가 크다. 하지만 h60 예측이 실제 주문·체결·보유 정책으로도 더 나은지는 별도 질문이다. h60은 h15의 단순 대체가 아니라 별도 horizon track으로 검증한다.
 
 ### 입력 데이터
 

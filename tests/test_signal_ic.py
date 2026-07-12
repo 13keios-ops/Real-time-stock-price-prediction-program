@@ -80,6 +80,7 @@ class SignalIcTests(unittest.TestCase):
             )
 
         self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["cost_model_version"], "legacy_or_custom_unversioned")
         down = summary["probability_down"]
         self.assertEqual(down["summary"]["days_usable"], 2)
         self.assertLessEqual(down["summary"]["mean_daily_ic"], -0.99)

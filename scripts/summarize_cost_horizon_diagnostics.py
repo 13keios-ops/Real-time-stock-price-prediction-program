@@ -16,9 +16,9 @@ from statistics import mean
 from typing import Any
 
 try:
-    from scripts.summarize_lightgbm_defensive_shadow import DEFAULT_DATABASE, DEFAULT_DIAGNOSTICS, _connect_readonly, _trade_cost_pct
+    from scripts.summarize_lightgbm_defensive_shadow import DEFAULT_DATABASE, DEFAULT_DIAGNOSTICS, _connect_readonly, _trade_cost_context
 except ImportError:  # pragma: no cover - direct script run
-    from summarize_lightgbm_defensive_shadow import DEFAULT_DATABASE, DEFAULT_DIAGNOSTICS, _connect_readonly, _trade_cost_pct  # type: ignore[no-redef]
+    from summarize_lightgbm_defensive_shadow import DEFAULT_DATABASE, DEFAULT_DIAGNOSTICS, _connect_readonly, _trade_cost_context  # type: ignore[no-redef]
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -250,7 +250,8 @@ def build_summary(
     diagnostics_path: Path,
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
 ) -> dict[str, Any]:
-    trade_cost_pct = _trade_cost_pct(diagnostics_path)
+    cost_model = _trade_cost_context(diagnostics_path)
+    trade_cost_pct = float(cost_model["round_trip_cost_pct"])
     with _connect_readonly(database_path) as connection:
         live_symbols = _live_symbols(connection)
         horizon_summaries = [
@@ -319,6 +320,8 @@ def build_summary(
         "database_path": str(database_path),
         "trade_cost_pct": trade_cost_pct,
         "two_x_trade_cost_pct": 2 * trade_cost_pct,
+        "cost_model_version": cost_model["version"],
+        "cost_model": cost_model,
         "preregistered_criteria": PREREGISTERED_CRITERIA,
         "source_classification": {
             "has_source_column": False,
@@ -351,6 +354,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- status: `{summary.get('status')}`",
         f"- trade_cost_pct: `{summary.get('trade_cost_pct')}`",
         f"- two_x_trade_cost_pct: `{summary.get('two_x_trade_cost_pct')}`",
+        f"- cost_model_version: `{summary.get('cost_model_version')}`",
         f"- decision.status: `{summary.get('decision', {}).get('status')}`",
         f"- policy_source: `{summary.get('decision', {}).get('policy_source')}`",
         f"- filter_tuning_only_warning: `{summary.get('decision', {}).get('filter_tuning_only_warning')}`",
