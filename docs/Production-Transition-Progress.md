@@ -20,6 +20,16 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-12 review_ver_32 손익분기·관측 구간 보강
+
+- cowork의 E6 수치 검산은 일치했고 P1 문서 보강을 수용했다.
+- broad KIS long-only 손익분기 참고 승률은 h15 `0.724041`, h60 `0.624676`, baseline-buy join은 `0.748325/0.646466`이다.
+- 이 수치는 현재 평균 이익·손실과 비용을 고정한 동적 기준선이며 3분류 정확도나 long/short 방향 거래 적중률과 직접 비교하지 않는다.
+- E6에 source/horizon별 관측 시작·종료 시각을 추가했다. broad KIS는 `2026-06-11 08:30`부터라 장전 행이 포함되고 baseline-buy join은 `09:15`부터다.
+- 실현 p75 행을 entry 시점에 고르는 것은 미래 정보 사용이다. 빈도를 무작위로 4분의 1로 줄이는 것만으로 거래당 기대값도 좋아지지 않는다.
+- entry 모델 사전등록 초안은 regular-session decision episode, 완전 lineage, 동적 손익분기선, 비용 후 기대값, no-trade coverage, random control, 동일 portfolio replay를 필수로 둔다.
+- rescue/avoid 3종 기각·보류, active `baseline-h15-v1`, 2026-07-20 전 실험 동결을 유지한다. 운영자 결정 사항은 없다.
+
 ### 2026-07-12 review_ver_31 E6 비용 세대 교정
 
 - cowork의 P0는 타당했다. E6가 과거 왕복 비용 `0.108%`를 계속 사용해 15분 비용 여유를 과대평가하고 있었다.

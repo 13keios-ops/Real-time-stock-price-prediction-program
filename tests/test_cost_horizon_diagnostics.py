@@ -95,6 +95,9 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
         self.assertTrue(sources["all"]["horizons"][0]["median_abs_less_than_2x_cost"])
         self.assertFalse(sources["kis_live"]["horizons"][0]["median_abs_less_than_2x_cost"])
         self.assertAlmostEqual(sources["kis_live"]["horizons"][0]["share_of_all_rows"], 0.4)
+        live_window = sources["kis_live"]["horizons"][0]["observation_window"]
+        self.assertEqual(live_window["event_time_start"], "2026-06-11T09:10:00+09:00")
+        self.assertEqual(live_window["event_time_end"], "2026-06-11T09:13:00+09:00")
         self.assertIn("do not carry a source column", summary["source_classification"]["method_note"])
 
     def test_baseline_buy_join_source_is_reported(self) -> None:
@@ -146,6 +149,9 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
         baseline = baseline_source["horizons"][0]
         self.assertEqual(baseline["status"], "ok")
         self.assertEqual(baseline["rows"], 3)
+        self.assertEqual(baseline["observation_window"]["event_time_start"], "2026-06-11T09:20:00+09:00")
+        self.assertEqual(baseline["observation_window"]["event_time_end"], "2026-06-11T09:22:00+09:00")
+        self.assertNotEqual(baseline["observation_window"]["event_time_start"], old_event_time)
         self.assertIn("event_time >= 2026-06-11", baseline_source["method"])
         self.assertEqual(baseline_source["role"], "diagnostic_runtime_buy_signals")
 

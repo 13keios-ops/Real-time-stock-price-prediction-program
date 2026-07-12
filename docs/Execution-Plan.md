@@ -86,7 +86,7 @@
 
 - 위 1~7번 평가 체계 교정을 코드와 회귀 테스트에 반영했다.
 - `buy-avoid`는 decision episode portfolio replay, signal-row random control, 절대 비용 후 수익, 평균 거래 기대값, 최소 표본, 거래일 일관성, prediction lineage를 모두 통과해야 후보가 된다.
-- 최신 threshold `0.40`은 계좌 기준 baseline `-16.4010%`, 필터 적용 `-15.3384%`다. `+1.0626%p` 개선은 손실 감소일 뿐 수익이 아니므로 `rejected_random_control`을 유지한다.
+- 최신 threshold `0.40`은 2026 비용 정본 기준 baseline `-38.1734%`, 필터 적용 `-36.3645%`, 차이 `+1.8089%p`다. 평균 거래 `-0.285710%`, 비음수 거래일 `0/22`, signal-row random control 실패이므로 `rejected_random_control`을 유지한다. 구형 `-16.4010%/-15.3384%`는 역사적 비용 결과다.
 - `serving_decision_ledger`와 모델 lineage를 구현했다. 과거 33,007개 lineage 없는 LightGBM joined row는 진단 전용이고, no-trade ledger는 다음 정규장부터 실제 결정만 축적한다.
 - meta-policy는 `blocked_evidence`, primary candidate 없음이다. 챌린저 재평가에서도 모든 후보가 `promotable=false`, active `baseline-h15-v1`, `keep_active`, 승격 미적용이다.
 - hold-rescue threshold `0.40`은 `-26,387원`으로 현재 규칙을 기각한다. buy-rescue는 실제 no-trade ledger 0행이라 아직 평가 시작 전이다.
@@ -121,6 +121,15 @@ SNS/공개 영향력 이벤트 shadow는 현재 `status=no_events_file`, `event_
 - 2026-07-20 E1/E5 동결 라운드, 주문 정책, threshold, active model, gate는 그대로 유지한다.
 
 다음 순서는 `다음 거래일 decision ledger/lineage 축적과 Phase 0 정합성 -> 2026-07-20 E1/E5 -> h15 저빈도 후보와 h60 후보를 같은 portfolio replay로 사전등록 비교`다.
+### 2026-07-12 review_ver_32 손익분기 기준선과 관측 구간
+
+- E6 source/horizon별 `event_time_start/end`를 추가했다. broad KIS는 `08:30`부터라 장전 행이 포함되고 baseline-buy join은 `09:15`부터다.
+- broad KIS long-only 손익분기 참고 승률은 h15 `0.724041`, h60 `0.624676`, baseline-buy join은 `0.748325/0.646466`이다.
+- 이 값은 현재 평균 이익·손실과 비용을 고정한 구조 기준선이다. LightGBM 3분류 정확도나 long/short 방향 거래 win rate와 직접 비교하지 않는다.
+- 실현 p75 고변동 행은 미래 정보이므로 entry 필터가 아니다. 거래를 무작위로 4분의 1로 줄이는 것도 거래당 기대값을 개선하지 않는다.
+- entry 모델은 완전 lineage의 regular-session decision episode에서 동적 손익분기선, 비용 후 기대값, no-trade coverage, random control, 동일 portfolio replay를 함께 본다.
+- 이 문서 보강은 사전등록 초안일 뿐 2026-07-20 전 신규 실험·threshold·h60 주문 정책을 시작하지 않는다.
+
 
 
 이 순서의 이유는 명확하다.

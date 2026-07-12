@@ -11,6 +11,8 @@
 - h60은 KIS live 근사 `median_abs=0.739523%`, baseline-buy join `median_abs=0.718133%`로 `0.58%`를 넘는다. 상대 연구 우선순위는 높아졌지만 신호·체결·보유 lifecycle·h15 충돌은 아직 검증되지 않았다.
 - 현재 병목은 h15 비용 구조 단정이 아니라 신호 정보량이다. `probability_down` daily IC는 `mean_daily_ic=0.004754`, `t_stat=0.367342`로 사전 기준을 통과하지 못했다.
 - E6의 `breakeven_win_rate_long_reference`와 변동폭 분포는 구조 진단일 뿐 모델 수익성 증거가 아니다. h15 폐기나 h60 주문 정책 전환 근거로 단독 사용하지 않는다.
+- KIS live 전체 long-only 손익분기 참고 승률은 h15 `0.724041`, h60 `0.624676`이고 baseline-buy join은 각각 `0.748325`, `0.646466`이다. 이는 현재 관측 평균 이익·손실과 비용을 고정한 동적 기준선이며 모델 3분류 정확도나 long/short 방향 거래 적중률과 직접 비교하지 않는다.
+- 넓은 KIS 근사 표본의 관측 시작은 `2026-06-11 08:30 KST`라 장전 구간이 포함된다. 실행 후보는 `09:15 KST`부터 시작하는 baseline-buy join 또는 별도 사전등록 regular-session decision episode에서 다시 평가한다.
 
 관련 문서/코드 경로: `runtime-data/reports/research/latest-cybos-kis-transfer-review.md`, `runtime-data/reports/research/latest-cost-horizon-diagnostics.md`, `runtime-data/reports/research/latest-signal-ic-h15.md`
 
@@ -88,6 +90,8 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 - `probability_up`, `probability_down`, `probability_flat`의 daily IC.
 - h60 가상 방향 거래 순손익과 random-control 대비 excess.
 - h60 baseline buy join의 비용 차감 기대값.
+- 현재 broad KIS long-only 손익분기 참고 승률은 h60 `0.624676`, baseline-buy join은 `0.646466`이다. 매 고정 평가구간에서 평균 이익·평균 손실·비용으로 다시 계산하고, 3분류 정확도 또는 long/short 방향 거래 적중률과 직접 비교하지 않는다.
+- p75 절대변동은 미래에 실현된 값이므로 entry 시점 필터로 사용할 수 없다. 사전에 계산 가능한 score가 해당 고변동 구간을 재현성 있게 찾는지 별도로 검증한다.
 - h60 신호가 h15 신호와 충돌할 때의 결과: h15 매수 허용 + h60 하락, h15 하락 + h60 상승 같은 교차표.
 - h60 보유 기간 동안의 최대 역행폭, 장마감 강제청산 필요 여부, 종가 동시호가/시간외 구간 영향.
 
@@ -107,7 +111,44 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 
 관련 문서/코드 경로: `runtime-data/reports/research/latest-cost-horizon-diagnostics.md`, `runtime-data/reports/backtests/latest-walk-forward-h15.json`, `docs/Production-Implementation-Blueprint.md`
 
-## 6. 다음 작업 순서
+## 6. 다음 entry 모델 사전 등록 초안
+
+### 연구 질문
+
+정규장 entry 시점에 알 수 있는 정보만으로 비용 후 기대값이 양수인 거래와 거래하지 않을 구간을 구분할 수 있는가를 본다. 3분류 정확도 자체보다 실행 가능한 decision episode의 비용 후 손익과 하방 위험을 정본으로 둔다.
+
+### 현재 기준선
+
+- 손익분기 참고 승률은 `p_be = (평균 손실 + 왕복 비용) / (평균 이익 + 평균 손실)`로 계산한다.
+- broad KIS 기준 h15 `0.724041`, h60 `0.624676`은 현재 관측 분포를 고정한 long-only 구조 참고값이다.
+- baseline-buy join 기준 h15 `0.748325`, h60 `0.646466`이 실제 entry 모집단에 더 가깝지만, 이 값도 새 고정 구간마다 다시 계산한다.
+- 위 승률은 모델 3분류 정확도, class hit rate, long/short 가상 방향 win rate와 모집단·행동이 다르므로 서로 빼거나 우열을 직접 비교하지 않는다.
+
+### 평가 모집단
+
+- 완전한 `training_run_id`, `artifact_id`, `artifact_sha256`가 있는 미래 serving decision ledger만 후보 근거로 사용한다.
+- 정규장 안의 실행 가능한 decision episode를 사용하고, broad E6의 `08:30` 장전 행은 구조 참고로만 둔다.
+- baseline 판단, gate, allocator, 현금·보유·pending 제약, 주문·체결 여부를 분리해서 기록한다.
+- 실현된 p75 미래 변동을 entry 필터로 사용하지 않는다. entry 시점에 존재하는 score가 이후 고변동·유리한 손익 구간을 찾았는지만 본다.
+
+### 필수 측정
+
+- 후보별 평균 이익, 평균 손실, 왕복 비용, 동적 손익분기 승률, 실제 조건부 승률과 불확실성 구간.
+- 비용 후 평균 거래 기대값, 누적 portfolio return, 최대 낙폭, 비음수 거래일 비율.
+- no-trade coverage, decision episode 수, 실제 체결 수, 종목·시간대 집중도.
+- 같은 coverage random control과 비중복 미래 평가구간 최소 2개 재현성.
+- h15/h60을 같은 초기 현금, 비중, 최대 보유 수, 다음 분봉 실행가, 장마감 청산 조건으로 비교.
+
+### 후보 해석 기준
+
+- 실제 조건부 승률이 동적 손익분기선을 넘거나 평균 이익/손실 비대칭이 개선되더라도, 비용 후 평균 기대값과 portfolio return이 모두 양수여야 한다.
+- 거래 빈도를 무작위로 4분의 1로 줄이는 것은 총손실 횟수만 줄일 뿐 거래당 기대값을 개선하지 않으므로 후보 근거가 아니다.
+- 표본·random control·비중복 기간 재현성·기존 challenger 승격 조건을 모두 통과하기 전에는 `research_candidate` 이상으로 올리지 않는다.
+- 2026-07-20 E1/E5 결과 전에는 이 초안으로 새 threshold, feature 조합, h60 주문 정책을 실행하지 않는다.
+
+관련 문서/코드 경로: `docs/Execution-Plan.md`, `docs/Buy-Avoid-Random-Control-Methodology.md`, `app/services/portfolio_replay.py`
+
+## 7. 다음 작업 순서
 
 1. 07-18 전까지는 신규 KIS live 판정과 threshold tuning을 동결한다.
 2. 다음 거래일 장후 paper/KIS mismatch가 같은 root_cause_scope로 유지되는지 다시 본다.

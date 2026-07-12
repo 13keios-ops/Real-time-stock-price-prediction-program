@@ -119,6 +119,42 @@ def _horizon_values(
     return values
 
 
+def _horizon_observation_window(
+    connection: sqlite3.Connection,
+    horizon_min: int,
+    *,
+    source_key: str = "all",
+    live_symbols: list[str] | None = None,
+) -> dict[str, str | None]:
+    parameters: list[Any] = [horizon_min]
+    source_filter = ""
+    if source_key == "kis_live":
+        source_filter = "AND event_time >= ?"
+        parameters.append(KIS_LIVE_START_DATE)
+        if live_symbols:
+            placeholders = ",".join("?" for _ in live_symbols)
+            source_filter += f" AND symbol IN ({placeholders})"
+            parameters.extend(live_symbols)
+    elif source_key == "cybos_historical":
+        source_filter = "AND event_time < ?"
+        parameters.append(KIS_LIVE_START_DATE)
+
+    row = connection.execute(
+        f"""
+        SELECT MIN(event_time), MAX(event_time)
+        FROM feature_labels
+        WHERE horizon_min = ?
+          AND future_return_pct IS NOT NULL
+          {source_filter}
+        """,
+        parameters,
+    ).fetchone()
+    return {
+        "event_time_start": str(row[0]) if row and row[0] else None,
+        "event_time_end": str(row[1]) if row and row[1] else None,
+    }
+
+
 def _baseline_buy_values(connection: sqlite3.Connection, horizon_min: int) -> list[float]:
     try:
         rows = connection.execute(
@@ -145,6 +181,34 @@ def _baseline_buy_values(connection: sqlite3.Connection, horizon_min: int) -> li
         except (TypeError, ValueError):
             continue
     return values
+
+
+def _baseline_buy_observation_window(
+    connection: sqlite3.Connection,
+    horizon_min: int,
+) -> dict[str, str | None]:
+    try:
+        row = connection.execute(
+            """
+            SELECT MIN(fl.event_time), MAX(fl.event_time)
+            FROM serving_trade_signals AS s
+            JOIN feature_labels AS fl
+              ON fl.symbol = s.symbol
+             AND fl.event_time = s.event_time
+             AND fl.horizon_min = ?
+            WHERE s.side = 'buy'
+              AND s.allowed = 1
+              AND s.event_time >= ?
+              AND fl.future_return_pct IS NOT NULL
+            """,
+            (horizon_min, KIS_LIVE_START_DATE),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    return {
+        "event_time_start": str(row[0]) if row and row[0] else None,
+        "event_time_end": str(row[1]) if row and row[1] else None,
+    }
 
 
 def _summarize_horizon(values: list[float], horizon_min: int, trade_cost_pct: float) -> dict[str, Any]:
@@ -203,11 +267,21 @@ def _summarize_source(
     for horizon in horizons:
         if source_key == "kis_live_baseline_buy_join":
             values = _baseline_buy_values(connection, horizon)
+            observation_window = _baseline_buy_observation_window(connection, horizon)
         else:
             values = _horizon_values(connection, horizon, source_key=source_key, live_symbols=live_symbols)
-        horizon_summaries.append(
-            _with_row_share(_summarize_horizon(values, horizon, trade_cost_pct), all_rows_by_horizon)
+            observation_window = _horizon_observation_window(
+                connection,
+                horizon,
+                source_key=source_key,
+                live_symbols=live_symbols,
+            )
+        horizon_summary = _with_row_share(
+            _summarize_horizon(values, horizon, trade_cost_pct),
+            all_rows_by_horizon,
         )
+        horizon_summary["observation_window"] = observation_window
+        horizon_summaries.append(horizon_summary)
     return {
         "source_key": source_key,
         "role": role,
@@ -254,10 +328,15 @@ def build_summary(
     trade_cost_pct = float(cost_model["round_trip_cost_pct"])
     with _connect_readonly(database_path) as connection:
         live_symbols = _live_symbols(connection)
-        horizon_summaries = [
-            _summarize_horizon(_horizon_values(connection, horizon), horizon, trade_cost_pct)
-            for horizon in horizons
-        ]
+        horizon_summaries: list[dict[str, Any]] = []
+        for horizon in horizons:
+            horizon_summary = _summarize_horizon(
+                _horizon_values(connection, horizon),
+                horizon,
+                trade_cost_pct,
+            )
+            horizon_summary["observation_window"] = _horizon_observation_window(connection, horizon)
+            horizon_summaries.append(horizon_summary)
         all_rows_by_horizon = {
             int(row.get("horizon_min")): int(row.get("rows") or 0)
             for row in horizon_summaries
@@ -374,16 +453,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Source / Horizon Summary",
         "",
-        "| source | role | horizon | status | rows | share_all | median_abs | mean_abs | p75_abs | p90_abs | breakeven_win_rate | below_2x_cost |",
-        "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| source | role | horizon | event_start | event_end | status | rows | share_all | median_abs | mean_abs | p75_abs | p90_abs | breakeven_win_rate | below_2x_cost |",
+        "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for source in summary.get("source_summaries", []):
         for row in source.get("horizons", []):
             lines.append(
-                "| {source} | {role} | {horizon} | {status} | {rows} | {share} | {median} | {mean_abs} | {p75} | {p90} | {breakeven} | {below} |".format(
+                "| {source} | {role} | {horizon} | {event_start} | {event_end} | {status} | {rows} | {share} | {median} | {mean_abs} | {p75} | {p90} | {breakeven} | {below} |".format(
                     source=source.get("source_key"),
                     role=source.get("role"),
                     horizon=row.get("horizon_min"),
+                    event_start=_fmt((row.get("observation_window") or {}).get("event_time_start")),
+                    event_end=_fmt((row.get("observation_window") or {}).get("event_time_end")),
                     status=row.get("status"),
                     rows=row.get("rows"),
                     share=_fmt(row.get("share_of_all_rows")),

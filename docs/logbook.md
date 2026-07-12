@@ -1,5 +1,39 @@
 # 작업 기록
 
+## [2026-07-12] Codex -> review_ver_32 손익분기 해석과 E6 관측 구간 보강
+
+- 리뷰 검산:
+  - E6 h15/h60 행수·분포·비용·판정, cost model metadata, fallback 제거, shadow/overlay 상태가 실제 파일과 일치했다.
+  - broad KIS long-only 손익분기 참고 승률 h15 `0.724041`, h60 `0.624676` 산식도 일치했다.
+- 비판적 수정:
+  - 위 손익분기 값은 전체 미래수익 long-only 분포 기준이다. LightGBM 3분류 정확도나 threshold long/short 방향 거래 win rate 약 39%와 직접 비교할 수 없다.
+  - 실현 p75 고변동 행은 미래 정보이므로 entry 필터가 아니다. 거래를 무작위로 4분의 1로 줄이는 것만으로 거래당 기대값도 개선되지 않는다.
+  - 따라서 `62.5%+`를 고정 h60 승격 gate로 두지 않고, 평가구간별 평균 이익·평균 손실·비용으로 동적 손익분기선을 다시 계산한다.
+- 코드/리포트:
+  - E6 source/horizon summary에 `observation_window.event_time_start/end`를 추가하고 Markdown 표에도 노출했다.
+  - broad KIS h15/h60 관측은 `2026-06-11 08:30`부터 각각 `2026-07-10 14:59/14:19`까지다.
+  - baseline-buy join h15/h60은 `2026-06-11 09:15`부터 각각 `2026-07-10 14:59/14:19`까지다.
+  - broad KIS에 장전 행이 포함되므로 실행 후보는 regular-session decision episode와 baseline-buy join에서 다시 검증한다.
+  - baseline-buy join long-only 손익분기 참고 승률은 h15 `0.748325`, h60 `0.646466`이다.
+- 사전등록:
+  - `docs/Model-Research-PreRegistration.md`에 dynamic breakeven, 실행 모집단, 완전 lineage, no-trade coverage, random control, 동일 portfolio replay를 요구하는 entry 모델 초안을 추가했다.
+  - `docs/Codex-Operating-Feedback.md`에 서로 다른 모집단·행동의 정확도/승률을 직접 비교하지 않는 규칙과 미래 p75 사용 금지를 추가했다.
+- 검증:
+  - 좁은 E6 테스트 `3 passed`.
+  - 전체 pytest `515 passed, 67 subtests passed`.
+  - 전체 unittest `Ran 515 tests ... OK`.
+  - E6 실제 재생성 완료, 기존 수치와 판정은 불변이고 관측 구간만 추가됐다.
+  - dashboard snapshot 재생성과 server/API 응답을 확인했다.
+  - cleanup helper로 테스트/대시보드 임시 산출물과 허용 pycache `86개`, `94,231,041 bytes`를 정리했다. `.tmp-tests/codex-ops`, `app/risk/`, runtime-data는 보존했다.
+- 종료 상태:
+  - 주말 live runtime은 정상 정지, watchdog은 running/fresh, dashboard와 Windows startup launcher는 정상이다.
+- 안전/동결:
+  - 모델 학습, threshold/EV tuning, h60 주문 정책, active model/gate, 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업 변경 없음.
+  - 2026-07-20 E1/E5 전 신규 실험 동결과 rescue/avoid 3종 기각·보류를 유지한다.
+- 다음:
+  - 다음 거래일부터 완전 lineage decision ledger와 Phase 0 정합성을 관찰한다.
+  - 다음 실질 연구는 2026-07-20 장후 E1/E5 고정 라운드다.
+
 ## [2026-07-12] Codex -> review_ver_31 E6 비용 재검증과 비용 세대 식별
 
 - 리뷰 판정:
