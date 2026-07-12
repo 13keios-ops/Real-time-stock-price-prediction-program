@@ -12,6 +12,16 @@
 
 자동화는 git 추적 파일을 수정하지 않고 `runtime-data/reports/codex/automation/` 아래에만 산출물을 남긴다.
 
+## 결정론적 사전 감사
+
+AI 기반 매시간 점검과 별도로 아래 명령은 필수 구조와 현재 Markdown을 즉시 검사한다.
+
+```bash
+python scripts/audit_repository_structure.py
+```
+
+필수 경로 누락, 깨진 현재 문서 link, `.orig`/`.rej`는 오류다. 과대 상태 문서와 5,000줄 이상 Python 모듈은 경고로 보고한다.
+
 ## 스크립트
 
 - `scripts/run_hourly_repo_audit_iteration.sh`

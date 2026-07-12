@@ -20,28 +20,22 @@
 
 ## 2. 현재 출발점
 
-2026-06-12 기준 현재 출발점은 아래와 같다.
+2026-07-13 기준 현재 출발점은 아래와 같다.
 
-- live runtime: 정규장 종료 후 정지 상태가 정상이다.
-- runtime watchdog: 실행 중이다.
-- dashboard: `http://127.0.0.1:8765`에서 응답 중이다.
-- 단, watchdog/dashboard가 정규장 중 장시간 유지되는지는 다음 거래일 장중 증거가 필요하다.
-- trading mode: `paper`.
-- active model: 15분/60분 모두 baseline 계열이다.
-- LightGBM: shadow와 연구 대상이며 실전 또는 paper 주문 판단에 쓰지 않는다.
-- 최신 모델 판단:
-  - LightGBM은 독립 holdout 심사 자격은 회복됐다.
-  - 매수 신호 기대값은 아직 양수가 아니다.
-  - label band `0.40`은 전체 walk-forward에서는 좋아 보였지만 기간별 재현성이 없어 정책 변경 후보가 아니다.
-- 최신 운영 판단:
-  - KIS `EGW00201` rate limit 과 broker paper order-fill 복구는 계속 관찰 대상이다.
-  - paper/KIS local-only mismatch 원장은 자동으로 덮지 않고 추적한다.
+- 장 상태: `overnight`, live runtime 정상 정지.
+- runtime watchdog/dashboard/startup launcher: 정상.
+- trading mode: `paper`, 실전 주문 비활성.
+- active h15: `baseline-h15-v1`, challenger action `keep_active`, 승격 없음.
+- 현재 통과한 수익 후보: `0개`.
+- Phase 0: `1/10`, mismatch 4종목.
+- Phase 1a: 모의투자 read-only 1차 리허설 통과.
+- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과.
+- buy-avoid: random-control 역선별로 기각.
+- buy-rescue: KIS live decision ledger 축적 전.
+- hold-rescue: 현금손익 악화로 후보 아님.
+- 다음 판정: 2026-07-13~17 complete lineage 축적 후 2026-07-20 장후 E1/E5.
 
-관련 문서/코드 경로:
-`runtime-data/reports/challengers/latest-challengers-h15.json`,
-`runtime-data/reports/challengers/latest-lightgbm-label-band-reproducibility-h15.json`,
-`runtime-data/reports/broker-paper/latest-sync.json`,
-`runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
+현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
 ## 3. 전체 우선순위
 

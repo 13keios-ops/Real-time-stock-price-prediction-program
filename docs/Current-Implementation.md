@@ -750,6 +750,12 @@ python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 
 ## 유용한 CLI 명령
 
+저장소 구조와 현재 Markdown 감사:
+
+```bash
+python scripts/audit_repository_structure.py
+```
+
 ```bash
 python -m app --kis-current-price --symbol 005930
 python -m app --kis-orderbook --symbol 005930

@@ -15,11 +15,13 @@
 
 1. `AGENTS.md`
 2. `README.md`
-3. `docs/logbook.md`
-4. 최신 `docs/logbook_archive/logbook_*.md` 1개
-5. `docs/Current-Implementation.md`
-6. `docs/Versioning.md`
-7. 작업 범위와 직접 관련된 `docs/*.md`
+3. `docs/STATUS.md`
+4. `docs/SPRINT_CURRENT.md`
+5. `docs/logbook.md`
+6. 최신 `docs/logbook_archive/logbook_*.md` 1개
+7. `docs/Current-Implementation.md`
+8. `docs/Versioning.md`
+9. 작업 범위와 직접 관련된 `docs/*.md`
 
 새 기능 위치나 레이어 경계가 관련되면 `README.md`의 `새 기능을 어디에 둘까` 섹션을 다시 확인한다.
 자격정보, 비공개 원격, 외부 미러, 백업 정책이 관련되면 형제 폴더 `../secrets/README.local.md`가 있을 때 함께 읽는다.
@@ -28,6 +30,10 @@
 
 - `AGENTS.md`: Codex 로컬 작업 규칙
 - `README.md`: 프로젝트 개요, 저장소 구조, 주요 실행 방법
+- `docs/STATUS.md`: 짧은 현재 상태와 blocker
+- `docs/SPRINT_CURRENT.md`: 현재 작업 기간, 체크리스트, 동결 범위
+- `docs/Repository-Structure.md`: 실제 레이어, 문서 소유권, 구조 부채
+- `WORKFLOW.md`, `COWORK_GUIDE.md`: 현재 Codex/cowork 협업 절차
 - `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최신 검증 결과
 - `docs/Current-Implementation.md`: 실제 구현 범위와 운영 기준
 - `docs/Versioning.md`: `VERSION`, watcher, 자동 commit/push 기준
@@ -42,6 +48,8 @@
 - `docs/Codex-Operating-Feedback.md`: 사용자의 반복 지적을 작업 전후 체크리스트와 skill 후보로 정리한 보조 기준
 - `.agents/skills/daily-ops-check/SKILL.md`: 장전/장후 자동화 상태 확인과 조치 절차
 - `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
+- `docs/archive/`: 현재 기준에서 퇴역한 운영 문서 원문
+- `docs/logbook_archive/`: 최근 기간 작업 요약
 - `RECOVERY.md`: GitHub + NAS 복구 기준
 - `runtime-data/`: 실행 로그, 리포트, 캐시, 모델 산출물
 
@@ -250,6 +258,7 @@ ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스
 ## 9. 검증 기준
 
 - 문서만 바꿨으면 최소 `git diff --check`를 실행한다.
+- 저장소 구조나 현재 Markdown 역할을 바꿨으면 `python scripts/audit_repository_structure.py`를 함께 실행한다.
 - Python 코드, 앱 동작, 스크립트 동작이 바뀌면 `python -m unittest discover -s tests -p "test_*.py"`를 우선 실행한다.
 - 대시보드 관련 변경은 `python -m unittest tests.test_dashboard`와 `python -m app --build-dashboard`를 함께 고려한다.
 - 브로커 모의계좌 동기화 변경은 `python -m unittest tests.test_broker_paper_sync tests.test_paper_reconciliation`을 함께 고려한다.

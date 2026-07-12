@@ -30,6 +30,10 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 ## 핵심 문서
 
 - `AGENTS.md`: 저장소 운영 규칙의 단일 기준
+- `docs/STATUS.md`: 짧은 현재 상태와 blocker
+- `docs/SPRINT_CURRENT.md`: 현재 작업 기간과 동결 범위
+- `docs/Repository-Structure.md`: 실제 레이어, 문서 역할, 구조 부채
+- `WORKFLOW.md`, `COWORK_GUIDE.md`: 현재 Codex/cowork 협업 절차
 - `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최근 기록
 - `docs/Current-Implementation.md`: 실제 구현 범위와 실행 방법
 - `docs/Versioning.md`: `VERSION` 기반 버전 관리와 watcher 기준
@@ -45,6 +49,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `.agents/skills/daily-ops-check/SKILL.md`: 장전/장후 자동화 상태 확인과 조치 절차
 - `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
 - `docs/Repo-Audit-Automation.md`: 매시간 저장소 전체 점검 자동화 기준
+- `docs/archive/`, `docs/logbook_archive/`: 퇴역 원문과 기간별 작업 요약
 - `docs/*.md`: 주제별 상세 설계와 참고 문서
 
 ## 현재 구현 상태
@@ -221,6 +226,8 @@ LightGBM 성능개선 트랙은 threshold 를 바로 낮추거나 active model �
 app/                애플리케이션 코드
 config/             TOML 설정, watchlist, autopush 설정
 docs/               canonical 문서와 상세 설계 문서
+docs/archive/       퇴역한 운영 문서 원문
+docs/logbook_archive/ 기간별 작업 요약
 migrations/         DB 스키마 초안
 runtime-data/       로그, 리포트, 모델, 캐시, 실행 산출물
 scripts/            반복 실행용 bash 스크립트
@@ -235,6 +242,12 @@ templates/          새 저장소 시작용 운영 팩 자리
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
+```
+
+저장소 구조와 현재 Markdown 감사:
+
+```bash
+python scripts/audit_repository_structure.py
 ```
 
 synthetic 전체 흐름:

@@ -88,6 +88,9 @@
 - 운영 상태나 phase 진행과 연결되면
   `docs/Production-Transition-Progress.md`에도 현재 상태를 갱신한다.
 - 당일 실제 조치와 검증 결과는 `docs/logbook.md`에 남긴다.
+- `docs/STATUS.md`, `docs/SPRINT_CURRENT.md`, `docs/logbook.md`, `docs/Production-Transition-Progress.md`는 짧은 현재판으로 유지한다.
+- 현재판이 커지면 원문을 `docs/archive/`에 보존하고, 기간 요약은 `docs/logbook_archive/`에 둔다.
+- 문서/구조 작업 뒤 `python scripts/audit_repository_structure.py`를 실행한다.
 
 관련 문서/코드 경로:
 `AGENTS.md`, `docs/Production-Transition-Progress.md`, `docs/logbook.md`
