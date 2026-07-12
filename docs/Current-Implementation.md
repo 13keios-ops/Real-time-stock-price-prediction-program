@@ -232,20 +232,22 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 
 현재 ML 기준은 아래와 같다.
 
-### 2026-07-11 수익성 평가 정본
+### 2026-07-12 수익성 평가 정본
 
 이 절은 아래의 과거 `promotable`, `defensive candidate`, rescue/avoid 기록보다 우선한다.
 
 - 겹치는 분 단위 신호의 수익률 합은 `sum_net_return_pct_points`로만 부르며 계좌 수익률로 해석하지 않는다.
 - 수익 후보는 다음 분봉 시가, 동일 현금, 종목별 비중, 동시 보유 수, 수수료, 세금, 슬리피지를 적용한 decision-episode portfolio replay에서 절대 비용 후 수익과 평균 거래 기대값이 모두 양수여야 한다.
-- LightGBM buy-avoid threshold `0.40`의 최신 portfolio replay는 baseline `-16.4010%`, 필터 적용 `-15.3384%`, 차이 `+1.0626%p`다. 손실은 줄였지만 여전히 적자이고 signal-row random control도 실패해 `rejected_random_control`이며 후보가 아니다.
+- 2026 국내 보통주 비용 정본은 `krx-common-stock-2026-v1`이다. [국가법령정보센터 2026 증권거래세 신고서 작성방법](https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162621569)의 유가증권시장 증권거래세 5/10,000, 농어촌특별세 15/10,000, 코스닥시장 증권거래세 20/10,000을 기준으로 현재 10종목 보통주 watchlist는 매도 시 총 `0.20%`를 적용한다. 매수에는 거래세를 붙이지 않으며, 편도 수수료 `0.015%`와 편도 슬리피지 3bp를 합친 왕복 연구 비용은 `0.29%`다.
+- `PaperTradingEngine`, broker paper fill sync, LightGBM 연구 비용, portfolio replay가 같은 helper를 쓴다. 2026-07-12 이전 체결·snapshot은 소급 재작성하지 않아 비용 모델 단절이 있으며, KIS daily order/fill adapter에는 수수료·세금 분리 필드가 없으므로 Phase 2 전 canary에서 브로커 계좌 현금 변화와 다시 대조한다. ETF/ETN 등 상품별 과세는 현재 범위 밖이다.
+- 2026 비용 보정 후 LightGBM buy-avoid threshold `0.40`의 최신 portfolio replay는 baseline `-38.1734%`(`-3,339,492원`), 필터 적용 `-36.3645%`(`-3,181,241원`), 차이 `+1.8089%p`다. 평균 거래 `-0.285710%`, 비음수 거래일 `0/22`, signal-row random control 실패로 `rejected_random_control`이며 후보가 아니다. 구형 `-16.4010%/-15.3384%`는 잘못 낮은 매도세 `0.018%`를 사용한 역사적 결과다.
 - `serving_decision_ledger`는 active/shadow 예측 lineage, 신호, 시간·spread gate, allocator, 현금·보유·pending 상태, 주문·체결 결과를 매 결정마다 기록한다. 기존 기간은 추정 backfill하지 않으므로 현재 0행이며 다음 정규장부터 buy-rescue 정본이 쌓인다.
 - buy-rescue는 안전 gate, 현금, 보유한도, pending, risk 차단을 뒤집지 않는다. 명시적 `signal_blocked` no-trade 결정만 진단한다.
 - hold-rescue threshold `0.40`의 최신 결과는 eligible `161`, 적용 `37`, 현금손익 차이 `-26,387원`, 개선 `13`, 악화 `22`로 현재 규칙을 기각한다.
 - 모든 serving prediction은 `training_run_id`, `artifact_id`, `artifact_sha256`를 갖는다. lineage가 없는 LightGBM artifact는 loader가 거부하며, 기존 33,007개 lineage 없는 joined prediction은 진단 전용이다.
-- 챌린저 `promotable=true`는 독립 holdout, 최소 30거래, 각 예측 클래스 비중 5% 이상, 다수 클래스 정확도 초과, 비용 후 평균·누적 수익 양수, 현금·보유한도 반영 portfolio replay 양수를 모두 충족해야 한다. 2026-07-11 재평가에서는 모든 후보가 `promotable=false`이고 active `baseline-h15-v1`을 유지한다.
+- 챌린저 `promotable=true`는 독립 holdout, 최소 30거래, 각 예측 클래스 비중 5% 이상, 다수 클래스 정확도 초과, 비용 후 평균·누적 수익 양수, 현금·보유한도 반영 portfolio replay 양수와 서로 겹치지 않는 평가구간 최소 2개 재현성을 모두 충족해야 한다. 같은 holdout 재실행은 시간 재현성으로 인정하지 않는다. 현재 temporal evidence 생성기는 없으므로 모든 후보는 fail-closed로 `promotable=false`다.
 - meta-policy는 defensive random control, 입력 freshness, 데이터 종료일, lineage, 절대수익 양수 portfolio 후보를 필수로 확인한다. 현재 `blocked_evidence`이고 primary candidate는 없다.
-- early-exit은 같은 bar close를 체결가로 쓰지 않고 다음 분봉 시가를 사용한다. 미래 고정 구간 검증 전에는 진단으로만 둔다.
+- early-exit은 같은 bar close를 체결가로 쓰지 않고 다음 분봉 시가를 사용한다. 이 교정 전 결과와 직접 비교하지 않으며 미래 고정 구간 검증 전에는 진단으로만 둔다.
 
 - 운영 학습창: 최근 60거래일 + 오늘 데이터
 - 장중: 추론 중심
@@ -257,6 +259,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - 최신 챌린저 리포트는 `three_class_accuracy`, `class_hit_rates`, `confusion_matrix`, `buy_signal_hit_rate`, `virtual_direction_*` 지표를 함께 기록한다. `promotable=true`는 2026-07-11 수익성 평가 정본의 표본·클래스·다수 기준·비용 후 수익·portfolio replay 조건을 모두 통과한 실제 승격 심사 자격을 뜻한다. 실제 활성 모델 교체는 `recommended_action`, 워크포워드 gate, 운영자 승인까지 추가로 필요하다.
 - LightGBM 매수 신호 0건 원인은 `python -m app --run-lightgbm-buy-signal-diagnostics --horizon-min 15`로 진단한다. 이 명령은 threshold별 매수 신호 수, 적중률, 비용 차감 평균/누적 순수익률을 `runtime-data/reports/challengers/latest-lightgbm-buy-signal-diagnostics-h15.json`과 `.md`에 남기며, threshold 를 자동 채택하지 않는다.
 - LightGBM 성능 진단은 `python -m app --run-lightgbm-performance-diagnostics --horizon-min 15`로 실행한다. 이 명령은 최신 LightGBM artifact 를 저장된 독립 holdout 경계로 평가하고, 3분류 정확도, 클래스별 적중률, 혼동행렬, 확률 분포, 가상 방향 threshold별 비용 차감 수익률을 `runtime-data/reports/challengers/latest-lightgbm-performance-diagnostics-h15.json`과 `.md`에 남긴다. 자동 승격과 threshold 자동 채택은 하지 않는다.
+- 진단 threshold 중 비용 후 양수가 있더라도 기존 challenger 최소 표본인 30거래에 못 미치면 candidate라고 부르지 않고 `positive_*_small_sample_insufficient_evidence`로 표시한다. 2026-07-12 비용 정본 재평가에서는 기본 0.58이 53거래, 평균 `-0.348534%`, 누적 `-18.472324%p`이고 유일한 양수 threshold 0.66은 9거래뿐이라 이 상태다.
 - LightGBM feature source 분리 실험은 `python -m app --run-lightgbm-feature-source-experiment --horizon-min 15`로 실행한다. 이 명령은 `mixed_recent`, `kis-ws`, `cybos-historical` 후보를 메모리 안에서만 학습/평가하고 artifact 를 덮어쓰지 않는다. 2026-06-12 기준 결과는 `mixed_recent`이 3개 피처로 소수 하락/회피 방향 양수 후보를 보였고, `kis-ws`는 6개 피처를 쓰지만 비용 차감 방향 기대값은 음수였다. 따라서 다음 단계는 KIS-only artifact 승격이 아니라 피처/라벨/확률 보정 연구다.
 - LightGBM feature profile 실험은 `python -m app --run-lightgbm-feature-profile-experiment --horizon-min 15`로 실행한다. 이 명령은 KIS live 피처에 시간대, 모멘텀, 최근 변동성 후보를 메모리 안에서만 붙여 `base`, `time`, `momentum`, `volatility`, `time_momentum_volatility` 후보를 비교하고 `runtime-data/reports/challengers/latest-lightgbm-feature-profile-experiment-h15.json`과 `.md`에 남긴다. artifact, active model, gate 기준값은 바꾸지 않는다.
 - LightGBM label band 실험은 `python -m app --run-lightgbm-label-band-experiment --horizon-min 15`로 실행한다. 이 명령은 라벨의 상승/하락 band threshold 후보를 메모리 안에서만 재라벨링해 비교하고 `runtime-data/reports/challengers/latest-lightgbm-label-band-experiment-h15.json`과 `.md`에 남긴다. `config/`, gate 기준값, 실제 라벨 정책은 자동 변경하지 않는다.
@@ -282,6 +285,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - Cybos 라벨 재현성 진단은 민감도 진단에서 양수였던 threshold를 다른 fold 설계와 기간 샘플로 다시 검증한다.
 - Cybos expected-value review는 각 walk-forward fold 안에서 train tail calibration 구간으로만 `probability_up` threshold를 선택하고 test 구간에 적용한다. 선택 기준은 비용 차감 평균 기대값 양수 여부이며, 수동 필터를 사후 튜닝하거나 자동 승격하지 않는다.
 - Cybos buy-avoid/rescue proxy 는 `python scripts/summarize_cybos_buy_avoid_proxy.py --trade-cost-pct 0.13`으로 실행한다. 이 스크립트는 기존 Cybos `bar_context_momentum` LightGBM 프로파일과 기존 walk-forward 샘플링 구조를 재사용해, KIS `down_threshold=0.40` 수치를 직접 옮기지 않고 skip-rate coverage 기준으로 매수 회피 구조를 검증한다. 동시에 `proxy_buy_rescue`를 계산해 매수하지 않았던 후보 중 `probability_up` 상위 고정 coverage 를 가상 매수했을 때의 비용 차감 손익도 본다. 결과는 `runtime-data/reports/backtests/latest-cybos-buy-avoid-proxy-h15.{json,md}`, `latest-cybos-rescue-proxy-h15.{json,md}`, `latest-cybos-regime-performance-h15.{json,md}`에 남긴다. 이 리포트는 모델 승격, gate 기준 변경, 주문 정책 변경을 수행하지 않는다.
+- Cybos proxy의 고정 `trade_cost_pct=0.13`은 당시 구조 비교용 역사적 가정이며 2026 보통주 매도세를 포함한 현행 KIS 수익성 정본이 아니다. Cybos random-control 선별력은 진단에 쓸 수 있지만 절대수익 통과나 KIS 주문 전이 근거로 쓰지 않는다.
 - Cybos buy-avoid proxy 의 `baseline`은 실제 runtime baseline 주문 판단이 아니라 Cybos LightGBM 자체 매수 후보 집합이다. 2026-06-14 Step 0 확인 결과 `BaselineDirectionModel`은 `return_1m_pct`, `bid_ask_imbalance`, `spread_bps`를 쓰지만 Cybos bar row에는 live orderbook 피처인 `bid_ask_imbalance`, `spread_bps`가 없다. 따라서 Cybos rescue 1차 실험은 `baseline_replay_buy_rescue`가 아니라 `proxy_buy_rescue`로 진행한다. `summarize_cybos_buy_avoid_proxy.py`는 새 report 에 `runtime_baseline_replay.available=false`, `status=not_replayed_orderbook_features_missing`, `recommended_experiment_mode=proxy_buy_rescue`를 남긴다.
 - `proxy_buy_rescue`는 no-buy pool, 즉 Cybos LightGBM self-filter 기준으로 매수 후보가 아닌 row 중 `probability_up` 상위 `0.05`, `0.10`, `0.20`, `0.30` coverage 를 고정 grid 로 본다. 성공 후보는 최소 rescued trade `500`건, 비용 차감 순손익 양수, fold `2/3` 이상 비음수, 단일 fold 양수 손익 집중도 `0.50` 이하를 모두 만족해야 한다. 이 기준을 만족해도 KIS live buy-rescue shadow 는 별도 비매수/차단 로그 가용성 확인 뒤에만 검토한다.
 - 2026-06-14 기준 Cybos buy-avoid proxy 는 비용 `0.13%` 기준 target skip `0.3665`에서 실제 skip `0.3617`, baseline net `-538.040362%p`, kept net `-170.325157%p`, 개선 `+367.715205%p`, 개선 fold `12/12`를 기록했다. 이는 buy-avoid shadow 를 계속 볼 근거지만, kept net 이 여전히 음수이므로 단독 매수 전략 또는 active model 승격 근거가 아니다.

@@ -10,6 +10,12 @@ import random
 from statistics import mean, pstdev
 from typing import Iterable, Sequence
 
+from app.paper_trading.costs import (
+    DEFAULT_COMMISSION_RATE,
+    DEFAULT_DOMESTIC_STOCK_SELL_TAX_RATE,
+    DOMESTIC_STOCK_COST_MODEL_VERSION,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class DecisionPoint:
@@ -205,8 +211,8 @@ def replay_long_only(
     max_position_pct: float,
     max_open_positions: int,
     slippage_bps: float,
-    commission_rate: float = 0.00015,
-    sell_tax_rate: float = 0.00018,
+    commission_rate: float = DEFAULT_COMMISSION_RATE,
+    sell_tax_rate: float = DEFAULT_DOMESTIC_STOCK_SELL_TAX_RATE,
     policy_veto_ids: Iterable[str] | None = None,
     respect_decision_avoid: bool = True,
 ) -> dict[str, object]:
@@ -374,6 +380,8 @@ def replay_long_only(
         "daily_net_pnl": dict(sorted(daily_pnl.items())),
         "closed_trades": closed_trades,
         "cost_model": {
+            "version": DOMESTIC_STOCK_COST_MODEL_VERSION,
+            "scope": "ordinary_kospi_kosdaq_shares_2026",
             "slippage_bps_per_side": slippage_bps,
             "commission_rate_per_side": commission_rate,
             "sell_tax_rate": sell_tax_rate,
@@ -409,6 +417,7 @@ def portfolio_random_control(
             "population_episodes": len(decisions),
             "veto_count": veto_count,
             "simulations": simulations,
+            "seed": seed,
             "passed": False,
         }
 

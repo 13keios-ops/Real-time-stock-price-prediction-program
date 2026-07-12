@@ -25,6 +25,7 @@ from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel, 
 from app.models.loader import load_named_builtin_model, load_prediction_model
 from app.models.registry import ModelRegistry, ModelRegistryEntry
 from app.observability.logging import configure_logging
+from app.paper_trading.costs import estimate_round_trip_cost_pct
 from app.services.runtime_cleanup import cleanup_non_actual_runtime_rows
 from app.services.runtime_scope import build_runtime_scope, filter_actual_rows
 from app.storage.contracts import FeatureLabel, FeatureSnapshot, MinuteBar, ModelEvaluation, OrderbookSnapshot, TrainingRun
@@ -1027,10 +1028,8 @@ def _training_run_holdout_status(
 
 
 def _estimate_trade_cost_pct(settings) -> float:
-    return (
-        (settings.strategy.slippage_bps * 2) / 100.0
-        + (0.00015 * 2 * 100.0)
-        + (0.00018 * 100.0)
+    return estimate_round_trip_cost_pct(
+        slippage_bps=settings.strategy.slippage_bps,
     )
 
 
@@ -1647,6 +1646,7 @@ def _resolve_builtin_model_version(settings, horizon_min: int, builtin_name: str
 
 MIN_CHALLENGER_PROMOTION_TRADES = 30
 MIN_CHALLENGER_PREDICTED_CLASS_SHARE = 0.05
+MIN_CHALLENGER_TEMPORAL_WINDOWS = 2
 
 
 def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]]) -> None:
@@ -1669,6 +1669,18 @@ def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]])
             and portfolio_evidence.get("passed") is True
             and float(portfolio_evidence.get("portfolio_return_pct", 0.0)) > 0.0
         )
+        temporal_evidence = candidate.get("temporal_reproducibility_evidence")
+        temporal_windows = (
+            int(temporal_evidence.get("windows_evaluated", 0) or 0)
+            if isinstance(temporal_evidence, dict)
+            else 0
+        )
+        temporal_passed = bool(
+            isinstance(temporal_evidence, dict)
+            and temporal_evidence.get("passed") is True
+            and temporal_evidence.get("non_overlapping") is True
+            and temporal_windows >= MIN_CHALLENGER_TEMPORAL_WINDOWS
+        )
         checks = {
             "independent_holdout": (
                 str(candidate.get("evaluation_independence_status"))
@@ -1689,6 +1701,7 @@ def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]])
                 float(candidate.get("cumulative_net_return_pct", 0.0)) > 0.0
             ),
             "cash_position_constrained_portfolio_replay_positive": portfolio_passed,
+            "nonoverlapping_temporal_reproducibility": temporal_passed,
         }
         failed_reasons = [name for name, passed in checks.items() if not passed]
         candidate["majority_class_accuracy"] = majority_accuracy
@@ -1696,7 +1709,10 @@ def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]])
         candidate["diagnostic_economic_checks_passed"] = all(
             checks[name]
             for name in checks
-            if name != "cash_position_constrained_portfolio_replay_positive"
+            if name not in {
+                "cash_position_constrained_portfolio_replay_positive",
+                "nonoverlapping_temporal_reproducibility",
+            }
         )
         candidate["promotion_eligibility"] = {
             "passed": not failed_reasons,
@@ -1707,8 +1723,14 @@ def _apply_challenger_promotion_eligibility(candidates: list[dict[str, object]])
             "majority_class_accuracy": majority_accuracy,
             "predicted_class_shares": predicted_class_shares,
             "portfolio_replay_required": True,
+            "temporal_reproducibility_required": True,
+            "minimum_nonoverlapping_windows": MIN_CHALLENGER_TEMPORAL_WINDOWS,
+            "temporal_reproducibility_evidence": (
+                dict(temporal_evidence) if isinstance(temporal_evidence, dict) else {}
+            ),
         }
         candidate["promotable"] = not failed_reasons
+
 
 def _challenger_sort_key(candidate: dict[str, object]) -> tuple[float, ...]:
     trades_taken = int(candidate["trades_taken"])
@@ -6668,9 +6690,14 @@ def _lightgbm_performance_status(
         and float(row.get("average_net_return_pct", 0.0)) > 0.0
         and float(row.get("cumulative_net_return_pct", 0.0)) > 0.0
     ]
-    if positive_rows:
+    supported_positive_rows = [
+        row
+        for row in positive_rows
+        if int(row.get("direction_trades_taken", 0)) >= MIN_CHALLENGER_PROMOTION_TRADES
+    ]
+    if supported_positive_rows:
         best_row = max(
-            positive_rows,
+            supported_positive_rows,
             key=lambda row: (
                 float(row.get("average_net_return_pct", 0.0)),
                 float(row.get("cumulative_net_return_pct", 0.0)),
@@ -6689,7 +6716,12 @@ def _lightgbm_performance_status(
             )
         return (
             "positive_direction_candidate_requires_review",
-            "At least one direction threshold produced positive net return; use as research evidence only.",
+            "At least one direction threshold produced positive net return with the established minimum trade sample; use as research evidence only.",
+        )
+    if positive_rows:
+        return (
+            "positive_direction_small_sample_insufficient_evidence",
+            f"Positive net return appeared only below the established minimum of {MIN_CHALLENGER_PROMOTION_TRADES} trades; do not label it a candidate.",
         )
     if all(int(row.get("direction_trades_taken", 0)) == 0 for row in direction_threshold_rows):
         return "no_direction_trades_at_threshold_grid", "No up/down predictions passed the reviewed thresholds."
@@ -6709,10 +6741,20 @@ def _lightgbm_buy_signal_status(threshold_rows: list[dict[str, object]]) -> tupl
         for row in threshold_rows
         if int(row.get("trades_taken", 0)) > 0 and float(row.get("cumulative_net_return_pct", 0.0)) > 0.0
     ]
-    if positive_rows:
+    supported_positive_rows = [
+        row
+        for row in positive_rows
+        if int(row.get("trades_taken", 0)) >= MIN_CHALLENGER_PROMOTION_TRADES
+    ]
+    if supported_positive_rows:
         return (
             "positive_threshold_candidate_requires_review",
-            "At least one threshold produced positive simple-sum net return; this is research evidence only.",
+            "At least one threshold produced positive simple-sum net return with the established minimum trade sample; this is research evidence only.",
+        )
+    if positive_rows:
+        return (
+            "positive_threshold_small_sample_insufficient_evidence",
+            f"Positive simple-sum net return appeared only below the established minimum of {MIN_CHALLENGER_PROMOTION_TRADES} trades; do not label it a candidate.",
         )
     return "no_positive_expected_value_threshold", "Reviewed thresholds produced buy signals but no positive net return."
 

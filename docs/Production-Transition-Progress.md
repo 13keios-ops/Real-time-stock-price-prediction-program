@@ -20,6 +20,19 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-12 rescue/avoid cowork review 후속
+
+- review_ver_30-11의 수치 검산은 일치했지만 매도세 `0.018%` 가정은 현행 2026 보통주 총 매도세 `0.20%`보다 10배 이상 낮은 오류로 확인했다. 매수 세금도 0으로 바로잡고 paper 엔진, broker sync, 연구, replay를 `krx-common-stock-2026-v1`로 통합했다.
+- 최신 LightGBM 진단은 학습·승격 없이 다시 평가해 `trade_cost_pct=0.29`를 기록했다. threshold `0.40` portfolio replay는 baseline `-38.1734%`, filtered `-36.3645%`, delta `+1.8089%p`이며 잔여 손실은 약 `318만원`이다.
+- filtered 평균 거래는 `-0.285710%`, 비음수 거래일은 `0/22`다. 덜 잃었지만 수익 후보가 아니며 signal-row random control도 `filter_worse_than_random_p95`다.
+- episode-level portfolio random control은 200회, seed `42`를 JSON에 고정 기록한다. 현재는 절대수익·기대값·일관성 선행 조건 실패로 simulation을 실행하지 않았다.
+- 챌린저 승격에는 서로 겹치지 않는 시간구간 2개 재현성 증거가 추가됐다. 같은 holdout을 두 번 실행해 채울 수 없으며, 실제 증거 생성기는 2026-07-20 E1/E5 동결 라운드 이후 별도 검토한다.
+- 최신 challenger 재평가도 active `baseline-h15-v1`, `keep_active`, `promotion_applied=false`다. top `fresh_centroid`는 거래 4건뿐이고 클래스 편향·portfolio 증거·시간 재현성을 실패했다. `linear-score`는 156거래 평균 `-0.301488%`, 누적 신호합 `-47.032194%p`다.
+- LightGBM 진단 상태도 기존 최소 30거래를 충족해야 candidate 표현을 쓴다. 현재 0.66의 양수 결과는 9거래뿐이라 `positive_direction_small_sample_insufficient_evidence`이고, 기본 0.58은 53거래 평균 `-0.348534%`, 누적 `-18.472324%p`다.
+- 07-20 E1/E5 JSON/Markdown은 E1 legacy/mixed 진단 범위와 E5 실제 prediction lineage 상태를 분리해 기록한다. 두 결과 모두 정책·승격 lineage로 사용할 수 없다.
+- 기존 체결·snapshot은 소급 수정하지 않는다. 2026-07-12 비용 모델 변경 전후 손익은 직접 이어 붙이지 않고, 다음 거래일부터 새 기준으로만 누적한다.
+- 주문 정책, threshold, active model, gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 변경하지 않았다.
+
 ### 2026-07-11 19:30 KST rescue/avoid 수익성 교정
 
 - 주말 상태에서 live runtime은 정상 정지, watchdog은 정상 실행 중이다.

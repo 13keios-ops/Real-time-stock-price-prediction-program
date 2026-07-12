@@ -16,6 +16,8 @@ from app.services.research import (
     _build_walk_forward_gate,
     _load_labeled_feature_dataset,
     _lightgbm_artifact_training_status,
+    _lightgbm_buy_signal_status,
+    _lightgbm_performance_status,
     _resolve_feature_row_source,
     _purged_walk_forward_slices,
     _split_dataset_with_challenger_holdout,
@@ -45,6 +47,48 @@ from app.utils.time import get_timezone
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_lightgbm_diagnostic_status_does_not_promote_small_positive_sample(self) -> None:
+        performance_status, performance_reason = _lightgbm_performance_status(
+            metrics={"up_hit_rate": 0.4},
+            direction_threshold_rows=[
+                {
+                    "direction_trades_taken": 9,
+                    "average_net_return_pct": 0.5,
+                    "cumulative_net_return_pct": 4.5,
+                    "by_predicted_label": {
+                        "up": {"cumulative_net_return_pct": 0.0},
+                        "down": {"cumulative_net_return_pct": 4.5},
+                    },
+                }
+            ],
+        )
+        buy_status, buy_reason = _lightgbm_buy_signal_status(
+            [{"trades_taken": 9, "cumulative_net_return_pct": 4.5}]
+        )
+
+        self.assertEqual(performance_status, "positive_direction_small_sample_insufficient_evidence")
+        self.assertIn("30 trades", performance_reason)
+        self.assertEqual(buy_status, "positive_threshold_small_sample_insufficient_evidence")
+        self.assertIn("30 trades", buy_reason)
+
+    def test_lightgbm_diagnostic_status_keeps_supported_downside_candidate(self) -> None:
+        status, _ = _lightgbm_performance_status(
+            metrics={"up_hit_rate": 0.4},
+            direction_threshold_rows=[
+                {
+                    "direction_trades_taken": 30,
+                    "average_net_return_pct": 0.2,
+                    "cumulative_net_return_pct": 6.0,
+                    "by_predicted_label": {
+                        "up": {"cumulative_net_return_pct": 1.0},
+                        "down": {"cumulative_net_return_pct": 5.0},
+                    },
+                }
+            ],
+        )
+
+        self.assertEqual(status, "positive_downside_direction_candidate_requires_review")
+
     def test_challenger_promotion_requires_portfolio_replay_and_balanced_predictions(self) -> None:
         candidate = {
             "candidate_name": "candidate",
@@ -72,6 +116,17 @@ class ResearchPipelineTests(unittest.TestCase):
             "portfolio_return_pct": 0.5,
         }
         _apply_challenger_promotion_eligibility([candidate])
+        self.assertFalse(candidate["promotable"])
+        self.assertIn(
+            "nonoverlapping_temporal_reproducibility",
+            candidate["promotion_eligibility"]["failed_reasons"],
+        )
+        candidate["temporal_reproducibility_evidence"] = {
+            "passed": True,
+            "non_overlapping": True,
+            "windows_evaluated": 2,
+        }
+        _apply_challenger_promotion_eligibility([candidate])
 
         self.assertTrue(candidate["promotable"])
         self.assertTrue(candidate["promotion_eligibility"]["passed"])
@@ -91,6 +146,11 @@ class ResearchPipelineTests(unittest.TestCase):
                 "passed": True,
                 "portfolio_return_pct": 0.5,
             },
+            "temporal_reproducibility_evidence": {
+                "passed": True,
+                "non_overlapping": True,
+                "windows_evaluated": 2,
+            },
         }
 
         _apply_challenger_promotion_eligibility([candidate])
@@ -100,6 +160,7 @@ class ResearchPipelineTests(unittest.TestCase):
             "all_predicted_classes_present",
             candidate["promotion_eligibility"]["failed_reasons"],
         )
+
     def test_horizon_purge_fails_closed_when_remaining_labels_are_incomplete(self) -> None:
         kst = get_timezone("Asia/Seoul")
         base_time = datetime(2025, 1, 2, 9, 0, tzinfo=kst)

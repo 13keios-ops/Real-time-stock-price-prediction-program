@@ -157,6 +157,7 @@ def _build_e5_result(shadow_summary: dict[str, Any]) -> dict[str, Any]:
             "start_date": WINDOW_START,
             "end_date": WINDOW_END,
             "joined_rows": shadow_summary.get("joined_rows"),
+            "prediction_lineage": shadow_summary.get("prediction_lineage", {}),
             "threshold": E5_THRESHOLD,
             "skipped_signals": (
                 threshold_result.get("skipped", {}).get("signals")
@@ -215,6 +216,16 @@ def run_preregistered_round(
         "window": {"start_date": WINDOW_START, "end_date": WINDOW_END},
         "horizon_min": HORIZON_MIN,
         "database_path": str(database_path),
+        "lineage_scope": {
+            "e1": {
+                "status": "legacy_or_mixed_lineage_diagnostic_only",
+                "lineage_required": False,
+                "legacy_rows_may_be_included": True,
+            },
+            "e5": dict(shadow.get("prediction_lineage", {})),
+            "candidate_or_policy_eligible": False,
+            "reason": "E1/E5 are frozen diagnostics and cannot establish promotion lineage.",
+        },
         "e1": e1,
         "e5": e5,
         "safety": {
@@ -231,6 +242,7 @@ def run_preregistered_round(
 def render_e5_markdown(e5: dict[str, Any]) -> str:
     current = e5.get("current_interval", {})
     prior = e5.get("prior_interval", {})
+    lineage = current.get("prediction_lineage", {})
     return "\n".join(
         [
             "# E5 Reverse-Selection Observation",
@@ -241,6 +253,7 @@ def render_e5_markdown(e5: dict[str, Any]) -> str:
             f"- threshold: `{current.get('threshold')}`",
             f"- joined_rows: `{current.get('joined_rows')}`",
             f"- excess_vs_random_pct: `{current.get('excess_vs_random_pct')}`",
+            f"- prediction_lineage_status: `{lineage.get('status')}`",
             f"- z_score: `{current.get('z_score')}`",
             f"- current_interval_passed: `{current.get('passed_reverse_selection_observation')}`",
             f"- prior_interval_passed: `{prior.get('passed_reverse_selection_observation')}`",
@@ -265,6 +278,8 @@ def render_round_markdown(payload: dict[str, Any]) -> str:
     relation = relationship.get("down_up_daily_ic_relationship", {})
     e5 = payload.get("e5", {})
     current = e5.get("current_interval", {})
+    lineage_scope = payload.get("lineage_scope", {})
+    e5_lineage = lineage_scope.get("e5", {})
     return "\n".join(
         [
             "# Preregistered E1/E5 Round",
@@ -275,6 +290,8 @@ def render_round_markdown(payload: dict[str, Any]) -> str:
             f"- E1 joined_rows: `{e1.get('joined_rows')}`",
             f"- E1 reproduced candidates: `{reproduction.get('reproduced_count')}/3`",
             f"- 105560 p_down/p_up paired days: `{relation.get('paired_days')}`",
+            f"- E1 lineage: `{lineage_scope.get('e1', {}).get('status')}`",
+            f"- E5 lineage: `{e5_lineage.get('status')}`",
             f"- 105560 p_down/p_up daily IC Pearson: `{relation.get('pearson')}`",
             f"- E5 excess_vs_random_pct: `{current.get('excess_vs_random_pct')}`",
             f"- E5 z_score: `{current.get('z_score')}`",

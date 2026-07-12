@@ -15,6 +15,7 @@ import uuid
 from app.brokers.kis_auth import KisApiError
 from app.config.settings import AppSettings, load_settings
 from app.observability.logging import configure_logging
+from app.paper_trading.costs import calculate_domestic_stock_fill_tax
 from app.paper_trading.book import PaperPortfolioBook
 from app.paper_trading.engine import PaperTradingEngine
 from app.services.broker_paper import BrokerPaperMirror, is_kis_rate_limit_error
@@ -676,7 +677,11 @@ class BrokerPaperExecutionSync:
                 fill_time = synced_at
                 fill_price = avg_fill_price or float(paper_order.get("limit_price", 0.0) or 0.0)
                 commission = fill_price * delta_fill_qty * self.engine.commission_rate
-                tax = fill_price * delta_fill_qty * self.engine.tax_rate
+                tax = calculate_domestic_stock_fill_tax(
+                    side=side,
+                    gross_notional=fill_price * delta_fill_qty,
+                    sell_tax_rate=self.engine.tax_rate,
+                )
                 fill = Fill(
                     fill_id=self._next_id("fill-broker-sync"),
                     order_id=local_order_id,

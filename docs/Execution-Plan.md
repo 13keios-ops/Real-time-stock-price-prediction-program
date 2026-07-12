@@ -765,15 +765,15 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 
 현재 기준 다음 실제 작업 순서는 아래가 권장안이다.
 
-1. 완료(2026-07-10): `scripts/trace_paper_kis_mismatch.py`로 최신 4종목이 모두 KIS 계좌 snapshot과 order/fill 원장 사이 divergence임을 재확인했다.
-2. 완료(2026-07-10): order-fill 기본 helper, 장후 batch, 장중 종료 force sync를 모두 HTTP 1회로 제한하고 최초 제한부터 2시간 cooldown을 기록하도록 보강했다.
-3. 실행 준비 완료·실측 예약(2026-07-20 장후): `./scripts/run_preregistered_e1_e5_round.sh --execute` 한 명령으로만 E1 재측정과 E5 역발상 관찰을 수행한다. 실행기는 `2026-07-20 15:30 KST` 이전과 장중을 차단하고, 고정 구간 `2026-07-04~2026-07-18`, 후보 3건, `105560` p_flat/p_down/p_up 관계, threshold `0.40` excess/z를 바꾸지 못하게 고정했다. 그 전까지 threshold/EV tuning은 하지 않는다.
-4. 예약(2026-07-20 장후): KIS live feature 후보는 `probability_down` 자체의 정보가 약하다는 전제에서 E1 결과와 함께 재검토한다.
-5. 보류: gate walk-forward 극단 fold 추가 분석은 사전등록된 E1/E5 결과를 본 뒤 필요성을 다시 판정한다.
-6. 운영 관찰 중: dashboard/watchdog은 장후 현재 정상이며, 다음 정규장에는 read-only로 장시간 heartbeat를 계속 확인한다.
-7. 대기: 모델 후보가 개선되면 shadow 관측 기간을 시작하고, 개선되지 않으면 label/feature/전략 방향을 다시 설계한다.
-8. 다음 장전: Phase 1a readiness 증거는 08:20~08:40에만 새로 만들어야 유효하므로 야간 선행 실행하지 않는다.
-9. Phase 1b 제한 관측 통과: 2026-07-11 주말 장외에 `run_phase1b_readiness_cycle.sh --execute --refresh-dashboard`를 실행해 live token, paper/live account shape, live system clock과 전용 readiness를 통과시켰다. 읽기 전용 네트워크 호출은 4회, 주문 메서드 호출은 0회였고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`를 유지했다. Phase 2는 아직 시작하지 않으며 Phase 0 계좌 정합성 10거래일, 전략 기대값, 실제 WS recovery, fresh market status, 유효 kill switch 조건을 먼저 닫는다.
+1. 완료(2026-07-12): review_ver_30-11을 실물과 대조하고, 잘못 낮은 매도세와 매수세 부과를 수정해 2026 보통주 비용 정본을 왕복 `0.29%`로 통합했다.
+2. 완료(2026-07-12): 최신 LightGBM·buy-avoid를 재평가했다. threshold `0.40`은 baseline `-38.1734%`, filtered `-36.3645%`, 평균 거래 `-0.285710%`, 비음수 거래일 `0/22`로 수익 후보가 아니다.
+3. 다음 정규장: 완전한 prediction lineage와 `serving_decision_ledger`의 실제 no-trade 결정을 수집한다. 10거래일 조기 진단에는 decision stage와 차단 사유별 분포를 반드시 포함한다.
+4. 다음 거래일 장후: Phase 0 paper/KIS 정합성은 자동 align 없이 하루 1회만 확인하고 10개 유효 거래일 누적을 이어간다.
+5. 실행 준비 완료·실측 예약(2026-07-20 장후): `./scripts/run_preregistered_e1_e5_round.sh --execute`로 고정 E1/E5 한 라운드만 수행한다. E1 legacy/mixed 진단과 E5 실제 lineage를 분리 표기하며 정책·승격 근거로 자동 사용하지 않는다.
+6. 2026-07-20 결과 후: challenger의 서로 겹치지 않는 평가구간 2개 재현성 evidence 생성기를 설계할지 판정한다. 같은 holdout 단순 재실행은 인정하지 않는다.
+7. 동결 유지: 07-20 전 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경과 신규 수익 실험을 하지 않는다.
+8. 운영 관찰: dashboard/watchdog/startup launcher를 유지하고 다음 정규장에는 수집과 decision ledger를 read-only로 확인한다.
+9. Phase 1b read-only 관측 통과 상태는 유지하지만 Phase 2는 Phase 0 정합성, 양수 비용 후 전략, real WS recovery, fresh market status, 유효 kill switch가 모두 닫힐 때까지 시작하지 않는다.
 
 이 순서의 핵심은 Phase 2를 서두르지 않는 것이다.
 지금은 실전 주문 기능보다 “이 전략이 실제 비용을 이길 수 있는가”를 먼저 증명해야 한다.

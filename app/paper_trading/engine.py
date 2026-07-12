@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from app.paper_trading.costs import (
+    DEFAULT_COMMISSION_RATE,
+    DEFAULT_DOMESTIC_STOCK_SELL_TAX_RATE,
+    calculate_domestic_stock_fill_tax,
+)
 from app.storage.contracts import Fill, OrderEvent, PaperOrder, TargetPosition, TradeSignal
 
 
 class PaperTradingEngine:
-    def __init__(self, commission_rate: float = 0.00015, tax_rate: float = 0.00018, slippage_bps: float = 3.0) -> None:
+    def __init__(
+        self,
+        commission_rate: float = DEFAULT_COMMISSION_RATE,
+        tax_rate: float = DEFAULT_DOMESTIC_STOCK_SELL_TAX_RATE,
+        slippage_bps: float = 3.0,
+    ) -> None:
         self.commission_rate = commission_rate
         self.tax_rate = tax_rate
         self.slippage_bps = slippage_bps
@@ -47,7 +57,11 @@ class PaperTradingEngine:
     def fill(self, order: PaperOrder, fill_price: float, order_event_id: str, fill_id: str) -> tuple[OrderEvent, Fill]:
         order.status = "filled"
         commission = fill_price * order.qty * self.commission_rate
-        tax = fill_price * order.qty * self.tax_rate
+        tax = calculate_domestic_stock_fill_tax(
+            side=order.side,
+            gross_notional=fill_price * order.qty,
+            sell_tax_rate=self.tax_rate,
+        )
         return (
             OrderEvent(
                 order_event_id=order_event_id,

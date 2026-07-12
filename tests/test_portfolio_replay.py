@@ -107,6 +107,8 @@ class PortfolioReplayTests(unittest.TestCase):
         self.assertEqual(result["counters"]["duplicate_symbol_skips"], 1)
         self.assertEqual(result["counters"]["max_position_skips"], 1)
         self.assertGreater(result["turnover_pct"], 0.0)
+        self.assertEqual(result["cost_model"]["version"], "krx-common-stock-2026-v1")
+        self.assertEqual(result["cost_model"]["sell_tax_rate"], 0.002)
         self.assertLess(
             result["closed_trades"][0]["net_return_pct"],
             2.0,
@@ -155,6 +157,7 @@ class PortfolioReplayTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first["veto_count"], 3)
         self.assertEqual(first["simulations"], 50)
+        self.assertEqual(first["seed"], 7)
         self.assertEqual(first["status"], "ok")
 
 

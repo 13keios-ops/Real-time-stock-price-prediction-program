@@ -159,11 +159,14 @@ class LightGbmDefensiveShadowTests(unittest.TestCase):
             buy_avoid["portfolio_replay"]["candidate_eligibility"]["passed"]
         )
         replay = buy_avoid["portfolio_replay"]
+        self.assertEqual(summary["portfolio_parameters"]["random_simulations"], 20)
+        self.assertEqual(summary["portfolio_parameters"]["random_seed"], 42)
         self.assertEqual(
             replay["baseline"]["execution_price_basis"],
             "next_minute_open_after_completed_signal",
         )
         self.assertEqual(replay["baseline"]["closed_trades"][0]["entry_time"], "2026-06-11T09:16:00+09:00")
+        self.assertEqual(replay["portfolio_random_control"]["seed"], 42)
         early_exit = summary["early_exit_shadow"]
         self.assertEqual(early_exit["status"], "diagnostic_only_future_validation_required")
         self.assertFalse(early_exit["candidate_eligible"])

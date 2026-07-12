@@ -53,6 +53,7 @@ MIN_CANDIDATE_EPISODES = 100
 MIN_CANDIDATE_DAYS = 10
 MIN_NONNEGATIVE_DAY_SHARE = 2.0 / 3.0
 DEFAULT_RANDOM_SIMULATIONS = 200
+DEFAULT_PORTFOLIO_RANDOM_SEED = 42
 
 
 @dataclass(frozen=True)
@@ -743,6 +744,7 @@ def _portfolio_threshold_summary(
             "population_episodes": len(executable),
             "veto_count": veto_count,
             "simulations_requested": random_simulations,
+            "seed": DEFAULT_PORTFOLIO_RANDOM_SEED,
             "reason": "random control runs only after sample, absolute profit, expectancy, day consistency, and baseline delta gates pass",
         }
     else:
@@ -751,7 +753,7 @@ def _portfolio_threshold_summary(
             actual_policy_return_pct=float(policy["portfolio_return_pct"]),
             veto_count=veto_count,
             simulations=random_simulations,
-            seed=42,
+            seed=DEFAULT_PORTFOLIO_RANDOM_SEED,
             replay_kwargs=replay_kwargs,
         )
         if not bool(random_control.get("passed")):
@@ -1060,6 +1062,7 @@ def build_summary(
             "forced_flat_time": forced_flat_time.isoformat(timespec="minutes"),
             "decision_episode_gap_seconds": 90,
             "random_simulations": random_simulations,
+            "random_seed": DEFAULT_PORTFOLIO_RANDOM_SEED,
         },
         "automatic_promotion": False,
         "automatic_threshold_adoption": False,
@@ -1213,6 +1216,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- selected_lineage_rows: {summary.get('joined_rows')}",
         f"- date_range: {summary.get('date_range', {}).get('start')} ~ {summary.get('date_range', {}).get('end')}",
         f"- trade_cost_pct: {summary.get('trade_cost_pct')}",
+        f"- portfolio_random_control_simulations: {summary.get('portfolio_parameters', {}).get('random_simulations')}",
+        f"- portfolio_random_control_seed: {summary.get('portfolio_parameters', {}).get('random_seed')}",
         "- automatic_promotion: false",
         "- automatic_threshold_adoption: false",
         "- automatic_order_change: false",
@@ -1302,6 +1307,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- candidate_eligible: {summary.get('early_exit_shadow', {}).get('candidate_eligible')}",
         f"- closed_lots_total: {summary.get('early_exit_shadow', {}).get('closed_lots_total')}",
         "- 체결가는 예측이 완성된 다음 분봉의 시가를 사용한다.",
+        "- 같은 bar close를 쓴 과거 early-exit 결과와 직접 비교하지 않는다.",
         "- threshold는 미래 구간에 사전 고정해 재검증하기 전까지 후보가 아니다.",
         "",
         _markdown_table(
@@ -1327,6 +1333,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "- 후보 통과에는 신호 무작위 대조, 포트폴리오 무작위 대조, 비용 후 절대수익 양수, "
         "거래당 기대값 양수, 거래일 일관성, 최소 표본, 완전한 모델 계보가 모두 필요하다.",
         "- cumulative_net_return_pct는 겹치는 신호 포인트 합의 호환용 별칭이며 계좌 수익률로 사용하지 않는다.",
+        "- 현재 계좌 replay 비용 정본은 2026 보통주 왕복 0.29%이며 구형 0.108% 결과와 직접 비교하지 않는다.",
         "- 실제 주문, active model, gate, threshold 정책은 바꾸지 않는다.",
         "",
         "관련 문서/코드 경로:",

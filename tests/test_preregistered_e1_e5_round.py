@@ -152,6 +152,12 @@ class PreregisteredE1E5RoundTests(unittest.TestCase):
             self.assertEqual(payload["window"], {"start_date": "2026-07-04", "end_date": "2026-07-18"})
             self.assertEqual(payload["e1"]["joined_rows"], 36)
             self.assertEqual(
+                payload["lineage_scope"]["e1"]["status"],
+                "legacy_or_mixed_lineage_diagnostic_only",
+            )
+            self.assertEqual(payload["lineage_scope"]["e5"]["status"], "legacy_lineage_missing")
+            self.assertFalse(payload["lineage_scope"]["candidate_or_policy_eligible"])
+            self.assertEqual(
                 payload["e1"]["preregistered_remeasurement"]["candidate_reproducibility"]["reproduced_count"],
                 3,
             )

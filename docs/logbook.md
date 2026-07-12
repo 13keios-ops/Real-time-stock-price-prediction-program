@@ -6817,3 +6817,25 @@ python -m app --build-dashboard
 - 전체 unittest `508 tests OK`, 전체 pytest `508 passed, 67 subtests passed`, changed Python compile, dashboard/runtime report build, `git diff --check`를 통과했다.
 - 신규 threshold/EV tuning, 주문 정책, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, 실전 주문/취소, NAS 백업은 변경하거나 실행하지 않았다.
 - 작업 리포트: `docs/cowork-reports/2026-07-11-rescue-avoid-profitability-review-work_ver_30-11.md`
+
+## [2026-07-12] Rescue/Avoid review_ver_30-11 후속과 2026 비용 교정
+
+- cowork 수치 검산은 일치했지만 `sell_tax_rate=0.00018`이 2026 보통주 총 매도세 `0.20%`보다 10배 이상 낮고 paper engine이 매수에도 세금을 붙이던 오류를 확인했다.
+- `app/paper_trading/costs.py`를 추가해 편도 수수료 `0.015%`, 매도세 `0.20%`, 매수세 `0%`, 편도 슬리피지 3bp 기준 왕복 `0.29%`를 `krx-common-stock-2026-v1`로 통합했다.
+- paper engine, broker paper fill sync, LightGBM 연구 비용, portfolio replay가 같은 helper를 사용한다. 2026-07-12 이전 원장은 소급 수정하지 않는다.
+- 최신 LightGBM performance diagnostics를 학습·승격 없이 재평가해 `trade_cost_pct=0.29`를 확인했다. 실행 시간은 약 9분 39초였다.
+- 종료 전 자기검토에서 threshold 0.66의 양수 9거래만으로 `positive_downside_direction_candidate_requires_review`가 표시되던 의미 오류를 확인했다. 기존 최소 30거래 기준을 진단 상태에도 적용해 최신 상태를 `positive_direction_small_sample_insufficient_evidence`로 교정했다. 기본 0.58은 53거래, 평균 `-0.348534%`, 누적 `-18.472324%p`다.
+- buy-avoid threshold `0.40` portfolio replay는 baseline `-38.1734%`(`-3,339,492원`), filtered `-36.3645%`(`-3,181,241원`), delta `+1.8089%p`다.
+- filtered 평균 거래는 `-0.285710%`, 비음수 거래일 `0/22`, signal-row random verdict `filter_worse_than_random_p95`로 `rejected_random_control`을 유지한다.
+- episode-level portfolio random control은 200회, seed `42`, p95 기준을 문서와 JSON에 고정했다. 현재는 선행 수익성 실패로 simulation을 실행하지 않았다.
+- challenger 승격에는 서로 겹치지 않는 평가구간 최소 2개 재현성 evidence를 필수로 추가했다. 같은 holdout 재실행은 인정하지 않으며 현재 모든 후보는 fail-closed다.
+- challenger 재평가는 active `baseline-h15-v1`, `keep_active`, `promotion_applied=false`다. top fresh centroid는 거래 4건으로 승격 근거가 없다.
+- 07-20 E1/E5 라운드는 E1 legacy/mixed 진단 범위와 E5 실제 lineage를 분리 기록하며 candidate/policy 근거로 자동 사용하지 않는다.
+- 관련 pytest `53 passed`, 전체 pytest `511 passed, 67 subtests passed`, 전체 unittest `511 tests OK`를 통과했다.
+- dashboard를 2026-07-12 14:21 KST 재생성했고 `http://127.0.0.1:8765`에서 정상 응답한다. live runtime은 `stopped/weekend/paper`, watchdog은 running/fresh다.
+- 소표본 상태 회귀 pytest `17 passed`, 최종 전체 pytest `513 passed, 67 subtests passed`, 최종 전체 unittest `513 tests OK`를 통과했다.
+- 최종 dashboard snapshot은 2026-07-12 14:48 KST에 재생성했다.
+- 작업 리포트: `docs/cowork-reports/2026-07-12-rescue-avoid-profitability-review-work_ver_31.md`
+- 다음 정규장은 complete lineage와 no-trade decision ledger를 수집하고, 10거래일 조기 진단에서 decision stage/차단 사유 분포를 본다. 2026-07-20 전 신규 threshold/EV 실험 동결은 유지한다.
+- 실전 주문/취소, 주문 정책, threshold, active model/gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, NAS 백업은 변경하거나 실행하지 않았다.
+- 저장소 전용 cleanup helper dry-run 후 적용으로 테스트 임시물과 허용된 `__pycache__` 86개, `398,891,028 bytes`를 정리했다. `.tmp-tests/codex-ops`, `app/risk/`, runtime-data와 운영 산출물은 보존했다.
