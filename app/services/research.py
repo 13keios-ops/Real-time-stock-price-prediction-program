@@ -5831,6 +5831,7 @@ def run_walk_forward_backtest_from_sqlite(
         "cumulative_gross_return_pct": aggregate_gross,
         "cumulative_net_return_pct": aggregate_net,
         "trade_cost_pct": _estimate_trade_cost_pct(settings),
+        "cost_model_version": _cost_model_version(settings, _estimate_trade_cost_pct(settings)),
         **_trade_return_diagnostics(
             gross_return_sum=aggregate_gross,
             net_return_sum=aggregate_net,

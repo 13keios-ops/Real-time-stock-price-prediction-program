@@ -26,6 +26,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from app.paper_trading.costs import (
+    build_domestic_stock_cost_model_metadata,
+)
+
 from scripts.summarize_hold_rescue_paper_replay_feasibility import (
     DEFAULT_DATABASE,
     DEFAULT_MODEL_VERSION,
@@ -47,6 +51,7 @@ from scripts.summarize_hold_rescue_paper_replay_feasibility import (
 )
 
 
+DEFAULT_TRADE_COST_PCT = float(build_domestic_stock_cost_model_metadata()["round_trip_cost_pct"])
 DEFAULT_THRESHOLDS = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65)
 MIN_ELIGIBLE_LOTS = 30
 MIN_APPLIED_LOTS = 10
@@ -407,6 +412,9 @@ def analyze_database(
     trade_cost_pct: float,
     forced_flat_time: str,
 ) -> dict[str, Any]:
+    cost_model = build_domestic_stock_cost_model_metadata(
+        round_trip_cost_pct=trade_cost_pct,
+    )
     parsed_forced_flat_time = _parse_time(forced_flat_time)
     fills, fill_summary = _load_fills(connection, since_date)
     closed_lots, reconstruction_summary = reconstruct_closed_lots(fills)
@@ -439,6 +447,8 @@ def analyze_database(
         "since_date": since_date,
         "horizon_min": horizon_min,
         "model_version": model_version,
+        "cost_model_version": cost_model["version"],
+        "cost_model": cost_model,
         "forced_flat_time": forced_flat_time,
         "max_extension_minutes": max_extension_minutes,
         "max_loss_pct": max_loss_pct,
@@ -475,6 +485,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "## 요약",
         "",
         f"- 판정: `{decision['status']}`",
+        f"- cost_model_version: `{report.get('cost_model_version', 'unknown')}`",
         f"- 권장 조치: {decision['recommended_action']}",
         f"- 범위: {decision['scope_guardrail']}",
         f"- 분석 기간: `{report['since_date']}` 이후, h{report['horizon_min']}, `{report['model_version']}`",
@@ -568,7 +579,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--thresholds", type=_parse_thresholds, default=DEFAULT_THRESHOLDS)
     parser.add_argument("--max-extension-minutes", type=int, default=15)
     parser.add_argument("--max-loss-pct", type=float, default=2.0)
-    parser.add_argument("--trade-cost-pct", type=float, default=0.13)
+    parser.add_argument("--trade-cost-pct", type=float, default=DEFAULT_TRADE_COST_PCT)
     parser.add_argument("--forced-flat-time", default="15:20")
     return parser.parse_args()
 

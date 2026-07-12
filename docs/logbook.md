@@ -1,5 +1,37 @@
 # 작업 기록
 
+## [2026-07-12] Codex -> review_ver_33 수익성 증거 정합성 보강
+
+- 첫 결론: 현재 실제 수익 후보는 `0개`다. 평가 경로는 비용 후 절대 손익, random control, 거래일 일관성, lineage, portfolio replay를 보도록 교정됐지만 어느 모델/overlay도 모두 통과하지 못했다.
+- cowork 검산:
+  - review_ver_33의 E6, buy-avoid, buy-rescue, hold-rescue 수치와 기존 기각·보류 결론은 실제 리포트와 일치했다.
+  - 다만 주제를 완전히 닫기 전에 증거 정합성 문제 3개를 추가로 발견했다.
+- 비판적 조치:
+  - standalone hold-rescue replay의 CLI 기본 비용이 과거 `0.13%`에 남아 있던 문제를 현행 공통 왕복비용 `0.29%`로 고치고 `cost_model_version` 메타데이터를 추가했다.
+  - E6 legacy key `cybos_historical`은 source column 부재 때문에 순수 Cybos가 아니라 `2026-06-11` 이전 전체 역사 라벨을 묶은 혼합 근사치다. 리포트에 `mixed_pre_kis_approximation_not_pure_cybos`를 명시했다.
+  - 최신 walk-forward 리포트는 `trade_cost_pct=0.108`인 과거 비용 증거다. 정확도 gate도 이미 실패해 잘못 승격되지는 않았지만 현행 수익성 증거로 사용하지 않는다. 향후 생성물에는 비용 세대 식별자를 기록한다.
+- 현재 모델 상태:
+  - active는 `baseline-h15-v1`, challenger action은 `keep_active`, 자동 승격은 없었다.
+  - baseline, linear-score, LightGBM, fresh-centroid 모두 비용 후 손익 또는 재현성/표본 gate를 통과하지 못했다.
+  - LightGBM holdout 3분류 정확도는 `0.346248`, 기본 방향 거래 53건의 비용 후 평균은 `-0.348534%`, 누적은 `-18.472324%p`다. threshold `0.66` 양수 결과는 9건뿐이라 후보가 아니다.
+- rescue/avoid:
+  - buy-avoid `0.40`은 portfolio 손실을 `-38.1734%`에서 `-36.3645%`로 줄였지만 여전히 큰 손실이고 random-control에서 역선별이라 `rejected_random_control`이다.
+  - buy-rescue는 Cybos proxy 전 grid가 비용 후 음수이고 KIS live decision ledger는 아직 0행이라 평가 시작 전이다.
+  - hold-rescue `0.40`은 37건 적용에서 현금손익 `-26,387원`, 개선 13건/악화 22건이라 후보가 아니다. 현행 비용 메타데이터로 다시 생성해 결론이 불변임을 확인했다.
+- 운영/전환:
+  - Phase 1b read-only 연결 준비 통과는 주문 가능 또는 수익성 통과를 뜻하지 않는다.
+  - Phase 0 paper/KIS 정합성은 `1/10`, 정합 0일, 불일치 1일이며 4종목과 현금/총자산 차이가 남아 있다.
+- 검증:
+  - 전체 unittest `Ran 515 tests ... OK`.
+  - 전체 pytest `515 passed, 67 subtests passed`.
+  - 실제 hold-rescue/E6 리포트 재생성, JSON 구문, `git diff --check`를 확인했다.
+  - dashboard snapshot을 `2026-07-12 22:40:21 KST`로 갱신했고 server/API 응답을 확인했다.
+  - cleanup helper로 테스트 임시 산출물과 허용 pycache `86개`, `95,144,239 bytes`를 정리했다. `.tmp-tests/codex-ops`, `app/risk/`, runtime-data는 보존했다.
+- 다음:
+  - 2026-07-13부터 완전 lineage decision ledger와 Phase 0 유효 거래일을 누적한다.
+  - 2026-07-20 장후에는 사전등록된 E1/E5 한 라운드만 실행한다.
+  - 신호가 재현되면 h15 저빈도 entry와 h60을 같은 현재비용 portfolio replay 및 비중복 2구간으로 비교한다. 실패하면 threshold를 계속 뒤지지 않고 피처/데이터 원천/horizon 가설을 새로 사전등록한다.
+
 ## [2026-07-12] Codex -> review_ver_32 손익분기 해석과 E6 관측 구간 보강
 
 - 리뷰 검산:

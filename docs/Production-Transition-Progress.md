@@ -20,6 +20,15 @@
 
 ## 2. 현재 스냅샷
 
+### 2026-07-12 review_ver_33 수익성 증거 정합성
+
+- 현재 통과한 수익 후보는 `0개`이며 active `baseline-h15-v1`과 `keep_active`를 유지한다. 승격은 없었다.
+- hold-rescue standalone replay의 구형 기본비용 `0.13%`를 현행 공통 `0.29%`로 교정하고 비용 세대 메타데이터를 추가했다. threshold `0.40`의 `-26,387원` 악화 결론은 불변이다.
+- E6의 legacy `cybos_historical`은 순수 Cybos가 아니라 source column 부재로 만든 pre-KIS 혼합 근사치임을 명시했다.
+- 최신 walk-forward는 `0.108%` 구형 비용 산출물이므로 현행 수익성 증거에서 제외한다. 이미 정확도 gate도 실패해 잘못된 승격은 발생하지 않았다.
+- Phase 1b read-only 통과와 수익성/주문 승인은 별개다. Phase 0은 `1/10`, 정합 0일, 불일치 1일로 계속 막혀 있다.
+- 다음은 정규장 decision ledger 축적과 2026-07-20 E1/E5 한 라운드다. 그 전에는 threshold, 주문 정책, active model, gate를 바꾸지 않는다.
+
 ### 2026-07-12 review_ver_32 손익분기·관측 구간 보강
 
 - cowork의 E6 수치 검산은 일치했고 P1 문서 보강을 수용했다.

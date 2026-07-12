@@ -67,7 +67,7 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
                 )
                 """
             )
-            # Cybos-like historical rows dominate the all-source population and sit below 2x cost.
+            # Pre-KIS mixed historical rows dominate the all-source population and sit below 2x cost.
             for idx, value in enumerate([-0.08, 0.09, -0.10, 0.11, 0.12, -0.13]):
                 conn.execute(
                     "INSERT INTO feature_labels VALUES ('005930', ?, 15, 'flat', 0.35, ?)",
@@ -99,6 +99,10 @@ class CostHorizonDiagnosticsTests(unittest.TestCase):
         self.assertEqual(live_window["event_time_start"], "2026-06-11T09:10:00+09:00")
         self.assertEqual(live_window["event_time_end"], "2026-06-11T09:13:00+09:00")
         self.assertIn("do not carry a source column", summary["source_classification"]["method_note"])
+
+        historical = sources["cybos_historical"]
+        self.assertEqual(historical["source_identity_status"], "mixed_pre_kis_approximation_not_pure_cybos")
+        self.assertIn("not pure Cybos", historical["method"])
 
     def test_baseline_buy_join_source_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

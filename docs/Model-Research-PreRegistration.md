@@ -4,6 +4,10 @@
 
 ## 1. 현재 결론
 
+- E6 legacy key `cybos_historical`은 source column이 없는 `feature_labels`를 날짜로 나눈 `mixed_pre_kis_approximation_not_pure_cybos`다. 순수 Cybos 5년 결과로 해석하거나 KIS 전이 증거로 사용하지 않는다.
+- 최신 `latest-walk-forward-h15.json`은 왕복비용 `0.108%`인 구형 산출물이다. 정확도 gate 진단은 참고할 수 있지만 현행 `0.29%` 수익성 판정에는 쓰지 않는다.
+- 수익 후보는 동일 비용 세대, regular-session decision episode, 완전 lineage, 비중복 시간구간, random control, 실제 portfolio replay를 함께 통과해야 한다.
+
 - KIS live 주문 판단, active model, gate, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`는 2026-07-18 전까지 바꾸지 않는다.
 - Cybos-KIS transfer review 기준 공통 bar 피처에서 `source_stable_candidate`는 0개다.
 - 2026-07-12 비용 정본 `krx-common-stock-2026-v1`의 왕복 연구 비용은 `0.29%`, 보수적 2배 비용 여유 기준은 `0.58%`다.

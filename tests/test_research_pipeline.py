@@ -8,6 +8,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+from app.paper_trading.costs import DOMESTIC_STOCK_COST_MODEL_VERSION
 from app.models.lightgbm_model import LightGbmArtifact, LightGbmDirectionModel
 from app.config.settings import load_settings
 from app.services.research import (
@@ -564,6 +565,7 @@ class ResearchPipelineTests(unittest.TestCase):
             )
             self.assertIn("estimated_cost_drag_pct", walk_forward_payload)
             self.assertIn("three_class_accuracy", walk_forward_payload)
+            self.assertEqual(walk_forward_payload["cost_model_version"], DOMESTIC_STOCK_COST_MODEL_VERSION)
             self.assertIn("class_hit_rates", walk_forward_payload)
             self.assertIn("confusion_matrix", walk_forward_payload)
             self.assertIn("buy_signal_hit_rate", walk_forward_payload)

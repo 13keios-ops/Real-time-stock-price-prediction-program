@@ -94,6 +94,14 @@
 
 다음 순서는 `다음 정규장부터 decision ledger/lineage 축적 -> 2026-07-20 E1/E5 고정 라운드 -> candidate별 동일 portfolio replay 연결 -> 비용 후 수익을 직접 목표로 하는 entry/exit 모델 사전등록`이다. 10거래일은 조기 진단, 20/30/60거래일은 재현성 강화 checkpoint로 사용하며 중간 수치만으로 주문 정책을 바꾸지 않는다.
 
+#### 2026-07-12 review_ver_33 증거 정합성
+
+- 현재 통과한 수익 후보는 `0개`다. 이 상태는 연구 중단이 아니라 음수 전략을 승격시키지 않는 정상 차단이다.
+- standalone hold-rescue 기본 비용을 구형 `0.13%`에서 공통 `0.29%`로 교정하고 비용 세대 메타데이터를 추가했다. 재생성 후 기각 결론은 그대로다.
+- E6 `cybos_historical`은 순수 Cybos가 아니라 pre-KIS 혼합 근사치다. 별도의 순수 Cybos proxy 리포트와 혼동하지 않는다.
+- 최신 walk-forward는 구형 비용 `0.108%` 산출물이라 현재 수익성 정본이 아니다. 이미 3분류 정확도 `0.414466`으로 gate도 실패했으며 자동 승격은 없었다.
+- 2026-07-20 전에는 새 threshold를 탐색하지 않는다. E1/E5가 재현되면 h15 저빈도 entry와 h60을 같은 현재비용 portfolio replay 및 비중복 2구간으로 비교하고, 실패하면 피처/원천/horizon 가설을 새로 사전등록한다.
+
 2026-07-03 기준 모델 운용 방향은 단독 모델 선택보다 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`가 우선이다.
 따라서 LightGBM, linear-score, KIS-only orderbook, 시간대/모멘텀 후보는 `scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 하나의 Phase 1 shadow 관측판에 묶어 본다.
 SNS/공개 영향력 이벤트는 `docs/Social-Signal-Shadow-Plan.md` 기준으로 공식 API, 공개 feed, 수동 export 만 허용하고, `scripts/summarize_social_signal_shadow.py --horizon-min 15`로 사후 방향 적중률을 본다.

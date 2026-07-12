@@ -3,7 +3,12 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
-from scripts.summarize_hold_rescue_paper_replay import analyze_database, render_markdown
+from app.paper_trading.costs import DOMESTIC_STOCK_COST_MODEL_VERSION
+from scripts.summarize_hold_rescue_paper_replay import (
+    DEFAULT_TRADE_COST_PCT,
+    analyze_database,
+    render_markdown,
+)
 
 
 class HoldRescuePaperReplayTests(unittest.TestCase):
@@ -21,7 +26,7 @@ class HoldRescuePaperReplayTests(unittest.TestCase):
             thresholds=(0.65,),
             max_extension_minutes=2,
             max_loss_pct=2.0,
-            trade_cost_pct=0.13,
+            trade_cost_pct=DEFAULT_TRADE_COST_PCT,
             forced_flat_time="15:20",
         )
 
@@ -30,6 +35,9 @@ class HoldRescuePaperReplayTests(unittest.TestCase):
         self.assertEqual(result["applied_lots"], 1)
         self.assertGreater(result["delta_cash_sum"], 0.0)
         self.assertEqual(result["exit_reasons"], {"max_extension_or_forced_flat": 1})
+
+        self.assertEqual(report["cost_model_version"], DOMESTIC_STOCK_COST_MODEL_VERSION)
+        self.assertTrue(report["cost_model"]["matches_current_model"])
 
     def test_replay_does_not_apply_when_exit_up_probability_is_low(self) -> None:
         connection = sqlite3.connect(":memory:")
@@ -45,7 +53,7 @@ class HoldRescuePaperReplayTests(unittest.TestCase):
             thresholds=(0.65,),
             max_extension_minutes=2,
             max_loss_pct=2.0,
-            trade_cost_pct=0.13,
+            trade_cost_pct=DEFAULT_TRADE_COST_PCT,
             forced_flat_time="15:20",
         )
 
@@ -90,7 +98,8 @@ class HoldRescuePaperReplayTests(unittest.TestCase):
             "model_version": "lightgbm-h15-v1",
             "max_extension_minutes": 15,
             "max_loss_pct": 2.0,
-            "trade_cost_pct": 0.13,
+            "trade_cost_pct": DEFAULT_TRADE_COST_PCT,
+            "cost_model_version": DOMESTIC_STOCK_COST_MODEL_VERSION,
         }
 
         markdown = render_markdown(report)
@@ -98,6 +107,7 @@ class HoldRescuePaperReplayTests(unittest.TestCase):
         self.assertIn("paper-only", markdown)
         self.assertIn("주문 정책", markdown)
         self.assertIn("관련 문서/코드 경로", markdown)
+        self.assertIn(DOMESTIC_STOCK_COST_MODEL_VERSION, markdown)
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:

@@ -256,6 +256,7 @@ def _summarize_source(
     *,
     connection: sqlite3.Connection,
     source_key: str,
+    source_identity_status: str,
     role: str,
     method: str,
     horizons: tuple[int, ...],
@@ -287,6 +288,7 @@ def _summarize_source(
         "role": role,
         "method": method,
         "horizons": horizon_summaries,
+        "source_identity_status": source_identity_status,
     }
 
 
@@ -343,6 +345,7 @@ def build_summary(
         }
         all_summary = {
             "source_key": "all",
+            "source_identity_status": "mixed_all_sources",
             "role": "reference_all_sources",
             "method": "all distinct feature_labels rows with future_return_pct",
             "horizons": [_with_row_share(row, all_rows_by_horizon) for row in horizon_summaries],
@@ -361,17 +364,20 @@ def build_summary(
                 trade_cost_pct=trade_cost_pct,
                 all_rows_by_horizon=all_rows_by_horizon,
                 live_symbols=live_symbols,
+                source_identity_status="kis_live_approximation_by_date_and_runtime_symbols",
             ),
             _summarize_source(
                 connection=connection,
                 source_key="cybos_historical",
-                role="reference_historical",
+                role="reference_mixed_pre_kis",
                 method=(
-                    "approximation because feature_labels and curated_minute_bars have no source column: "
-                    f"event_time < {KIS_LIVE_START_DATE}"
+                    "legacy source_key retained for compatibility; mixed pre-KIS historical approximation because "
+                    "feature_labels and curated_minute_bars have no source column. "
+                    f"event_time < {KIS_LIVE_START_DATE}; not pure Cybos."
                 ),
                 horizons=horizons,
                 trade_cost_pct=trade_cost_pct,
+                source_identity_status="mixed_pre_kis_approximation_not_pure_cybos",
                 all_rows_by_horizon=all_rows_by_horizon,
                 live_symbols=live_symbols,
             ),
@@ -382,6 +388,7 @@ def build_summary(
                 method=f"serving_trade_signals side=buy and allowed=1 and event_time >= {KIS_LIVE_START_DATE} joined to feature_labels",
                 horizons=horizons,
                 trade_cost_pct=trade_cost_pct,
+                source_identity_status="exact_runtime_signal_join_with_approximate_labels",
                 all_rows_by_horizon=all_rows_by_horizon,
                 live_symbols=live_symbols,
             ),
@@ -409,6 +416,9 @@ def build_summary(
             "method_note": (
                 "feature_labels and curated_minute_bars do not carry a source column in the current schema; "
                 "source split is an approximation requested by review_ver_25."
+            ),
+            "legacy_key_warning": (
+                "cybos_historical is a compatibility key for all pre-KIS feature labels, not a pure Cybos source."
             ),
         },
         "decision": decision,
@@ -442,26 +452,28 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- has_source_column: `{summary.get('source_classification', {}).get('has_source_column')}`",
         f"- kis_live_start_date: `{summary.get('source_classification', {}).get('kis_live_start_date')}`",
+        f"- legacy_key_warning: {summary.get('source_classification', {}).get('legacy_key_warning')}",
         f"- live_symbols: `{', '.join(summary.get('source_classification', {}).get('live_symbols') or [])}`",
         f"- method_note: {summary.get('source_classification', {}).get('method_note')}",
         "",
         "## Preregistered Criteria",
         "",
         "- h15 판단은 KIS live 근사 표본의 `median_abs_future_return_pct < 2 * trade_cost_pct` 여부로 본다.",
-        "- Cybos historical과 all-source 표본은 참고용이며, h15 정책 결론을 단독 확정하지 않는다.",
+        "- legacy key `cybos_historical`은 pre-KIS 혼합 역사 근사치이며 순수 Cybos 결과가 아니다. all-source와 함께 참고용으로만 쓴다.",
         "- 없는 horizon 라벨은 이번 진단에서 새로 만들지 않는다.",
         "",
         "## Source / Horizon Summary",
         "",
-        "| source | role | horizon | event_start | event_end | status | rows | share_all | median_abs | mean_abs | p75_abs | p90_abs | breakeven_win_rate | below_2x_cost |",
-        "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| source | identity | role | horizon | event_start | event_end | status | rows | share_all | median_abs | mean_abs | p75_abs | p90_abs | breakeven_win_rate | below_2x_cost |",
+        "| --- | --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for source in summary.get("source_summaries", []):
         for row in source.get("horizons", []):
             lines.append(
-                "| {source} | {role} | {horizon} | {event_start} | {event_end} | {status} | {rows} | {share} | {median} | {mean_abs} | {p75} | {p90} | {breakeven} | {below} |".format(
+                "| {source} | {identity} | {role} | {horizon} | {event_start} | {event_end} | {status} | {rows} | {share} | {median} | {mean_abs} | {p75} | {p90} | {breakeven} | {below} |".format(
                     source=source.get("source_key"),
                     role=source.get("role"),
+                    identity=source.get("source_identity_status"),
                     horizon=row.get("horizon_min"),
                     event_start=_fmt((row.get("observation_window") or {}).get("event_time_start")),
                     event_end=_fmt((row.get("observation_window") or {}).get("event_time_end")),
