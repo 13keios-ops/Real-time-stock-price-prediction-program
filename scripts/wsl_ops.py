@@ -121,6 +121,41 @@ def tail_text(path: Path, count: int = 20) -> str:
     return "\n".join([line for line in lines if line][-count:])
 
 
+# The listener retries individual KIS connection failures. These helpers prevent
+# the outer watchdog from relaunching a failed listener on every short interval.
+def _parse_status_timestamp(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
+    except ValueError:
+        return None
+
+
+def live_runtime_restart_backoff_seconds(consecutive_attempts: int, interval_seconds: int) -> int:
+    base = max(int(interval_seconds) * 2, 120)
+    exponent = min(max(int(consecutive_attempts) - 1, 0), 3)
+    return min(base * (2**exponent), 900)
+
+
+def live_runtime_restart_is_due(
+    *,
+    consecutive_attempts: int,
+    last_attempt_at: Any,
+    now: dt.datetime,
+    interval_seconds: int,
+) -> tuple[bool, int]:
+    attempts = max(int(consecutive_attempts), 0)
+    if attempts == 0:
+        return True, 0
+    delay_seconds = live_runtime_restart_backoff_seconds(attempts, interval_seconds)
+    previous = _parse_status_timestamp(last_attempt_at)
+    if previous is None:
+        return True, delay_seconds
+    return now >= previous + dt.timedelta(seconds=delay_seconds), delay_seconds
+
+
+
 def http_ok(url: str, needle: str | None = None, timeout: int = 5) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
@@ -666,16 +701,48 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             live_state = {}
             errors.append(f"live_runtime_status: {exc}")
         if should_run and live_state.get("status") != "running":
-            subprocess.run(
-                [str(SCRIPT_DIR / "start_live_runtime_background.sh"), "--workspace-root", str(root), "--runtime-data-dir", str(runtime), "--force-restart"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            previous_state = read_json(state_path, {})
+            try:
+                live_restart_attempts = max(int(previous_state.get("live_runtime_restart_attempts") or 0), 0)
+            except (TypeError, ValueError):
+                live_restart_attempts = 0
+            live_restart_last_attempt_at = previous_state.get("live_runtime_restart_last_attempt_at")
+            restart_due, live_restart_backoff_delay_seconds = live_runtime_restart_is_due(
+                consecutive_attempts=live_restart_attempts,
+                last_attempt_at=live_restart_last_attempt_at,
+                now=dt.datetime.now().astimezone(),
+                interval_seconds=args.interval_seconds,
             )
-            live_action = "restart"
+            if restart_due:
+                subprocess.run(
+                    [str(SCRIPT_DIR / "start_live_runtime_background.sh"), "--workspace-root", str(root), "--runtime-data-dir", str(runtime), "--force-restart"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                live_restart_attempts += 1
+                live_restart_last_attempt_at = now_text()
+                live_restart_backoff_delay_seconds = live_runtime_restart_backoff_seconds(
+                    live_restart_attempts, args.interval_seconds
+                )
+                live_action = "restart"
+            else:
+                live_action = "restart_backoff"
+                errors.append("live_runtime_restart_backoff_active")
+        elif should_run:
+            live_restart_attempts = 0
+            live_restart_last_attempt_at = None
+            live_restart_backoff_delay_seconds = 0
+            live_action = "running"
         elif not should_run and live_state.get("status") == "running":
+            live_restart_attempts = 0
+            live_restart_last_attempt_at = None
+            live_restart_backoff_delay_seconds = 0
             subprocess.run([str(SCRIPT_DIR / "stop_live_runtime.sh"), "--workspace-root", str(root), "--runtime-data-dir", str(runtime)], stdout=subprocess.DEVNULL)
             live_action = f"off_session_stop_{session}"
-        elif not should_run:
+        else:
+            live_restart_attempts = 0
+            live_restart_last_attempt_at = None
+            live_restart_backoff_delay_seconds = 0
             live_action = f"off_session_hold_{session}"
         ml_action = maybe_start_post_close_ml(root=root, runtime=runtime, session=session, args=args, errors=errors)
         payload = {
@@ -700,6 +767,9 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             "dashboard_action": dashboard_action,
             "dashboard_snapshot_action": "client_refresh",
             "live_runtime_action": live_action,
+            "live_runtime_restart_attempts": live_restart_attempts,
+            "live_runtime_restart_last_attempt_at": live_restart_last_attempt_at,
+            "live_runtime_restart_backoff_seconds": live_restart_backoff_delay_seconds,
             "ml_maintenance_action": ml_action,
             "errors": errors,
         }

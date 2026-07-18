@@ -1,7 +1,17 @@
+import asyncio
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-from app.brokers.kis_quote_ws import KisWebSocketReconnectMetrics, _emit_reconnect_snapshot
+from app.brokers.kis_auth import KisApiError, KisAuthProfile
+from app.brokers.kis_quote_ws import (
+    KisWebSocketQuoteClient,
+    KisWebSocketReconnectMetrics,
+    _emit_reconnect_snapshot,
+    _reconnect_delay_seconds,
+)
+
 
 
 class KisWebSocketReconnectMetricsTests(unittest.TestCase):
@@ -118,6 +128,74 @@ class KisWebSocketReconnectMetricsTests(unittest.TestCase):
 
         with self.assertLogs("app.brokers.kis_quote_ws", level="WARNING"):
             _emit_reconnect_snapshot(fail_callback, snapshot)
+
+
+
+class KisWebSocketReconnectRetryTests(unittest.TestCase):
+    def _client(self) -> KisWebSocketQuoteClient:
+        profile = KisAuthProfile(
+            mode="paper",
+            app_key="key",
+            app_secret="secret",
+            account_no="",
+            product_code="",
+            hts_id="",
+            customer_type="P",
+            rest_url="https://example.invalid",
+            ws_url="wss://example.invalid",
+            token_cache_path=Path("/tmp/kis-token.json"),
+        )
+        return KisWebSocketQuoteClient(profile=profile, token_manager=object())
+
+    def test_reconnect_delay_is_exponential_and_bounded(self) -> None:
+        self.assertEqual(_reconnect_delay_seconds(5, 1, 60), 5)
+        self.assertEqual(_reconnect_delay_seconds(5, 2, 60), 10)
+        self.assertEqual(_reconnect_delay_seconds(5, 5, 60), 60)
+
+    def test_approval_key_failure_uses_listener_retry_path(self) -> None:
+        class FakeConnection:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+            async def send(self, message: str) -> None:
+                return None
+
+            async def recv(self) -> str:
+                return "0|H0STCNT0|001|005930^090000^70000"
+
+        class FakeWebSockets:
+            @staticmethod
+            def connect(*args, **kwargs):
+                return FakeConnection()
+
+        client = self._client()
+        snapshots = []
+
+        async def collect() -> list[str]:
+            return [
+                frame
+                async for frame in client.listen(
+                    ["005930"],
+                    include_orderbook=False,
+                    max_frames=1,
+                    max_reconnects=1,
+                    metrics_callback=snapshots.append,
+                )
+            ]
+
+        with (
+            patch.object(KisWebSocketQuoteClient, "issue_approval_key", side_effect=[KisApiError("approval unavailable"), "approval-key"]),
+            patch("app.brokers.kis_quote_ws.websockets", FakeWebSockets),
+            patch("app.brokers.kis_quote_ws.asyncio.sleep", new_callable=AsyncMock) as sleep,
+        ):
+            frames = asyncio.run(collect())
+
+        self.assertEqual(len(frames), 1)
+        self.assertEqual([snapshot.state for snapshot in snapshots], ["disconnected", "connected"])
+        sleep.assert_awaited_once_with(5)
 
 
 if __name__ == "__main__":

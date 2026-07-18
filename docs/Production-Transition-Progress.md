@@ -21,8 +21,8 @@
 ### Phase 0: paper + KIS 모의계좌
 
 - 상태: 진행 중
-- 최근 10거래일 누적: `1/10`
-- matched/mismatch: `0일/1일`
+- 최근 10거래일 누적: `6/10`
+- matched/mismatch: `0일/6일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 원인 범위: local paper와 KIS order/fill 원장은 맞지만 KIS account snapshot이 다름
 - 자동 align과 `SyncInitialCash`: 보류
@@ -74,7 +74,7 @@
 
 ## 4. 현재 P0
 
-1. 2026-07-13부터 complete lineage decision ledger가 실제로 쌓이는지 확인
+1. 2026-07-20 장전 KIS approval-key 재시도와 complete lineage decision ledger 수집 정상화 확인 (2026-07-17 수집 공백 별도 기록)
 2. 매 거래일 장후 Phase 0 정합성 유효 기록 누적
 3. 2026-07-20 장후 E1/E5 사전등록 라운드 1회 실행
 4. 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교

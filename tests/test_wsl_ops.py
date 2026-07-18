@@ -139,6 +139,34 @@ class WslOpsRecoveryExportTests(unittest.TestCase):
             self.assertNotIn("id_ed25519", names)
 
 
+
+class WslOpsWatchdogRestartBackoffTests(unittest.TestCase):
+    def test_restart_backoff_grows_and_is_capped(self) -> None:
+        self.assertEqual(wsl_ops.live_runtime_restart_backoff_seconds(1, 60), 120)
+        self.assertEqual(wsl_ops.live_runtime_restart_backoff_seconds(2, 60), 240)
+        self.assertEqual(wsl_ops.live_runtime_restart_backoff_seconds(4, 60), 900)
+
+    def test_restart_is_deferred_until_backoff_elapses(self) -> None:
+        now = dt.datetime(2026, 7, 20, 9, 1, tzinfo=dt.timezone.utc)
+        due, delay = wsl_ops.live_runtime_restart_is_due(
+            consecutive_attempts=1,
+            last_attempt_at="2026-07-20 09:00:00 +0000",
+            now=now,
+            interval_seconds=60,
+        )
+        self.assertFalse(due)
+        self.assertEqual(delay, 120)
+
+        due, delay = wsl_ops.live_runtime_restart_is_due(
+            consecutive_attempts=1,
+            last_attempt_at="2026-07-20 09:00:00 +0000",
+            now=now + dt.timedelta(minutes=1),
+            interval_seconds=60,
+        )
+        self.assertTrue(due)
+        self.assertEqual(delay, 120)
+
+
 class WslOpsPaperDualAccountMatchTests(unittest.TestCase):
     def test_parse_args_keeps_powershell_style_verify_aliases(self) -> None:
         argv = [

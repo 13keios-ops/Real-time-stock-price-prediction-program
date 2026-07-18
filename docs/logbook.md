@@ -7,22 +7,23 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: `2026-07-13 01:03 KST`
+- 기준 시각: `2026-07-18 장외 KST`
 - 장 상태: `overnight`
-- live runtime: 정상 정지
+- live runtime: 주말 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: `1/10`, mismatch 4종목
+- Phase 0: `6/10`, matched 0일, mismatch 6일, mismatch 4종목
 - Phase 1b: bounded read-only 관측 1회 통과
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
 ## 활성 체크리스트
 
-- [ ] 2026-07-13~17 complete lineage decision ledger 축적
+- [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [ ] 거래일별 Phase 0 정합성 유효 기록 누적
+- [ ] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인
 - [ ] 2026-07-20 장후 E1/E5 사전등록 라운드 1회 실행
 - [ ] E1/E5 결과에 따라 h15 저빈도/h60 비교 여부 결정
 - [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
@@ -31,12 +32,21 @@
 
 ## 최신 검증
 
-- 전체 unittest: `518 tests OK`
-- 전체 pytest: `518 passed, 67 subtests passed`
+- 전체 unittest: `522 tests OK`
+- 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
 - 저장소 구조/Markdown 감사: `errors=0`, 구조 부채 경고 2건
 - dashboard snapshot: `2026-07-12 22:40 KST` 생성
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-07-18] KIS 수집 장애 완화 및 월요일 장전 준비
+
+- 2026-07-17 KIS approval-key REST의 SSL EOF/timeout으로 listener가 종료되고 watchdog이 60초마다 재시작한 기록을 확인했다. 해당 거래일 `serving_decision_ledger`는 새 행이 없다.
+- `app/brokers/kis_quote_ws.py`에서 approval-key 발급을 WebSocket connect와 같은 재시도 경로로 옮기고, 5초에서 최대 60초까지 지수형 대기를 적용했다.
+- `scripts/wsl_ops.py` watchdog은 failed listener 재시작을 2분에서 최대 15분까지 지수형 대기한다. 정상 실행을 확인하면 실패 카운터를 초기화한다.
+- 2026-07-18은 주말이라 KIS 네트워크를 호출하지 않았다. 2026-07-20 장전에는 수집 재개와 `serving_decision_ledger` 증가를 우선 확인한다.
+- 주문 정책, active model, threshold, gate, `app/risk/`, config, VERSION, 실전 주문은 변경하지 않았다.
+- 전체 unittest: `522 tests OK`; `git diff --check`와 Python syntax 검사를 통과했다.
 
 ## [2026-07-13] 저장소 구조와 현재 문서 정리
 

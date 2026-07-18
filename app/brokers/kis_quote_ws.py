@@ -140,6 +140,14 @@ def _now_local() -> datetime:
     return datetime.now().astimezone()
 
 
+def _reconnect_delay_seconds(base_seconds: int, consecutive_reconnects: int, maximum_seconds: int) -> int:
+    """Return a bounded exponential delay for consecutive connection failures."""
+    base = max(int(base_seconds), 1)
+    maximum = max(int(maximum_seconds), base)
+    exponent = min(max(int(consecutive_reconnects) - 1, 0), 8)
+    return min(base * (2**exponent), maximum)
+
+
 @dataclass(slots=True)
 class KisWebSocketSubscription:
     tr_id: str
@@ -267,6 +275,7 @@ class KisWebSocketQuoteClient:
     profile: KisAuthProfile
     token_manager: KisTokenManager
     reconnect_backoff_seconds: int = 5
+    max_reconnect_backoff_seconds: int = 60
     frame_timeout_seconds: int = 30
     subscription_delay_seconds: float = 0.1
     stable_frame_reset_threshold: int = 5
@@ -277,6 +286,7 @@ class KisWebSocketQuoteClient:
             "transport": "websocket",
             "endpoint": self.profile.websocket_tryitout_url,
             "reconnect_backoff_seconds": self.reconnect_backoff_seconds,
+            "max_reconnect_backoff_seconds": self.max_reconnect_backoff_seconds,
             "frame_timeout_seconds": self.frame_timeout_seconds,
             "stable_frame_reset_threshold": self.stable_frame_reset_threshold,
             "reconnect_storm_threshold": self.reconnect_storm_threshold,
@@ -374,8 +384,11 @@ class KisWebSocketQuoteClient:
         unbounded = max_frames <= 0
 
         while unbounded or frames_seen < max_frames:
-            approval_key = self.issue_approval_key()
             try:
+                # Approval-key issuance is part of connection establishment. If KIS
+                # drops this REST call, keep it on the same bounded retry path as
+                # a WebSocket connect failure instead of terminating the listener.
+                approval_key = self.issue_approval_key()
                 async with websockets.connect(  # type: ignore[union-attr]
                     self.profile.websocket_tryitout_url,
                     **self._connection_kwargs(),
@@ -424,19 +437,24 @@ class KisWebSocketQuoteClient:
                     ) from exc
                 reconnect_snapshot = metrics.record_disconnected(exc)
                 _emit_reconnect_snapshot(metrics_callback, reconnect_snapshot)
+                delay_seconds = _reconnect_delay_seconds(
+                    self.reconnect_backoff_seconds,
+                    reconnect_snapshot.consecutive_reconnects,
+                    self.max_reconnect_backoff_seconds,
+                )
                 LOGGER.warning(
                     (
                         "KIS WebSocket disconnected; reconnecting in %ss "
                         "(attempt %s/%s, consecutive=%s, storm=%s): %s"
                     ),
-                    self.reconnect_backoff_seconds,
+                    delay_seconds,
                     reconnect_snapshot.cumulative_reconnects,
                     max_reconnects,
                     reconnect_snapshot.consecutive_reconnects,
                     reconnect_snapshot.reconnect_storm,
                     exc,
                 )
-                await asyncio.sleep(self.reconnect_backoff_seconds)
+                await asyncio.sleep(delay_seconds)
 
 
 def parse_kis_ws_frame(frame: str) -> dict[str, Any]:

@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: `2026-07-13 01:03 KST`
+- 확인 시각: `2026-07-18 장외 KST`
 - 장 상태: `overnight`
 - live runtime: 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -20,11 +20,11 @@
 
 ## 데이터와 학습
 
-- 최신 KIS 거래일: `2026-07-10`
-- KIS 누적 거래일: 약 `50일`
+- 최신 KIS 거래일: `2026-07-16`
+- KIS 누적 거래일: `54일`
 - 장후 ML: `status=ok`, `quick-live-train`
 - label refresh: `status=ok`
-- 전체 데이터 품질: `ok`
+- 전체 데이터 품질: `주의` (2026-07-17 장중 KIS 수집 공백)
 
 학습이 멈춘 것이 아니라 현재 모델이 비용 후 양수 기대값을 입증하지 못한 상태다.
 
@@ -38,8 +38,8 @@
 
 ## Phase
 
-- Phase 0: 진행 중, 최근 10거래일 기준 `1/10`
-- Phase 0 matched/mismatch: `0일/1일`
+- Phase 0: 진행 중, 최근 10거래일 기준 `6/10`
+- Phase 0 matched/mismatch: `0일/6일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
@@ -50,16 +50,17 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 ## 현재 blocker
 
 1. Phase 0 10개 유효 거래일 정합성
-2. 비용 후 양수 전략과 비중복 기간 재현성
-3. Phase 2/3용 실제 WebSocket recovery 증거
-4. 당일 fresh market status
-5. 유효기간이 있는 kill switch OFF 상태
+2. 2026-07-17 KIS approval-key SSL/timeout 재발 여부와 수집 공백 해소
+3. 비용 후 양수 전략과 비중복 기간 재현성
+4. Phase 2/3용 실제 WebSocket recovery 증거
+5. 당일 fresh market status
+6. 유효기간이 있는 kill switch OFF 상태
 
 ## 다음 일정
 
-- 2026-07-13~17: complete lineage와 no-trade decision ledger 축적
-- 매 거래일 장후: Phase 0 정합성 1회 제한 확인
-- 2026-07-20 장후: 사전등록 E1/E5 한 라운드
+- 2026-07-20 장전: KIS approval-key 재시도 흐름과 live decision ledger 수집 재개 확인
+- 매 거래일 장후: Phase 0 정합성 1회 제한 확인, 2026-07-20에는 label refresh 뒤 E1/E5 1회
+- 2026-07-20 장후: 사전등록 E1/E5 한 라운드 (정책 변경 없음)
 - 이후: h15 저빈도/h60 portfolio 비교 또는 새 가설 사전등록
 
 ## 기준 문서

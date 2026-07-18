@@ -219,6 +219,9 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 기본 판단:
 
 - 단발 reconnect는 장애가 아니라 관측 이벤트로 본다.
+- approval-key REST 발급 실패도 연결 수립 실패로 취급한다. listener는 5초에서 최대 60초까지 지수형 대기 후 재시도한다.
+- listener가 종료된 경우 watchdog은 2분에서 최대 15분까지 지수형 대기 후 재시작한다. 이는 listener 내부 재연결과 별도 보호막이며, 정상 실행을 확인하면 실패 카운터를 초기화한다.
+- 2026-07-17 approval-key SSL EOF/timeout은 KIS 또는 네트워크 계열 후보로 기록했다. 원인을 자격증명이나 코드 결함으로 단정하지 않으며, 다음 장전 수집 재개 여부로 확인한다.
 - `storm=false`이고 watchdog heartbeat가 정상이라면 runtime을 즉시 재시작하지 않는다.
 - 짧은 시간 안에 반복되어 `storm=true`가 되거나 stable frame이 사라지면 신규 신호/주문 판단은 보수적으로 차단하는 방향으로 연결해야 한다.
 
