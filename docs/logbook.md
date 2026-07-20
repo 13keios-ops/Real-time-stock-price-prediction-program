@@ -7,14 +7,14 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: `2026-07-18 장외 KST`
-- 장 상태: `overnight`
-- live runtime: 주말 정상 정지
+- 기준 시각: `2026-07-20 장후 KST`
+- 장 상태: `post-close`
+- live runtime: 장후 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: `6/10`, matched 0일, mismatch 6일, mismatch 4종목
+- Phase 0: `7/10`, matched 0일, mismatch 7일, mismatch 4종목
 - Phase 1b: bounded read-only 관측 1회 통과
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
@@ -23,9 +23,9 @@
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [ ] 거래일별 Phase 0 정합성 유효 기록 누적
-- [ ] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인
-- [ ] 2026-07-20 장후 E1/E5 사전등록 라운드 1회 실행
-- [ ] E1/E5 결과에 따라 h15 저빈도/h60 비교 여부 결정
+- [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
+- [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지.
+- [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
 - [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
 
 현재 상세 작업 범위는 `docs/SPRINT_CURRENT.md`를 따른다.
@@ -38,6 +38,15 @@
 - dashboard snapshot: `2026-07-12 22:40 KST` 생성
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-07-20] 월요일 수집 복구와 장후 점검
+
+- 장전 readiness는 `ok`였다. runtime, watchdog, dashboard, KIS quote 자격정보, SQLite read-only smoke가 모두 통과했다.
+- `serving_decision_ledger`는 08:30~15:19 KST에 3,812행을 추가했고, active prediction/artifact와 shadow prediction을 모두 포함한 complete lineage도 3,812행이었다. 2026-07-17 수집 공백은 해소됐지만 과거 공백 기록은 보존한다.
+- live runtime은 장후 정상 정지했고 watchdog/dashboard/startup launcher는 정상이다. 다만 KIS WebSocket은 `no close frame`으로 29회 재연결됐으므로, 데이터 품질은 유지됐어도 연결 안정성 관찰을 계속한다.
+- 장후 ML은 `ok`(16:24 KST, `quick-live-train`), label refresh는 `ok`(16:55 KST)였다. active 모델과 주문 정책, threshold, gate는 바꾸지 않았다.
+- Phase 0은 `7/10`, matched `0일`, mismatch `7일`이다. mismatch 종목은 `035420`, `086520`, `105560`, `247540`이며 당일 유효 기록이 이미 있어 broker sync/reconciliation을 중복 호출하지 않았다.
+- E1/E5 wrapper는 장후에 1회 실행했다. SQLite snapshot을 `/mnt/d/CodexData/.../research-snapshots`로 복사하는 단계가 WSL `p9_client_rpc` I/O 대기에 걸려 결과 파일 없이 중단됐다. 중복 실행은 하지 않았고, 주문/네트워크 호출은 없었다.
 
 ## [2026-07-18] KIS 수집 장애 완화 및 월요일 장전 준비
 

@@ -9,7 +9,7 @@
 - Phase 1b의 주문 없는 live 계좌 조회 준비는 통과했다.
 - 현재 수익 후보는 `0개`다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
-- 다음 핵심 판정은 2026-07-20 장후 E1/E5다.
+- 2026-07-20 장후 E1/E5는 1회 실행했으나 D드라이브 research snapshot I/O 대기로 결과가 생성되지 않았다. 유효 결과 전에는 다음 연구 분기를 결정하지 않는다.
 
 ## 2. Phase 상태
 
@@ -21,8 +21,8 @@
 ### Phase 0: paper + KIS 모의계좌
 
 - 상태: 진행 중
-- 최근 10거래일 누적: `6/10`
-- matched/mismatch: `0일/6일`
+- 최근 10거래일 누적: `7/10`
+- matched/mismatch: `0일/7일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 원인 범위: local paper와 KIS order/fill 원장은 맞지만 KIS account snapshot이 다름
 - 자동 align과 `SyncInitialCash`: 보류
@@ -74,11 +74,11 @@
 
 ## 4. 현재 P0
 
-1. 2026-07-20 장전 KIS approval-key 재시도와 complete lineage decision ledger 수집 정상화 확인 (2026-07-17 수집 공백 별도 기록)
+1. KIS WebSocket 재연결 빈도 관찰: 2026-07-20 decision ledger 3,812행은 정상 수집됐으나 `no close frame` 재연결 29회 발생
 2. 매 거래일 장후 Phase 0 정합성 유효 기록 누적
-3. 2026-07-20 장후 E1/E5 사전등록 라운드 1회 실행
-4. 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
-5. 실패 시 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록
+3. E1/E5 유효 결과 확보: 2026-07-20 1회 시도는 D드라이브 snapshot I/O 대기로 결과 파일 미생성, 자동 재실행 금지
+4. 유효 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
+5. 유효 결과가 실패하면 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록
 
 ## 5. 동결 범위
 

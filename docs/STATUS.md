@@ -2,9 +2,9 @@
 
 ## 기준 시각
 
-- 확인 시각: `2026-07-18 장외 KST`
-- 장 상태: `overnight`
-- live runtime: 정상 정지
+- 확인 시각: `2026-07-20 장후 KST`
+- 장 상태: `post-close`
+- live runtime: 장후 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
 - dashboard: `http://127.0.0.1:8765`, server/API 정상
 - Windows startup launcher: 설치 및 정상
@@ -20,11 +20,12 @@
 
 ## 데이터와 학습
 
-- 최신 KIS 거래일: `2026-07-16`
-- KIS 누적 거래일: `54일`
-- 장후 ML: `status=ok`, `quick-live-train`
-- label refresh: `status=ok`
-- 전체 데이터 품질: `주의` (2026-07-17 장중 KIS 수집 공백)
+- 최신 KIS 거래일: `2026-07-20`
+- KIS 누적 거래일: `55일`
+- 2026-07-20 장후 ML: `status=ok`, `quick-live-train`, 16:24 KST 완료
+- 2026-07-20 label refresh: `status=ok`, 16:55 KST 완료
+- 전체 데이터 품질: 당일 raw tick, orderbook, 분봉, feature, h15/h60 label이 생성됐다. 2026-07-17 수집 공백은 과거 P0로 유지한다.
+- 수집 안정성: decision ledger는 3,812행을 완전 lineage로 남겼다. 다만 KIS WebSocket `no close frame` 재연결 29회가 있어 연결 안정성은 계속 관찰한다.
 
 학습이 멈춘 것이 아니라 현재 모델이 비용 후 양수 기대값을 입증하지 못한 상태다.
 
@@ -38,8 +39,8 @@
 
 ## Phase
 
-- Phase 0: 진행 중, 최근 10거래일 기준 `6/10`
-- Phase 0 matched/mismatch: `0일/6일`
+- Phase 0: 진행 중, 최근 10거래일 기준 `7/10`
+- Phase 0 matched/mismatch: `0일/7일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
@@ -50,7 +51,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 ## 현재 blocker
 
 1. Phase 0 10개 유효 거래일 정합성
-2. 2026-07-17 KIS approval-key SSL/timeout 재발 여부와 수집 공백 해소
+2. KIS WebSocket `no close frame` 재연결 빈도와 2026-07-17 approval-key 장애의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거
 5. 당일 fresh market status
@@ -58,10 +59,9 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 다음 일정
 
-- 2026-07-20 장전: KIS approval-key 재시도 흐름과 live decision ledger 수집 재개 확인
-- 매 거래일 장후: Phase 0 정합성 1회 제한 확인, 2026-07-20에는 label refresh 뒤 E1/E5 1회
-- 2026-07-20 장후: 사전등록 E1/E5 한 라운드 (정책 변경 없음)
-- 이후: h15 저빈도/h60 portfolio 비교 또는 새 가설 사전등록
+- 매 거래일 장후: Phase 0 정합성 1회 제한 확인
+- E1/E5: 2026-07-20 장후 1회 시도했으나 D드라이브 research snapshot I/O 대기로 결과 파일이 생성되지 않았다. 자동 재실행은 하지 않는다.
+- 이후: E1/E5의 유효 결과가 생긴 뒤 h15 저빈도/h60 portfolio 비교 또는 새 가설 사전등록을 결정한다.
 
 ## 기준 문서
 

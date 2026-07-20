@@ -26,7 +26,7 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
 - 자동 승격: 없음
-- Phase 0: `6/10`, matched 0일, mismatch 6일
+- Phase 0: `7/10`, matched 0일, mismatch 7일
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -37,9 +37,9 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 - [ ] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` 누락 여부 확인
 - [ ] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과가 연결되는지 확인
 - [ ] 장후 Phase 0 유효 기록과 mismatch 4종목을 중복 KIS 호출 없이 확인
-- [ ] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인
-- [ ] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행
-- [ ] 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정
+- [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행 complete lineage)
+- [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성)
+- [ ] E1/E5 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정
 - [ ] cowork 리뷰가 필요한 결과면 새 review/work 라운드 생성
 
 ## 동결 범위
