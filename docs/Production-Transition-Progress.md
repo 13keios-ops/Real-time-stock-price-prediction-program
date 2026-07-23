@@ -21,10 +21,10 @@
 ### Phase 0: paper + KIS 모의계좌
 
 - 상태: 진행 중
-- 최근 10거래일 누적: `7/10`
-- matched/mismatch: `0일/7일`
+- 최근 10거래일 누적: `10/10` 관측 완료
+- matched/mismatch: `0일/10일`로 완료 조건 미통과
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 원인 범위: local paper와 KIS order/fill 원장은 맞지만 KIS account snapshot이 다름
+- 원인 범위: local paper와 KIS order/fill 순수량은 맞지만 KIS account snapshot 수량이 다름
 - 자동 align과 `SyncInitialCash`: 보류
 - 완료 조건: 10개 유효 장후 거래일 모두 정합하고 현재 divergence 해소
 
@@ -60,9 +60,9 @@
 - challenger action: `keep_active`
 - promotion applied: `false`
 - 현재 통과한 수익 후보: `0개`
-- LightGBM holdout 3분류 정확도: `0.346248`
-- LightGBM 기본 방향 거래: 53건, 평균 `-0.348534%`, 누적 `-18.472324%p`
-- 최신 walk-forward: 정확도 `0.414466`, 다수 클래스 기준 미달, 구형 비용 `0.108%` 증거
+- active baseline holdout 3분류 정확도: `0.270093`, buy hit rate `0.48`, 25건 누적 `11.54514%p`이나 승격 게이트를 통과하지 못함
+- 최신 LightGBM challenger: 3분류 정확도 `0.389846`, 거래 1건으로 표본 부족이며 다수 클래스 기준에도 미달
+- 최신 walk-forward: 정확도 `0.4145`, 다수 클래스 기준 미달
 
 ### Rescue/Avoid
 
@@ -75,7 +75,7 @@
 ## 4. 현재 P0
 
 1. KIS WebSocket 재연결 빈도 관찰: 2026-07-20 decision ledger 3,812행은 정상 수집됐으나 `no close frame` 재연결 29회 발생
-2. 매 거래일 장후 Phase 0 정합성 유효 기록 누적
+2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인
 3. E1/E5 유효 결과 확보: 2026-07-20 1회 시도는 D드라이브 snapshot I/O 대기로 결과 파일 미생성, 자동 재실행 금지
 4. 유효 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
 5. 유효 결과가 실패하면 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록

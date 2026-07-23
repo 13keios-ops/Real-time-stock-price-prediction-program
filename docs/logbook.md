@@ -7,14 +7,14 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: `2026-07-20 장후 KST`
+- 기준 시각: `2026-07-23 장후 KST`
 - 장 상태: `post-close`
 - live runtime: 장후 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: `7/10`, matched 0일, mismatch 7일, mismatch 4종목
+- Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목. 완료 조건은 통과하지 못했다.
 - Phase 1b: bounded read-only 관측 1회 통과
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
@@ -22,7 +22,7 @@
 ## 활성 체크리스트
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
-- [ ] 거래일별 Phase 0 정합성 유효 기록 누적
+- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 `SyncInitialCash`는 보류.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -38,6 +38,15 @@
 - dashboard snapshot: `2026-07-12 22:40 KST` 생성
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-07-23] Phase 0 10일 관측 종료와 장후 점검
+
+- 장후 ML은 `ok`(16:18 KST, `quick-live-train`), label refresh는 `ok`(16:52 KST)였다. KIS live data quality도 `ok`이며 2026-07-23까지 거래일 58일을 관측했다.
+- live runtime은 장후 정상 정지했고 watchdog, dashboard, Windows startup launcher는 정상이다.
+- Phase 0은 유효 거래일 10일을 채웠지만 matched `0일`, mismatch `10일`이어서 완료 조건을 통과하지 못했다. 불일치 종목은 `035420`, `086520`, `105560`, `247540`이다.
+- 당일 유효 정합 기록이 이미 있어 broker sync/reconciliation은 재호출하지 않았다. 오래된 mismatch trace만 로컬에서 갱신했으며, 네 종목 모두 local paper와 KIS order/fill 순수량은 맞고 KIS account snapshot 수량만 다른 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류됐다.
+- 자동 align, `SyncInitialCash`, 주문 정책, threshold, gate, active model, 실전 주문은 변경하지 않았다.
+- hold-rescue paper-only replay는 `diagnostic_only_no_hold_rescue_candidate`다. buy-avoid와 buy-rescue도 기존 관측 결과만 유지했다.
 
 ## [2026-07-20] 월요일 수집 복구와 장후 점검
 
