@@ -16,6 +16,7 @@ Options:
   --dst PATH           Exact snapshot DB path.
   --snapshot-dir DIR   Snapshot directory when --dst is omitted.
   --prefix NAME        Snapshot filename prefix. Default: dev
+  --timeout-seconds N  Maximum snapshot duration. Default: 180.
   --json               Print machine-readable JSON.
   --print-env          Print DATABASE_URL and RUNTIME_DATA_DIR exports.
   -h, --help           Show this help.
@@ -36,6 +37,7 @@ snapshot_dir="$(default_snapshot_dir)"
 prefix="dev"
 as_json="false"
 print_env="false"
+timeout_seconds="180"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,12 +45,18 @@ while [[ $# -gt 0 ]]; do
     --dst) dst="$2"; shift 2 ;;
     --snapshot-dir) snapshot_dir="$2"; shift 2 ;;
     --prefix) prefix="$2"; shift 2 ;;
+    --timeout-seconds) timeout_seconds="$2"; shift 2 ;;
     --json) as_json="true"; shift ;;
     --print-env) print_env="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--timeout-seconds must be a positive integer" >&2
+  exit 2
+fi
 
 if [[ ! -f "$src" ]]; then
   echo "source DB not found: $src" >&2
@@ -63,8 +71,11 @@ else
   mkdir -p "$(dirname "$dst")"
 fi
 
-python - "$src" "$dst" <<'PY'
+set +e
+snapshot_json="$(
+  timeout --foreground --signal=TERM --kill-after=10s "${timeout_seconds}s" python - "$src" "$dst" <<'PY'
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -73,43 +84,55 @@ from pathlib import Path
 src = Path(sys.argv[1]).expanduser().resolve()
 dst = Path(sys.argv[2]).expanduser().resolve()
 manifest = dst.with_suffix(".manifest.json")
+partial = dst.with_name(f".{dst.name}.{os.getpid()}.partial")
+partial_manifest = manifest.with_name(f".{manifest.name}.{os.getpid()}.partial")
 
 if not src.exists():
     raise SystemExit(f"source DB not found: {src}")
 
 dst.parent.mkdir(parents=True, exist_ok=True)
-if dst.exists():
-    dst.unlink()
+partial.unlink(missing_ok=True)
+partial_manifest.unlink(missing_ok=True)
 
-src_uri = f"file:{src}?mode=ro"
-with sqlite3.connect(src_uri, uri=True, timeout=30.0) as src_conn:
-    src_conn.execute("PRAGMA busy_timeout = 30000")
-    with sqlite3.connect(dst, timeout=30.0) as dst_conn:
-        src_conn.backup(dst_conn, pages=1000, sleep=0.05)
-        quick_check = dst_conn.execute("PRAGMA quick_check").fetchone()[0]
-
-payload = {
-    "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-    "source_path": str(src),
-    "snapshot_path": str(dst),
-    "manifest_path": str(manifest),
-    "database_url": "sqlite:///" + str(dst),
-    "source_size_bytes": src.stat().st_size,
-    "snapshot_size_bytes": dst.stat().st_size,
-    "quick_check": quick_check,
-}
-manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-PY
-
-snapshot_json="$(python - "$dst" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-manifest = Path(sys.argv[1]).expanduser().resolve().with_suffix(".manifest.json")
-print(manifest.read_text(encoding="utf-8"))
+try:
+    src_uri = f"file:{src}?mode=ro"
+    with sqlite3.connect(src_uri, uri=True, timeout=30.0) as src_conn:
+        src_conn.execute("PRAGMA busy_timeout = 30000")
+        with sqlite3.connect(partial, timeout=30.0) as dst_conn:
+            src_conn.backup(dst_conn, pages=1000, sleep=0.05)
+            quick_check = dst_conn.execute("PRAGMA quick_check").fetchone()[0]
+    if quick_check != "ok":
+        raise RuntimeError(f"research snapshot quick_check failed: {quick_check}")
+    payload = {
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source_path": str(src),
+        "snapshot_path": str(dst),
+        "manifest_path": str(manifest),
+        "database_url": "sqlite:///" + str(dst),
+        "source_size_bytes": src.stat().st_size,
+        "snapshot_size_bytes": partial.stat().st_size,
+        "quick_check": quick_check,
+    }
+    partial.replace(dst)
+    partial_manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    partial_manifest.replace(manifest)
+    print(json.dumps(payload, ensure_ascii=False))
+finally:
+    partial.unlink(missing_ok=True)
+    partial_manifest.unlink(missing_ok=True)
 PY
 )"
+snapshot_status=$?
+set -e
+
+if [[ "$snapshot_status" -ne 0 ]]; then
+  if [[ "$snapshot_status" -eq 124 ]]; then
+    echo "research snapshot timed out after ${timeout_seconds}s; final snapshot was not replaced" >&2
+  else
+    echo "research snapshot failed with status ${snapshot_status}; final snapshot was not replaced" >&2
+  fi
+  exit "$snapshot_status"
+fi
 
 if [[ "$as_json" == "true" ]]; then
   printf '%s\n' "$snapshot_json"

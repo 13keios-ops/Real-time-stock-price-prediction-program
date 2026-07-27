@@ -36,6 +36,7 @@ NOT_BEFORE = datetime(2026, 7, 20, 15, 30, tzinfo=KST)
 HORIZON_MIN = 15
 E5_THRESHOLD = 0.40
 E5_Z_THRESHOLD = 1.6449
+DEFAULT_SNAPSHOT_TIMEOUT_SECONDS = 180
 DEFAULT_REPORT_ROOT = Path("runtime-data/reports/research/preregistered-e1-e5-20260718")
 DEFAULT_ATTEMPT_PATH = DEFAULT_REPORT_ROOT / "latest-attempt.json"
 DEFAULT_LATEST_PATH = DEFAULT_REPORT_ROOT / "latest-completed-round.json"
@@ -321,18 +322,45 @@ def write_round_outputs(payload: dict[str, Any], output_dir: Path) -> dict[str, 
     return {key: str(path) for key, path in paths.items()}
 
 
-def _create_snapshot(project_root: Path) -> Path:
-    result = subprocess.run(
-        ["bash", str(project_root / "scripts" / "create_research_db_snapshot.sh"), "--json"],
-        cwd=project_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    payload = json.loads(result.stdout)
+class ResearchSnapshotError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _create_snapshot(
+    project_root: Path,
+    *,
+    timeout_seconds: int = DEFAULT_SNAPSHOT_TIMEOUT_SECONDS,
+) -> Path:
+    command = [
+        "bash",
+        str(project_root / "scripts" / "create_research_db_snapshot.sh"),
+        "--json",
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=project_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds + 20,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ResearchSnapshotError("research_snapshot_subprocess_timeout") from exc
+    if result.returncode:
+        code = "research_snapshot_timeout" if result.returncode == 124 else "research_snapshot_failed"
+        raise ResearchSnapshotError(code)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise ResearchSnapshotError("research_snapshot_invalid_output") from exc
     snapshot_path = Path(str(payload["snapshot_path"])).expanduser().resolve()
     if not snapshot_path.is_file() or payload.get("quick_check") != "ok":
-        raise RuntimeError("research snapshot verification failed")
+        raise ResearchSnapshotError("research_snapshot_verification_failed")
     return snapshot_path
 
 
@@ -366,8 +394,11 @@ def main() -> int:
     parser.add_argument("--database-path", type=Path)
     parser.add_argument("--diagnostics-path", type=Path, default=DEFAULT_DIAGNOSTICS)
     parser.add_argument("--report-root", type=Path, default=DEFAULT_REPORT_ROOT)
+    parser.add_argument("--snapshot-timeout-seconds", type=int, default=DEFAULT_SNAPSHOT_TIMEOUT_SECONDS)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
+    if args.snapshot_timeout_seconds <= 0:
+        parser.error("--snapshot-timeout-seconds must be positive")
 
     project_root = Path(args.project_root).expanduser().resolve()
     report_root = _resolve_repo_path(args.report_root, project_root, "report_root")
@@ -428,11 +459,30 @@ def main() -> int:
         print(json.dumps(attempt, ensure_ascii=False, indent=2, sort_keys=True))
         return 2
 
-    database_path = (
-        args.database_path.expanduser().resolve()
-        if args.database_path is not None
-        else _create_snapshot(project_root)
-    )
+    try:
+        database_path = (
+            args.database_path.expanduser().resolve()
+            if args.database_path is not None
+            else _create_snapshot(project_root, timeout_seconds=args.snapshot_timeout_seconds)
+        )
+    except ResearchSnapshotError as exc:
+        attempt = {
+            "schema_version": 1,
+            "job_type": "preregistered-e1-e5-round-attempt",
+            "status": "snapshot_failed",
+            "execution_requested": True,
+            "gate": gate,
+            "window": {"start_date": WINDOW_START, "end_date": WINDOW_END},
+            "snapshot": {
+                "status": exc.code,
+                "timeout_seconds": args.snapshot_timeout_seconds,
+                "final_snapshot_replaced": False,
+            },
+            "safety": {"network_calls_executed": 0, "order_calls_executed": 0},
+        }
+        _write_json_atomic(attempt_path, attempt)
+        print(json.dumps(attempt, ensure_ascii=False, indent=2, sort_keys=True))
+        return 1
     if not database_path.is_file():
         raise SystemExit(f"database not found: {database_path}")
     diagnostics_path = args.diagnostics_path

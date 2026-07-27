@@ -12,7 +12,7 @@ import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -337,17 +337,47 @@ def _broker_status_flow(
     }
 
 
-def _recent_rejected_close_orders(
+def _rejected_close_order_activity(
     conn: sqlite3.Connection,
     symbol: str,
     *,
+    reference_time: str | None,
+    lookback_hours: int = 24,
     limit: int = 5,
 ) -> dict[str, Any]:
     if not _table_exists(conn, "paper_orders"):
-        return {"count": 0, "latest": []}
+        return {"lifetime_count": 0, "recent_count": 0, "latest": []}
     where = "where symbol = ? and side = 'sell' and status = 'rejected'"
     try:
-        count = conn.execute(f"select count(*) from paper_orders {where}", (symbol,)).fetchone()[0]
+        aggregate = conn.execute(
+            f"select count(*) as count, min(event_time) as first_event_time, max(event_time) as last_event_time "
+            f"from paper_orders {where}",
+            (symbol,),
+        ).fetchone()
+        lifetime_count = int(aggregate["count"] or 0)
+        first_event_time = aggregate["first_event_time"]
+        last_event_time = aggregate["last_event_time"]
+        effective_reference = reference_time or last_event_time
+        cutoff = None
+        if effective_reference:
+            try:
+                cutoff = (
+                    datetime.fromisoformat(str(effective_reference)) - timedelta(hours=lookback_hours)
+                ).isoformat(timespec="seconds")
+            except (TypeError, ValueError):
+                cutoff = None
+        recent_where = where + (" and event_time >= ?" if cutoff else "")
+        recent_params: tuple[Any, ...] = (symbol, cutoff) if cutoff else (symbol,)
+        recent_count = int(
+            conn.execute(f"select count(*) from paper_orders {recent_where}", recent_params).fetchone()[0]
+        )
+        recent_unique_minutes = int(
+            conn.execute(
+                f"select count(distinct substr(event_time, 1, 16)) from paper_orders {recent_where}",
+                recent_params,
+            ).fetchone()[0]
+            or 0
+        )
         rows = [
             dict(row)
             for row in conn.execute(
@@ -362,9 +392,17 @@ def _recent_rejected_close_orders(
             ).fetchall()
         ]
     except sqlite3.DatabaseError as exc:
-        return {"count": 0, "latest": [], "error": str(exc)}
-    return {"count": count, "latest": rows}
-
+        return {"lifetime_count": 0, "recent_count": 0, "latest": [], "error": str(exc)}
+    return {
+        "lifetime_count": lifetime_count,
+        "recent_count": recent_count,
+        "recent_unique_minutes": recent_unique_minutes,
+        "lookback_hours": lookback_hours,
+        "reference_time": effective_reference,
+        "first_event_time": first_event_time,
+        "last_event_time": last_event_time,
+        "latest": rows,
+    }
 
 def _quantities_equal(left: Any, right: Any) -> bool:
     try:
@@ -379,7 +417,7 @@ def _classify_position_divergence(
     broker_qty: Any,
     broker_order_fill_net_qty: Any,
     broker_status_available: bool,
-    rejected_close_count: int,
+    rejected_close_recent_count: int,
     broker_sync_status: str | None,
 ) -> tuple[str, str, str]:
     if broker_sync_status == "rate_limited":
@@ -398,7 +436,7 @@ def _classify_position_divergence(
                 "브로커 계좌 잔고에만 남은 수량이다. 수동/외부 모의계좌 체결 또는 계좌 snapshot 원천 차이를 확인한다.",
             )
         if _quantities_equal(broker_qty, 0) and not _quantities_equal(local_qty, 0):
-            suffix = "_with_rejected_local_close" if rejected_close_count else ""
+            suffix = "_with_active_rejected_local_close_retry" if rejected_close_recent_count else ""
             return (
                 f"broker_account_flat_but_order_fill_net_positive{suffix}",
                 "kis_account_snapshot_vs_order_fill_ledger_divergence",
@@ -417,11 +455,11 @@ def _classify_position_divergence(
             "local_ledger_divergence",
             "브로커 주문/체결 원장과 계좌 잔고는 맞지만 로컬 장부가 다르다. 로컬 position restore/fill 적용 경로를 확인한다.",
         )
-    if rejected_close_count:
+    if rejected_close_recent_count:
         return (
             "rejected_close_orders_require_manual_review",
             "local_close_rejection_loop",
-            "반복 청산 거부가 있어 신규 청산 반복을 막고 주문 가능 수량 원천을 확인한다.",
+            "최근 반복 청산 거부가 있어 신규 청산 반복을 막고 주문 가능 수량 원천을 확인한다.",
         )
     return (
         "needs_manual_review",
@@ -443,13 +481,17 @@ def _summarize_symbol_trace(
     latest_broker_submission = _latest_row(symbol_trace.get("broker_paper_order_submissions", []))
     latest_broker_status = _latest_row(symbol_trace.get("broker_paper_order_status_snapshots", []))
     broker_status_flow = _broker_status_flow(conn, symbol, latest_status_synced_at=latest_status_synced_at)
-    rejected_close_orders = _recent_rejected_close_orders(conn, symbol)
+    rejected_close_orders = _rejected_close_order_activity(
+        conn,
+        symbol,
+        reference_time=latest_status_synced_at,
+    )
     likely_issue, root_cause_scope, recommended_action = _classify_position_divergence(
         local_qty=mismatch.get("local_qty"),
         broker_qty=mismatch.get("broker_qty"),
         broker_order_fill_net_qty=broker_status_flow.get("filled_net_qty"),
         broker_status_available=bool(broker_status_flow.get("available")),
-        rejected_close_count=int(rejected_close_orders.get("count") or 0),
+        rejected_close_recent_count=int(rejected_close_orders.get("recent_count") or 0),
         broker_sync_status=broker_sync_status,
     )
     return {
@@ -465,7 +507,9 @@ def _summarize_symbol_trace(
         "latest_local_order": latest_local_order,
         "latest_broker_submission": latest_broker_submission,
         "latest_broker_status_snapshot": latest_broker_status,
-        "recent_rejected_close_order_count": rejected_close_orders.get("count", 0),
+        "rejected_close_order_activity": rejected_close_orders,
+        "rejected_close_order_lifetime_count": rejected_close_orders.get("lifetime_count", 0),
+        "recent_rejected_close_order_count": rejected_close_orders.get("recent_count", 0),
         "recent_rejected_close_orders": rejected_close_orders.get("latest", []),
         "likely_issue": likely_issue,
         "recommended_action": recommended_action,
@@ -617,6 +661,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                 item.get("local_qty"),
                 item.get("broker_qty"),
                 item.get("broker_order_fill_net_qty"),
+                item.get("rejected_close_order_lifetime_count"),
                 item.get("recent_rejected_close_order_count"),
                 latest_local_order.get("side"),
                 latest_local_order.get("status"),
@@ -633,7 +678,8 @@ def render_markdown(report: dict[str, Any]) -> str:
                     "local_qty",
                     "broker_account_qty",
                     "broker_order_fill_net_qty",
-                    "rejected_close_count",
+                    "rejected_close_lifetime_count",
+                    "rejected_close_recent_count",
                     "latest_local_side",
                     "latest_local_status",
                     "latest_local_time",
@@ -667,6 +713,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             "- This report is read-only and does not align or mutate account state.",
             "- If broker sync is rate-limited, local-only positions can mean missing broker fills, stale local state, or both.",
             "- If local_qty equals broker_order_fill_net_qty but broker_account_qty differs, the immediate issue is KIS account snapshot vs KIS order/fill ledger divergence.",
+            "- rejected_close_lifetime_count is historical context; rejected_close_recent_count is the only field used to identify an active retry pattern.",
             "- Do not apply marker-only alignment until the order/fill path for each mismatched symbol is understood.",
             "",
             "관련 문서/코드 경로:",

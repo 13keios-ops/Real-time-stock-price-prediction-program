@@ -6,6 +6,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from scripts.run_preregistered_e1_e5_round import (
+    ResearchSnapshotError,
+    _create_snapshot,
     evaluate_execution_gate,
     evaluate_label_refresh_gate,
     run_preregistered_round,
@@ -14,6 +16,18 @@ from scripts.run_preregistered_e1_e5_round import (
 
 
 class PreregisteredE1E5RoundTests(unittest.TestCase):
+    def test_snapshot_timeout_is_bounded_and_classified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir()
+            snapshot_script = scripts_dir / "create_research_db_snapshot.sh"
+            snapshot_script.write_text("#!/usr/bin/env bash\nexit 124\n", encoding="utf-8")
+            with self.assertRaises(ResearchSnapshotError) as caught:
+                _create_snapshot(root, timeout_seconds=1)
+
+        self.assertEqual(caught.exception.code, "research_snapshot_timeout")
+
     def test_execution_gate_enforces_not_before_and_protected_session(self) -> None:
         kst = ZoneInfo("Asia/Seoul")
         early = evaluate_execution_gate(

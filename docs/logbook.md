@@ -7,9 +7,9 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: `2026-07-23 장후 KST`
-- 장 상태: `post-close`
-- live runtime: 장후 정상 정지
+- 기준 시각: 2026-07-28 장전 전 KST
+- 장 상태: overnight
+- live runtime: 야간 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
@@ -22,9 +22,9 @@
 ## 활성 체크리스트
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
-- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 `SyncInitialCash`는 보류.
+- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-07-28에 네 종목의 매분 rejected sell 재시도는 fail-closed로 차단했다.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
-- [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지.
+- [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지. 다음 명시 실행은 180초 timeout과 atomic snapshot/attempt 기록으로 보호.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
 - [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
 
@@ -32,12 +32,21 @@
 
 ## 최신 검증
 
-- 전체 unittest: `522 tests OK`
+- 전체 unittest: 525 tests OK
 - 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
-- 저장소 구조/Markdown 감사: `errors=0`, 구조 부채 경고 2건
+- 저장소 구조/Markdown 감사: errors=0, 구조 부채 경고 2건
 - dashboard snapshot: `2026-07-12 22:40 KST` 생성
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-07-28] Phase 0 재시도 차단과 E1/E5 snapshot 보호
+
+- runtime 원장을 read-only로 분석한 결과 035420, 086520, 105560, 247540은 실패한 KIS paper mirrored sell을 장중 매 분 재시도했다. 2026-07-27 최근 24시간 거절 건수는 각각 382, 379, 380, 380이며 누적 전체는 9,753, 7,830, 9,864, 3,901건이다.
+- OnlinePipelineProcessor는 broker submission acknowledgement를 받지 못한 close를 rejected로 기록한 뒤 같은 symbol의 추가 close submission을 차단한다. runtime 재시작 시에도 마지막 sell 상태가 rejected이고 local position이 남아 있으면 차단을 복원한다. 명시적인 정합성 수리 전에는 재시도하지 않는다.
+- mismatch trace는 lifetime rejected count와 24시간 recent count를 분리해, 과거 흔적만으로 active loop라고 단정하지 않도록 바꿨다.
+- research snapshot은 D드라이브 복사 중 180초를 넘기면 final snapshot/manifest를 교체하지 않는다. partial 파일에서 quick_check 뒤 atomic replace하고, E1/E5 runner는 latest-completed-round 대신 sanitized snapshot_failed attempt만 남긴다.
+- 주문 정책, threshold, gate, active model, app/risk, config, VERSION, ALLOW_LIVE_ORDERS, KIS 네트워크 호출, 실제 주문/취소는 변경하지 않았다.
+- 관련 회귀 테스트 20건, 전체 unittest 525 tests OK, 작은 SQLite snapshot atomic smoke를 통과했다.
 
 ## [2026-07-23] Phase 0 10일 관측 종료와 장후 점검
 

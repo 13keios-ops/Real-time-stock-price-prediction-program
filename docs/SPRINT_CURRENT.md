@@ -36,9 +36,9 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 - [x] 2026-07-13~16 정규장 `serving_decision_ledger` 축적 확인 (2026-07-17 KIS 수집 공백은 별도 P0)
 - [ ] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` 누락 여부 확인
 - [ ] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과가 연결되는지 확인
-- [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인
+- [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 매분 rejected sell 재시도 루프는 2026-07-28 fail-closed로 차단
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행 complete lineage)
-- [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성)
+- [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성). 자동 재실행은 금지하며 다음 명시 실행은 timeout/atomic snapshot으로 보호
 - [ ] E1/E5 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정
 - [ ] cowork 리뷰가 필요한 결과면 새 review/work 라운드 생성
 

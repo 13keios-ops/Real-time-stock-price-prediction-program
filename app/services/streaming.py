@@ -150,9 +150,11 @@ class OnlinePipelineProcessor:
         )
         self.pending_order_symbols: set[str] = set()
         self.pending_buy_symbols: set[str] = set()
+        self.close_retry_blocked_symbols: set[str] = set()
         self._last_broker_sync_minute: datetime | None = None
         self._broker_sync_pause_until: datetime | None = None
         self._restore_pending_order_state()
+        self._restore_close_retry_block_state()
 
     def _build_live_id_namespace(self) -> str:
         timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
@@ -223,6 +225,36 @@ class OnlinePipelineProcessor:
             self.pending_order_symbols.add(symbol)
             if str(payload.get("side") or "").lower() == "buy":
                 self.pending_buy_symbols.add(symbol)
+
+    def _restore_close_retry_block_state(self) -> None:
+        """Keep failed mirrored close orders fail-closed across a runtime restart.
+
+        A failed submission is ambiguous: the broker may have received it even
+        when the local request did not return an acknowledgement. Retrying it
+        every minute can create duplicate sell orders, so an explicit
+        reconciliation or repair must resolve it instead.
+        """
+        sqlite_store = self.writer.sqlite_store
+        if sqlite_store is None:
+            return
+        order_rows = filter_rows_after_alignment(
+            [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        latest_close_status: dict[str, str] = {}
+        for payload in order_rows:
+            symbol = str(payload.get("symbol") or "")
+            if not symbol or str(payload.get("side") or "").lower() != "sell":
+                continue
+            latest_close_status[symbol] = str(payload.get("status") or "")
+        self.close_retry_blocked_symbols = {
+            symbol
+            for symbol, status in latest_close_status.items()
+            if status == "rejected"
+            and symbol in self.portfolio_book.positions
+            and self.portfolio_book.positions[symbol].qty > 0
+        }
 
     def _mirror_order_to_broker(self, order) -> None:
         if not self.broker_paper_mirror.enabled:
@@ -579,6 +611,8 @@ class OnlinePipelineProcessor:
             return None
         if symbol in self.pending_order_symbols:
             return "broker_order_pending"
+        if symbol in self.close_retry_blocked_symbols:
+            return "broker_close_retry_blocked"
 
         hold_minutes = (event_time - state.opened_at).total_seconds() / 60
         is_forced_flat = event_time.timetz().replace(tzinfo=None) >= self.forced_flat_time
@@ -614,6 +648,7 @@ class OnlinePipelineProcessor:
                 self.writer.write_paper_order(order)
             else:
                 order.status = "rejected"
+                self.close_retry_blocked_symbols.add(symbol)
                 self.writer.write_paper_order(order)
                 self.writer.write_order_event(
                     OrderEvent(

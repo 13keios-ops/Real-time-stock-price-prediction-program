@@ -190,6 +190,75 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
         self.assertIn("2 symbol(s)", report["assessment"]["summary"])
 
 
+    def test_separates_rejected_close_history_from_active_retry_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "trace.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                create table paper_orders (
+                    order_id text, symbol text, event_time text, side text, qty integer,
+                    limit_price real, status text
+                );
+                create table broker_paper_order_status_snapshots (
+                    sync_id text, local_order_id text, broker_mode text, symbol text,
+                    synced_at text, side text, order_qty real, filled_qty real,
+                    applied_fill_qty real, status text
+                );
+                """
+            )
+            conn.executemany(
+                "insert into paper_orders values (?, '005930', ?, 'sell', 1, 70000, 'rejected')",
+                [
+                    ("old-close", "2026-07-01T15:19:00+09:00"),
+                    ("active-close", "2026-07-03T15:18:00+09:00"),
+                ],
+            )
+            conn.execute(
+                "insert into broker_paper_order_status_snapshots values (?, ?, 'paper', '005930', ?, 'buy', 1, 1, 1, 'filled')",
+                ("sync-1", "local-buy", "2026-07-03T16:00:00+09:00"),
+            )
+            conn.commit()
+            conn.close()
+            dual_path = tmp_path / "dual.json"
+            account_path = tmp_path / "account.json"
+            broker_path = tmp_path / "broker.json"
+            dual_path.write_text(
+                json.dumps({"comparison": {"status": "ok", "mismatch_rows": []}}),
+                encoding="utf-8",
+            )
+            account_path.write_text(
+                json.dumps(
+                    {
+                        "comparison": {
+                            "status": "needs_review",
+                            "mismatch_rows": [
+                                {"symbol": "005930", "status": "only_local", "local_qty": 1, "broker_qty": 0}
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            broker_path.write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+            report = build_trace_report(
+                db_path=db_path,
+                dual_match_path=dual_path,
+                account_sync_path=account_path,
+                broker_sync_path=broker_path,
+                limit_per_table=3,
+                include_auxiliary=False,
+            )
+
+        summary = report["symbol_summaries"][0]
+        activity = summary["rejected_close_order_activity"]
+        self.assertEqual(activity["lifetime_count"], 2)
+        self.assertEqual(activity["recent_count"], 1)
+        self.assertEqual(activity["recent_unique_minutes"], 1)
+        self.assertIn("active_rejected_local_close_retry", summary["likely_issue"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
