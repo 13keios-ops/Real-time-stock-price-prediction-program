@@ -39,8 +39,8 @@
 - KIS REST 현재가/호가 조회
 - KIS WebSocket 파서, 수신기, 재연결 처리
 - KIS WebSocket 연결 준비와 장중 데이터 수신 검증 리포트
-- SQLite와 JSONL 기반 runtime 저장
-- 원시 체결/호가 저장
+- SQLite 정본과 JSONL 보조본 기반 runtime 저장. feature JSONL은 SQLite primary key 기준으로 재생성할 수 있으며 오프라인 dataset 재구축은 SQLite만 upsert해 append-only JSONL 중복을 만들지 않는다.
+- 원시 체결/호가 저장. 비정상 top-of-book 호가(bid 또는 ask 0 이하, crossed)는 raw 감사 원장에는 남기되 신호 상태, feature, 연구 입력에서 fail-closed로 제외한다.
 - 1분봉 생성
 - feature / label 생성
 - baseline, centroid, linear-score, LightGBM 학습과 비교
@@ -50,7 +50,7 @@
 - 활성 모델 등록부와 내장 예비 모델
 - 재생과 실시간 흐름의 모의운용 상태 기록
 - 실행 리포트, 백테스트 리포트, 워크포워드 리포트, 도전자 모델 리포트
-- 로컬 대시보드 스냅샷 생성과 HTTP 제공
+- 로컬 대시보드 스냅샷 생성과 HTTP 제공. 모의계좌 화면은 전체 정렬 원장의 현재 잔고와 포지션을 표시하고, 선택 기간 주문과 체결 지표는 별도 활동값으로 표시한다.
 - 실시간 수집기 백그라운드 시작/상태/중지
 - 실행 감시기 백그라운드 시작/상태/중지
 - PC 로그인 후 자동 복구용 실행 자동시작과 시작프로그램 실행기

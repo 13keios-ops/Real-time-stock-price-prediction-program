@@ -515,6 +515,33 @@ def _summarize_symbol_trace(
         "recommended_action": recommended_action,
     }
 
+def _account_snapshot_evidence(account_sync: dict[str, Any]) -> dict[str, Any]:
+    broker_account = account_sync.get("broker_account")
+    comparison = account_sync.get("comparison")
+    if not isinstance(broker_account, dict):
+        return {"available": False, "shape_complete": False}
+
+    required_fields = (
+        "cash_balance",
+        "stock_evaluation_amount",
+        "total_asset_amount",
+        "position_row_count",
+        "summary_row_count",
+    )
+    return {
+        "available": True,
+        "mode": broker_account.get("mode"),
+        "product_code": broker_account.get("product_code"),
+        "as_of": account_sync.get("as_of"),
+        "fetched_at": comparison.get("latest_broker_fetch_time") if isinstance(comparison, dict) else None,
+        "position_row_count": broker_account.get("position_row_count"),
+        "summary_row_count": broker_account.get("summary_row_count"),
+        "shape_complete": all(broker_account.get(field) is not None for field in required_fields),
+        "order_mirroring_enabled": comparison.get("order_mirroring_enabled") if isinstance(comparison, dict) else None,
+        "mirrored_order_count": comparison.get("mirrored_order_count") if isinstance(comparison, dict) else None,
+    }
+
+
 def build_trace_report(
     *,
     db_path: Path,
@@ -539,6 +566,7 @@ def build_trace_report(
         },
         "dual_account_status": dual_match.get("status") or dual_match.get("comparison", {}).get("status"),
         "paper_account_sync_status": account_sync.get("comparison", {}).get("status"),
+        "account_snapshot_evidence": _account_snapshot_evidence(account_sync),
         "mismatch_source_report": mismatch_source,
         "broker_sync": _broker_sync_summary(broker_sync),
         "mismatch_count": len(symbols),
@@ -635,6 +663,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- mismatch_source_report: `{report.get('mismatch_source_report')}`",
         f"- dual_account_status: `{report.get('dual_account_status')}`",
         f"- paper_account_sync_status: `{report.get('paper_account_sync_status')}`",
+        f"- account_snapshot_mode: `{report.get('account_snapshot_evidence', {}).get('mode')}`",
+        f"- account_snapshot_fetched_at: `{report.get('account_snapshot_evidence', {}).get('fetched_at')}`",
+        f"- account_snapshot_shape_complete: `{report.get('account_snapshot_evidence', {}).get('shape_complete')}`",
         f"- broker_sync_status: `{report.get('broker_sync', {}).get('status')}`",
         f"- broker_open_order_count: `{report.get('broker_sync', {}).get('open_order_count')}`",
         "",

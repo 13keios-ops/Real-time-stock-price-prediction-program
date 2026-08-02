@@ -258,6 +258,57 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
         self.assertEqual(activity["recent_unique_minutes"], 1)
         self.assertIn("active_rejected_local_close_retry", summary["likely_issue"])
 
+    def test_exposes_sanitized_account_snapshot_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "trace.db"
+            sqlite3.connect(db_path).close()
+            dual_path = tmp_path / "dual.json"
+            account_path = tmp_path / "account.json"
+            broker_path = tmp_path / "broker.json"
+            dual_path.write_text(json.dumps({"comparison": {"status": "ok", "mismatch_rows": []}}), encoding="utf-8")
+            account_path.write_text(
+                json.dumps(
+                    {
+                        "as_of": "2026-07-31T16:55:06+09:00",
+                        "comparison": {
+                            "status": "needs_review",
+                            "latest_broker_fetch_time": "2026-07-31T16:55:05+09:00",
+                            "order_mirroring_enabled": True,
+                            "mirrored_order_count": 320,
+                            "mismatch_rows": [
+                                {"symbol": "005930", "status": "only_local", "local_qty": 1, "broker_qty": 0}
+                            ],
+                        },
+                        "broker_account": {
+                            "mode": "paper",
+                            "product_code": "01",
+                            "cash_balance": 1000000,
+                            "stock_evaluation_amount": 0,
+                            "total_asset_amount": 1000000,
+                            "position_row_count": 0,
+                            "summary_row_count": 1,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            broker_path.write_text(json.dumps({"status": "ok"}), encoding="utf-8")
+            report = build_trace_report(
+                db_path=db_path,
+                dual_match_path=dual_path,
+                account_sync_path=account_path,
+                broker_sync_path=broker_path,
+                limit_per_table=3,
+                include_auxiliary=False,
+            )
+
+        evidence = report["account_snapshot_evidence"]
+        self.assertTrue(evidence["available"])
+        self.assertEqual(evidence["mode"], "paper")
+        self.assertEqual(evidence["product_code"], "01")
+        self.assertTrue(evidence["shape_complete"])
+        self.assertNotIn("account_no_masked", evidence)
 
 
 if __name__ == "__main__":

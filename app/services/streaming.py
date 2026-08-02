@@ -68,6 +68,7 @@ class OnlinePipelineResult:
     signals_written: int
     orders_written: int
     runtime_root: Path
+    invalid_orderbook_events: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -75,6 +76,7 @@ class OnlinePipelineResult:
             "control_frames": self.control_frames,
             "raw_trade_events": self.raw_trade_events,
             "raw_orderbook_events": self.raw_orderbook_events,
+            "invalid_orderbook_events": self.invalid_orderbook_events,
             "minute_bars_written": self.minute_bars_written,
             "predictions_written": self.predictions_written,
             "signals_written": self.signals_written,
@@ -131,6 +133,7 @@ class OnlinePipelineProcessor:
         self.states: dict[str, OnlineSymbolState] = {}
         self.raw_trade_events = 0
         self.raw_orderbook_events = 0
+        self.invalid_orderbook_events = 0
         self.minute_bars_written = 0
         self.predictions_written = 0
         self.signals_written = 0
@@ -378,6 +381,14 @@ class OnlinePipelineProcessor:
             return
         self.writer.write_orderbook_snapshot(snapshot)
         self.raw_orderbook_events += 1
+        if not snapshot.is_valid_for_trading:
+            self.invalid_orderbook_events += 1
+            LOGGER.warning(
+                "Ignoring invalid orderbook quote for signal state symbol=%s reason=%s",
+                snapshot.symbol,
+                snapshot.trading_validity_reason,
+            )
+            return
         state = self._state(snapshot.symbol)
         state.latest_orderbook = snapshot
 
@@ -691,6 +702,7 @@ class OnlinePipelineProcessor:
             control_frames=0,
             raw_trade_events=self.raw_trade_events,
             raw_orderbook_events=self.raw_orderbook_events,
+            invalid_orderbook_events=self.invalid_orderbook_events,
             minute_bars_written=self.minute_bars_written,
             predictions_written=self.predictions_written,
             signals_written=self.signals_written,

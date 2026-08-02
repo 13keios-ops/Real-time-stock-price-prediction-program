@@ -5027,6 +5027,8 @@ def build_feature_dataset_from_sqlite(
             ask_size=int(row["ask_size"]),
             source=row["source"],
         )
+        if not snapshot.is_valid_for_trading:
+            continue
         orderbooks_by_symbol[row["symbol"]][_minute_floor(event_time)] = snapshot
 
     writer = _get_research_writer(settings) if persist_runtime_artifacts else None
@@ -5041,8 +5043,7 @@ def build_feature_dataset_from_sqlite(
         if not feature_batch and not label_batch:
             return
         if writer is not None:
-            writer.write_feature_snapshots_batch(feature_batch)
-            writer.write_feature_labels_batch(label_batch)
+            writer.upsert_reconstructed_feature_batches(feature_batch, label_batch)
         else:
             sqlite_store.upsert_feature_snapshots_many(feature_batch)
             sqlite_store.upsert_feature_labels_many(label_batch)

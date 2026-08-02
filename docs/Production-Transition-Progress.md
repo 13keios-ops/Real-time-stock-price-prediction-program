@@ -24,7 +24,7 @@
 - 최근 10거래일 누적: `10/10` 관측 완료
 - matched/mismatch: `0일/10일`로 완료 조건 미통과
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 원인 범위: local paper/KIS order-fill 순수량 `2/6/4/5`와 KIS account snapshot 수량 `0/5/0/10`의 divergence가 남아 있다. lifetime rejected close는 수천 건이나 2026-08-02 trace에서 recent count는 모두 0건이며, 2026-07-28 fail-closed 차단 뒤 active retry는 없다.
+- 원인 범위: local paper/KIS order-fill 순수량 2/6/4/5와 KIS account snapshot 수량 0/5/0/10의 divergence가 남아 있다. sanitized trace는 paper snapshot의 mode, product, fetch 시각, row-count shape를 함께 기록한다. lifetime rejected close는 수천 건이나 2026-08-02 trace에서 recent count는 모두 0건이며, 2026-07-28 fail-closed 차단 뒤 active retry는 없다.
 - 자동 align과 `SyncInitialCash`: 보류
 - 완료 조건: 10개 유효 장후 거래일 모두 정합하고 현재 divergence 해소
 
@@ -75,7 +75,7 @@
 ## 4. 현재 P0
 
 1. KIS WebSocket 재연결 빈도 관찰: 2026-07-20 decision ledger 3,812행은 정상 수집됐으나 `no close frame` 재연결 29회 발생
-2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 현재 cash gap은 `714,840.9593원`이며 rejected close recent count는 0건
+2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 현재 cash gap은 714,840.9593원이며 rejected close recent count는 0건이다. 다음 거래일에는 같은 sanitized snapshot evidence와 함께 재확인한다.
 3. E1/E5 유효 결과 확보: 2026-07-20 1회 시도는 D드라이브 snapshot I/O 대기로 결과 파일 미생성, 자동 재실행 금지. 다음 명시 실행은 180초 timeout, partial/atomic snapshot, sanitized failure attempt로 보호
 4. 유효 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
 5. 유효 결과가 실패하면 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록

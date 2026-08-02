@@ -2590,7 +2590,7 @@ def collect_dashboard_payload(
             else "실제 장중 라벨이 아직 부족해 학습 상태는 마지막 연구용 결과를 참고하는 준비 단계입니다."
         ),
     }
-    local_account_state = _build_local_account_summary(
+    period_local_account_state = _build_local_account_summary(
         latest_snapshot=latest_portfolio_snapshot,
         positions=positions,
         all_positions=position_rows_all,
@@ -2600,6 +2600,24 @@ def collect_dashboard_payload(
         live_runtime_state=live_runtime_state,
     )
     reconciliation_local_account_state = load_local_paper_account_state(settings)
+    period_activity = {
+        key: period_local_account_state.get(key)
+        for key in ("buy_orders", "sell_orders", "orders_total", "fills", "fill_qty", "fill_rate")
+    }
+    local_account_state = {
+        **period_local_account_state,
+        "cash_balance": reconciliation_local_account_state.get("cash_balance"),
+        "net_liquidation_value": reconciliation_local_account_state.get("net_liquidation_value"),
+        "gross_market_value": reconciliation_local_account_state.get("gross_market_value"),
+        "realized_pnl": reconciliation_local_account_state.get("realized_pnl"),
+        "unrealized_pnl": reconciliation_local_account_state.get("unrealized_pnl"),
+        "latest_snapshot_time": reconciliation_local_account_state.get("latest_snapshot_time"),
+        "positions": reconciliation_local_account_state.get("positions") or [],
+        "open_positions": len(reconciliation_local_account_state.get("positions") or []),
+        "account_scope": "aligned_runtime_ledger",
+        "account_scope_note": "정렬 기준 이후 전체 로컬 원장을 반영한 현재 계좌 상태입니다.",
+        "period_activity": period_activity,
+    }
 
     def _load_account(mode: str) -> dict[str, Any]:
         try:
@@ -4941,11 +4959,12 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                         + '<div class="pillrow" style="margin-top:12px;">'
                         + f'<span class="pill">열린 포지션: {virtual_account.get("open_positions", 0)}건</span>'
                         + f'<span class="pill">최근 종료 포지션: {virtual_account.get("closed_positions_count", 0)}건</span>'
-                        + f'<span class="pill">총 주문: {virtual_account.get("orders_total", 0)}건</span>'
-                        + f'<span class="pill">체결률: {_ratio_pct(virtual_account.get("fill_rate"), 1)}</span>'
+                        + f'<span class="pill">선택 기간 주문: {(virtual_account.get("period_activity") or {}).get("orders_total", 0)}건</span>'
+                        + f'<span class="pill">선택 기간 체결률: {_ratio_pct((virtual_account.get("period_activity") or {}).get("fill_rate"), 1)}</span>'
                         + "</div>",
                         note=(
                             f"{_esc(virtual_account.get('status_note'))}<br>"
+                            f"계좌 범위: {_esc(virtual_account.get('account_scope_note'))}<br>"
                             f"운용 방식: {_esc(virtual_account.get('strategy_summary'))}<br>"
                             f"최근 스냅샷 시각: {_esc(virtual_account.get('latest_snapshot_time'))}"
                         ),
@@ -4983,11 +5002,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "매수/매도 및 체결현황",
                 _pill_row(
                     [
-                        f"총 주문: {virtual_account.get('orders_total', 0)}건",
-                        f"매수 주문: {virtual_account.get('buy_orders', 0)}건",
-                        f"매도 주문: {virtual_account.get('sell_orders', 0)}건",
-                        f"체결: {virtual_account.get('fills', 0)}건",
-                        f"체결 수량: {virtual_account.get('fill_qty', 0)}주",
+                        f"선택 기간 주문: {(virtual_account.get('period_activity') or {}).get('orders_total', 0)}건",
+                        f"선택 기간 매수: {(virtual_account.get('period_activity') or {}).get('buy_orders', 0)}건",
+                        f"선택 기간 매도: {(virtual_account.get('period_activity') or {}).get('sell_orders', 0)}건",
+                        f"선택 기간 체결: {(virtual_account.get('period_activity') or {}).get('fills', 0)}건",
+                        f"선택 기간 체결 수량: {(virtual_account.get('period_activity') or {}).get('fill_qty', 0)}주",
                         f"포지션 비중: {_ratio_pct(virtual_account.get('capital_in_market_ratio'), 1)}",
                     ]
                 )

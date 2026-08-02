@@ -7,7 +7,7 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-02 18:00 KST
+- 기준 시각: 2026-08-02 22:24 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
@@ -23,7 +23,7 @@
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
-- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-08-02 trace에서 네 종목 rejected sell recent count는 모두 0건이며, fail-closed 차단 뒤 active retry는 없다.
+- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-08-02 sanitized trace에서 paper snapshot shape는 complete이고 네 종목 rejected sell recent count는 모두 0건이며, fail-closed 차단 뒤 active retry는 없다.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지. 다음 명시 실행은 180초 timeout과 atomic snapshot/attempt 기록으로 보호.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -35,10 +35,19 @@
 
 - 전체 unittest: 2026-08-02 `525 tests OK`
 - 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
-- 저장소 구조/Markdown 감사: 2026-08-02 errors=0, 구조 부채 경고 2건
+- 저장소 구조/Markdown 감사: 2026-08-02 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
 - dashboard snapshot: 최신 artifact lineage guard 확인; 휴장 중 dashboard 재생성은 하지 않음
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-02] 데이터 무결성 및 계좌 표시 보강
+
+- 비정상 top-of-book 호가(bid 또는 ask 0 이하, crossed)를 raw 원장에는 보존하되 signal state, minute feature, offline research 입력에서 fail-closed로 제외했다. spread 기준값과 주문 정책은 바꾸지 않았다.
+- P0 trace는 masked account number 없이 paper mode, product, fetch 시각, row-count shape를 함께 기록하도록 보강했다. 현재 근거는 local paper와 KIS order/fill net이 일치하고 KIS account snapshot만 다르다는 데까지이며, 외부 snapshot 원천 또는 수동 상태의 최종 원인 확정은 다음 거래일 재확인이 필요하다.
+- feature JSONL은 SQLite primary key 정본에서 6,603,588 model input과 11,936,383 label을 전수 재생성·검증했다. 기존 54GB 보조본은 3.6GB canonical JSONL로 교체했고, 이전 디렉터리는 검증 뒤 제거했다. raw, order, fill, SQLite 정본은 변경하지 않았다.
+- 오프라인 feature dataset 재구축은 SQLite가 있을 때 JSONL append를 생략하도록 바꿔 같은 중복 문제가 다시 누적되지 않게 했다.
+- dashboard 모의계좌는 전체 정렬 원장의 현재 잔고/포지션과 선택 기간 주문·체결 활동을 분리해 표시한다. 계좌 현황이 날짜 필터에 따라 축소돼 보이던 혼선을 제거했다.
+- 전체 unittest 531건과 구조/Markdown 감사 errors=0을 통과했다. 주문 정책, threshold, active model, 실전 주문과 취소, config, VERSION, ALLOW_LIVE_ORDERS는 변경하지 않았다. dashboard 검증 중 read-only 계좌 조회는 발생했지만 주문 호출은 없었다.
 
 ## [2026-08-02] 휴장 운영 감사와 원장 진단 갱신
 

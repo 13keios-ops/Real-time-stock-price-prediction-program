@@ -118,6 +118,19 @@ class RuntimeWriter:
         if self.sqlite_store:
             self.sqlite_store.upsert_feature_labels_many(labels)
 
+    def upsert_reconstructed_feature_batches(
+        self,
+        snapshots: list[FeatureSnapshot],
+        labels: list[FeatureLabel],
+    ) -> None:
+        """Persist offline rebuild output without replaying it into JSONL history."""
+        if self.sqlite_store:
+            self.sqlite_store.upsert_feature_snapshots_many(snapshots)
+            self.sqlite_store.upsert_feature_labels_many(labels)
+            return
+        self.write_feature_snapshots_batch(snapshots)
+        self.write_feature_labels_batch(labels)
+
     def write_prediction(self, prediction: Prediction) -> None:
         self.jsonl_store.append("serving", "predictions", prediction.to_record(), prediction.event_time)
         if self.sqlite_store:

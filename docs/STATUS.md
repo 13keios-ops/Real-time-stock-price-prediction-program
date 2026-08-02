@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-02 18:00 KST
+- 확인 시각: 2026-08-02 22:24 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -26,6 +26,8 @@
 - 전체 데이터 품질: `assessment=ok`; 2026-07-31 raw tick, orderbook, 분봉, feature, h15/h60 label이 생성됐고 분봉/feature 장마감 기준 coverage는 약 97.3%다.
 - artifact lineage: 최신 dashboard는 `artifact_lineage_guard_ok=true`이며 LightGBM artifact가 해당 training run과 일치한다. 2026-07-17 수집 공백은 과거 P0로 유지한다.
 - 수집 안정성: 2026-07-20 complete lineage 3,812행은 보존됐고 KIS WebSocket `no close frame` 재연결 29회는 계속 관찰한다.
+- 호가 무결성: bid 또는 ask가 0 이하이거나 crossed인 호가는 raw 감사 원장에는 보존하지만 신호 상태, feature, 연구 입력에는 반영하지 않고 fail-closed로 차단한다.
+- feature JSONL 보조본: 2026-08-02 SQLite 정본 6,603,588 입력과 11,936,383 라벨로 재생성해 54GB에서 3.6GB로 정리했다. 이후 오프라인 재구축은 SQLite만 upsert해 JSONL 이력을 중복 기록하지 않는다.
 
 학습이 멈춘 것이 아니라 현재 모델이 비용 후 양수 기대값을 입증하지 못한 상태다.
 
@@ -51,7 +53,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0의 KIS account snapshot 대 order/fill ledger divergence 해소
+1. Phase 0의 KIS account snapshot 대 order/fill ledger divergence 해소와 다음 거래일 재확인. 로컬 장부 재생/재시도 경로는 현재 근거상 주원인이 아니다.
 2. KIS WebSocket `no close frame` 재연결 빈도와 2026-07-17 approval-key 장애의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거

@@ -32,16 +32,21 @@ def build_feature_snapshot(
     feature_set_version: str,
 ) -> FeatureSnapshot:
     imbalance = 0.0
-    total_size = orderbook.bid_size + orderbook.ask_size
-    if total_size > 0:
-        imbalance = (orderbook.bid_size - orderbook.ask_size) / total_size
+    mid_price = 0.0
+    spread_bps = 0.0
+    if orderbook.is_valid_for_trading:
+        total_size = orderbook.bid_size + orderbook.ask_size
+        if total_size > 0:
+            imbalance = (orderbook.bid_size - orderbook.ask_size) / total_size
+        mid_price = mean([orderbook.bid_price, orderbook.ask_price])
+        spread_bps = orderbook.spread_bps
 
     values = {
         "return_1m_pct": ((bar.close - bar.open) / bar.open) * 100,
         "hl_range_pct": ((bar.high - bar.low) / bar.open) * 100,
         "avg_trade_size": bar.volume / max(bar.trade_count, 1),
-        "mid_price": mean([orderbook.bid_price, orderbook.ask_price]),
-        "spread_bps": orderbook.spread_bps,
+        "mid_price": mid_price,
+        "spread_bps": spread_bps,
         "bid_ask_imbalance": imbalance,
     }
     return FeatureSnapshot(

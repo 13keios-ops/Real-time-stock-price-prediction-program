@@ -34,6 +34,11 @@ class SpreadRiskGate:
         self.max_spread_bps = max_spread_bps
 
     def evaluate(self, orderbook: OrderbookSnapshot) -> RiskDecision:
+        if not orderbook.is_valid_for_trading:
+            return RiskDecision(
+                allowed=False,
+                reason=orderbook.trading_validity_reason or "invalid_orderbook",
+            )
         if orderbook.spread_bps > self.max_spread_bps:
             return RiskDecision(allowed=False, reason="spread_too_wide")
         return RiskDecision(allowed=True, reason="spread_ok")

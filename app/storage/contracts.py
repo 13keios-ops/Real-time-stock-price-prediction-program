@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,21 @@ class OrderbookSnapshot(RecordMixin):
         if midpoint == 0:
             return 0.0
         return (self.spread / midpoint) * 10_000
+
+    @property
+    def trading_validity_reason(self) -> str | None:
+        """Return a stable reason when a top-of-book quote cannot drive a signal."""
+        if not isfinite(self.bid_price) or self.bid_price <= 0:
+            return "invalid_orderbook_bid"
+        if not isfinite(self.ask_price) or self.ask_price <= 0:
+            return "invalid_orderbook_ask"
+        if self.ask_price < self.bid_price:
+            return "invalid_orderbook_crossed"
+        return None
+
+    @property
+    def is_valid_for_trading(self) -> bool:
+        return self.trading_validity_reason is None
 
 
 @dataclass(slots=True)

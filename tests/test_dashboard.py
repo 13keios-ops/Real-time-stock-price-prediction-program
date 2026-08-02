@@ -1343,6 +1343,14 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(reconciliation["mismatch_rows"][0]["symbol"], "005930")
         self.assertEqual(reconciliation["mismatch_rows"][0]["status"], "only_local")
 
+        virtual_account = snapshot.payload["account_views"]["virtual_paper"]
+        self.assertEqual(virtual_account["cash_balance"], 1200000.0)
+        self.assertEqual(virtual_account["net_liquidation_value"], 1214500.0)
+        self.assertEqual(virtual_account["open_positions"], 1)
+        self.assertEqual(virtual_account["positions"][0]["symbol"], "005930")
+        self.assertEqual(virtual_account["account_scope"], "aligned_runtime_ledger")
+        self.assertIn("period_activity", virtual_account)
+
     def test_dashboard_uses_broker_alignment_for_virtual_account_state(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root, env = self._prepare_runtime_root()
