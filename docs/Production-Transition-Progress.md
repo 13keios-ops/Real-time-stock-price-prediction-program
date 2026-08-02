@@ -9,7 +9,7 @@
 - Phase 1b의 주문 없는 live 계좌 조회 준비는 통과했다.
 - 현재 수익 후보는 `0개`다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
-- 2026-07-20 장후 E1/E5는 1회 실행했으나 D드라이브 research snapshot I/O 대기로 결과가 생성되지 않았다. 유효 결과 전에는 다음 연구 분기를 결정하지 않는다.
+- 2026-07-20 장후 E1/E5는 1회 실행했으나 D드라이브 research snapshot I/O 대기로 결과가 생성되지 않았다. 자동 재실행은 금지하며 유효 결과 전에는 다음 연구 분기를 결정하지 않는다.
 
 ## 2. Phase 상태
 
@@ -24,7 +24,7 @@
 - 최근 10거래일 누적: `10/10` 관측 완료
 - matched/mismatch: `0일/10일`로 완료 조건 미통과
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 원인 범위: local paper와 KIS order/fill 순수량은 맞지만 KIS account snapshot 수량이 다름. 별도로 실패 mirrored sell의 매분 재시도 루프는 2026-07-28 fail-closed 차단을 적용했으며 snapshot divergence 자체는 미해결
+- 원인 범위: local paper/KIS order-fill 순수량 `2/6/4/5`와 KIS account snapshot 수량 `0/5/0/10`의 divergence가 남아 있다. lifetime rejected close는 수천 건이나 2026-08-02 trace에서 recent count는 모두 0건이며, 2026-07-28 fail-closed 차단 뒤 active retry는 없다.
 - 자동 align과 `SyncInitialCash`: 보류
 - 완료 조건: 10개 유효 장후 거래일 모두 정합하고 현재 divergence 해소
 
@@ -60,9 +60,9 @@
 - challenger action: `keep_active`
 - promotion applied: `false`
 - 현재 통과한 수익 후보: `0개`
-- active baseline holdout 3분류 정확도: `0.270093`, buy hit rate `0.48`, 25건 누적 `11.54514%p`이나 승격 게이트를 통과하지 못함
-- 최신 LightGBM challenger: 3분류 정확도 `0.389846`, 거래 1건으로 표본 부족이며 다수 클래스 기준에도 미달
-- 최신 walk-forward: 정확도 `0.4145`, 다수 클래스 기준 미달
+- 2026-07-31 active baseline: 3분류 정확도 `0.277609`, trade hit rate `0.478261`, 23건 누적 순수익 `6.78764%`이나 표본이 작아 수익 후보가 아님
+- 2026-07-31 LightGBM challenger: 3분류 정확도 `0.378105`, 거래 0건으로 수익성 판단 표본이 없음
+- walk-forward의 과거 수치는 현재 비용 후 수익성 정본으로 쓰지 않으며, 유효 E1/E5 결과 전에는 새 조정을 하지 않음
 
 ### Rescue/Avoid
 
@@ -75,14 +75,14 @@
 ## 4. 현재 P0
 
 1. KIS WebSocket 재연결 빈도 관찰: 2026-07-20 decision ledger 3,812행은 정상 수집됐으나 `no close frame` 재연결 29회 발생
-2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인
+2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 현재 cash gap은 `714,840.9593원`이며 rejected close recent count는 0건
 3. E1/E5 유효 결과 확보: 2026-07-20 1회 시도는 D드라이브 snapshot I/O 대기로 결과 파일 미생성, 자동 재실행 금지. 다음 명시 실행은 180초 timeout, partial/atomic snapshot, sanitized failure attempt로 보호
 4. 유효 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
 5. 유효 결과가 실패하면 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록
 
 ## 5. 동결 범위
 
-2026-07-20 판정 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
+E1/E5 유효 결과와 Phase 0 divergence 해소 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
 
 운영 장애, 데이터 누락, lineage 저장 오류 수정은 동결 대상이 아니다.
 

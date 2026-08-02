@@ -7,22 +7,23 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-07-28 장전 전 KST
-- 장 상태: overnight
-- live runtime: 야간 정상 정지
+- 기준 시각: 2026-08-02 18:00 KST
+- 장 상태: weekend
+- live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목. 완료 조건은 통과하지 못했다.
-- Phase 1b: bounded read-only 관측 1회 통과
+- Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목, cash gap `714,840.9593원`. 완료 조건은 통과하지 못했다.
+- Phase 1b: bounded read-only 관측 1회 통과; 2026-08-02 preflight도 `ready/passed` (네트워크·주문 호출 0회)
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
 ## 활성 체크리스트
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
-- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-07-28에 네 종목의 매분 rejected sell 재시도는 fail-closed로 차단했다.
+- [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
+- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-08-02 trace에서 네 종목 rejected sell recent count는 모두 0건이며, fail-closed 차단 뒤 active retry는 없다.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지. 다음 명시 실행은 180초 timeout과 atomic snapshot/attempt 기록으로 보호.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -32,12 +33,20 @@
 
 ## 최신 검증
 
-- 전체 unittest: 525 tests OK
+- 전체 unittest: 2026-08-02 `525 tests OK`
 - 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
-- 저장소 구조/Markdown 감사: errors=0, 구조 부채 경고 2건
-- dashboard snapshot: `2026-07-12 22:40 KST` 생성
+- 저장소 구조/Markdown 감사: 2026-08-02 errors=0, 구조 부채 경고 2건
+- dashboard snapshot: 최신 artifact lineage guard 확인; 휴장 중 dashboard 재생성은 하지 않음
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-02] 휴장 운영 감사와 원장 진단 갱신
+
+- live runtime은 휴장 정상 정지, watchdog heartbeat fresh, dashboard server/API와 Windows startup launcher는 정상이다. Phase 1b 기본 preflight는 `ready/passed`이며 KIS 네트워크와 주문 호출은 각각 0회다.
+- 2026-07-31 장후 ML은 `ok`/`quick-live-train`(16:24 KST), label refresh는 `ok`(16:54 KST), KIS data quality는 `ok`다. active `baseline-h15-v1`, `keep_active`, promotion 없음은 유지한다.
+- P0 trace를 KIS 네트워크 호출 없이 갱신했다. local paper/KIS order-fill 순수량 `2/6/4/5`와 KIS snapshot `0/5/0/10`의 divergence는 그대로지만, 네 종목의 rejected close recent count는 모두 0건이다. 과거 lifetime 누적을 active retry로 오인하지 않으며 자동 align과 `SyncInitialCash`는 실행하지 않았다.
+- hold-rescue paper-only replay는 161 eligible lot 중 37 lot 적용, `delta_cash_sum=-26,387원`, `diagnostic_only_no_hold_rescue_candidate`다. buy-avoid/buy-rescue는 stale 또는 proxy 관측만 유지한다.
+- 전체 unittest `525 tests OK`, 구조 감사 errors=0을 확인했다. 주문 정책, threshold, gate, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, KIS 네트워크 호출, 실제 주문/취소는 변경하지 않았다.
 
 ## [2026-07-28] Phase 0 재시도 차단과 E1/E5 snapshot 보호
 

@@ -7,7 +7,7 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 ## 기간
 
 - 시작: `2026-07-13`
-- 첫 판정: `2026-07-20` 장후
+- 첫 시도: `2026-07-20` 장후 (snapshot I/O 대기로 유효 결과 없음)
 - 후속 checkpoint: `10/20/30/60거래일`
 
 일주일은 최종 승격 기간이 아니라 첫 조기 진단 구간이다.
@@ -34,24 +34,24 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 ## 활성 체크리스트
 
 - [x] 2026-07-13~16 정규장 `serving_decision_ledger` 축적 확인 (2026-07-17 KIS 수집 공백은 별도 P0)
-- [ ] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` 누락 여부 확인
-- [ ] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과가 연결되는지 확인
-- [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 매분 rejected sell 재시도 루프는 2026-07-28 fail-closed로 차단
+- [x] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` lineage 확인 (2026-08-02 dashboard guard 통과)
+- [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결 확인
+- [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 2026-08-02 trace에서 rejected sell recent count는 모두 0건으로, fail-closed 차단 뒤 active retry는 없음
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행 complete lineage)
 - [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성). 자동 재실행은 금지하며 다음 명시 실행은 timeout/atomic snapshot으로 보호
-- [ ] E1/E5 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정
+- [ ] E1/E5 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정 (현재는 결과 없음)
 - [ ] cowork 리뷰가 필요한 결과면 새 review/work 라운드 생성
 
 ## 동결 범위
 
-2026-07-20 E1/E5 결과 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
+E1/E5 유효 결과와 Phase 0 snapshot divergence 해소 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
 
 운영 장애와 데이터 lineage 누락을 고치는 작업은 동결 대상이 아니다.
 
 ## 완료 조건
 
 - 5거래일 원장 수집 결과가 누락 여부와 함께 보고된다.
-- E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다.
+- E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다. 현재는 최초 실행의 결과 파일이 없어 재실행 없이 보류한다.
 - 결과와 무관하게 주문 정책과 active model이 자동 변경되지 않는다.
 - 다음 연구를 계속할지 보류할지 숫자 기준으로 문서화된다.
 

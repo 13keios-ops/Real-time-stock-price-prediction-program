@@ -20,20 +20,21 @@
 
 ## 2. 현재 출발점
 
-2026-07-13 기준 현재 출발점은 아래와 같다.
+2026-08-02 기준 현재 출발점은 아래와 같다.
 
-- 장 상태: `overnight`, live runtime 정상 정지.
+- 장 상태: `weekend`, live runtime 휴장 정상 정지.
 - runtime watchdog/dashboard/startup launcher: 정상.
 - trading mode: `paper`, 실전 주문 비활성.
 - active h15: `baseline-h15-v1`, challenger action `keep_active`, 승격 없음.
 - 현재 통과한 수익 후보: `0개`.
-- Phase 0: `1/10`, mismatch 4종목.
+- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일, mismatch 4종목; snapshot divergence와 cash gap `714,840.9593원`이 남아 있다.
+- rejected mirrored close의 fail-closed 차단 뒤 recent count는 4종목 모두 0건이다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과.
-- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과.
-- buy-avoid: random-control 역선별로 기각.
-- buy-rescue: KIS live decision ledger 축적 전.
+- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 2026-08-02 기본 preflight도 네트워크·주문 호출 0회로 통과.
+- buy-avoid: random-control 역선별로 기각된 stale 관측.
+- buy-rescue: KIS live no-trade ledger를 아직 사용할 수 없음.
 - hold-rescue: 현금손익 악화로 후보 아님.
-- 다음 판정: 2026-07-13~17 complete lineage 축적 후 2026-07-20 장후 E1/E5.
+- E1/E5: 2026-07-20 1회 시도는 snapshot I/O 대기로 결과 파일이 없으며 자동 재실행은 금지.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
