@@ -67,7 +67,7 @@
 ### Rescue/Avoid
 
 - buy-avoid `0.40`: `-38.1734% -> -36.3645%`, random-control 역선별로 기각
-- buy-rescue: Cybos proxy 비용 후 음수, KIS live no-trade ledger는 아직 0행
+- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행이다. 실제 진단은 LightGBM 최선 6건 `-4.154%p`, linear-score 최선 229건 `-84.697%p`, 두 모델 동시 상승 35건 `-23.768%p`로 모두 음수이며 Cybos proxy도 비용 후 음수다.
 - hold-rescue `0.40`: 37건 적용, `-26,387원`, 후보 아님
 
 세 항목 모두 관측/진단용이며 실제 주문과 모델 승격에 반영하지 않는다.

@@ -3,7 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_model_overlay_comparison import build_report, render_markdown
+from scripts.summarize_model_overlay_comparison import (
+    OverlayRow,
+    _buy_rescue_summary,
+    build_report,
+    render_markdown,
+)
 
 
 class ModelOverlayComparisonTests(unittest.TestCase):
@@ -193,6 +198,30 @@ class ModelOverlayComparisonTests(unittest.TestCase):
         self.assertIn("모델별 강점 구간", markdown)
         self.assertIn("주문 정책", markdown)
         self.assertIn("cost_model_version", markdown)
+
+
+    def test_buy_rescue_best_ignores_empty_thresholds(self) -> None:
+        summary = _buy_rescue_summary(
+            [
+                OverlayRow(
+                    symbol="005930",
+                    event_time="2026-07-31T09:15:00+09:00",
+                    probability_up=0.5,
+                    probability_flat=0.3,
+                    probability_down=0.2,
+                    label="down",
+                    future_return_pct=0.1,
+                )
+            ],
+            thresholds=(0.4, 0.6),
+            trade_cost_pct=0.29,
+            require_up_argmax=True,
+            decision_ledger_available=True,
+        )
+
+        self.assertEqual(summary["best"]["threshold"], 0.4)
+        self.assertEqual(summary["best"]["rescued_trades"], 1)
+        self.assertLess(summary["best"]["rescued_net_return_pct_points"], 0)
 
 
 if __name__ == "__main__":

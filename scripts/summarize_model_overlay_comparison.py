@@ -869,8 +869,9 @@ def _buy_rescue_summary(
                 ],
             }
         )
+    observed_results = [item for item in threshold_results if int(item["rescued_trades"]) > 0]
     best = max(
-        threshold_results,
+        observed_results,
         key=lambda item: (
             bool(item["diagnostic_candidate"]),
             float(item["rescued_net_return_pct_points"]),

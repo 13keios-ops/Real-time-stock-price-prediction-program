@@ -43,6 +43,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - `runtime-data/reports/data-quality/latest-feature-source-drift.json`
 - `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`
 - `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`
+- `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`
 - `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
 - `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`
 - `runtime-data/reports/broker-paper/latest-sync.json`
@@ -138,6 +139,20 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - 실행기는 `2026-07-04~2026-07-18` 고정 구간만 읽고 E1 전체/분해, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` excess/z를 한 라운드로 기록한다.
 - 결과는 진단 전용이다. threshold/EV tuning, 종목별 주문 정책, h60 정책, active model/gate 변경으로 자동 연결하지 않는다.
 - `status=insufficient_data`이면 완료로 잠그지 않고 label/date coverage를 확인한 뒤 다음 장외에 재실행할 수 있다. `status=ok` 완료 파일이 있으면 중복 실행하지 않는다.
+
+### KIS live buy-rescue 진단
+
+장후 또는 장외이고 live runtime이 정지했을 때는 아래 read-only 진단을 1회 갱신한다. 장중 보호 모드에서는 기존 파일만 읽는다.
+
+```bash
+python3 scripts/summarize_model_overlay_comparison.py --horizon-min 15
+```
+
+- `latest-model-overlay-comparison-h15.json`의 `generated_at`, `decision_ledger.status`, `rows`, `rescue_eligible_rows`, stage 분포를 먼저 확인한다.
+- buy-rescue는 safety gate 통과, 주문/체결 없음, baseline 비매수, `decision_stage=signal_blocked`의 실제 행만 대상으로 한다. position/cash/pending 제약은 rescue 대상이 아니며 주문 정책으로 뒤집지 않는다.
+- 모델별 `best`는 rescue가 실제로 발생한 threshold만 비교한다. 행이 0인 threshold의 `0.0` 손익을 양호한 결과로 해석하지 않는다.
+- KIS live no-trade ledger가 없다는 표현은 비교 리포트가 fresh이고 `decision_ledger.status`가 `empty` 또는 `not_available`일 때만 쓴다. 오래된 리포트만 보고 부재로 단정하지 않는다.
+- 보고에는 LightGBM/linear-score의 실제 best threshold, rescued trades, 순손익과 모델 조합 rescue 결과를 함께 적는다. 수익성 판정은 동일 decision episode portfolio replay와 same-count random control 전까지 관측용이다.
 
 ### paper/KIS 정합성
 
@@ -255,7 +270,7 @@ NAS 백업은 사용자가 명시적으로 지시한 경우에만 실행한다.
   - 표본 신뢰도 보조값: 가능하면 `trades_taken`도 함께 표시한다. 거래 표본이 작으면 수익률 숫자보다 표본 부족을 먼저 해석한다.
 - 장후 체크에서는 `rescue/avoid 관측`을 별도 줄로 반드시 요약한다.
   - `buy-avoid`: `latest-lightgbm-defensive-shadow-h15.json`의 `status`, `date_range`, `joined_rows`, best threshold, `delta_net_pct` 또는 `delta_net` 계열 수치를 요약한다. 파일이 오래됐으면 stale 또는 fresh evidence 부족으로 표시한다.
-  - `buy-rescue`: `latest-cybos-rescue-proxy-h15.json`의 `decision`, `recommended_action`, buy-rescue target/precision 결과를 요약한다. KIS live no-trade ledger 가 아직 없으면 `live buy-rescue ledger not available`로 표시하고 실패로 단정하지 않는다.
+  - `buy-rescue`: 먼저 `latest-model-overlay-comparison-h15.json`의 freshness와 KIS live `decision_ledger.status/rows/rescue_eligible_rows`, 모델별 실제 best threshold·rescued trades·순손익, 모델 조합 rescue를 요약한다. 이후 `latest-cybos-rescue-proxy-h15.json`의 `decision`, `recommended_action`, target/precision 결과를 보조 근거로 붙인다. overlay가 fresh이고 ledger가 `empty/not_available`일 때만 `live buy-rescue ledger not available`로 표시하며 실패로 단정하지 않는다.
   - `hold-rescue`: 장후/장외이고 안전하면 `python scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15`로 paper-only replay 를 갱신한 뒤 `latest-hold-rescue-paper-replay-h15.json`의 `decision.status`, replay 가능 lot, 적용 lot, `delta_cash_sum`을 요약한다. 장중 보호 모드이면 기존 파일만 읽는다.
   - 세 항목은 모두 관측/진단용이며, 주문 정책, gate, active model, KIS live shadow 확장을 바꾸지 않았는지 함께 적는다.
 - paper/KIS 정합성 조치 전후.

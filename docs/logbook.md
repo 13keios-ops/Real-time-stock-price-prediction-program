@@ -45,7 +45,8 @@
 - live runtime은 휴장 정상 정지, watchdog heartbeat fresh, dashboard server/API와 Windows startup launcher는 정상이다. Phase 1b 기본 preflight는 `ready/passed`이며 KIS 네트워크와 주문 호출은 각각 0회다.
 - 2026-07-31 장후 ML은 `ok`/`quick-live-train`(16:24 KST), label refresh는 `ok`(16:54 KST), KIS data quality는 `ok`다. active `baseline-h15-v1`, `keep_active`, promotion 없음은 유지한다.
 - P0 trace를 KIS 네트워크 호출 없이 갱신했다. local paper/KIS order-fill 순수량 `2/6/4/5`와 KIS snapshot `0/5/0/10`의 divergence는 그대로지만, 네 종목의 rejected close recent count는 모두 0건이다. 과거 lifetime 누적을 active retry로 오인하지 않으며 자동 align과 `SyncInitialCash`는 실행하지 않았다.
-- hold-rescue paper-only replay는 161 eligible lot 중 37 lot 적용, `delta_cash_sum=-26,387원`, `diagnostic_only_no_hold_rescue_candidate`다. buy-avoid/buy-rescue는 stale 또는 proxy 관측만 유지한다.
+- hold-rescue paper-only replay는 161 eligible lot 중 37 lot 적용, `delta_cash_sum=-26,387원`, `diagnostic_only_no_hold_rescue_candidate`다. buy-rescue KIS live no-trade ledger는 52,417행 중 eligible 25,726행으로 확인했고, LightGBM 최선 6건 `-4.154%p`, linear-score 최선 229건 `-84.697%p`, 두 모델 동시 상승 35건 `-23.768%p`로 모두 후보가 아니다.
+- buy-rescue 비교 리포트가 7월 12일 결과에 머물러 원장을 비어 있는 것으로 잘못 표시한 점을 수정했다. 실제 rescue가 0건인 threshold를 최선으로 선택하지 않도록 고쳤고, 장후 점검은 최신 overlay 리포트의 생성 시각과 ledger 행 수를 함께 확인한다.
 - 전체 unittest `525 tests OK`, 구조 감사 errors=0을 확인했다. 주문 정책, threshold, gate, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, KIS 네트워크 호출, 실제 주문/취소는 변경하지 않았다.
 
 ## [2026-07-28] Phase 0 재시도 차단과 E1/E5 snapshot 보호

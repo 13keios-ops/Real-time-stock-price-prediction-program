@@ -32,7 +32,7 @@
 - Phase 1a: 모의투자 read-only 1차 리허설 통과.
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 2026-08-02 기본 preflight도 네트워크·주문 호출 0회로 통과.
 - buy-avoid: random-control 역선별로 기각된 stale 관측.
-- buy-rescue: KIS live no-trade ledger를 아직 사용할 수 없음.
+- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행으로 관측됨. 실제 rescue 진단은 모두 비용 후 음수라 주문 후보가 아님.
 - hold-rescue: 현금손익 악화로 후보 아님.
 - E1/E5: 2026-07-20 1회 시도는 snapshot I/O 대기로 결과 파일이 없으며 자동 재실행은 금지.
 

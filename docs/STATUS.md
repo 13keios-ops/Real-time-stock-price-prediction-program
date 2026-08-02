@@ -32,7 +32,7 @@
 ## Rescue/Avoid
 
 - buy-avoid: 최신 관측은 2026-07-12로 stale이며 `joined_rows=33,007`, `0.40`은 random-control 역선별로 `rejected_random_control` 유지
-- buy-rescue: Cybos proxy는 `buy_avoid_candidate_only`; KIS live no-trade ledger는 아직 사용할 수 없어 실패로 단정하지 않는다.
+- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행으로 존재한다. 2026-08-02 진단에서 LightGBM 최선 6건은 `-4.154%p`, linear-score 최선 229건은 `-84.697%p`, 두 모델 동시 상승 35건은 `-23.768%p`라 후보가 아니다. Cybos proxy도 `buy_avoid_candidate_only`다.
 - hold-rescue: 2026-08-02 paper-only replay는 `diagnostic_only_no_hold_rescue_candidate`; eligible 161 lot 중 37 lot 적용, `delta_cash_sum=-26,387원`으로 후보가 아니다.
 
 세 항목은 관측/진단용이며 주문 정책에 반영되지 않는다.
