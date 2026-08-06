@@ -161,6 +161,79 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(str(latest_order["status"]), "filled")
         self.assertEqual(sqlite_store.count_rows("broker_paper_order_status_snapshots"), 1)
 
+    def test_sync_does_not_append_unchanged_broker_status_snapshot(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        broker_row = KisDailyOrderFillRecord(
+            mode="paper",
+            order_date="20260417",
+            broker_branch_no="00111",
+            broker_order_no="1234567890",
+            original_order_no="",
+            symbol="005930",
+            symbol_name="",
+            side="02",
+            side_name="",
+            order_type_code="00",
+            order_type_name="",
+            order_time="101500",
+            order_qty=3,
+            order_price=70000.0,
+            filled_qty=0,
+            remaining_qty=3,
+            avg_fill_price=0.0,
+            filled_amount=0.0,
+            cancel_confirm_qty=0,
+            reject_qty=0,
+            cancel_yn=False,
+            exchange_id="KRX",
+            raw_output={"odno": "1234567890"},
+        )
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            with patch(
+                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                return_value=[broker_row],
+            ):
+                first = sync_broker_paper_orders(project_root=root)
+                second = sync_broker_paper_orders(project_root=root)
+            sqlite_store = get_sqlite_store(settings)
+
+        self.assertTrue(first.ok)
+        self.assertTrue(second.ok)
+        self.assertIsNotNone(sqlite_store)
+        assert sqlite_store is not None
+        self.assertEqual(sqlite_store.count_rows("broker_paper_order_status_snapshots"), 1)
+
     def test_sync_rate_limit_keeps_submitted_order_pending(self) -> None:
         root, env = self._prepare_runtime()
         event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")

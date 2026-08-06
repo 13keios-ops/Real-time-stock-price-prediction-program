@@ -2,9 +2,9 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-02 22:24 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
+- 확인 시각: 2026-08-06 장후 KST
+- 장 상태: post-close
+- live runtime: 장후 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
 - dashboard: `http://127.0.0.1:8765`, server/API 정상
 - Windows startup launcher: 설치 및 정상
@@ -20,22 +20,23 @@
 
 ## 데이터와 학습
 
-- 최신 KIS 거래일: 2026-07-31
-- 2026-07-31 장후 ML: `status=ok`, `quick-live-train`, 16:24 KST 완료
-- 2026-07-31 label refresh: `status=ok`, 16:54 KST 완료
-- 전체 데이터 품질: `assessment=ok`; 2026-07-31 raw tick, orderbook, 분봉, feature, h15/h60 label이 생성됐고 분봉/feature 장마감 기준 coverage는 약 97.3%다.
+- 최신 KIS 거래일: 2026-08-06
+- 2026-08-06 장후 ML: `status=ok`, `quick-live-train`, 16:27 KST 완료
+- 2026-08-06 label refresh: `status=ok`, 16:55 KST 완료
+- 전체 데이터 품질: `assessment=ok`; 2026-08-06 KIS raw tick/orderbook, 분봉, feature, h15/h60 label 생성이 확인됐다. raw JSONL은 09:00 이후 전 종목에 1분 초과 공백과 JSON 파싱 오류가 없었다.
 - artifact lineage: 최신 dashboard는 `artifact_lineage_guard_ok=true`이며 LightGBM artifact가 해당 training run과 일치한다. 2026-07-17 수집 공백은 과거 P0로 유지한다.
 - 수집 안정성: 2026-07-20 complete lineage 3,812행은 보존됐고 KIS WebSocket `no close frame` 재연결 29회는 계속 관찰한다.
 - 호가 무결성: bid 또는 ask가 0 이하이거나 crossed인 호가는 raw 감사 원장에는 보존하지만 신호 상태, feature, 연구 입력에는 반영하지 않고 fail-closed로 차단한다.
 - feature JSONL 보조본: 2026-08-02 SQLite 정본 6,603,588 입력과 11,936,383 라벨로 재생성해 54GB에서 3.6GB로 정리했다. 이후 오프라인 재구축은 SQLite만 upsert해 JSONL 이력을 중복 기록하지 않는다.
+- 브로커 상태 원장: 과거 SQLite snapshot은 2,725,917건이지만 현재 주문 상태는 1,819건이다. 2026-08-06부터 최신 상태만 SQL에서 읽고 실질 상태 변화만 새 snapshot으로 보관한다. 기존 raw JSONL과 SQLite 과거 행은 삭제하지 않았다.
 
 학습이 멈춘 것이 아니라 현재 모델이 비용 후 양수 기대값을 입증하지 못한 상태다.
 
 ## Rescue/Avoid
 
 - buy-avoid: 최신 관측은 2026-07-12로 stale이며 `joined_rows=33,007`, `0.40`은 random-control 역선별로 `rejected_random_control` 유지
-- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행으로 존재한다. 2026-08-02 진단에서 LightGBM 최선 6건은 `-4.154%p`, linear-score 최선 229건은 `-84.697%p`, 두 모델 동시 상승 35건은 `-23.768%p`라 후보가 아니다. Cybos proxy도 `buy_avoid_candidate_only`다.
-- hold-rescue: 2026-08-02 paper-only replay는 `diagnostic_only_no_hold_rescue_candidate`; eligible 161 lot 중 37 lot 적용, `delta_cash_sum=-26,387원`으로 후보가 아니다.
+- buy-rescue: 2026-08-06 overlay decision ledger는 `status=ok`, 67,566행 중 rescue eligible 33,675행이다. LightGBM 최선은 threshold 0.55의 6건, linear-score 최선은 0.65의 262건이지만 동일 episode portfolio replay와 random control 전까지 관측용이며 주문 후보가 아니다. Cybos proxy도 `buy_avoid_candidate_only`다.
+- hold-rescue: 2026-08-06 paper-only replay는 `diagnostic_only_no_hold_rescue_candidate`; eligible 161 lot 중 37 lot 적용, `delta_cash_sum=-26,387원`으로 후보가 아니다.
 
 세 항목은 관측/진단용이며 주문 정책에 반영되지 않는다.
 
@@ -59,10 +60,11 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 4. Phase 2/3용 실제 WebSocket recovery 증거
 5. 당일 fresh market status
 6. 유효기간이 있는 kill switch OFF 상태
+7. raw SQLite 장기 보관량 증가. 브로커 상태 snapshot 중복 적재는 차단했으며, 별도 보존형 compaction 전까지 기존 `dev.db` 크기는 유지된다.
 
 ## 다음 일정
 
-- 다음 거래일 장전: runtime/watchdog/dashboard 상태와 `run_phase1b_readonly_observation.sh` preflight를 확인한다. 기본 preflight는 네트워크·주문 호출 0회다.
+- 다음 거래일 장전: runtime/watchdog/dashboard 상태와 `run_phase1b_readonly_observation.sh` preflight를 확인한다. 기본 preflight는 네트워크·주문 호출 0회다. 첫 broker sync 뒤 현재 상태 조회 시간과 live runtime RSS가 이전 수준으로 되돌아오지 않는지 관찰한다.
 - 다음 거래일 장후: 당일 유효 Phase 0 기록이 없고 runtime이 정지했을 때만 reconciliation을 1회 확인하고, snapshot/ledger divergence가 해소되는지 관찰한다.
 - E1/E5: 2026-07-20 1회 시도는 D드라이브 research snapshot I/O 대기로 결과 파일이 생성되지 않았다. 자동 재실행은 금지하며, 다음 명시 실행만 180초 timeout, partial 파일 분리, 실패 attempt 기록으로 보호한다.
 

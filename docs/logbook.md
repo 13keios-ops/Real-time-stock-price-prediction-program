@@ -7,15 +7,16 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-02 22:24 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
+- 기준 시각: 2026-08-06 장후 KST
+- 장 상태: post-close
+- live runtime: 장후 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
 - Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목, cash gap `714,840.9593원`. 완료 조건은 통과하지 못했다.
-- Phase 1b: bounded read-only 관측 1회 통과; 2026-08-02 preflight도 `ready/passed` (네트워크·주문 호출 0회)
+- Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
+- runtime 원장: broker paper status snapshot 2,725,917건의 과거 중복 polling 이력을 확인했고, 현재 상태 1,819건만 SQL 조회하도록 보강했다. 기존 원장은 보존한다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -33,12 +34,20 @@
 
 ## 최신 검증
 
-- 전체 unittest: 2026-08-02 `525 tests OK`
+- 전체 unittest: 2026-08-06 `533 tests OK`
 - 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
-- 저장소 구조/Markdown 감사: 2026-08-02 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
+- 저장소 구조/Markdown 감사: 2026-08-06 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
 - dashboard snapshot: 최신 artifact lineage guard 확인; 휴장 중 dashboard 재생성은 하지 않음
 - dashboard server/API: 정상
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-06] 장후 운영 점검과 broker snapshot 메모리 가드
+
+- live runtime은 15:30 KST에 정상 정지했고 watchdog, dashboard, Windows startup launcher는 정상이다. 2026-08-06 raw tick/orderbook JSONL은 09:00 이후 전 종목 1분 초과 공백 및 JSON 파싱 오류가 없었다.
+- 장후 ML은 `ok`/`quick-live-train`(16:27 KST), label refresh는 `ok`(16:55 KST), KIS data quality는 `ok`다. active `baseline-h15-v1`, `keep_active`, promotion 없음은 유지한다.
+- 당일 Phase 0 유효 기록이 이미 있어 KIS broker sync/reconciliation은 중복 호출하지 않았다. trace와 hold-rescue replay, buy-rescue overlay는 네트워크 없이 갱신했다. Phase 0은 matched 0일, mismatch 10일과 네 종목 snapshot divergence를 유지한다.
+- `broker_paper_order_status_snapshots` 2,725,917건을 매 분 전부 Python으로 읽던 경로를 local order별 최신 1,819건 SQL 조회로 바꿨다. 상태 변화가 없는 polling 결과는 JSONL/SQLite에 다시 쓰지 않는다. 실제 `dev.db` 인덱스는 장후 12.7초에 적용됐고, 기존 raw JSONL과 과거 SQLite 행은 삭제하지 않았다.
+- `tests.test_broker_paper_sync`, `tests.test_sqlite_store`, `tests.test_streaming_pipeline` 38건과 전체 unittest 533건, 구조/Markdown 감사 errors=0을 통과했다. 주문 정책, threshold, gate, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, KIS 네트워크 호출, 실제 주문/취소는 변경하지 않았다.
 
 ## [2026-08-02] 데이터 무결성 및 계좌 표시 보강
 

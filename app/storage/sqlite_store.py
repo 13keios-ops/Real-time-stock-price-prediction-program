@@ -352,6 +352,10 @@ class SQLiteRuntimeStore:
             )
             """,
             """
+            CREATE INDEX IF NOT EXISTS idx_broker_paper_status_local_order_synced
+            ON broker_paper_order_status_snapshots(local_order_id, synced_at DESC)
+            """,
+            """
             CREATE TABLE IF NOT EXISTS market_status_snapshots (
                 snapshot_id TEXT PRIMARY KEY,
                 trading_day TEXT NOT NULL,
@@ -1993,6 +1997,32 @@ class SQLiteRuntimeStore:
     def fetch_all_rows(self, table_name: str, order_by_column: str) -> list[sqlite3.Row]:
         query = f"SELECT * FROM {table_name} ORDER BY {order_by_column}"
         rows = self._run_safe_read_query(query, missing_tables=(table_name,))
+        return list(rows) if isinstance(rows, list) else []
+
+    def fetch_latest_broker_paper_status_snapshots_by_order(self) -> list[sqlite3.Row]:
+        """Return one current broker status per local order without materializing history."""
+        rows = self._run_safe_read_query(
+            """
+            WITH latest_time AS (
+                SELECT local_order_id, MAX(synced_at) AS synced_at
+                FROM broker_paper_order_status_snapshots
+                GROUP BY local_order_id
+            ),
+            latest_row AS (
+                SELECT snapshot.local_order_id, MAX(snapshot.rowid) AS rowid
+                FROM broker_paper_order_status_snapshots AS snapshot
+                JOIN latest_time
+                  ON latest_time.local_order_id = snapshot.local_order_id
+                 AND latest_time.synced_at = snapshot.synced_at
+                GROUP BY snapshot.local_order_id
+            )
+            SELECT snapshot.*
+            FROM broker_paper_order_status_snapshots AS snapshot
+            JOIN latest_row ON latest_row.rowid = snapshot.rowid
+            ORDER BY snapshot.local_order_id
+            """,
+            missing_tables=("broker_paper_order_status_snapshots",),
+        )
         return list(rows) if isinstance(rows, list) else []
 
     def fetch_rows_between(

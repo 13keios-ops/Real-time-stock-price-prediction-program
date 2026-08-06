@@ -5,7 +5,7 @@ import uuid
 import unittest
 from unittest.mock import patch
 
-from app.storage.contracts import PaperOrder, ServingDecision
+from app.storage.contracts import BrokerOrderStatusSnapshot, PaperOrder, ServingDecision
 from app.storage.sqlite_store import (
     SQLITE_JOURNAL_MODE_FALLBACKS,
     SQLiteRuntimeStore,
@@ -118,6 +118,61 @@ class SQLiteRuntimeStoreTests(unittest.TestCase):
 
         self.assertTrue(created_path.exists())
         self.assertEqual(backup_store.count_rows("paper_orders"), 1)
+
+    def test_fetch_latest_broker_status_returns_one_row_per_order(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        database_path = root / ".tmp-tests" / "sqlite-store" / str(uuid.uuid4()) / "dev.db"
+        store = SQLiteRuntimeStore(database_path)
+        base = {
+            "broker_mode": "paper",
+            "symbol": "005930",
+            "order_date": "20260417",
+            "side": "buy",
+            "order_qty": 1,
+            "filled_qty": 0,
+            "remaining_qty": 1,
+            "avg_fill_price": 0.0,
+            "status": "open",
+            "broker_order_no": "1234567890",
+            "broker_branch_no": "00111",
+            "reject_qty": 0,
+            "cancel_confirm_qty": 0,
+            "cancel_yn": False,
+            "matched": True,
+            "applied_fill_qty": 0,
+            "detail": {},
+        }
+        store.insert_broker_order_status_snapshot(
+            BrokerOrderStatusSnapshot(
+                sync_id="sync-1",
+                local_order_id="order-1",
+                synced_at=datetime.fromisoformat("2026-04-17T09:10:00+09:00"),
+                **base,
+            )
+        )
+        store.insert_broker_order_status_snapshot(
+            BrokerOrderStatusSnapshot(
+                sync_id="sync-2",
+                local_order_id="order-1",
+                synced_at=datetime.fromisoformat("2026-04-17T09:11:00+09:00"),
+                **base,
+            )
+        )
+        store.insert_broker_order_status_snapshot(
+            BrokerOrderStatusSnapshot(
+                sync_id="sync-3",
+                local_order_id="order-2",
+                synced_at=datetime.fromisoformat("2026-04-17T09:12:00+09:00"),
+                **base,
+            )
+        )
+
+        rows = store.fetch_latest_broker_paper_status_snapshots_by_order()
+
+        self.assertEqual(len(rows), 2)
+        rows_by_order = {str(row["local_order_id"]): str(row["sync_id"]) for row in rows}
+        self.assertEqual(rows_by_order["order-1"], "sync-2")
+        self.assertEqual(rows_by_order["order-2"], "sync-3")
 
     def test_serving_decision_ledger_persists_context_and_shadow_lineage(self) -> None:
         root = Path(__file__).resolve().parents[1]

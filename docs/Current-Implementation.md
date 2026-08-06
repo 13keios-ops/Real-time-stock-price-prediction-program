@@ -39,7 +39,7 @@
 - KIS REST 현재가/호가 조회
 - KIS WebSocket 파서, 수신기, 재연결 처리
 - KIS WebSocket 연결 준비와 장중 데이터 수신 검증 리포트
-- SQLite 정본과 JSONL 보조본 기반 runtime 저장. feature JSONL은 SQLite primary key 기준으로 재생성할 수 있으며 오프라인 dataset 재구축은 SQLite만 upsert해 append-only JSONL 중복을 만들지 않는다.
+- SQLite 정본과 JSONL 보조본 기반 runtime 저장. feature JSONL은 SQLite primary key 기준으로 재생성할 수 있으며 오프라인 dataset 재구축은 SQLite만 upsert해 append-only JSONL 중복을 만들지 않는다. broker paper 상태는 local order별 최신 snapshot만 SQL에서 조회하고, 상태 변화가 있을 때만 새 snapshot을 기록해 분 단위 polling 복제를 막는다. 과거 raw JSONL과 SQLite 상태 이력은 자동 삭제하지 않는다.
 - 원시 체결/호가 저장. 비정상 top-of-book 호가(bid 또는 ask 0 이하, crossed)는 raw 감사 원장에는 남기되 신호 상태, feature, 연구 입력에서 fail-closed로 제외한다.
 - 1분봉 생성
 - feature / label 생성

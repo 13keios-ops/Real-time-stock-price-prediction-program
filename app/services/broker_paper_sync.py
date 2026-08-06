@@ -283,6 +283,34 @@ def _load_previous_rate_limit(
     return rate_limited_at_text, retry_after_seconds
 
 
+def _broker_status_snapshot_changed(
+    previous_snapshot: dict[str, Any],
+    snapshot: BrokerOrderStatusSnapshot,
+) -> bool:
+    """Keep transition evidence while avoiding identical minute-by-minute polls."""
+    if not previous_snapshot:
+        return True
+    current_values = {
+        "broker_mode": snapshot.broker_mode,
+        "symbol": snapshot.symbol,
+        "order_date": snapshot.order_date,
+        "side": snapshot.side,
+        "order_qty": snapshot.order_qty,
+        "filled_qty": snapshot.filled_qty,
+        "remaining_qty": snapshot.remaining_qty,
+        "avg_fill_price": snapshot.avg_fill_price,
+        "status": snapshot.status,
+        "broker_order_no": snapshot.broker_order_no,
+        "broker_branch_no": snapshot.broker_branch_no,
+        "reject_qty": snapshot.reject_qty,
+        "cancel_confirm_qty": snapshot.cancel_confirm_qty,
+        "cancel_yn": int(snapshot.cancel_yn),
+        "matched": int(snapshot.matched),
+        "applied_fill_qty": snapshot.applied_fill_qty,
+    }
+    return any(previous_snapshot.get(key) != value for key, value in current_values.items())
+
+
 class BrokerPaperExecutionSync:
     def __init__(
         self,
@@ -431,9 +459,10 @@ class BrokerPaperExecutionSync:
             str(row["order_id"]): dict(row)
             for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")
         }
-        latest_status_by_order = {}
-        for row in sqlite_store.fetch_all_rows("broker_paper_order_status_snapshots", "synced_at"):
-            latest_status_by_order[str(row["local_order_id"])] = dict(row)
+        latest_status_by_order = {
+            str(row["local_order_id"]): dict(row)
+            for row in sqlite_store.fetch_latest_broker_paper_status_snapshots_by_order()
+        }
 
         def build_rate_limited_payload(
             *,
@@ -750,7 +779,8 @@ class BrokerPaperExecutionSync:
                 applied_fill_qty=next_applied_fill_qty,
                 detail=(broker_row.raw_output if broker_row is not None else {"status": "pending_lookup"}),
             )
-            self.writer.write_broker_order_status_snapshot(snapshot)
+            if _broker_status_snapshot_changed(previous_snapshot, snapshot):
+                self.writer.write_broker_order_status_snapshot(snapshot)
             latest_status_by_order[local_order_id] = snapshot.to_record()
 
         payload = {
