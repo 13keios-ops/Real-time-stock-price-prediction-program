@@ -45,7 +45,8 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - [x] 장후 data-quality에 거래일별 decision lineage와 WebSocket reconnect/storm 추가
 - [x] live runtime 상태에 current/peak RSS 추가
 - [x] Phase 0 trace에서 bounded recent lookup과 historical mirrored-order evidence를 분리하고 자동 align을 금지
-- [ ] Phase 0 해소 근거 선택: sanitized full-period account activity 또는 계좌 소유자 승인 clean paper-account baseline
+- [x] Phase 0 full-period read-only probe와 페이지 완결성/외부 활동/원장 차이 fail-closed 판정 구현
+- [ ] `EGW00201` cooldown 뒤 full-period sanitized account activity 1회 완결; 이력 미제공일 때만 계좌 소유자 승인 clean baseline 선택
 - [x] E1/E5 wrapper 명시 1회 실행: `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
 - [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
 - [ ] E1/E5 유효 결과 확보

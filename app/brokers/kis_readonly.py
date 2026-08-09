@@ -34,6 +34,11 @@ class KisReadOnlyClient:
         """Return a copy of the most recent read response headers."""
         return dict(self._client.last_response_headers)
 
+    @property
+    def last_daily_order_fill_query(self) -> dict[str, object]:
+        """Return sanitized pagination metadata for the latest order/fill query."""
+        return dict(self._client.last_daily_order_fill_query)
+
     def get_current_price(self, symbol: str, market_code: str = "J") -> KisCurrentPriceQuote:
         return self._client.get_current_price(symbol=symbol, market_code=market_code)
 

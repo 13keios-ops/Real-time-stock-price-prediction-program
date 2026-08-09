@@ -7,14 +7,15 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-09 20:50 KST
+- 기준 시각: 2026-08-09 22:49 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. 최신 3일 KIS 조회는 0행이고 보관된 320건은 전체 계좌 활동이 아닌 historical mirrored-order evidence라 `blocked_requires_full_account_history_or_clean_baseline`이다.
+- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. 전체 기간 probe 범위는 `2026-06-14~2026-08-07`, mirrored submission 320건/20거래일이다.
+- 첫 전체 기간 read-only 조회가 `EGW00201`에 걸려 `2026-08-10 00:48 KST`까지 cooldown이며, 해소 상태는 `blocked_full_account_history_rate_limited`다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
 - runtime 원장: 2026-08-07 decision ledger 3,803행과 active/shadow complete lineage 100%를 확인했다. broker paper status는 현재 1,819건만 SQL 조회하며 기존 원장은 보존한다.
 - 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 19거래일에서 손실만 완화했고 정책 계좌 수익률은 `-34.3196%`다.
@@ -25,7 +26,8 @@
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
-- [ ] Phase 0 해소: bounded recent lookup과 historical mirrored-order evidence를 분리했다. 자동 align은 금지하며 sanitized full-period account activity 또는 계좌 소유자 승인 clean baseline이 필요하다.
+- [x] Phase 0 full-period probe, pagination 완결성, 외부/미연결 활동, 로컬 원장 divergence 판정 구현
+- [ ] cooldown 뒤 full-period 조회 1회 완결. 이력이 실제로 제공되지 않을 때만 계좌 소유자 승인 clean baseline 진행
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 같은 작업에서 재실행하지 않았다. 다음 실행부터 8GiB 이상 DB는 repo-local D드라이브 물리 snapshot 경로와 token별 partial cleanup을 사용한다.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -36,12 +38,20 @@
 ## 최신 검증
 
 - 전체 unittest: 2026-08-09 `539 tests OK`
-- targeted unittest: data quality, WSL ops, Phase 0 trace, E1/E5 snapshot 33건 OK
+- 전체 unittest: `551 tests OK`; 저장소 구조 감사 errors 0, 기존 대형 모듈 warnings 2
 - 실제 KIS data-quality 재생성: 2026-08-09 20:49 KST, latest trade date 2026-08-07, assessment `watch`
 - decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
 - WebSocket: reconnect 29, storm 0; raw/feature coverage와 함께 연결 주의로 판정
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 휴장 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-09] Phase 0 전체 기간 계좌 활동 probe
+
+- alignment marker `2026-06-14 05:36 KST`부터 최신 KIS account snapshot `2026-08-07 16:56 KST`까지를 전체 조회 범위로 확정했다. 해당 범위의 로컬 mirrored submission은 320건, 20거래일이다.
+- `scripts/probe_kis_paper_account_activity.py`를 추가해 KIS paper 일별 주문·체결을 read-only로 페이지 끝까지 조회하고, 완결성·외부/미연결 활동·position 재구성을 식별정보와 raw response 없이 판정하도록 했다.
+- 계좌 소유자 요청에 따라 장외에서 첫 조회를 정확히 1회 시도했으나 즉시 `EGW00201`이 발생했다. 주문·취소 호출은 0회이며 `2026-08-10 00:48 KST`까지 cooldown을 기록하고 재시도하지 않았다.
+- Phase 0 trace는 현재 `blocked_full_account_history_rate_limited`를 표시한다. cooldown 뒤 1회 완결 조회 전에는 clean baseline과 자동 align을 실행하지 않는다.
+- targeted unittest 22건과 Python syntax를 통과했다.
 
 ## [2026-08-09] Phase 0 증거 범위 교정, E1/E5 snapshot 보호, 세션 연속성 계측
 

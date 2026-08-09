@@ -25,10 +25,13 @@
 - 최근 10거래일 누적: `10/10`
 - matched/mismatch: `0일/10일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 최신 KIS 주문·체결 조회는 3일 범위에서 0행이다. 보관된 320건은 전체 계좌 활동이 아니라 과거 mirrored submission 증거다.
-- 현재 root cause scope: `current_account_vs_historical_mirrored_order_ledger_unresolved`
-- 해소 상태: `blocked_requires_full_account_history_or_clean_baseline`
+- 최신 KIS bounded 주문·체결 조회는 3일 범위에서 0행이다. 보관된 320건은 전체 계좌 활동이 아니라 과거 mirrored submission 증거다.
+- full-period probe 범위: `2026-06-14~2026-08-07`, 로컬 mirrored submission 320건/20거래일
+- 첫 full-period read-only 조회: `EGW00201`, cooldown `2026-08-10 00:48 KST`, 즉시 재시도 없음
+- 현재 root cause scope: `full_account_activity_evidence_pending`
+- 해소 상태: `blocked_full_account_history_rate_limited`
 - 자동 align과 `SyncInitialCash`: 금지
+- 완료 전 조건: cooldown 뒤 pagination이 완결된 sanitized full-period 조회 1회
 - 완료 조건: 미러링 기간 전체 sanitized 계좌 활동 또는 계좌 소유자 승인 clean baseline 뒤 새 local baseline으로 divergence를 해소하고, 이후 10개 유효 거래일이 모두 정합
 
 ### Phase 1a: KIS 모의투자 read-only

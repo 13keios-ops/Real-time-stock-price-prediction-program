@@ -26,6 +26,12 @@ DEFAULT_ACCOUNT_SYNC_PATH = (
     REPO_ROOT / "runtime-data" / "reports" / "reconciliation" / "latest-paper-account-sync.json"
 )
 DEFAULT_BROKER_SYNC_PATH = REPO_ROOT / "runtime-data" / "reports" / "broker-paper" / "latest-sync.json"
+DEFAULT_ACCOUNT_ACTIVITY_PATH = (
+    REPO_ROOT / "runtime-data" / "reports" / "reconciliation" / "latest-paper-account-activity.json"
+)
+DEFAULT_ACCOUNT_ACTIVITY_ATTEMPT_PATH = (
+    REPO_ROOT / "runtime-data" / "reports" / "reconciliation" / "latest-paper-account-activity-attempt.json"
+)
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "runtime-data" / "reports" / "reconciliation"
 
 TABLE_NAME_HINTS = (
@@ -288,6 +294,72 @@ def _broker_ledger_coverage(report: dict[str, Any]) -> dict[str, Any]:
             else "KIS order/fill lookup is bounded and cannot exclude manual or out-of-window account activity."
         ),
     }
+
+
+def _full_account_activity_summary(
+    report: dict[str, Any],
+    attempt: dict[str, Any],
+) -> dict[str, Any]:
+    success_statuses = {
+        "full_activity_and_accounts_matched",
+        "resolved_external_or_unlinked_account_activity",
+        "resolved_local_ledger_divergence",
+        "broker_snapshot_vs_full_activity_divergence",
+    }
+    candidate = report if report.get("status") in success_statuses else attempt
+    if not candidate:
+        return {"available": False, "status": "not_available"}
+    keys = (
+        "generated_at",
+        "status",
+        "execution_started",
+        "scope",
+        "pagination",
+        "broker_activity",
+        "position_reconstruction",
+        "root_cause_scope",
+        "phase0_resolution",
+        "cooldown_until",
+        "error",
+    )
+    summary = {key: candidate.get(key) for key in keys if key in candidate}
+    summary["available"] = True
+    summary["source"] = "completed_probe" if candidate is report else "latest_attempt"
+    return summary
+
+
+def _apply_full_account_activity_resolution(
+    report: dict[str, Any],
+    activity: dict[str, Any],
+) -> None:
+    status = str(activity.get("status") or "not_available")
+    if status in {"rate_limited", "cooldown_active"}:
+        report["phase0_resolution"] = {
+            "status": "blocked_full_account_history_rate_limited",
+            "automatic_alignment_allowed": False,
+            "cooldown_until": activity.get("cooldown_until"),
+            "required_evidence": ["one full-period sanitized account-activity query after cooldown"],
+        }
+        return
+    if status == "blocked_history_unavailable_or_empty":
+        report["phase0_resolution"] = {
+            "status": "blocked_requires_clean_baseline_or_broker_support",
+            "automatic_alignment_allowed": False,
+            "required_evidence": ["broker-supported full history or an owner-approved clean baseline"],
+        }
+        return
+    if status.startswith("resolved_") or status == "full_activity_and_accounts_matched":
+        report["assessment"] = {
+            "status": "needs_review" if report.get("mismatch_count") else "ok",
+            "summary": f"full-period account activity result: {status}",
+        }
+        report["phase0_resolution"] = dict(activity.get("phase0_resolution") or {})
+        return
+    if status in {"blocked_incomplete_pagination", "blocked_ambiguous_broker_activity"}:
+        report["phase0_resolution"] = {
+            "status": "blocked_requires_complete_full_account_activity_evidence",
+            "automatic_alignment_allowed": False,
+        }
 
 
 def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -638,10 +710,15 @@ def build_trace_report(
     broker_sync_path: Path,
     limit_per_table: int,
     include_auxiliary: bool,
+    account_activity_path: Path | None = None,
+    account_activity_attempt_path: Path | None = None,
 ) -> dict[str, Any]:
     dual_match = _read_json(dual_match_path)
     account_sync = _read_json(account_sync_path)
     broker_sync = _read_json(broker_sync_path)
+    account_activity_report = _read_json(account_activity_path) if account_activity_path else {}
+    account_activity_attempt = _read_json(account_activity_attempt_path) if account_activity_attempt_path else {}
+    full_account_activity = _full_account_activity_summary(account_activity_report, account_activity_attempt)
     mismatches, mismatch_source = _select_mismatch_rows(dual_match=dual_match, account_sync=account_sync)
     symbols = [str(row["symbol"]) for row in mismatches]
     broker_ledger_coverage = _broker_ledger_coverage(broker_sync)
@@ -652,6 +729,8 @@ def build_trace_report(
             "dual_account_match": str(dual_match_path),
             "paper_account_sync": str(account_sync_path),
             "broker_paper_sync": str(broker_sync_path),
+            "full_account_activity": str(account_activity_path) if account_activity_path else None,
+            "full_account_activity_attempt": str(account_activity_attempt_path) if account_activity_attempt_path else None,
         },
         "dual_account_status": dual_match.get("status") or dual_match.get("comparison", {}).get("status"),
         "paper_account_sync_status": account_sync.get("comparison", {}).get("status"),
@@ -659,6 +738,7 @@ def build_trace_report(
         "mismatch_source_report": mismatch_source,
         "broker_sync": _broker_sync_summary(broker_sync),
         "broker_ledger_coverage": broker_ledger_coverage,
+        "full_account_activity": full_account_activity,
         "mismatch_count": len(symbols),
         "mismatch_rows": mismatches,
         "symbols": symbols,
@@ -745,6 +825,7 @@ def build_trace_report(
             "status": "needs_review",
             "summary": f"{rate_limited_count} symbol(s) likely have close-order fill recovery blocked by broker rate limit",
         }
+    _apply_full_account_activity_resolution(report, full_account_activity)
     return report
 
 
@@ -787,6 +868,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- broker_lookup_rows: `{report.get('broker_ledger_coverage', {}).get('broker_rows_returned')}`",
         f"- broker_lookup_days: `{report.get('broker_ledger_coverage', {}).get('lookback_days')}`",
         f"- paper_alignment_cutoff: `{report.get('paper_alignment_cutoff')}`",
+        f"- full_account_activity_status: `{report.get('full_account_activity', {}).get('status')}`",
+        f"- full_account_activity_source: `{report.get('full_account_activity', {}).get('source')}`",
+        f"- full_account_activity_cooldown_until: `{report.get('full_account_activity', {}).get('cooldown_until')}`",
         "",
         "## Mismatches",
         "",
@@ -882,6 +966,8 @@ def main() -> int:
     parser.add_argument("--dual-match-path", type=Path, default=DEFAULT_DUAL_MATCH_PATH)
     parser.add_argument("--account-sync-path", type=Path, default=DEFAULT_ACCOUNT_SYNC_PATH)
     parser.add_argument("--broker-sync-path", type=Path, default=DEFAULT_BROKER_SYNC_PATH)
+    parser.add_argument("--account-activity-path", type=Path, default=DEFAULT_ACCOUNT_ACTIVITY_PATH)
+    parser.add_argument("--account-activity-attempt-path", type=Path, default=DEFAULT_ACCOUNT_ACTIVITY_ATTEMPT_PATH)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--limit-per-table", type=int, default=12)
     parser.add_argument(
@@ -896,6 +982,8 @@ def main() -> int:
         dual_match_path=args.dual_match_path,
         account_sync_path=args.account_sync_path,
         broker_sync_path=args.broker_sync_path,
+        account_activity_path=args.account_activity_path,
+        account_activity_attempt_path=args.account_activity_attempt_path,
         limit_per_table=max(1, args.limit_per_table),
         include_auxiliary=args.include_auxiliary,
     )

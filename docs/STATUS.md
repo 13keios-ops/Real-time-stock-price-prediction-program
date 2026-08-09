@@ -48,8 +48,10 @@
 - Phase 0: 유효 10거래일 관측은 완료됐지만 통과하지 못함
 - Phase 0 matched/mismatch: `0일/10일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 최신 trace는 KIS 최근 3일 조회가 0행이고, 보관된 320건은 전체 계좌 활동이 아닌 과거 mirrored submission 증거임을 명시한다. 현재 계좌 snapshot과 이 과거 증거가 달라 `current_account_vs_historical_mirrored_order_ledger_unresolved`로 분류했다.
-- Phase 0 해소 상태: `blocked_requires_full_account_history_or_clean_baseline`. 자동 align은 금지하며, 미러링 기간 전체를 덮는 sanitized 계좌 활동 또는 계좌 소유자가 승인한 clean paper-account baseline 뒤 새 local baseline이 필요하다.
+- 최신 trace는 KIS 최근 3일 조회 0행과 보관된 320건 historical mirrored submission을 전체 계좌 활동과 분리한다.
+- 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-07`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
+- 2026-08-09 첫 전체 기간 조회는 주문·취소 0회 상태에서 `EGW00201`로 제한됐고 `2026-08-10 00:48 KST`까지 2시간 cooldown을 기록했다. 즉시 재시도하지 않았다.
+- Phase 0 해소 상태: `blocked_full_account_history_rate_limited`. 자동 align은 금지하며, cooldown 뒤 전체 기간 조회 1회가 완결돼야 clean baseline 필요 여부를 판단한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -65,7 +67,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0 해소를 위한 전체 기간 sanitized 계좌 활동 또는 계좌 소유자 승인 clean baseline 결정
+1. Phase 0 전체 기간 sanitized 계좌 활동 probe를 cooldown 뒤 1회 완결하고, 결과가 실제 이력 미제공일 때만 계좌 소유자 승인 clean baseline으로 진행
 2. KIS WebSocket no-close-frame 재연결 29회 수준의 반복 원인과 실제 stable-frame 복구 증거
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거

@@ -100,6 +100,26 @@
 
 장후 자동화는 먼저 `latest-paper-account-history.json`에서 오늘 유효 기록 존재 여부를 확인한다. 이미 있으면 같은 endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 기록이 없을 때만 통합 recheck를 한 번 실행한다. 주말/휴장일 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에만 남고 10거래일 분모에는 들어가지 않는다.
 
+### 3.1.2. Phase 0 전체 기간 계좌 활동 probe
+
+Phase 0 snapshot divergence는 최근 3일 조회를 반복하지 않고 아래 dry-run으로 범위와 cooldown을 먼저 확인한다.
+
+```bash
+python3 scripts/probe_kis_paper_account_activity.py
+```
+
+계좌 소유자의 해당 작업 명시 승인, 장외, live runtime 정지를 모두 확인했을 때만 `--execute`를 붙여 1회 실행한다.
+
+- 조회 범위는 latest alignment marker부터 latest account snapshot까지다.
+- 페이지 끝을 확인하지 못하면 `blocked_incomplete_pagination`으로 남기며 정합 근거로 쓰지 않는다.
+- 보고서에는 계좌번호, 주문번호, raw response를 남기지 않는다.
+- 로컬 submission에 없는 broker 활동, 로컬 원장 divergence, account snapshot과 전체 활동 divergence를 분리한다.
+- `EGW00201`이면 2시간 cooldown 동안 어떤 dry-run도 네트워크 실행으로 승격하지 않는다.
+- 완료 결과는 `latest-paper-account-activity.json`, 제한/차단 시도는 `latest-paper-account-activity-attempt.json`에 분리한다.
+- 어떤 결과도 자동 align, `SyncInitialCash`, 주문 정책 변경을 허용하지 않는다.
+
+2026-08-09 확정 범위는 `2026-06-14~2026-08-07`, 로컬 mirrored submission 320건/20거래일이다. 첫 실행은 `EGW00201`로 제한돼 `2026-08-10 00:48 KST`까지 cooldown이며 즉시 재시도하지 않았다.
+
 ### 3.2. read-only probe 실패 분류
 
 기본 판단:

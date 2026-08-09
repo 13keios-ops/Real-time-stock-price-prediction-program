@@ -195,7 +195,12 @@ python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
   - `ambiguous_fallback_key_count > 0`: 보조키가 중복돼 어느 주문과 연결할지 모호한 상태다. 자동 align을 하지 않는다.
   - 세 값이 모두 0인데 mismatch가 유지되면 현재 조회된 주문/체결 원장보다 계좌 snapshot 원천 차이에 무게를 두고 다음 거래일 장후 재확인 또는 KIS 문의 증거로 남긴다.
 - `broker_ledger_coverage.status=historical_mirrored_orders_only`이면 보관된 미러링 주문 상태는 과거 제출 증거일 뿐 전체 계좌 활동 원장이 아니다. 이를 `latest KIS order/fill ledger`로 부르지 않는다.
-- `phase0_resolution.status=blocked_requires_full_account_history_or_clean_baseline`이면 같은 3일 조회를 반복하거나 자동 align하지 않는다. 해결 근거는 미러링 기간을 덮는 sanitized 전체 계좌 활동 또는 계좌 소유자가 승인한 clean paper-account baseline과 그 뒤의 새 local baseline 중 하나다.
+- `phase0_resolution.status=blocked_requires_full_account_history_or_clean_baseline`이면 같은 3일 조회를 반복하거나 자동 align하지 않는다.
+- full-period 상태는 `python3 scripts/probe_kis_paper_account_activity.py` dry-run으로 scope/cooldown만 확인한다. 반복 자동화는 `--execute`를 붙이지 않는다.
+- 계좌 소유자가 해당 작업에서 명시 승인했고 장외이며 live runtime이 정지했을 때만 `python3 scripts/probe_kis_paper_account_activity.py --execute`를 1회 실행한다.
+- probe는 alignment marker부터 최신 account snapshot까지 조회하며 `pagination_complete=false`, 중복 주문키, 빈 이력, `EGW00201`이면 fail-closed다.
+- `EGW00201`이면 attempt report의 `cooldown_until` 전에는 다시 호출하지 않는다. completed report가 없으면 clean baseline을 아직 승인된 해소로 보지 않는다.
+- 완결 조회가 실제 이력 미제공을 확인한 경우에만 broker support 또는 계좌 소유자 승인 clean paper-account baseline과 새 local baseline 중 하나를 선택한다.
 - `kis_account_snapshot_vs_order_fill_ledger_divergence`는 bounded lookup이 실제 비교 기간을 덮는 경우에만 사용한다. 이때도 자동 align 전에 snapshot 원천과 계좌 활동 범위를 확인한다.
 - `local_ledger_divergence`이면 로컬 position restore/fill 적용 경로를 먼저 확인한다.
 - `broker_order_fill_lookup_blocked_by_rate_limit`이면 cooldown 뒤 order-fill sync를 1회만 재시도한다.

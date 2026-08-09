@@ -202,6 +202,7 @@ class KisRestQuoteClient:
         self.token_manager = token_manager
         self.timeout_seconds = timeout_seconds
         self._last_response_headers: dict[str, str] = {}
+        self._last_daily_order_fill_query: dict[str, object] = {}
 
     def describe(self) -> dict[str, str]:
         return {
@@ -214,6 +215,11 @@ class KisRestQuoteClient:
     def last_response_headers(self) -> dict[str, str]:
         """Return a copy of the last successful response headers for read-only diagnostics."""
         return dict(self._last_response_headers)
+
+    @property
+    def last_daily_order_fill_query(self) -> dict[str, object]:
+        """Return sanitized pagination metadata for the latest order/fill query."""
+        return dict(self._last_daily_order_fill_query)
 
     def _request_response(
         self,
@@ -619,13 +625,26 @@ class KisRestQuoteClient:
         if not self.profile.is_configured:
             raise KisApiError("KIS account number and product code are required before requesting order fills.")
 
+        max_pages = max(int(max_pages), 1)
         ctx_area_fk100 = ""
         ctx_area_nk100 = ""
         tr_cont = ""
         tr_id = ORDER_DAILY_CCLD_TR_ID_LIVE if self.profile.mode == "live" else ORDER_DAILY_CCLD_TR_ID_PAPER
         records: list[KisDailyOrderFillRecord] = []
+        pages_fetched = 0
+        pagination_complete = False
+        page_limit_reached = False
+        self._last_daily_order_fill_query = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "max_pages": max_pages,
+            "pages_fetched": 0,
+            "records_returned": 0,
+            "pagination_complete": False,
+            "page_limit_reached": False,
+        }
 
-        for _ in range(max_pages):
+        for page_index in range(max_pages):
             payload, response_headers = self._request_response(
                 path=ORDER_DAILY_CCLD_PATH,
                 tr_id=tr_id,
@@ -648,6 +667,7 @@ class KisRestQuoteClient:
                 },
                 extra_headers={"tr_cont": tr_cont} if tr_cont else None,
             )
+            pages_fetched += 1
             for row in list(payload.get("output1", []) or []):
                 records.append(
                     KisDailyOrderFillRecord(
@@ -680,8 +700,21 @@ class KisRestQuoteClient:
             ctx_area_nk100 = _as_text(payload, "ctx_area_nk100")
             next_tr_cont = response_headers.get("tr_cont", "").upper()
             if next_tr_cont in {"M", "F"} and (ctx_area_fk100 or ctx_area_nk100):
+                if page_index + 1 >= max_pages:
+                    page_limit_reached = True
+                    break
                 tr_cont = "N"
                 continue
+            pagination_complete = True
             break
 
+        self._last_daily_order_fill_query = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "max_pages": max_pages,
+            "pages_fetched": pages_fetched,
+            "records_returned": len(records),
+            "pagination_complete": pagination_complete,
+            "page_limit_reached": page_limit_reached,
+        }
         return records
