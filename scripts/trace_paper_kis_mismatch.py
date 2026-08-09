@@ -261,6 +261,35 @@ def _broker_sync_summary(report: dict[str, Any]) -> dict[str, Any]:
     return {key: report.get(key) for key in keys if key in report}
 
 
+def _broker_ledger_coverage(report: dict[str, Any]) -> dict[str, Any]:
+    status = str(report.get("status") or "unknown")
+    total_submissions = int(report.get("total_submissions") or 0)
+    rows_returned_value = report.get("broker_rows_returned")
+    rows_returned = int(rows_returned_value or 0) if rows_returned_value is not None else None
+    lookback_days = report.get("order_fill_lookback_days")
+    if status == "rate_limited":
+        coverage_status = "current_lookup_rate_limited"
+    elif status == "ok" and total_submissions > 0 and rows_returned == 0:
+        coverage_status = "historical_mirrored_orders_only"
+    elif status == "ok" and rows_returned is not None:
+        coverage_status = "bounded_recent_lookup"
+    else:
+        coverage_status = "unknown"
+    return {
+        "status": coverage_status,
+        "lookback_days": lookback_days,
+        "broker_rows_returned": rows_returned,
+        "total_mirrored_submissions": total_submissions,
+        "complete_account_activity_ledger": False,
+        "reason": (
+            "The latest bounded KIS lookup returned no rows; retained mirrored-order statuses are historical "
+            "submission evidence, not a complete account activity ledger."
+            if coverage_status == "historical_mirrored_orders_only"
+            else "KIS order/fill lookup is bounded and cannot exclude manual or out-of-window account activity."
+        ),
+    }
+
+
 def _latest_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
@@ -274,6 +303,13 @@ def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     except sqlite3.DatabaseError:
         return False
     return row is not None
+
+
+def _load_alignment_cutoff(db_path: Path) -> str | None:
+    marker_path = db_path.parent / "reports" / "broker-paper" / "latest-alignment.json"
+    marker = _read_json(marker_path)
+    value = marker.get("aligned_at") if isinstance(marker, dict) else None
+    return str(value) if value else None
 
 
 def _latest_broker_status_synced_at(conn: sqlite3.Connection) -> str | None:
@@ -309,33 +345,65 @@ def _broker_status_flow(
     symbol: str,
     *,
     latest_status_synced_at: str | None,
+    alignment_cutoff: str | None,
 ) -> dict[str, Any]:
     if latest_status_synced_at is None or not _table_exists(conn, "broker_paper_order_status_snapshots"):
         return {"available": False, "reason": "broker_status_snapshots_missing"}
-    query = """
+    alignment_join = ""
+    alignment_where = ""
+    params: tuple[Any, ...] = (symbol,)
+    if alignment_cutoff:
+        if not _table_exists(conn, "broker_paper_order_submissions"):
+            return {"available": False, "reason": "broker_submissions_missing_for_alignment_cutoff"}
+        alignment_join = (
+            " join broker_paper_order_submissions as submission"
+            " on submission.local_order_id = snapshot.local_order_id"
+        )
+        alignment_where = " and submission.event_time >= ?"
+        params = (symbol, alignment_cutoff)
+    query = f"""
+        with latest_by_order as (
+            select snapshot.*,
+                   row_number() over (
+                       partition by snapshot.local_order_id
+                       order by snapshot.synced_at desc, snapshot.rowid desc
+                   ) as row_rank
+            from broker_paper_order_status_snapshots as snapshot
+            {alignment_join}
+            where snapshot.symbol = ?{alignment_where}
+        )
         select side, status, count(*) as row_count,
                coalesce(sum(order_qty), 0) as order_qty,
                coalesce(sum(filled_qty), 0) as filled_qty,
-               coalesce(sum(applied_fill_qty), 0) as applied_fill_qty
-        from broker_paper_order_status_snapshots
-        where symbol = ? and synced_at = ?
+               coalesce(sum(applied_fill_qty), 0) as applied_fill_qty,
+               min(synced_at) as oldest_order_snapshot_at,
+               max(synced_at) as latest_order_snapshot_at
+        from latest_by_order
+        where row_rank = 1
         group by side, status
         order by side, status
     """
     try:
-        rows = [dict(row) for row in conn.execute(query, (symbol, latest_status_synced_at)).fetchall()]
+        rows = [dict(row) for row in conn.execute(query, params).fetchall()]
     except sqlite3.DatabaseError as exc:
         return {"available": False, "reason": str(exc)}
     filled_net = sum(_signed_qty(row.get("side"), row.get("filled_qty")) for row in rows)
     applied_net = sum(_signed_qty(row.get("side"), row.get("applied_fill_qty")) for row in rows)
+    snapshot_times = [
+        str(row.get(key))
+        for row in rows
+        for key in ("oldest_order_snapshot_at", "latest_order_snapshot_at")
+        if row.get(key)
+    ]
     return {
-        "available": True,
+        "available": bool(rows),
         "synced_at": latest_status_synced_at,
+        "oldest_order_snapshot_at": min(snapshot_times) if snapshot_times else None,
+        "latest_order_snapshot_at": max(snapshot_times) if snapshot_times else None,
         "filled_net_qty": _simplify_qty(filled_net),
         "applied_net_qty": _simplify_qty(applied_net),
         "rows": rows,
     }
-
 
 def _rejected_close_order_activity(
     conn: sqlite3.Connection,
@@ -419,6 +487,7 @@ def _classify_position_divergence(
     broker_status_available: bool,
     rejected_close_recent_count: int,
     broker_sync_status: str | None,
+    broker_ledger_coverage_status: str | None,
 ) -> tuple[str, str, str]:
     if broker_sync_status == "rate_limited":
         return (
@@ -429,6 +498,14 @@ def _classify_position_divergence(
     if broker_status_available and _quantities_equal(local_qty, broker_order_fill_net_qty) and not _quantities_equal(
         broker_qty, broker_order_fill_net_qty
     ):
+        if broker_ledger_coverage_status == "historical_mirrored_orders_only":
+            return (
+                "account_snapshot_differs_from_out_of_lookback_mirrored_ledger",
+                "current_account_vs_historical_mirrored_order_ledger_unresolved",
+                "The current account snapshot differs from historical mirrored-order evidence outside the "
+                "bounded lookup window. Obtain sanitized full-period account activity or establish an "
+                "account-owner-approved clean baseline before changing local state.",
+            )
         if _quantities_equal(local_qty, 0) and not _quantities_equal(broker_qty, 0):
             return (
                 "broker_account_has_residual_qty_not_in_order_fill_net",
@@ -475,12 +552,19 @@ def _summarize_symbol_trace(
     broker_sync_status: str | None,
     conn: sqlite3.Connection,
     latest_status_synced_at: str | None,
+    alignment_cutoff: str | None,
+    broker_ledger_coverage_status: str | None,
 ) -> dict[str, Any]:
     symbol = str(mismatch.get("symbol") or "")
     latest_local_order = _latest_row(symbol_trace.get("paper_orders", []))
     latest_broker_submission = _latest_row(symbol_trace.get("broker_paper_order_submissions", []))
     latest_broker_status = _latest_row(symbol_trace.get("broker_paper_order_status_snapshots", []))
-    broker_status_flow = _broker_status_flow(conn, symbol, latest_status_synced_at=latest_status_synced_at)
+    broker_status_flow = _broker_status_flow(
+        conn,
+        symbol,
+        latest_status_synced_at=latest_status_synced_at,
+        alignment_cutoff=alignment_cutoff,
+    )
     rejected_close_orders = _rejected_close_order_activity(
         conn,
         symbol,
@@ -493,6 +577,7 @@ def _summarize_symbol_trace(
         broker_status_available=bool(broker_status_flow.get("available")),
         rejected_close_recent_count=int(rejected_close_orders.get("recent_count") or 0),
         broker_sync_status=broker_sync_status,
+        broker_ledger_coverage_status=broker_ledger_coverage_status,
     )
     return {
         "symbol": symbol,
@@ -503,6 +588,9 @@ def _summarize_symbol_trace(
         "broker_order_fill_net_qty": broker_status_flow.get("filled_net_qty"),
         "broker_order_fill_applied_net_qty": broker_status_flow.get("applied_net_qty"),
         "broker_order_fill_synced_at": broker_status_flow.get("synced_at"),
+        "broker_order_fill_oldest_order_snapshot_at": broker_status_flow.get("oldest_order_snapshot_at"),
+        "broker_order_fill_latest_order_snapshot_at": broker_status_flow.get("latest_order_snapshot_at"),
+        "broker_ledger_coverage_status": broker_ledger_coverage_status,
         "root_cause_scope": root_cause_scope,
         "latest_local_order": latest_local_order,
         "latest_broker_submission": latest_broker_submission,
@@ -556,6 +644,7 @@ def build_trace_report(
     broker_sync = _read_json(broker_sync_path)
     mismatches, mismatch_source = _select_mismatch_rows(dual_match=dual_match, account_sync=account_sync)
     symbols = [str(row["symbol"]) for row in mismatches]
+    broker_ledger_coverage = _broker_ledger_coverage(broker_sync)
     report: dict[str, Any] = {
         "generated_at": _utc_now_iso(),
         "db_path": str(db_path),
@@ -569,6 +658,7 @@ def build_trace_report(
         "account_snapshot_evidence": _account_snapshot_evidence(account_sync),
         "mismatch_source_report": mismatch_source,
         "broker_sync": _broker_sync_summary(broker_sync),
+        "broker_ledger_coverage": broker_ledger_coverage,
         "mismatch_count": len(symbols),
         "mismatch_rows": mismatches,
         "symbols": symbols,
@@ -584,7 +674,9 @@ def build_trace_report(
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     latest_status_synced_at = _latest_broker_status_synced_at(conn)
+    alignment_cutoff = _load_alignment_cutoff(db_path)
     report["broker_order_fill_latest_synced_at"] = latest_status_synced_at
+    report["paper_alignment_cutoff"] = alignment_cutoff
     infos = _table_infos(conn, include_auxiliary=include_auxiliary)
     report["scanned_tables"] = [
         {"name": info.name, "symbol_column": info.symbol_column, "time_column": info.time_column}
@@ -606,6 +698,8 @@ def build_trace_report(
                 broker_sync_status=report.get("broker_sync", {}).get("status"),
                 conn=conn,
                 latest_status_synced_at=latest_status_synced_at,
+                alignment_cutoff=alignment_cutoff,
+                broker_ledger_coverage_status=broker_ledger_coverage.get("status"),
             )
         )
     report["symbol_summaries"] = symbol_summaries
@@ -614,10 +708,31 @@ def build_trace_report(
         for item in symbol_summaries
         if item.get("root_cause_scope") == "kis_account_snapshot_vs_order_fill_ledger_divergence"
     )
+    historical_ledger_unresolved_count = sum(
+        1
+        for item in symbol_summaries
+        if item.get("root_cause_scope") == "current_account_vs_historical_mirrored_order_ledger_unresolved"
+    )
     rate_limited_count = sum(
         1 for item in symbol_summaries if item.get("likely_issue") == "broker_order_fill_recovery_rate_limited"
     )
-    if account_vs_order_fill_count:
+    if historical_ledger_unresolved_count:
+        report["assessment"] = {
+            "status": "needs_review",
+            "summary": (
+                f"{historical_ledger_unresolved_count} symbol(s) differ between the current KIS account snapshot "
+                "and historical mirrored-order evidence outside the latest bounded lookup window"
+            ),
+        }
+        report["phase0_resolution"] = {
+            "status": "blocked_requires_full_account_history_or_clean_baseline",
+            "automatic_alignment_allowed": False,
+            "required_evidence": [
+                "sanitized account activity covering the mirrored-order period",
+                "or an account-owner-approved clean paper-account baseline followed by a fresh local baseline",
+            ],
+        }
+    elif account_vs_order_fill_count:
         report["assessment"] = {
             "status": "needs_review",
             "summary": (
@@ -668,6 +783,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- account_snapshot_shape_complete: `{report.get('account_snapshot_evidence', {}).get('shape_complete')}`",
         f"- broker_sync_status: `{report.get('broker_sync', {}).get('status')}`",
         f"- broker_open_order_count: `{report.get('broker_sync', {}).get('open_order_count')}`",
+        f"- broker_ledger_coverage: `{report.get('broker_ledger_coverage', {}).get('status')}`",
+        f"- broker_lookup_rows: `{report.get('broker_ledger_coverage', {}).get('broker_rows_returned')}`",
+        f"- broker_lookup_days: `{report.get('broker_ledger_coverage', {}).get('lookback_days')}`",
+        f"- paper_alignment_cutoff: `{report.get('paper_alignment_cutoff')}`",
         "",
         "## Mismatches",
         "",
@@ -743,7 +862,8 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "- This report is read-only and does not align or mutate account state.",
             "- If broker sync is rate-limited, local-only positions can mean missing broker fills, stale local state, or both.",
-            "- If local_qty equals broker_order_fill_net_qty but broker_account_qty differs, the immediate issue is KIS account snapshot vs KIS order/fill ledger divergence.",
+            "- Retained mirrored-order statuses are not a complete KIS account activity ledger when the latest bounded lookup returns no rows.",
+            "- If current account quantity differs from out-of-window mirrored history, require full activity evidence or an owner-approved clean baseline; do not auto-align.",
             "- rejected_close_lifetime_count is historical context; rejected_close_recent_count is the only field used to identify an active retry pattern.",
             "- Do not apply marker-only alignment until the order/fill path for each mismatched symbol is understood.",
             "",

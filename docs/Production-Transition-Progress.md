@@ -9,7 +9,8 @@
 - Phase 1b의 주문 없는 live 계좌 조회 준비는 통과했다.
 - 현재 수익 후보는 `0개`다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
-- 2026-07-20 장후 E1/E5는 1회 실행했으나 D드라이브 research snapshot I/O 대기로 결과가 생성되지 않았다. 자동 재실행은 금지하며 유효 결과 전에는 다음 연구 분기를 결정하지 않는다.
+- 2026-08-09 E1/E5 명시 실행도 snapshot timeout으로 안전 종료됐다. 주문·네트워크 호출은 0회이며 유효 연구 결과는 아직 없다.
+- 2026-08-07 수집은 raw/feature coverage 97.5%, decision lineage 100%로 정상이다. WebSocket reconnect 29회는 별도 주의다.
 
 ## 2. Phase 상태
 
@@ -21,25 +22,25 @@
 ### Phase 0: paper + KIS 모의계좌
 
 - 상태: 진행 중
-- 최근 10거래일 누적: `10/10` 관측 완료
-- matched/mismatch: `0일/10일`로 완료 조건 미통과
+- 최근 10거래일 누적: `10/10`
+- matched/mismatch: `0일/10일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
-- 원인 범위: local paper/KIS order-fill 순수량 2/6/4/5와 KIS account snapshot 수량 0/5/0/10의 divergence가 남아 있다. sanitized trace는 paper snapshot의 mode, product, fetch 시각, row-count shape를 함께 기록한다. lifetime rejected close는 수천 건이나 2026-08-02 trace에서 recent count는 모두 0건이며, 2026-07-28 fail-closed 차단 뒤 active retry는 없다.
-- 자동 align과 `SyncInitialCash`: 보류
-- 완료 조건: 10개 유효 장후 거래일 모두 정합하고 현재 divergence 해소
+- 최신 KIS 주문·체결 조회는 3일 범위에서 0행이다. 보관된 320건은 전체 계좌 활동이 아니라 과거 mirrored submission 증거다.
+- 현재 root cause scope: `current_account_vs_historical_mirrored_order_ledger_unresolved`
+- 해소 상태: `blocked_requires_full_account_history_or_clean_baseline`
+- 자동 align과 `SyncInitialCash`: 금지
+- 완료 조건: 미러링 기간 전체 sanitized 계좌 활동 또는 계좌 소유자 승인 clean baseline 뒤 새 local baseline으로 divergence를 해소하고, 이후 10개 유효 거래일이 모두 정합
 
 ### Phase 1a: KIS 모의투자 read-only
 
 - 상태: 1차 리허설 통과
 - token, account snapshot, system clock, dashboard/readiness 흐름 확인
-- market status와 kill switch는 조회 전용 단계에서 비차단
-- 증거가 stale하면 필요 시 다시 생성
 
 ### Phase 1b: 실전계좌 bounded read-only
 
 - 상태: 제한 관측 1회와 전용 readiness 통과
 - live token 1회, paper/live account 각 1페이지, live clock quote 1회로 제한
-- system clock skew: `0.533151초`, 허용 `2초` 이내
+- system clock skew: `0.533151초`, 허용 2초 이내
 - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, 주문 메서드 미노출 유지
 - 의미: 실전계좌 조회 연결 준비 통과
 - 의미하지 않는 것: 수익성 통과, 주문 허용, Phase 2 승인
@@ -54,44 +55,51 @@
 - 상태: 미시작
 - 조건: Phase 2 최소 20~60거래일 운영 안정성 증거
 
-## 3. 모델과 수익성
+## 3. 데이터와 판단 원장
+
+- 2026-08-07 raw market/orderbook: 804,435/641,766행
+- raw market/orderbook symbol-minute: 3,815/4,059
+- minute bar/feature: 3,803/3,803
+- closed-minute feature coverage: 97.5128%
+- decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
+- shadow lineage: 7,606/7,606
+- WebSocket: reconnect 29, storm 0. no-close-frame 28, no-frame timeout 1
+- 판정: 수집과 판단 계보는 정상, 연결 안정성은 주의
+- 다음 거래일부터 live runtime 현재/peak RSS를 status/watchdog 증거에 포함한다.
+
+## 4. 모델과 수익성
 
 - active h15: `baseline-h15-v1`
 - challenger action: `keep_active`
 - promotion applied: `false`
 - 현재 통과한 수익 후보: `0개`
-- 2026-08-07 active baseline: 3분류 정확도 `0.267826`, trade hit rate `0.580645`, 31건 합산 순수익 `+20.458524%p`이나 작은 표본과 낮은 3분류 정확도이며 포트폴리오 수익이 아니므로 수익 후보가 아님
-- 2026-08-07 LightGBM challenger: 3분류 정확도 `0.427029`, 5건 평균 `-1.043656%`, 합산 `-5.218279%p`로 수익 후보가 아님
-- walk-forward의 과거 수치는 현재 비용 후 수익성 정본으로 쓰지 않으며, 유효 E1/E5 결과 전에는 새 조정을 하지 않음
+- active baseline 평가는 31건의 작은 표본이고 3분류 정확도 `0.267826`이므로 겹치는 거래 수익률 합 `+20.458524%p`를 수익 후보로 쓰지 않는다.
+- LightGBM challenger는 5건 합산 `-5.218279%p`다.
+- buy-avoid, buy-rescue, hold-rescue는 모두 현행 비용 후 절대 수익성이 음수다.
+- 유효 E1/E5 결과 전 threshold/EV 반복 탐색을 하지 않는다.
+- 이후 연구도 실현 p75 미래변동을 entry 필터로 쓰지 않는다. entry 시점 정보만 사용하는 저빈도 비용여유 후보, h60 별도 트랙, entry/exit 분리 가설을 같은 portfolio replay·random control·비중복 구간으로 비교한다.
 
-### Rescue/Avoid
+## 5. 현재 P0
 
-- buy-avoid `0.40`: 완전 lineage 19거래일에서 `-36.4241% -> -34.3196%`; 손실 완화는 있으나 절대수익·평균 기대값·일별 일관성이 음수라 기각
-- buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행이다. LightGBM 최선 6건 `-4.153997%p`, linear-score 최선 269건 `-90.797762%p`로 모두 음수다.
-- hold-rescue `0.40`: 37건 적용, `-26,387원`, 후보 아님
+1. Phase 0 해소 근거 선택: sanitized full-period account activity 또는 계좌 소유자 승인 clean baseline
+2. WebSocket reconnect 29회 수준의 반복 원인과 real recovery evidence
+3. E1/E5 유효 결과 확보. 다음 명시 실행부터 대형 DB snapshot은 repo-local D드라이브 물리 저장소와 token별 partial 정리를 사용
+4. 비용 후 양수 entry 후보와 독립 exit 후보를 동일 portfolio replay에서 검증
+5. 당일 fresh market status와 유효 kill switch OFF
+6. 25GB 운영 DB의 보존·집계 비용 관리
 
-세 항목 모두 관측/진단용이며 실제 주문과 모델 승격에 반영하지 않는다.
+## 6. 동결 범위
 
-## 4. 현재 P0
+E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
 
-1. KIS WebSocket 재연결 빈도 관찰: 2026-07-20 decision ledger 3,812행은 정상 수집됐으나 `no close frame` 재연결 29회 발생
-2. Phase 0에서 확인된 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 현재 cash gap은 714,840.9593원이며 rejected close recent count는 0건이다. 다음 거래일에는 같은 sanitized snapshot evidence와 함께 재확인한다.
-3. E1/E5 유효 결과 확보: 2026-07-20 1회 시도는 D드라이브 snapshot I/O 대기로 결과 파일 미생성, 자동 재실행 금지. 다음 명시 실행은 180초 timeout, partial/atomic snapshot, sanitized failure attempt로 보호
-4. 유효 신호 재현 시 h15 저빈도와 h60을 동일 portfolio replay로 비교
-5. 유효 결과가 실패하면 threshold 탐색을 중지하고 새 feature/source/horizon 가설 사전등록
+운영 장애, 데이터 누락, lineage 저장 오류, snapshot 원자성, 관측 리포트 수정은 동결 대상이 아니다.
 
-## 5. 동결 범위
+## 7. 운영자 작업
 
-E1/E5 유효 결과와 Phase 0 divergence 해소 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
+현재 즉시 필요한 수동 작업은 없다.
+Phase 0 clean baseline을 택하거나 E1/E5를 다시 실행할 때만 해당 작업의 명시 승인이 필요하다. 자격정보, market status, kill switch OFF, NAS 백업도 해당 단계에서만 요청한다.
 
-운영 장애, 데이터 누락, lineage 저장 오류 수정은 동결 대상이 아니다.
-
-## 6. 운영자 작업
-
-현재 필요한 수동 작업은 없다.
-자격정보 입력, market status 승인, kill switch OFF, NAS 백업은 해당 단계에서 명시적으로 필요할 때만 요청한다.
-
-## 7. 종료 체크
+## 8. 종료 체크
 
 - 실제 상태 파일을 확인했는가
 - 현재 수익 후보 유무를 명시했는가

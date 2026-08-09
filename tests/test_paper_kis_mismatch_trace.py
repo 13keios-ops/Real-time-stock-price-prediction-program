@@ -190,6 +190,167 @@ class PaperKisMismatchTraceTests(unittest.TestCase):
         self.assertIn("2 symbol(s)", report["assessment"]["summary"])
 
 
+    def test_marks_out_of_lookback_mirrored_history_as_incomplete_account_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "trace.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """
+                create table broker_paper_order_status_snapshots (
+                    sync_id text,
+                    local_order_id text,
+                    broker_mode text,
+                    symbol text,
+                    synced_at text,
+                    side text,
+                    order_qty real,
+                    filled_qty real,
+                    applied_fill_qty real,
+                    status text
+                )
+                """
+            )
+            conn.executemany(
+                """
+                insert into broker_paper_order_status_snapshots
+                values (?, ?, 'paper', '035420', ?, ?, ?, ?, ?, 'filled')
+                """,
+                [
+                    ("sync-1", "buy-1", "2026-07-01T16:00:00+09:00", "buy", 2, 2, 2),
+                    ("sync-2", "sell-1", "2026-07-02T16:00:00+09:00", "sell", 1, 1, 1),
+                    ("sync-3", "buy-1", "2026-07-03T16:00:00+09:00", "buy", 2, 2, 2),
+                ],
+            )
+            conn.commit()
+            conn.close()
+            dual_path = tmp_path / "dual.json"
+            account_path = tmp_path / "account.json"
+            broker_path = tmp_path / "broker.json"
+            dual_path.write_text(json.dumps({"comparison": {"status": "ok", "mismatch_rows": []}}), encoding="utf-8")
+            account_path.write_text(
+                json.dumps(
+                    {
+                        "comparison": {
+                            "status": "needs_review",
+                            "mismatch_rows": [
+                                {"symbol": "035420", "status": "only_local", "local_qty": 1, "broker_qty": 0}
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            broker_path.write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "total_submissions": 2,
+                        "order_fill_lookback_days": 3,
+                        "broker_rows_returned": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = build_trace_report(
+                db_path=db_path,
+                dual_match_path=dual_path,
+                account_sync_path=account_path,
+                broker_sync_path=broker_path,
+                limit_per_table=3,
+                include_auxiliary=False,
+            )
+
+        summary = report["symbol_summaries"][0]
+        self.assertEqual(summary["broker_order_fill_net_qty"], 1)
+        self.assertEqual(
+            summary["likely_issue"],
+            "account_snapshot_differs_from_out_of_lookback_mirrored_ledger",
+        )
+        self.assertEqual(
+            summary["root_cause_scope"],
+            "current_account_vs_historical_mirrored_order_ledger_unresolved",
+        )
+        self.assertEqual(report["broker_ledger_coverage"]["status"], "historical_mirrored_orders_only")
+        self.assertFalse(report["broker_ledger_coverage"]["complete_account_activity_ledger"])
+        self.assertFalse(report["phase0_resolution"]["automatic_alignment_allowed"])
+
+
+    def test_applies_paper_alignment_cutoff_to_mirrored_order_net(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "dev.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                create table broker_paper_order_status_snapshots (
+                    sync_id text, local_order_id text, broker_mode text, symbol text,
+                    synced_at text, side text, order_qty real, filled_qty real,
+                    applied_fill_qty real, status text
+                );
+                create table broker_paper_order_submissions (
+                    local_order_id text, event_time text
+                );
+                """
+            )
+            conn.executemany(
+                "insert into broker_paper_order_status_snapshots values (?, ?, 'paper', '035420', ?, 'buy', ?, ?, ?, 'filled')",
+                [
+                    ("sync-pre", "pre-alignment", "2026-07-03T16:00:00+09:00", 10, 10, 10),
+                    ("sync-post", "post-alignment", "2026-07-03T16:00:00+09:00", 2, 2, 2),
+                ],
+            )
+            conn.executemany(
+                "insert into broker_paper_order_submissions values (?, ?)",
+                [
+                    ("pre-alignment", "2026-07-01T10:00:00+09:00"),
+                    ("post-alignment", "2026-07-02T10:00:00+09:00"),
+                ],
+            )
+            conn.commit()
+            conn.close()
+            marker_dir = tmp_path / "reports" / "broker-paper"
+            marker_dir.mkdir(parents=True)
+            marker_dir.joinpath("latest-alignment.json").write_text(
+                json.dumps({"aligned_at": "2026-07-02T00:00:00+09:00"}),
+                encoding="utf-8",
+            )
+            dual_path = tmp_path / "dual.json"
+            account_path = tmp_path / "account.json"
+            broker_path = tmp_path / "broker.json"
+            dual_path.write_text(json.dumps({"comparison": {"status": "ok", "mismatch_rows": []}}), encoding="utf-8")
+            account_path.write_text(
+                json.dumps(
+                    {
+                        "comparison": {
+                            "status": "needs_review",
+                            "mismatch_rows": [
+                                {"symbol": "035420", "status": "only_local", "local_qty": 2, "broker_qty": 0}
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            broker_path.write_text(
+                json.dumps({"status": "ok", "total_submissions": 2, "order_fill_lookback_days": 3, "broker_rows_returned": 0}),
+                encoding="utf-8",
+            )
+
+            report = build_trace_report(
+                db_path=db_path,
+                dual_match_path=dual_path,
+                account_sync_path=account_path,
+                broker_sync_path=broker_path,
+                limit_per_table=3,
+                include_auxiliary=False,
+            )
+
+        self.assertEqual(report["paper_alignment_cutoff"], "2026-07-02T00:00:00+09:00")
+        self.assertEqual(report["symbol_summaries"][0]["broker_order_fill_net_qty"], 2)
+
+
     def test_separates_rejected_close_history_from_active_retry_activity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

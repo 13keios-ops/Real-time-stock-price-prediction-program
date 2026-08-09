@@ -140,6 +140,25 @@ class WslOpsRecoveryExportTests(unittest.TestCase):
 
 
 
+class WslOpsProcessMemoryTests(unittest.TestCase):
+    def test_process_memory_status_reads_proc_kilobytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            proc_root = Path(tmp)
+            status_dir = proc_root / "123"
+            status_dir.mkdir()
+            (status_dir / "status").write_text(
+                "Name:\tpython\nVmSize:\t204800 kB\nVmHWM:\t153600 kB\nVmRSS:\t102400 kB\n",
+                encoding="utf-8",
+            )
+            result = wsl_ops.process_memory_status(123, proc_root=proc_root)
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["rss_kb"], 102400)
+        self.assertEqual(result["peak_rss_kb"], 153600)
+        self.assertEqual(result["rss_mib"], 100.0)
+        self.assertEqual(result["peak_rss_mib"], 150.0)
+
+
 class WslOpsWatchdogRestartBackoffTests(unittest.TestCase):
     def test_restart_backoff_grows_and_is_capped(self) -> None:
         self.assertEqual(wsl_ops.live_runtime_restart_backoff_seconds(1, 60), 120)

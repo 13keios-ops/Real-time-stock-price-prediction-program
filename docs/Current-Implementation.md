@@ -17,7 +17,7 @@
 
 장중 데이터 수집은 실험과 분리된 백그라운드 축으로 유지한다. 일반 거래일에는 `runtime watchdog`이 live runtime 을 켜서 KIS WebSocket 체결/호가 데이터를 계속 쌓고, 오프라인 ML/룰 실험은 이 수집기를 끄지 않고 DB와 리포트를 읽는다. 코스피200 Cybos 갱신은 Windows COM API 제약 때문에 장후 배치 수집과 WSL 병합 흐름으로 분리한다.
 
-장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래다. D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않고 경로 문제를 먼저 해결한다.
+장중에는 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 `runtime-data/dev.db`를 계속 쓰고, 연구 트랙은 `scripts/create_research_db_snapshot.sh`가 만든 SQLite backup 스냅샷을 `DATABASE_URL`로 지정해 실행한다. 기본 스냅샷과 연구 산출물 위치는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 아래지만, source DB가 8GiB 이상이고 `/mnt/d`가 WSL 9P 계열이면 snapshot만 repo-local `runtime-data/research-snapshots/`를 사용한다. WSL 배포판 자체가 D드라이브에 있으므로 D드라이브 전용 산출물 규칙은 유지된다.
 
 장마감 후 자동 관리는 runtime watchdog 이 하루 한 번 시작한다. 기본 30분 지연 뒤 `run_post_close_ml_maintenance.sh --quick`를 백그라운드 실행하고, quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, local setup readiness, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. live DB는 장중 수집 원장으로 남긴다. snapshot DB와 `--rebuild-actual-ml`을 쓰는 heavy research 는 명시 명령이나 별도 저부하 시간대에서만 실행하며, 자동 학습은 active model 교체나 실전 주문 승격을 하지 않는다.
 
@@ -325,7 +325,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 회귀 위험은 artifact metadata 가 없는 legacy 모델에서는 anchor 를 만들 수 없어 기존 tail split/fail-safe 로 돌아간다는 점이다. 이 경우 자동 승격하지 않고 상태를 리포트에 남긴다.
 - Cybos expected-value review는 거래별 퍼센트 손익 합산과 별도로 `fixed_fraction_per_signal_horizon_proxy` 포트폴리오 프록시를 기록한다. 기본 해석은 `5% 고정 비중`, `총 익스포저 100% 제한`, `horizon 기반 청산`이며 실제 paper 계좌 수익률이 아니라 승격 전 진단값이다.
 - Cybos 연구 suite 요약은 기존 `latest-cybos-*` 리포트를 재학습 없이 묶어 `latest-cybos-research-suite-summary.{json,md}`로 남긴다. 이 요약은 후보 승격이 아니라 다음 실험 우선순위를 정하는 진단표다.
-- KIS live data quality 요약은 `raw_market_ticks`, `raw_orderbook_ticks`, 실제 KIS 분봉, feature, h15/h60 label coverage 를 최근 거래일별로 묶어 `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`로 남긴다. 이 요약은 월요일 장전/장중 수집률 점검과 장후 label 닫힘 여부 확인에 쓴다.
+- KIS live data quality 요약은 `raw_market_ticks`, `raw_orderbook_ticks`, 실제 KIS 분봉, feature, h15/h60 label coverage와 함께 거래일별 `serving_decision_ledger` active/shadow lineage 완전성, decision stage, WebSocket reconnect/storm을 `runtime-data/reports/data-quality/latest-kis-live-data-quality.{json,md}`로 남긴다. 재연결이 있어도 storm=0, 닫힌 분 coverage 95% 이상, lineage 100%이면 수집 성공과 연결 주의를 분리한다.
 - KIS live vs Cybos historical feature source drift 요약은 `runtime-data/reports/data-quality/latest-feature-source-drift.{json,md}`로 남긴다. KIS 표본은 가능하면 Cybos 마지막 일자 이후 live 날짜만 사용하며, `spread_bps`, `bid_ask_imbalance`처럼 Cybos historical 에 구조적으로 없는 호가 feature 분포 차이를 승격 판단 전에 확인한다. Cybos-only 후보는 실제 KIS live 성능의 직접 대리값이 아니라 구조 탐색과 후보 축소용으로 본다.
 - KIS live feature diagnostics 요약은 `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.{json,md}`로 남긴다. Cybos 마지막 일자 이후 live 날짜 중 h15 label 이 닫힌 feature row만 사용해, 단일 피처별 future return 상관과 구간별 label 분포를 확인한다. 이 리포트는 피처 후보 탐색용이며 모델 승격 근거로 쓰지 않는다.
 

@@ -15,6 +15,8 @@ description: Use for this repository when checking or acting on 장전/장후 �
 ```bash
 ./scripts/get_live_runtime_status.sh
 ./scripts/get_runtime_watchdog_status.sh
+./scripts/get_dashboard_status.sh
+./scripts/get_runtime_startup_launcher_status.sh
 git status --short --branch
 ```
 
@@ -60,7 +62,7 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 - premarket readiness: `status=ok`, blockers/warnings 없음.
 - post-close ML: `status=ok`.
 - post-close label refresh: `status=ok`.
-- KIS live data quality: `assessment.status=ok`.
+- KIS live data quality: `assessment.status=ok`. `watch`가 WebSocket 재연결만으로 발생했고 storm=0, raw/feature coverage와 decision lineage가 정상이라면 수집 성공과 연결 주의를 분리해 보고한다.
 - local setup: `ok=true`, blockers/warnings 없음.
 - live runtime: 장후에는 정지 상태가 정상.
 - watchdog: `status=running`, `errors=[]`.
@@ -129,16 +131,19 @@ find runtime-data/reports -type f -newermt "YYYY-MM-DD 00:00:00" \
 
 ### 2026-07-20 장후 E1/E5 사전등록 라운드
 
-- 2026-07-20 장후 label refresh가 완료됐고 `runtime-data/reports/research/preregistered-e1-e5-20260718/latest-completed-round.json`의 `status=ok` 완료 파일이 없을 때만 아래 명령을 1회 실행한다.
-
-```bash
-./scripts/run_preregistered_e1_e5_round.sh --execute
-```
-
-- 기본 실행은 dry-run이다. `2026-07-20 15:30 KST` 이전과 `pre-open`/`regular-session`에는 `--execute`도 snapshot 생성 전에 차단돼야 한다.
-- 실행기는 `2026-07-04~2026-07-18` 고정 구간만 읽고 E1 전체/분해, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` excess/z를 한 라운드로 기록한다.
+- 2026-07-20 최초 실행과 2026-08-09 계좌 소유자 명시 승인 실행은 모두 research snapshot 단계의 180초 timeout으로 안전 종료됐다. `latest-completed-round.json`은 없고 `latest-attempt.json`만 `snapshot_failed/research_snapshot_timeout`으로 남아 있다.
+- daily ops와 반복 자동화는 이 라운드를 재실행하지 않는다. 다음 실행은 계좌 소유자가 그 작업에서 다시 명시 승인한 경우에만 장외에서 정확히 1회 수행한다.
+- 2026-08-09 이후 8GiB 이상 DB의 기본 snapshot은 WSL `/mnt/d` 9P 복사 대신 repo-local `runtime-data/research-snapshots/`를 사용한다. 현재 WSL 배포판 자체가 D드라이브에 있어 D드라이브 전용 산출물 규칙을 지킨다. timeout이면 해당 실행 token의 partial DB/journal/manifest만 정리하고 final snapshot은 교체하지 않는다.
+- 실행기는 `2026-07-04~2026-07-18` 고정 구간만 읽고 E1 전체/분해, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` excess/z를 기록한다.
 - 결과는 진단 전용이다. threshold/EV tuning, 종목별 주문 정책, h60 정책, active model/gate 변경으로 자동 연결하지 않는다.
-- `status=insufficient_data`이면 완료로 잠그지 않고 label/date coverage를 확인한 뒤 다음 장외에 재실행할 수 있다. `status=ok` 완료 파일이 있으면 중복 실행하지 않는다.
+
+### KIS live 수집·판단 연속성
+
+- 장전에는 `get_live_runtime_status.sh`의 `process_memory.rss_mib`, `peak_rss_mib`를 함께 확인한다. live runtime이 아직 정지 상태면 메모리 증거가 없음을 정상으로 두고 장중 실행 뒤 다시 본다.
+- 장후 runtime 정지 뒤 `python3 scripts/summarize_kis_live_data_quality.py --recent-days 10`을 1회 실행한다. 이 명령은 기존 raw/분봉/feature/label coverage에 거래일별 `serving_decision_ledger` 계보와 live runtime 로그의 WebSocket 재연결을 함께 기록한다.
+- `latest_session_observability.serving_decision_ledger`에서 rows 증가, `complete_lineage_rows`, `lineage_completion_ratio`, malformed shadow, stage 분포를 확인한다. rows만 많고 lineage가 불완전하면 수집 성공으로 판정하지 않는다.
+- `latest_session_observability.websocket_reconnects`에서 count, storm_count, reason을 확인한다. 재연결이 있어도 storm=0이고 raw/feature coverage가 95% 이상이며 lineage가 100%면 데이터 수집은 성공, 연결 안정성은 주의로 분리한다.
+- 정규장에는 리포트를 재생성하지 않고 기존 파일과 로그만 읽는다.
 
 ### KIS live buy-rescue 진단
 
@@ -189,7 +194,9 @@ python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
   - `fallback_matched_orders > 0`: 주문일을 포함한 정확 매칭이 아니라 지점번호/주문번호 보조 매칭이 사용된 상태다. 날짜 경계와 lookback 범위를 확인한다.
   - `ambiguous_fallback_key_count > 0`: 보조키가 중복돼 어느 주문과 연결할지 모호한 상태다. 자동 align을 하지 않는다.
   - 세 값이 모두 0인데 mismatch가 유지되면 현재 조회된 주문/체결 원장보다 계좌 snapshot 원천 차이에 무게를 두고 다음 거래일 장후 재확인 또는 KIS 문의 증거로 남긴다.
-- `kis_account_snapshot_vs_order_fill_ledger_divergence`이면 로컬 paper 수량과 KIS order-fill 순수량은 맞고 KIS 계좌 snapshot만 다른 상태다. 이 경우 자동 align을 하지 않고 다음 거래일 장후 account snapshot과 order-fill snapshot을 다시 비교한다.
+- `broker_ledger_coverage.status=historical_mirrored_orders_only`이면 보관된 미러링 주문 상태는 과거 제출 증거일 뿐 전체 계좌 활동 원장이 아니다. 이를 `latest KIS order/fill ledger`로 부르지 않는다.
+- `phase0_resolution.status=blocked_requires_full_account_history_or_clean_baseline`이면 같은 3일 조회를 반복하거나 자동 align하지 않는다. 해결 근거는 미러링 기간을 덮는 sanitized 전체 계좌 활동 또는 계좌 소유자가 승인한 clean paper-account baseline과 그 뒤의 새 local baseline 중 하나다.
+- `kis_account_snapshot_vs_order_fill_ledger_divergence`는 bounded lookup이 실제 비교 기간을 덮는 경우에만 사용한다. 이때도 자동 align 전에 snapshot 원천과 계좌 활동 범위를 확인한다.
 - `local_ledger_divergence`이면 로컬 position restore/fill 적용 경로를 먼저 확인한다.
 - `broker_order_fill_lookup_blocked_by_rate_limit`이면 cooldown 뒤 order-fill sync를 1회만 재시도한다.
 
@@ -275,7 +282,7 @@ NAS 백업은 사용자가 명시적으로 지시한 경우에만 실행한다.
   - 세 항목은 모두 관측/진단용이며, 주문 정책, gate, active model, KIS live shadow 확장을 바꾸지 않았는지 함께 적는다.
 - paper/KIS 정합성 조치 전후.
 - paper/KIS 최근 10거래일 누적 상태: `status`, `days_available/required_days`, `matched_days`, `mismatch_days`, 최근 차이 종목. 표본 부족과 실제 불일치를 구분한다.
-- dashboard/runtime 갱신 여부.
+- dashboard/runtime 갱신 여부. 장후에는 최신 거래일 raw/feature coverage, decision ledger rows/complete lineage 비율, WebSocket reconnect/storm도 별도 줄로 포함한다.
 - 변경 파일과 검증 명령.
 - 남은 위험과 다음 권장안.
 - commit/push/NAS 백업 상태.

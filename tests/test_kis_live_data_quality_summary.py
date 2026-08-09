@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_kis_live_data_quality import summarize
+from scripts.summarize_kis_live_data_quality import (
+    _decision_lineage_summary,
+    _websocket_reconnect_summary,
+    summarize,
+)
 
 
 class KisLiveDataQualitySummaryTests(unittest.TestCase):
@@ -150,6 +154,87 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
         self.assertTrue(
             any("coverage is below 80%" in note for note in result["assessment"]["notes"])
         )
+
+
+class KisLiveSessionObservabilityTests(unittest.TestCase):
+    def test_decision_lineage_and_reconnect_summary_are_date_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database_path = root / "test.db"
+            connection = sqlite3.connect(database_path)
+            connection.row_factory = sqlite3.Row
+            connection.execute(
+                """
+                CREATE TABLE serving_decision_ledger (
+                    decision_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    event_time TEXT NOT NULL,
+                    decision_stage TEXT NOT NULL,
+                    active_prediction_id TEXT NOT NULL,
+                    active_model_version TEXT NOT NULL,
+                    active_training_run_id TEXT,
+                    active_artifact_id TEXT,
+                    active_artifact_sha256 TEXT,
+                    shadow_predictions_json TEXT NOT NULL
+                )
+                """
+            )
+            complete_shadow = (
+                '[{"prediction_id":"shadow-1","model_version":"challenger-v1",'
+                '"training_run_id":"run-1","artifact_id":"artifact-1",'
+                '"artifact_sha256":"abc"}]'
+            )
+            connection.executemany(
+                "INSERT INTO serving_decision_ledger VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        "decision-1",
+                        "005930",
+                        "2026-08-07T09:00:00+09:00",
+                        "signal_blocked",
+                        "prediction-1",
+                        "baseline-v1",
+                        "run-active",
+                        "artifact-active",
+                        "hash-active",
+                        complete_shadow,
+                    ),
+                    (
+                        "decision-2",
+                        "000660",
+                        "2026-08-07T09:01:00+09:00",
+                        "target_blocked",
+                        "prediction-2",
+                        "baseline-v1",
+                        None,
+                        "artifact-active",
+                        "hash-active",
+                        "not-json",
+                    ),
+                ],
+            )
+            connection.commit()
+            lineage = _decision_lineage_summary(connection, "2026-08-07")
+            connection.close()
+
+            log_path = root / "live-runtime.stderr.log"
+            log_path.write_text(
+                "2026-08-07 09:00:01,000 WARNING KIS WebSocket disconnected; reconnecting "
+                "in 5s (attempt 1/10, consecutive=1, storm=False): no close frame received or sent\n"
+                "2026-08-08 09:00:01,000 WARNING KIS WebSocket disconnected; reconnecting "
+                "in 5s (attempt 2/10, consecutive=1, storm=True): timeout\n",
+                encoding="utf-8",
+            )
+            reconnects = _websocket_reconnect_summary(log_path, "2026-08-07")
+
+        self.assertEqual(lineage["status"], "lineage_incomplete")
+        self.assertEqual(lineage["rows"], 2)
+        self.assertEqual(lineage["complete_lineage_rows"], 1)
+        self.assertEqual(lineage["lineage_completion_ratio"], 0.5)
+        self.assertEqual(lineage["malformed_shadow_rows"], 1)
+        self.assertEqual(reconnects["status"], "observed_no_storm")
+        self.assertEqual(reconnects["count"], 1)
+        self.assertEqual(reconnects["max_attempt"], 1)
 
 
 if __name__ == "__main__":

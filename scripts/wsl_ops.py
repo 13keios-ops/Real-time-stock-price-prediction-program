@@ -121,6 +121,38 @@ def tail_text(path: Path, count: int = 20) -> str:
     return "\n".join([line for line in lines if line][-count:])
 
 
+def process_memory_status(pid: int | str | None, proc_root: Path = Path("/proc")) -> dict[str, Any]:
+    if not pid:
+        return {"available": False}
+    status_path = proc_root / str(pid) / "status"
+    try:
+        lines = status_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {"available": False}
+    values: dict[str, int] = {}
+    for line in lines:
+        if ":" not in line:
+            continue
+        key, raw_value = line.split(":", 1)
+        if key not in {"VmRSS", "VmHWM", "VmSize"}:
+            continue
+        parts = raw_value.strip().split()
+        if not parts:
+            continue
+        try:
+            values[key] = int(parts[0])
+        except ValueError:
+            continue
+    return {
+        "available": bool(values),
+        "rss_kb": values.get("VmRSS"),
+        "peak_rss_kb": values.get("VmHWM"),
+        "virtual_size_kb": values.get("VmSize"),
+        "rss_mib": round(values["VmRSS"] / 1024, 2) if "VmRSS" in values else None,
+        "peak_rss_mib": round(values["VmHWM"] / 1024, 2) if "VmHWM" in values else None,
+    }
+
+
 # The listener retries individual KIS connection failures. These helpers prevent
 # the outer watchdog from relaunching a failed listener on every short interval.
 def _parse_status_timestamp(value: Any) -> dt.datetime | None:
@@ -624,6 +656,7 @@ def get_live_runtime_status(args: argparse.Namespace) -> None:
             "current_session_status": session,
             "session_status": session,
             "raw_status": state.get("status"),
+            "process_memory": process_memory_status(state.get("pid")) if running else {"available": False},
         }
     )
     print(json.dumps(state, ensure_ascii=False, indent=2))
@@ -767,6 +800,7 @@ def run_watchdog_loop(args: argparse.Namespace) -> None:
             "dashboard_action": dashboard_action,
             "dashboard_snapshot_action": "client_refresh",
             "live_runtime_action": live_action,
+            "live_runtime_process_memory": live_state.get("process_memory", {"available": False}),
             "live_runtime_restart_attempts": live_restart_attempts,
             "live_runtime_restart_last_attempt_at": live_restart_last_attempt_at,
             "live_runtime_restart_backoff_seconds": live_restart_backoff_delay_seconds,

@@ -7,16 +7,16 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-09 19:38 KST
+- 기준 시각: 2026-08-09 20:50 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목, cash gap `714,840.9593원`. 완료 조건은 통과하지 못했다.
+- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. 최신 3일 KIS 조회는 0행이고 보관된 320건은 전체 계좌 활동이 아닌 historical mirrored-order evidence라 `blocked_requires_full_account_history_or_clean_baseline`이다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
-- runtime 원장: broker paper status snapshot 2,725,917건의 과거 중복 polling 이력을 확인했고, 현재 상태 1,819건만 SQL 조회하도록 보강했다. 기존 원장은 보존한다.
+- runtime 원장: 2026-08-07 decision ledger 3,803행과 active/shadow complete lineage 100%를 확인했다. broker paper status는 현재 1,819건만 SQL 조회하며 기존 원장은 보존한다.
 - 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 19거래일에서 손실만 완화했고 정책 계좌 수익률은 `-34.3196%`다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
@@ -25,9 +25,9 @@
 
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
-- [ ] Phase 0 KIS account snapshot 대 order/fill ledger divergence 해소 확인. 자동 align과 SyncInitialCash는 보류. 2026-08-02 sanitized trace에서 paper snapshot shape는 complete이고 네 종목 rejected sell recent count는 모두 0건이며, fail-closed 차단 뒤 active retry는 없다.
+- [ ] Phase 0 해소: bounded recent lookup과 historical mirrored-order evidence를 분리했다. 자동 align은 금지하며 sanitized full-period account activity 또는 계좌 소유자 승인 clean baseline이 필요하다.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
-- [ ] E1/E5 결과 확보: 2026-07-20 장후 wrapper를 1회 실행했으나 D드라이브 research snapshot I/O 대기로 완료 파일이 생성되지 않음. 자동 재실행 금지. 다음 명시 실행은 180초 timeout과 atomic snapshot/attempt 기록으로 보호.
+- [ ] E1/E5 결과 확보: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 같은 작업에서 재실행하지 않았다. 다음 실행부터 8GiB 이상 DB는 repo-local D드라이브 물리 snapshot 경로와 token별 partial cleanup을 사용한다.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
 - [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
 
@@ -35,12 +35,22 @@
 
 ## 최신 검증
 
-- 전체 unittest: 2026-08-09 `534 tests OK`
-- 수익성 관련 targeted unittest: 38건 OK
-- 저장소 구조/Markdown 감사: 2026-08-09 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
-- dashboard snapshot: 2026-08-09 재생성; 공통 비용 0.29%, Phase 0 미통과 손익 경고, 수익 후보 0개 표시 확인
+- 전체 unittest: 2026-08-09 `539 tests OK`
+- targeted unittest: data quality, WSL ops, Phase 0 trace, E1/E5 snapshot 33건 OK
+- 실제 KIS data-quality 재생성: 2026-08-09 20:49 KST, latest trade date 2026-08-07, assessment `watch`
+- decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
+- WebSocket: reconnect 29, storm 0; raw/feature coverage와 함께 연결 주의로 판정
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 휴장 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-09] Phase 0 증거 범위 교정, E1/E5 snapshot 보호, 세션 연속성 계측
+
+- Phase 0 trace가 보관된 mirrored status를 최신 KIS 전체 주문·체결 원장처럼 해석하던 문제를 고쳤다. 최신 bounded lookup은 3일·0행이고, 보관된 320 submission은 완전한 계좌 활동 원장이 아니다. 네 종목은 `current_account_vs_historical_mirrored_order_ledger_unresolved`이며 해소 상태는 `blocked_requires_full_account_history_or_clean_baseline`이다.
+- 계좌 소유자 명시 승인으로 E1/E5 wrapper를 정확히 1회 실행했다. gate/label은 통과했지만 25GB snapshot이 180초 timeout으로 종료됐다. final snapshot 교체와 네트워크·주문 호출은 모두 0회이며 재실행하지 않았다.
+- 대형 DB가 WSL 9P 경계를 건너 복사되는 경우 repo-local `runtime-data/research-snapshots/`를 기본으로 선택하고, timeout partial DB/journal/manifest를 실행 token 단위로 정리하도록 보강했다. WSL 배포판이 D드라이브에 있어 산출물 정책은 유지된다.
+- KIS data-quality 리포트에 거래일별 decision ledger active/shadow lineage와 WebSocket reconnect/storm을 추가했다. 2026-08-07은 decision 3,803행, complete lineage 100%, feature closed coverage 97.5128%, reconnect 29/storm 0으로 수집 정상·연결 주의다.
+- live runtime 상태와 watchdog 증거에 현재 RSS/peak RSS를 추가했다. 다음 장전/장중에 실제 실행 프로세스 값을 확인한다.
+- 관련 targeted unittest 33건과 실제 25GB DB 리포트 재생성을 통과했다. 주문 정책, gate, threshold, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, 실전 주문·취소, NAS 백업은 변경하지 않았다.
 
 ## [2026-08-09] 전체 수익성·근거 감사와 fail-closed 교정
 

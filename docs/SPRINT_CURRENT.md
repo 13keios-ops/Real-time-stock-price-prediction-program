@@ -2,12 +2,13 @@
 
 ## 이름
 
-Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
+Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 
 ## 기간
 
 - 시작: `2026-07-13`
-- 첫 시도: `2026-07-20` 장후 (snapshot I/O 대기로 유효 결과 없음)
+- E1/E5 최초 시도: `2026-07-20` 장후, snapshot I/O timeout
+- E1/E5 명시 재시도: `2026-08-09` 장외, snapshot I/O timeout
 - 후속 checkpoint: `10/20/30/60거래일`
 
 일주일은 최종 승격 기간이 아니라 첫 조기 진단 구간이다.
@@ -15,10 +16,10 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 ## 목표
 
 1. 정규장 예측부터 실제 결과까지 완전한 decision lineage를 축적한다.
-2. buy-rescue의 실제 no-trade 모집단을 처음으로 관찰한다.
-3. Phase 0 paper/KIS 정합성 유효 거래일을 매일 누적한다.
-4. 2026-07-20 장후 E1/E5 고정 라운드를 한 번만 실행한다.
-5. 결과에 따라 h15 저빈도 entry와 h60 비교를 진행할지 결정한다.
+2. buy-rescue의 실제 no-trade 모집단을 관찰한다.
+3. Phase 0 paper/KIS 정합성 증거 범위를 정확히 분리하고 해소 경로를 결정한다.
+4. E1/E5 고정 라운드 실행기가 대용량 DB snapshot 실패를 안전하게 기록·정리하도록 한다.
+5. 유효 결과 뒤에만 h15 저빈도 entry, h60 별도 트랙, entry/exit 분리 가설을 동일 포트폴리오 재생으로 비교한다.
 
 ## 현재 기준선
 
@@ -26,44 +27,51 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
 - 자동 승격: 없음
-- Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일로 완료 조건 미통과
+- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일로 미통과
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
+- 2026-08-07 decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
+- 2026-08-07 WebSocket: reconnect 29, storm 0, closed feature coverage 97.5128%
 
 ## 활성 체크리스트
 
-- [x] 2026-07-13~16 정규장 `serving_decision_ledger` 축적 확인 (2026-07-17 KIS 수집 공백은 별도 P0)
-- [x] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` lineage 확인 (2026-08-02 dashboard guard 통과)
+- [x] 정규장 `serving_decision_ledger` 축적과 완전 lineage 확인
+- [x] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` lineage 확인
 - [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결 확인
-- [x] 비정상 호가 fail-closed와 feature JSONL 정본 재생성 보강: raw 감사 보존, 신호/연구 제외, SQLite 행 수 전수 검증
-- [x] KIS live buy-rescue no-trade 모집단 관측: 2026-08-09 decision ledger 71,369행 중 eligible 35,573행. LightGBM/linear-score rescue는 모두 비용 후 음수이며 주문 후보가 아님
-- [x] broker paper status snapshot 메모리/원장 가드: 과거 2,725,917건을 매 분 메모리로 읽던 경로를 현재 상태 1,819건 SQL 조회와 상태 변화 기록으로 교체. 기존 원본 원장은 삭제하지 않음
-- [x] buy-avoid를 최신 하루 artifact만 보던 구조에서 19거래일 순방향 완전 lineage chain으로 교정. threshold 0.40은 손실 완화만 있고 절대수익은 음수라 후보 0개
-- [x] dashboard signal replay 비용을 공통 왕복 0.29%로 통일하고, 장후 label refresh에 buy-avoid/overlay/hold-rescue/meta-policy 갱신을 포함
-- [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 2026-08-02 sanitized trace는 paper snapshot shape와 fetch 시각을 남기며 rejected sell recent count는 모두 0건이다.
-- [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행 complete lineage)
-- [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성). 자동 재실행은 금지하며 다음 명시 실행은 timeout/atomic snapshot으로 보호
-- [ ] E1/E5 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 판정 (현재는 결과 없음)
+- [x] 비정상 호가 fail-closed, feature JSONL 정본 재생성, broker status 중복 적재 차단
+- [x] buy-rescue 실제 no-trade 모집단 확보와 비용 후 음수 판정
+- [x] buy-avoid 19거래일 순방향 lineage 교정과 절대수익 음수 판정
+- [x] 장후 data-quality에 거래일별 decision lineage와 WebSocket reconnect/storm 추가
+- [x] live runtime 상태에 current/peak RSS 추가
+- [x] Phase 0 trace에서 bounded recent lookup과 historical mirrored-order evidence를 분리하고 자동 align을 금지
+- [ ] Phase 0 해소 근거 선택: sanitized full-period account activity 또는 계좌 소유자 승인 clean paper-account baseline
+- [x] E1/E5 wrapper 명시 1회 실행: `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
+- [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
+- [ ] E1/E5 유효 결과 확보
+- [ ] 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간으로 판정
 - [ ] cowork 리뷰가 필요한 결과면 새 review/work 라운드 생성
 
 ## 동결 범위
 
-E1/E5 유효 결과와 Phase 0 snapshot divergence 해소 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
+E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
 
-운영 장애와 데이터 lineage 누락을 고치는 작업은 동결 대상이 아니다.
+운영 장애, 데이터 lineage 누락, snapshot 원자성, 관측 리포트 오류를 고치는 작업은 동결 대상이 아니다.
 
 ## 완료 조건
 
-- 5거래일 원장 수집 결과가 누락 여부와 함께 보고된다.
-- E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다. 현재는 최초 실행의 결과 파일이 없어 재실행 없이 보류한다.
+- 각 거래일 raw→분봉→feature→decision ledger와 complete lineage가 같이 보고된다.
+- WebSocket reconnect와 storm이 coverage와 함께 판정된다.
+- Phase 0이 전체 기간 계좌 활동 또는 clean baseline 근거로 해소된다.
+- E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다.
 - 결과와 무관하게 주문 정책과 active model이 자동 변경되지 않는다.
 - 다음 연구를 계속할지 보류할지 숫자 기준으로 문서화된다.
 
 ## 다음 분기
 
-- E1/E5 통과: h15 저빈도와 h60을 동일 portfolio replay, 비중복 2구간으로 비교한다.
-- E1/E5 실패: threshold 탐색을 멈추고 orderbook, 시간대, 변동성, source, horizon 가설을 새로 사전등록한다.
+- E1/E5 통과: entry 시점 정보만 사용하는 h15 저빈도 비용여유 후보와 h60을 동일 초기 현금·체결·비용·보유 제약의 portfolio replay와 비중복 2구간에서 비교한다.
+- E1/E5 실패: threshold 반복 탐색을 멈추고 orderbook×regime, 시간대, 변동성, source, horizon 가설을 새로 사전등록한다.
+- 어느 분기든 entry와 exit 모델은 분리 평가하고, 실현 미래 변동폭을 entry 필터로 사용하지 않는다.
 
 ## 과거 스프린트
 

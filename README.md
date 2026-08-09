@@ -15,7 +15,7 @@
 
 장중 운영은 `수집 트랙`과 `연구 트랙`을 분리한다. 수집 트랙은 live runtime 과 runtime watchdog 이 `runtime-data/dev.db`에 장중 KIS 데이터를 계속 저장하는 흐름이다. 연구 트랙은 같은 DB를 직접 무겁게 읽고 쓰지 않고, `scripts/create_research_db_snapshot.sh`로 SQLite backup 스냅샷을 만든 뒤 `DATABASE_URL`을 스냅샷 DB로 바꿔 실험한다.
 
-연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다. D드라이브 경로를 사용할 수 없으면 새 다운로드, 캐시, 대용량 실험을 시작하지 않고 경로 문제를 먼저 해결한다.
+연구 스냅샷 기본 보관 위치는 WSL 기준 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots/` 이다. 단, source DB가 8GiB 이상이고 `/mnt/d`가 WSL 9P 계열이면 느린 파일시스템 경계를 피하기 위해 repo-local `runtime-data/research-snapshots/`를 사용한다. 현재 WSL 배포판은 D드라이브에 있으므로 두 경로 모두 D드라이브 전용 산출물 규칙을 지킨다. 연구 실행 산출물은 기본적으로 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-runs/` 아래에 격리한다.
 
 장마감 후 자동 관리는 runtime watchdog 이 담당한다. 정규장이 끝나고 기본 30분이 지나면 하루 한 번 `run_post_close_ml_maintenance.sh --quick`를 백그라운드로 시작한다. quick 경로는 live DB를 무겁게 재학습하지 않고 runtime report, KIS live 데이터 품질, KIS-Cybos feature drift, KIS live feature-label 진단, dashboard snapshot 만 갱신한다. 이 진단들은 대시보드 갱신용 warning-only 작업이라 실패해도 heavy research 를 자동 시작하지 않는다. 결과 상태는 `runtime-data/reports/ml-maintenance/state/latest-post-close-ml.json`에 남긴다. Cybos 5년치, snapshot DB, `--rebuild-actual-ml` 같은 heavy research 는 watchdog 기본 자동 트리거에서 제외하고 명시 명령으로만 실행한다. active model 자동 교체와 실전 주문 승격은 하지 않는다.
 
@@ -591,7 +591,7 @@ cycle은 `pre-open`과 `regular-session`에서 모든 단계를 시작 전에 �
 ./scripts/run_preregistered_e1_e5_round.sh --execute
 ```
 
-기본 실행은 dry-run이고, `2026-07-20 15:30 KST` 이전, 장중, 또는 2026-07-20 장후 label refresh 미완료 상태에는 `--execute`도 snapshot 생성 전에 차단된다. 허용 시 D드라이브 연구 snapshot에서 고정 구간 `2026-07-04~2026-07-18`만 read-only로 측정하며 학습·네트워크·주문·정책/model/gate 변경은 수행하지 않는다.
+기본 실행은 dry-run이고, `2026-07-20 15:30 KST` 이전, 장중, 또는 label refresh 미완료 상태에는 `--execute`도 snapshot 생성 전에 차단된다. 2026-07-20과 2026-08-09 명시 실행은 모두 180초 snapshot timeout으로 안전 종료됐으며 자동화는 재실행하지 않는다. 다음 실행은 계좌 소유자의 해당 작업 명시 승인 뒤 장외에서만 1회 수행한다. 고정 구간 `2026-07-04~2026-07-18`만 read-only로 측정하며 네트워크·주문·정책/model/gate 변경은 수행하지 않는다.
 
 월요일 시작 루틴 1회 실행:
 

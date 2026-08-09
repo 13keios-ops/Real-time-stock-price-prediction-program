@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import tomllib
 from collections import Counter
@@ -670,6 +671,136 @@ def _latest_symbol_summary(connection: sqlite3.Connection, trade_date: str) -> l
     return rows
 
 
+def _has_lineage_value(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _decision_lineage_summary(connection: sqlite3.Connection, trade_date: str) -> dict[str, Any]:
+    table_name = "serving_decision_ledger"
+    if not _table_exists(connection, table_name):
+        return {"status": "table_missing", "trade_date": trade_date, "rows": 0}
+    rows = connection.execute(
+        """
+        SELECT
+            symbol,
+            event_time,
+            decision_stage,
+            active_prediction_id,
+            active_model_version,
+            active_training_run_id,
+            active_artifact_id,
+            active_artifact_sha256,
+            shadow_predictions_json
+        FROM serving_decision_ledger
+        WHERE substr(event_time, 1, 10) = ?
+        ORDER BY event_time, symbol
+        """,
+        (trade_date,),
+    ).fetchall()
+    if not rows:
+        return {"status": "no_rows", "trade_date": trade_date, "rows": 0}
+
+    active_fields = (
+        "active_prediction_id",
+        "active_model_version",
+        "active_training_run_id",
+        "active_artifact_id",
+        "active_artifact_sha256",
+    )
+    shadow_fields = (
+        "prediction_id",
+        "model_version",
+        "training_run_id",
+        "artifact_id",
+        "artifact_sha256",
+    )
+    stages: Counter[str] = Counter()
+    symbols: set[str] = set()
+    minutes: set[str] = set()
+    active_complete_rows = 0
+    complete_lineage_rows = 0
+    malformed_shadow_rows = 0
+    shadow_entries = 0
+    complete_shadow_entries = 0
+    for row in rows:
+        stages[str(row["decision_stage"] or "unknown")] += 1
+        symbols.add(str(row["symbol"]))
+        minutes.add(str(row["event_time"])[:16])
+        active_complete = all(_has_lineage_value(row[field]) for field in active_fields)
+        active_complete_rows += int(active_complete)
+        try:
+            shadows = json.loads(str(row["shadow_predictions_json"] or "[]"))
+        except (TypeError, ValueError):
+            shadows = None
+        if not isinstance(shadows, list):
+            malformed_shadow_rows += 1
+            shadow_complete = False
+        else:
+            shadow_complete = True
+            for shadow in shadows:
+                shadow_entries += 1
+                entry_complete = isinstance(shadow, dict) and all(
+                    _has_lineage_value(shadow.get(field)) for field in shadow_fields
+                )
+                complete_shadow_entries += int(entry_complete)
+                shadow_complete = shadow_complete and entry_complete
+        complete_lineage_rows += int(active_complete and shadow_complete)
+
+    total_rows = len(rows)
+    completion_ratio = _round_ratio(complete_lineage_rows, total_rows)
+    status = "ok" if complete_lineage_rows == total_rows else "lineage_incomplete"
+    return {
+        "status": status,
+        "trade_date": trade_date,
+        "rows": total_rows,
+        "symbols": len(symbols),
+        "symbol_minutes": len({(str(row["symbol"]), str(row["event_time"])[:16]) for row in rows}),
+        "minutes": len(minutes),
+        "active_lineage_complete_rows": active_complete_rows,
+        "complete_lineage_rows": complete_lineage_rows,
+        "lineage_completion_ratio": completion_ratio,
+        "malformed_shadow_rows": malformed_shadow_rows,
+        "shadow_entries": shadow_entries,
+        "complete_shadow_entries": complete_shadow_entries,
+        "decision_stages": dict(sorted(stages.items())),
+        "first_event_time": str(rows[0]["event_time"]),
+        "last_event_time": str(rows[-1]["event_time"]),
+    }
+
+
+def _websocket_reconnect_summary(log_path: Path, trade_date: str) -> dict[str, Any]:
+    if not log_path.exists():
+        return {"status": "log_missing", "trade_date": trade_date, "count": 0, "log_path": str(log_path)}
+    marker = "KIS WebSocket disconnected; reconnecting"
+    events: list[str] = []
+    reasons: Counter[str] = Counter()
+    attempts: list[int] = []
+    storm_count = 0
+    with log_path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if not line.startswith(trade_date) or marker not in line:
+                continue
+            stripped = line.rstrip()
+            events.append(stripped)
+            attempt_match = re.search(r"attempt (\d+)/", stripped)
+            if attempt_match:
+                attempts.append(int(attempt_match.group(1)))
+            if "storm=True" in stripped:
+                storm_count += 1
+            reason = stripped.split("): ", 1)[1] if "): " in stripped else "unknown"
+            reasons[reason] += 1
+    return {
+        "status": "storm_detected" if storm_count else ("observed_no_storm" if events else "no_events"),
+        "trade_date": trade_date,
+        "count": len(events),
+        "storm_count": storm_count,
+        "max_attempt": max(attempts) if attempts else 0,
+        "first_event_at": events[0][:23] if events else None,
+        "last_event_at": events[-1][:23] if events else None,
+        "reasons": dict(sorted(reasons.items())),
+        "log_path": str(log_path),
+    }
+
 def _coverage_assessment_notes(coverage: dict[str, Any] | None) -> tuple[str, list[str]]:
     if not coverage or coverage.get("status") != "ok":
         return "ok", []
@@ -702,6 +833,8 @@ def _overall_assessment(
     recent_days: list[dict[str, Any]],
     *,
     latest_intraday_coverage: dict[str, Any] | None = None,
+    latest_decision_lineage: dict[str, Any] | None = None,
+    latest_websocket_reconnects: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not recent_days:
         return {
@@ -722,18 +855,40 @@ def _overall_assessment(
         notes.append("Latest date h15 label coverage is still low; this is normal for fresh or partial sessions.")
     coverage_severity, coverage_notes = _coverage_assessment_notes(latest_intraday_coverage)
     notes.extend(coverage_notes)
-    if not notes:
+    observability_severity = "ok"
+    lineage_status = str((latest_decision_lineage or {}).get("status") or "not_checked")
+    if lineage_status in {"table_missing", "no_rows", "lineage_incomplete"}:
+        notes.append(f"Latest date serving decision ledger status is {lineage_status}.")
+        observability_severity = "needs_attention"
+    reconnect_status = str((latest_websocket_reconnects or {}).get("status") or "not_checked")
+    reconnect_count = int((latest_websocket_reconnects or {}).get("count") or 0)
+    if reconnect_status == "log_missing":
+        notes.append("Latest date KIS WebSocket reconnect log is missing.")
+        observability_severity = "needs_attention"
+    elif reconnect_status == "storm_detected":
+        notes.append("Latest date KIS WebSocket reconnect storm was detected.")
+        observability_severity = "needs_attention"
+    elif reconnect_count > 0:
+        notes.append(
+            f"Latest date had {reconnect_count} KIS WebSocket reconnect event(s) without a recorded storm; "
+            "interpret this together with raw and derived coverage."
+        )
+        observability_severity = "watch"
+    if coverage_severity == "needs_attention" or observability_severity == "needs_attention":
+        status = "needs_attention"
+    elif not notes:
         status = "ok"
-    elif coverage_severity == "needs_attention":
-        status = "needs_attention"
-    elif any("no KIS" in note or "no KIS" in note for note in notes):
-        status = "needs_attention"
     else:
         status = "watch"
     return {"status": status, "notes": notes}
 
 
-def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
+def summarize(
+    database_path: Path,
+    *,
+    recent_days: int = 10,
+    live_runtime_log_path: Path | None = None,
+) -> dict[str, Any]:
     with _connect(database_path) as connection:
         raw_market_by_date, raw_market_symbol_minutes, raw_market_actual_minutes = _raw_minute_index(
             connection, "raw_market_ticks"
@@ -754,6 +909,11 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
                 raw_orderbook_by_date=raw_orderbook_by_date,
                 actual_minutes_by_date=actual_minutes_by_date,
             )
+            day_row["serving_decision_ledger"] = _decision_lineage_summary(connection, trade_date)
+            reconnect_log_path = live_runtime_log_path or (
+                _repo_root() / "runtime-data" / "logs" / "app" / "live-runtime.stderr.log"
+            )
+            day_row["websocket_reconnects"] = _websocket_reconnect_summary(reconnect_log_path, trade_date)
             day_rows.append(day_row)
             derived_symbols_by_date[trade_date] = derived_symbols
         latest_trade_date = trade_dates[-1] if trade_dates else None
@@ -794,9 +954,18 @@ def summarize(database_path: Path, *, recent_days: int = 10) -> dict[str, Any]:
         "recent_h15_label_distribution": dict(sorted(label_counter.items())),
         "latest_symbol_summary": latest_symbols,
         "latest_intraday_coverage": latest_intraday_coverage,
-        "assessment": _overall_assessment(day_rows, latest_intraday_coverage=latest_intraday_coverage),
+        "latest_session_observability": {
+            "serving_decision_ledger": (day_rows[-1].get("serving_decision_ledger") if day_rows else {}),
+            "websocket_reconnects": (day_rows[-1].get("websocket_reconnects") if day_rows else {}),
+        },
+        "assessment": _overall_assessment(
+            day_rows,
+            latest_intraday_coverage=latest_intraday_coverage,
+            latest_decision_lineage=(day_rows[-1].get("serving_decision_ledger") if day_rows else None),
+            latest_websocket_reconnects=(day_rows[-1].get("websocket_reconnects") if day_rows else None),
+        ),
         "next_actions": [
-            "On the next market day, compare the 09:30 actual symbol-minute counts against watchdog/live-runtime status.",
+            "On the next market day, compare actual symbol-minutes, decision-ledger lineage, and reconnect evidence against watchdog/live-runtime status.",
             "Minute bar and feature intraday coverage are assessed against closed minutes to avoid 09:30 false alarms.",
             "If feature coverage stays below 95% after the session, inspect minute bar and feature build timing.",
             "If orderbook symbol-minutes are sparse, prioritize KIS WebSocket orderbook stability before more model tuning.",
@@ -855,6 +1024,27 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"{row.get('label_h15_to_feature_symbol_minute_ratio')} |"
         )
 
+    observability = summary.get("latest_session_observability") or {}
+    decision = observability.get("serving_decision_ledger") or {}
+    reconnects = observability.get("websocket_reconnects") or {}
+    lines.extend(
+        [
+            "",
+            "## Latest Session Observability",
+            "",
+            f"- trade_date: `{decision.get('trade_date') or reconnects.get('trade_date')}`",
+            f"- decision_ledger_status: `{decision.get('status')}`",
+            f"- decision_rows: `{decision.get('rows')}`",
+            f"- complete_lineage_rows: `{decision.get('complete_lineage_rows')}`",
+            f"- lineage_completion_ratio: `{decision.get('lineage_completion_ratio')}`",
+            f"- decision_stages: `{decision.get('decision_stages')}`",
+            f"- websocket_reconnect_status: `{reconnects.get('status')}`",
+            f"- websocket_reconnect_count: `{reconnects.get('count')}`",
+            f"- websocket_reconnect_storm_count: `{reconnects.get('storm_count')}`",
+            f"- websocket_reconnect_reasons: `{reconnects.get('reasons')}`",
+        ]
+    )
+
     coverage = summary.get("latest_intraday_coverage") or {}
     lines.extend(
         [
@@ -897,6 +1087,7 @@ def main() -> int:
     parser.add_argument("--db-path", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--recent-days", type=int, default=10)
+    parser.add_argument("--live-runtime-log-path", type=Path, default=None)
     args = parser.parse_args()
 
     root = _repo_root()
@@ -904,7 +1095,11 @@ def main() -> int:
     output_dir = args.output_dir or (root / "runtime-data" / "reports" / "data-quality")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    summary = summarize(database_path, recent_days=args.recent_days)
+    summary = summarize(
+        database_path,
+        recent_days=args.recent_days,
+        live_runtime_log_path=args.live_runtime_log_path,
+    )
     json_path = output_dir / f"{DEFAULT_OUTPUT_NAME}.json"
     md_path = output_dir / f"{DEFAULT_OUTPUT_NAME}.md"
     json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

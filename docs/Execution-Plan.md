@@ -27,15 +27,15 @@
 - trading mode: `paper`, 실전 주문 비활성.
 - active h15: `baseline-h15-v1`, challenger action `keep_active`, 승격 없음.
 - 현재 통과한 수익 후보: `0개`.
-- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일, mismatch 4종목; snapshot divergence와 cash gap `714,840.9593원`이 남아 있다.
+- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. 최신 3일 KIS 조회는 0행이고 보관된 320건은 전체 계좌 활동이 아닌 historical mirrored-order evidence라 `blocked_requires_full_account_history_or_clean_baseline`이다.
 - rejected mirrored close의 fail-closed 차단 뒤 recent count는 4종목 모두 0건이다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과.
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 기본 preflight는 네트워크·주문 호출 0회로 유지.
 - buy-avoid: 순방향 완전 lineage 19거래일, 28,434행을 portfolio replay했다. threshold 0.40은 손실을 2.1045%p 완화했지만 policy return `-34.3196%`로 후보가 아님.
 - buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행. LightGBM과 linear-score rescue가 모두 비용 후 음수라 주문 후보가 아님.
 - hold-rescue: 161 lot 중 threshold 0.40 적용 37 lot, 현금손익 `-26,387원`으로 후보가 아님.
-- dashboard와 장후 자동화: 공통 왕복 비용 0.29%를 쓰고, 매 장후 avoid/rescue/meta-policy 근거를 함께 갱신한다.
-- E1/E5: 2026-07-20 1회 시도는 snapshot I/O 대기로 결과 파일이 없으며 자동 재실행은 금지.
+- dashboard와 장후 자동화: 공통 왕복 비용 0.29%를 쓰고 avoid/rescue/meta-policy와 함께 raw/feature coverage, decision lineage, WebSocket reconnect/storm을 갱신한다. 2026-08-07은 decision 3,803행·lineage 100%·reconnect 29/storm 0이다.
+- E1/E5: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 주문·네트워크 호출은 0회이고 같은 작업에서 재실행하지 않았다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -53,6 +53,15 @@
 8. Phase 1a/1b read-only readiness를 최신 증거로 반복한다.
 9. Phase 2 canary는 모델과 운영 blocker가 닫힌 뒤에만 시작한다.
 10. Phase 3 다종목 운용은 Phase 2 관측 뒤에만 검토한다.
+
+### 2026-08-09 후속 조치 기준
+
+- Phase 0의 보관 mirrored status는 최신 KIS 전체 주문·체결 원장이 아니다. bounded lookup 범위를 함께 기록하고, 전체 기간 계좌 활동 또는 clean baseline 근거 없이는 자동 align하지 않는다.
+- KIS data-quality 정본은 raw/분봉/feature/label뿐 아니라 decision ledger active/shadow lineage와 WebSocket reconnect/storm을 거래일별로 포함한다. 수집량과 판단 계보가 같이 정상이어야 한다.
+- live runtime 상태는 current/peak RSS를 노출한다. WSL `vmmem` 전체 메모리와 프로젝트 listener RSS를 분리해 본다.
+- 8GiB 이상 연구 DB가 WSL 9P 경계를 건너는 경우 snapshot은 repo-local D드라이브 물리 저장소를 사용하고 timeout partial을 실행 token 단위로 정리한다.
+- 수익 연구의 다음 후보는 실현 미래변동으로 선별하지 않는다. entry 시점 정보만 쓰는 저빈도 비용여유 score, h60 별도 트랙, entry/exit 분리를 동일 초기현금·비용·체결·보유 제약의 portfolio replay와 same-count random control로 비교한다.
+- 이 기준은 사전등록 보강이며 현재 threshold, gate, active model, 주문 정책을 변경하지 않는다.
 
 ### 2026-07-11 rescue/avoid 수익성 자기검토
 
@@ -74,7 +83,7 @@
 5. serving prediction마다 `training_run_id`, `artifact_id`, `artifact_sha256`를 보존하고 lineage 없는 기존 82,583개 LightGBM shadow 예측은 혼합-vintage 진단으로만 본다.
 6. buy-rescue 모집단은 단순 `not baseline allowed-buy`가 아니라 baseline 판단, gate, allocator, 보유·현금 제약, 주문·체결 여부를 분리한 decision ledger로 다시 정의한다.
 7. 현재 hold-rescue 규칙은 종료한다. early-exit은 같은 bar close 체결과 날짜 범위 누락을 바로잡은 미래 전용 portfolio replay에서만 재검토하고, 이후 별도 exit/hold 모델을 설계한다.
-8. 2026-07-20 사전등록 E1/E5 라운드는 그대로 실행하되, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
+8. E1/E5는 자동화로 재실행하지 않는다. 다음 실행은 계좌 소유자의 해당 작업 명시 승인 뒤 장외에서 1회만 수행하며, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
 
 그 다음 모델 개선은 3분류 정확도만 높이는 방향이 아니라 `비용 후 기대수익/하방 quantile/거래하지 않음`을 직접 다루는 entry 모델과 별도 exit 모델, 그리고 h15/h60 후보를 동일 portfolio replay에서 비교하는 방향으로 진행한다. Phase 2 실제 주문 canary는 이 평가 정본에서 절대 수익성이 확인되기 전까지 시작하지 않는다.
 
@@ -88,7 +97,7 @@
 - hold-rescue threshold `0.40`은 `-26,387원`으로 현재 규칙을 기각한다. buy-rescue는 실제 no-trade ledger 0행이라 아직 평가 시작 전이다.
 - 2026-07-20 전 실험 동결은 유지한다. 새 threshold, EV tuning, 주문 정책, active model, gate는 바꾸지 않았다.
 
-다음 순서는 `다음 정규장부터 decision ledger/lineage 축적 -> 2026-07-20 E1/E5 고정 라운드 -> candidate별 동일 portfolio replay 연결 -> 비용 후 수익을 직접 목표로 하는 entry/exit 모델 사전등록`이다. 10거래일은 조기 진단, 20/30/60거래일은 재현성 강화 checkpoint로 사용하며 중간 수치만으로 주문 정책을 바꾸지 않는다.
+다음 순서는 `거래일별 decision ledger/lineage/reconnect 확인 -> Phase 0 증거 범위 해소 -> 명시 승인된 E1/E5 유효 결과 -> entry 시점 저빈도 비용여유 후보와 h60/exit 별도 가설의 동일 portfolio replay`다. 10/20/30/60거래일 checkpoint의 중간 수치만으로 주문 정책을 바꾸지 않는다.
 
 #### 2026-07-12 review_ver_33 증거 정합성
 

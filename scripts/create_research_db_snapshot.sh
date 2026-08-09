@@ -23,17 +23,9 @@ Options:
 USAGE
 }
 
-default_snapshot_dir() {
-  if [[ -d /mnt/d ]]; then
-    printf '%s\n' "/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots"
-  else
-    printf '%s\n' "$REPO_ROOT/runtime-data/research-snapshots"
-  fi
-}
-
 src="$REPO_ROOT/runtime-data/dev.db"
 dst=""
-snapshot_dir="$(default_snapshot_dir)"
+snapshot_dir=""
 prefix="dev"
 as_json="false"
 print_env="false"
@@ -53,6 +45,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+default_snapshot_dir() {
+  local source_size="0"
+  local mounted_fs=""
+  source_size="$(stat -c '%s' "$src" 2>/dev/null || printf '0')"
+  mounted_fs="$(stat -f -c '%T' /mnt/d 2>/dev/null || true)"
+  if [[ "$mounted_fs" =~ ^(9p|v9fs|drvfs)$ && "$source_size" -ge 8589934592 ]]; then
+    # The WSL distro lives on D:, so this avoids a very slow 9P copy while
+    # preserving the repository's D-drive-only artifact rule.
+    printf '%s\n' "$REPO_ROOT/runtime-data/research-snapshots"
+  elif [[ -d /mnt/d ]]; then
+    printf '%s\n' "/mnt/d/CodexData/Real-time-stock-price-prediction-program/research-snapshots"
+  else
+    printf '%s\n' "$REPO_ROOT/runtime-data/research-snapshots"
+  fi
+}
+
+if [[ -z "$snapshot_dir" ]]; then
+  snapshot_dir="$(default_snapshot_dir)"
+fi
+
 if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "--timeout-seconds must be a positive integer" >&2
   exit 2
@@ -71,11 +83,14 @@ else
   mkdir -p "$(dirname "$dst")"
 fi
 
+snapshot_token="$$-${RANDOM}"
+partial="$dst.${snapshot_token}.partial"
+partial_manifest="${dst%.db}.manifest.json.${snapshot_token}.partial"
+
 set +e
 snapshot_json="$(
-  timeout --foreground --signal=TERM --kill-after=10s "${timeout_seconds}s" python - "$src" "$dst" <<'PY'
+  timeout --foreground --signal=TERM --kill-after=10s "${timeout_seconds}s" python - "$src" "$dst" "$partial" "$partial_manifest" <<'PY'
 import json
-import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -83,9 +98,9 @@ from pathlib import Path
 
 src = Path(sys.argv[1]).expanduser().resolve()
 dst = Path(sys.argv[2]).expanduser().resolve()
+partial = Path(sys.argv[3]).expanduser().resolve()
+partial_manifest = Path(sys.argv[4]).expanduser().resolve()
 manifest = dst.with_suffix(".manifest.json")
-partial = dst.with_name(f".{dst.name}.{os.getpid()}.partial")
-partial_manifest = manifest.with_name(f".{manifest.name}.{os.getpid()}.partial")
 
 if not src.exists():
     raise SystemExit(f"source DB not found: {src}")
@@ -126,6 +141,7 @@ snapshot_status=$?
 set -e
 
 if [[ "$snapshot_status" -ne 0 ]]; then
+  rm -f -- "$partial" "$partial-journal" "$partial-wal" "$partial-shm" "$partial_manifest"
   if [[ "$snapshot_status" -eq 124 ]]; then
     echo "research snapshot timed out after ${timeout_seconds}s; final snapshot was not replaced" >&2
   else

@@ -154,11 +154,20 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 
 ## 7. 다음 작업 순서
 
-1. 07-18 전까지는 신규 KIS live 판정과 threshold tuning을 동결한다.
-2. 다음 거래일 장후 paper/KIS mismatch가 같은 root_cause_scope로 유지되는지 다시 본다.
-3. 07-18 이후 첫 거래일인 2026-07-20 장후 `./scripts/run_preregistered_e1_e5_round.sh --execute`로 E1 재측정과 E5 역발상 관찰을 한 라운드로 실행한다. 이 실행기는 `2026-07-20 15:30 KST` 이전과 장중을 차단하며, 고정 구간 `2026-07-04~2026-07-18`을 D드라이브 연구 스냅샷에서 read-only로 측정한다. E1은 후보 3건의 같은 종목·같은 방향·`abs(t_stat) >= 2.0` 재현성과 `105560`의 p_flat 및 p_down/p_up 일별 IC 관계를 기록한다. E5는 threshold `0.40`의 random-control excess 부호와 z를 기록하며, 결과와 무관하게 정책/model/gate/order 변경은 하지 않는다.
-   라운드 출력은 E1을 `legacy_or_mixed_lineage_diagnostic_only`로 명시하고 E5에는 실제 선택된 prediction lineage 상태를 기록한다. 둘 다 candidate/policy lineage로 사용할 수 없다.
-4. 같은 라운드에서 orderbook 피처 daily IC와 h60 1차 측정표를 생성할 수 있는지 확인하되, 결과 해석은 사전 등록 기준을 따른다.
-5. cowork 리뷰는 07-18 이후 재측정 결과가 나온 뒤 요청한다.
+1. E1/E5 자동 재실행은 금지한다. 2026-08-09 명시 실행도 snapshot timeout으로 끝났으며 다음 실행은 계좌 소유자가 해당 작업에서 승인한 경우에만 장외 1회 수행한다.
+2. 다음 거래일마다 raw→분봉→feature→decision ledger와 complete lineage, WebSocket reconnect/storm을 함께 확인한다.
+3. Phase 0은 bounded recent lookup과 historical mirrored-order evidence를 구분하고, sanitized full-period account activity 또는 계좌 소유자 승인 clean baseline 중 하나로 해소한다.
+4. E1/E5 유효 결과가 나오기 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경을 하지 않는다.
+5. 유효 결과 뒤에도 저빈도 entry 후보는 entry 시점에 존재하는 score만 사용한다. 실현 p75 미래변동은 선별 변수가 아니다.
+6. h15 저빈도 entry, h60 별도 horizon, exit/hold 모델은 같은 초기 현금, 비용, 다음 분봉 실행가, 최대 보유 수, 장마감 청산의 portfolio replay에서 비교한다.
+7. 후보는 절대 비용 후 기대값과 portfolio return 양수, same-count random control 우위, 비중복 2구간, 최소 표본과 일별 일관성을 모두 통과해야 한다.
+8. 결과가 기준을 통과하거나 3회 연속 개선이 없을 때 cowork 리뷰를 요청한다.
 
-관련 문서/코드 경로: `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`, `docs/cowork-reports/`
+## 8. 2026-08-09 실행 상태
+
+- wrapper gate와 label refresh는 통과했다.
+- 25GB SQLite snapshot은 180초 안에 끝나지 않아 `snapshot_failed/research_snapshot_timeout`으로 종료됐다.
+- final snapshot 교체, KIS 네트워크 호출, 주문 호출은 모두 0회다.
+- 다음 실행기의 snapshot 기본 경로와 partial cleanup은 보강했지만 유효 연구 결과가 아니므로 E1/E5 판정과 연구 분기는 계속 보류한다.
+
+관련 문서/코드 경로: `runtime-data/reports/research/preregistered-e1-e5-20260718/latest-attempt.json`, `scripts/create_research_db_snapshot.sh`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`

@@ -1,4 +1,5 @@
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime
@@ -27,6 +28,41 @@ class PreregisteredE1E5RoundTests(unittest.TestCase):
                 _create_snapshot(root, timeout_seconds=1)
 
         self.assertEqual(caught.exception.code, "research_snapshot_timeout")
+
+    def test_snapshot_script_cleans_partial_files_after_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source.db"
+            destination = tmp_path / "snapshot.db"
+            lock_connection = sqlite3.connect(source)
+            lock_connection.execute("create table sample (value integer)")
+            lock_connection.commit()
+            lock_connection.execute("begin exclusive")
+            try:
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(Path(__file__).resolve().parents[1] / "scripts" / "create_research_db_snapshot.sh"),
+                        "--src",
+                        str(source),
+                        "--dst",
+                        str(destination),
+                        "--timeout-seconds",
+                        "1",
+                        "--json",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+            finally:
+                lock_connection.rollback()
+                lock_connection.close()
+
+            self.assertEqual(result.returncode, 124)
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(tmp_path.glob("*.partial*")), [])
 
     def test_execution_gate_enforces_not_before_and_protected_session(self) -> None:
         kst = ZoneInfo("Asia/Seoul")
