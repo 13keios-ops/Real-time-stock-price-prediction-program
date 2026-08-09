@@ -60,14 +60,14 @@
 - challenger action: `keep_active`
 - promotion applied: `false`
 - 현재 통과한 수익 후보: `0개`
-- 2026-07-31 active baseline: 3분류 정확도 `0.277609`, trade hit rate `0.478261`, 23건 누적 순수익 `6.78764%`이나 표본이 작아 수익 후보가 아님
-- 2026-07-31 LightGBM challenger: 3분류 정확도 `0.378105`, 거래 0건으로 수익성 판단 표본이 없음
+- 2026-08-07 active baseline: 3분류 정확도 `0.267826`, trade hit rate `0.580645`, 31건 합산 순수익 `+20.458524%p`이나 작은 표본과 낮은 3분류 정확도이며 포트폴리오 수익이 아니므로 수익 후보가 아님
+- 2026-08-07 LightGBM challenger: 3분류 정확도 `0.427029`, 5건 평균 `-1.043656%`, 합산 `-5.218279%p`로 수익 후보가 아님
 - walk-forward의 과거 수치는 현재 비용 후 수익성 정본으로 쓰지 않으며, 유효 E1/E5 결과 전에는 새 조정을 하지 않음
 
 ### Rescue/Avoid
 
-- buy-avoid `0.40`: `-38.1734% -> -36.3645%`, random-control 역선별로 기각
-- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행이다. 실제 진단은 LightGBM 최선 6건 `-4.154%p`, linear-score 최선 229건 `-84.697%p`, 두 모델 동시 상승 35건 `-23.768%p`로 모두 음수이며 Cybos proxy도 비용 후 음수다.
+- buy-avoid `0.40`: 완전 lineage 19거래일에서 `-36.4241% -> -34.3196%`; 손실 완화는 있으나 절대수익·평균 기대값·일별 일관성이 음수라 기각
+- buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행이다. LightGBM 최선 6건 `-4.153997%p`, linear-score 최선 269건 `-90.797762%p`로 모두 음수다.
 - hold-rescue `0.40`: 37건 적용, `-26,387원`, 후보 아님
 
 세 항목 모두 관측/진단용이며 실제 주문과 모델 승격에 반영하지 않는다.

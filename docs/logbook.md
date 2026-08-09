@@ -7,9 +7,9 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-06 장후 KST
-- 장 상태: post-close
-- live runtime: 장후 정상 정지
+- 기준 시각: 2026-08-09 19:38 KST
+- 장 상태: weekend
+- live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
@@ -17,6 +17,7 @@
 - Phase 0: 유효일 `10/10` 관측 완료, matched 0일, mismatch 10일, mismatch 4종목, cash gap `714,840.9593원`. 완료 조건은 통과하지 못했다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
 - runtime 원장: broker paper status snapshot 2,725,917건의 과거 중복 polling 이력을 확인했고, 현재 상태 1,819건만 SQL 조회하도록 보강했다. 기존 원장은 보존한다.
+- 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 19거래일에서 손실만 완화했고 정책 계좌 수익률은 `-34.3196%`다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -34,12 +35,21 @@
 
 ## 최신 검증
 
-- 전체 unittest: 2026-08-06 `533 tests OK`
-- 전체 pytest: 이번 작업에서는 실행하지 않음 (이전 기준 `518 passed, 67 subtests passed`)
-- 저장소 구조/Markdown 감사: 2026-08-06 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
-- dashboard snapshot: 최신 artifact lineage guard 확인; 휴장 중 dashboard 재생성은 하지 않음
-- dashboard server/API: 정상
+- 전체 unittest: 2026-08-09 `534 tests OK`
+- 수익성 관련 targeted unittest: 38건 OK
+- 저장소 구조/Markdown 감사: 2026-08-09 errors=0, 구조 부채 경고 2건(dashboard, research 대형 모듈)
+- dashboard snapshot: 2026-08-09 재생성; 공통 비용 0.29%, Phase 0 미통과 손익 경고, 수익 후보 0개 표시 확인
+- dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 휴장 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-09] 전체 수익성·근거 감사와 fail-closed 교정
+
+- 휴장 상태에서 runtime/watchdog/dashboard/startup launcher, 2026-08-07 수집 품질, 학습/label refresh, Phase 0, 모델·rescue/avoid 원장을 read-only로 전수 점검했다. live runtime은 정상 정지이고 데이터 품질은 `ok`다.
+- dashboard signal replay가 수수료·세금을 빼고 slippage 0.06%만 차감하던 문제를 공통 비용 `krx-common-stock-2026-v1` 왕복 0.29%로 고쳤다. 558건 합산 순수익은 `-150.3476%p`, 추정손익은 `-1,052,218원`이며 실제 계좌 수익률이 아님을 표시한다.
+- LightGBM defensive shadow가 매일 새 artifact 하나만 선택해 최소 10거래일 조건을 구조적으로 채울 수 없던 문제를 고쳤다. 학습 완료 시각이 예측보다 앞선 완전 lineage 19개만 순방향 chain으로 결합하고, 누락·동일 결정 복수 lineage·동일 거래일 복수 artifact는 fail-closed로 차단한다.
+- buy-avoid threshold 0.40은 baseline `-36.4241%`에서 policy `-34.3196%`로 손실을 `+2.1045%p` 줄였지만 절대수익·평균 기대값·일별 일관성 실패로 후보가 아니다. buy-rescue와 hold-rescue도 비용 후 음수이며 meta-policy primary candidate는 없다.
+- 장후 label refresh에 buy-avoid, model overlay, hold-rescue, meta-policy 갱신을 포함해 학습만 최신이고 수익성 근거는 stale인 상태를 막았다. dashboard는 Phase 0 matched `0/10`일 때 로컬 누적손익을 수익 증거로 사용하지 않는다고 명시한다.
+- 전체 unittest 534건, 수익성 targeted 38건, Python/bash 문법, dashboard 실제 재생성, 구조/Markdown 감사 errors=0을 통과했다. 주문 정책, gate, threshold, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, KIS 주문/취소, NAS 백업은 변경하지 않았다.
 
 ## [2026-08-06] 장후 운영 점검과 broker snapshot 메모리 가드
 

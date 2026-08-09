@@ -240,18 +240,29 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 
 현재 ML 기준은 아래와 같다.
 
-### 2026-07-12 수익성 평가 정본
+### 2026-08-09 수익성 평가 정본
 
 이 절은 아래의 과거 `promotable`, `defensive candidate`, rescue/avoid 기록보다 우선한다.
+
+- 현재 비용·순방향 artifact lineage·decision episode portfolio replay·무작위 대조·일별 일관성을 모두 통과한 수익 후보는 `0개`다.
+- LightGBM buy-avoid는 최신 하루 artifact만 택하지 않고, 각 거래일 예측 전에 학습이 완료된 완전 lineage 19개를 순방향 chain으로 묶는다. 2026-08-09 재평가의 threshold `0.40`은 baseline `-36.4241%`, policy `-34.3196%`, delta `+2.1045%p`다. 손실 완화는 있으나 절대 수익, 평균 거래 기대값, 비음수 거래일 비율이 모두 미달해 `rejected_no_absolute_portfolio_profit`이다.
+- dashboard long-only signal replay는 공통 비용 helper의 `krx-common-stock-2026-v1`, 왕복 `0.29%`를 쓴다. 종전처럼 slippage `0.06%`만 차감하지 않는다. 합산 percent-point와 추정손익은 진단값이며 실제 계좌 수익률이 아니다.
+- 장후 label refresh는 data quality와 feature diagnostics 뒤에 buy-avoid, model overlay, hold-rescue, meta-policy를 순서대로 갱신하고 runtime report/dashboard를 만든다. 수익성 근거가 과거 날짜에 멈춘 채 학습만 최신인 상태를 방지한다.
+- 최신 buy-rescue serving decision ledger는 71,369행, eligible 35,573행이지만 LightGBM과 linear-score 결과가 모두 비용 후 음수다. hold-rescue도 161 lot 중 threshold 0.40 적용 37 lot, `delta_cash_sum=-26,387원`으로 기각된다.
+- Phase 0이 matched `0/10`인 동안 로컬 누적 실현손익은 dashboard 표시용일 뿐 수익 증거로 사용하지 않는다. active `baseline-h15-v1`, gate, threshold, 주문 정책은 변경하지 않는다.
+
+### 2026-07-12 평가 기반
+
+아래 규칙은 2026-08-09 정본에서도 유지하는 공통 평가 기반이다.
 
 - 겹치는 분 단위 신호의 수익률 합은 `sum_net_return_pct_points`로만 부르며 계좌 수익률로 해석하지 않는다.
 - 수익 후보는 다음 분봉 시가, 동일 현금, 종목별 비중, 동시 보유 수, 수수료, 세금, 슬리피지를 적용한 decision-episode portfolio replay에서 절대 비용 후 수익과 평균 거래 기대값이 모두 양수여야 한다.
 - 2026 국내 보통주 비용 정본은 `krx-common-stock-2026-v1`이다. [국가법령정보센터 2026 증권거래세 신고서 작성방법](https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162621569)의 유가증권시장 증권거래세 5/10,000, 농어촌특별세 15/10,000, 코스닥시장 증권거래세 20/10,000을 기준으로 현재 10종목 보통주 watchlist는 매도 시 총 `0.20%`를 적용한다. 매수에는 거래세를 붙이지 않으며, 편도 수수료 `0.015%`와 편도 슬리피지 3bp를 합친 왕복 연구 비용은 `0.29%`다.
 - 세금 `0.20%`와 달리 편도 수수료 `0.015%` 및 편도 슬리피지 3bp는 브로커 확정 수수료표나 실제 체결 관측값이 아니라 보수적 연구 가정이다. 모든 새 연구 리포트는 `cost_model_version`과 가정 상태를 기록하며, Phase 2 canary 전에 실제 계좌 현금 변화와 체결 미끄러짐으로 다시 보정한다.
 - `PaperTradingEngine`, broker paper fill sync, LightGBM 연구 비용, portfolio replay가 같은 helper를 쓴다. 2026-07-12 이전 체결·snapshot은 소급 재작성하지 않아 비용 모델 단절이 있으며, KIS daily order/fill adapter에는 수수료·세금 분리 필드가 없으므로 Phase 2 전 canary에서 브로커 계좌 현금 변화와 다시 대조한다. ETF/ETN 등 상품별 과세는 현재 범위 밖이다.
-- 2026 비용 보정 후 LightGBM buy-avoid threshold `0.40`의 최신 portfolio replay는 baseline `-38.1734%`(`-3,339,492원`), 필터 적용 `-36.3645%`(`-3,181,241원`), 차이 `+1.8089%p`다. 평균 거래 `-0.285710%`, 비음수 거래일 `0/22`, signal-row random control 실패로 `rejected_random_control`이며 후보가 아니다. 구형 `-16.4010%/-15.3384%`는 잘못 낮은 매도세 `0.018%`를 사용한 역사적 결과다.
-- `serving_decision_ledger`는 active/shadow 예측 lineage, 신호, 시간·spread gate, allocator, 현금·보유·pending 상태, 주문·체결 결과를 매 결정마다 기록한다. 과거 기간은 추정 backfill하지 않았지만 2026-07-13~31 실제 행 52,417건이 축적됐다. 이 중 buy-rescue 정본 후보는 명시적 no-trade 조건을 만족한 행만 쓴다.
-- buy-rescue는 안전 gate, 현금, 보유한도, pending, risk 차단을 뒤집지 않는다. 시간·spread gate 통과, 주문/체결 없음, baseline 비매수, `decision_stage=signal_blocked`인 25,726행만 진단한다.
+- 2026-07-12 당시 LightGBM buy-avoid threshold `0.40`의 portfolio replay는 baseline `-38.1734%`, 필터 적용 `-36.3645%`였다. 이 값은 역사적 비교용이며 현재 판정은 위 2026-08-09 정본을 따른다. 구형 `-16.4010%/-15.3384%`는 잘못 낮은 매도세 `0.018%`를 사용한 결과다.
+- `serving_decision_ledger`는 active/shadow 예측 lineage, 신호, 시간·spread gate, allocator, 현금·보유·pending 상태, 주문·체결 결과를 매 결정마다 기록한다. 과거 기간은 추정 backfill하지 않으며, 2026-08-09 최신 overlay 입력은 71,369행이다. 이 중 buy-rescue 정본 후보는 명시적 no-trade 조건을 만족한 행만 쓴다.
+- buy-rescue는 안전 gate, 현금, 보유한도, pending, risk 차단을 뒤집지 않는다. 시간·spread gate 통과, 주문/체결 없음, baseline 비매수, `decision_stage=signal_blocked`인 최신 35,573행만 진단한다.
 - hold-rescue threshold `0.40`의 최신 결과는 eligible `161`, 적용 `37`, 현금손익 차이 `-26,387원`, 개선 `13`, 악화 `22`로 현재 규칙을 기각한다.
 - 모든 serving prediction은 `training_run_id`, `artifact_id`, `artifact_sha256`를 갖는다. lineage가 없는 LightGBM artifact는 loader가 거부하며, 기존 33,007개 lineage 없는 joined prediction은 진단 전용이다.
 - 챌린저 `promotable=true`는 독립 holdout, 최소 30거래, 각 예측 클래스 비중 5% 이상, 다수 클래스 정확도 초과, 비용 후 평균·누적 수익 양수, 현금·보유한도 반영 portfolio replay 양수와 서로 겹치지 않는 평가구간 최소 2개 재현성을 모두 충족해야 한다. 같은 holdout 재실행은 시간 재현성으로 인정하지 않는다. 현재 temporal evidence 생성기는 없으므로 모든 후보는 fail-closed로 `promotable=false`다.

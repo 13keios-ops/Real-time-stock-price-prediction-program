@@ -201,12 +201,32 @@ def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
 
 def _select_lineage_segment(
     rows: list[ShadowRow],
-) -> tuple[list[ShadowRow], dict[str, Any], tuple[str, str, str] | None]:
+    training_run_completed_at: dict[str, str] | None = None,
+) -> tuple[list[ShadowRow], dict[str, Any], set[tuple[str, str, str]] | None]:
+    training_run_completed_at = training_run_completed_at or {}
     complete_rows = [
         row
         for row in rows
         if row.training_run_id and row.artifact_id and row.artifact_sha256
     ]
+    if not complete_rows:
+        return (
+            rows,
+            {
+                "status": "legacy_lineage_missing",
+                "candidate_eligible": False,
+                "blockers": ["no_complete_prediction_lineage"],
+                "total_rows": len(rows),
+                "complete_rows": 0,
+                "missing_rows": len(rows),
+                "distinct_complete_lineages": 0,
+                "selected_lineage": None,
+                "lineage_chain": [],
+                "excluded_rows": 0,
+            },
+            None,
+        )
+
     groups: dict[tuple[str, str, str], list[ShadowRow]] = {}
     for row in complete_rows:
         key = (
@@ -216,51 +236,150 @@ def _select_lineage_segment(
         )
         groups.setdefault(key, []).append(row)
 
-    if not groups:
-        return (
-            rows,
+    scope_start_date = min(row.event_time[:10] for row in complete_rows)
+    scope_rows = [row for row in rows if row.event_time[:10] >= scope_start_date]
+    scope_complete_rows = [
+        row
+        for row in scope_rows
+        if row.training_run_id and row.artifact_id and row.artifact_sha256
+    ]
+    decision_groups: dict[tuple[str, str, str], list[ShadowRow]] = {}
+    for row in scope_complete_rows:
+        decision_groups.setdefault(
+            (row.signal_id, row.symbol, row.event_time),
+            [],
+        ).append(row)
+    ambiguous_decision_keys = {
+        key
+        for key, decision_rows in decision_groups.items()
+        if len(
             {
-                "status": "legacy_lineage_missing",
-                "candidate_eligible": False,
-                "total_rows": len(rows),
-                "complete_rows": 0,
-                "missing_rows": len(rows),
-                "distinct_complete_lineages": 0,
-                "selected_lineage": None,
-                "excluded_rows": 0,
-            },
-            None,
+                (
+                    str(row.training_run_id),
+                    str(row.artifact_id),
+                    str(row.artifact_sha256),
+                )
+                for row in decision_rows
+            }
         )
-
-    selected_key, selected_rows = max(
-        groups.items(),
-        key=lambda item: max(row.event_time for row in item[1]),
-    )
+        > 1
+    }
     selected_rows = sorted(
-        selected_rows,
+        [
+            row
+            for row in scope_complete_rows
+            if (row.signal_id, row.symbol, row.event_time)
+            not in ambiguous_decision_keys
+        ],
         key=lambda row: (row.event_time, row.symbol, row.signal_id),
     )
+    selected_keys = {
+        (
+            str(row.training_run_id),
+            str(row.artifact_id),
+            str(row.artifact_sha256),
+        )
+        for row in selected_rows
+    }
+    date_lineages: dict[str, set[tuple[str, str, str]]] = {}
+    for row in selected_rows:
+        date_lineages.setdefault(row.event_time[:10], set()).add(
+            (
+                str(row.training_run_id),
+                str(row.artifact_id),
+                str(row.artifact_sha256),
+            )
+        )
+
+    blockers: list[str] = []
+    scope_missing_rows = len(scope_rows) - len(scope_complete_rows)
+    if scope_missing_rows:
+        blockers.append("prediction_lineage_missing_inside_forward_scope")
+    if ambiguous_decision_keys:
+        blockers.append("multiple_lineages_for_same_decision")
+    if any(len(keys) > 1 for keys in date_lineages.values()):
+        blockers.append("multiple_lineages_same_trade_date")
+
+    lineage_chain: list[dict[str, Any]] = []
+    for key in sorted(
+        selected_keys,
+        key=lambda item: min(row.event_time for row in groups[item]),
+    ):
+        lineage_rows = sorted(
+            groups[key],
+            key=lambda row: (row.event_time, row.symbol, row.signal_id),
+        )
+        completed_at = training_run_completed_at.get(key[0])
+        temporal_order_ok = False
+        if completed_at:
+            try:
+                temporal_order_ok = datetime.fromisoformat(
+                    completed_at
+                ) < datetime.fromisoformat(lineage_rows[0].event_time)
+            except ValueError:
+                temporal_order_ok = False
+        if not completed_at:
+            blockers.append("training_run_registry_missing")
+        elif not temporal_order_ok:
+            blockers.append("training_completed_after_prediction_start")
+        lineage_chain.append(
+            {
+                "training_run_id": key[0],
+                "artifact_id": key[1],
+                "artifact_sha256": key[2],
+                "training_completed_at": completed_at,
+                "temporal_order_ok": temporal_order_ok,
+                "rows": len(lineage_rows),
+                "start": lineage_rows[0].event_time if lineage_rows else None,
+                "end": lineage_rows[-1].event_time if lineage_rows else None,
+            }
+        )
+
+    blockers = sorted(set(blockers))
+    candidate_eligible = not blockers
+    selected_lineage = lineage_chain[0] if len(lineage_chain) == 1 else None
     return (
         selected_rows,
         {
-            "status": "selected_latest_complete_lineage",
-            "candidate_eligible": True,
+            "status": (
+                "validated_temporal_lineage_chain"
+                if candidate_eligible
+                else "temporal_lineage_chain_incomplete"
+            ),
+            "candidate_eligible": candidate_eligible,
+            "blockers": blockers,
             "total_rows": len(rows),
             "complete_rows": len(complete_rows),
             "missing_rows": len(rows) - len(complete_rows),
             "distinct_complete_lineages": len(groups),
-            "selected_lineage": {
-                "training_run_id": selected_key[0],
-                "artifact_id": selected_key[1],
-                "artifact_sha256": selected_key[2],
-                "rows": len(selected_rows),
-                "start": selected_rows[0].event_time if selected_rows else None,
-                "end": selected_rows[-1].event_time if selected_rows else None,
-            },
+            "scope_start_date": scope_start_date,
+            "scope_rows": len(scope_rows),
+            "scope_missing_rows": scope_missing_rows,
+            "legacy_rows_before_scope": len(rows) - len(scope_rows),
+            "ambiguous_decision_rows": len(ambiguous_decision_keys),
+            "trade_dates": len(date_lineages),
+            "training_registry_available": bool(training_run_completed_at),
+            "selected_lineage": selected_lineage,
+            "lineage_chain": lineage_chain,
             "excluded_rows": len(rows) - len(selected_rows),
         },
-        selected_key,
+        selected_keys,
     )
+
+
+def _load_training_run_completion(
+    connection: sqlite3.Connection,
+) -> dict[str, str]:
+    columns = _table_columns(connection, "ml_training_runs")
+    if not {"training_run_id", "completed_at"}.issubset(columns):
+        return {}
+    return {
+        str(training_run_id): str(completed_at)
+        for training_run_id, completed_at in connection.execute(
+            "SELECT training_run_id, completed_at FROM ml_training_runs"
+        )
+        if training_run_id and completed_at
+    }
 
 
 def _choose_label_threshold(connection: sqlite3.Connection, horizon_min: int) -> float | None:
@@ -439,21 +558,19 @@ def _load_prediction_prices(
     horizon_min: int,
     *,
     bars_by_symbol: dict[str, list[ReplayBar]],
-    lineage_key: tuple[str, str, str] | None = None,
+    lineage_keys: set[tuple[str, str, str]] | None = None,
 ) -> dict[str, list[PredictionPrice]]:
     prediction_columns = _table_columns(connection, "serving_predictions")
-    lineage_filter = ""
-    params: list[Any] = [horizon_min, f"lightgbm-h{horizon_min}-v1"]
-    if lineage_key and {
+    has_lineage = {
         "training_run_id",
         "artifact_id",
         "artifact_sha256",
-    }.issubset(prediction_columns):
-        lineage_filter = (
-            "AND p.training_run_id = ? AND p.artifact_id = ? "
-            "AND p.artifact_sha256 = ?"
-        )
-        params.extend(lineage_key)
+    }.issubset(prediction_columns)
+    lineage_select = (
+        "p.training_run_id, p.artifact_id, p.artifact_sha256"
+        if has_lineage
+        else "NULL, NULL, NULL"
+    )
     rows = connection.execute(
         f"""
         SELECT
@@ -461,14 +578,14 @@ def _load_prediction_prices(
             p.event_time,
             p.probability_up,
             p.probability_flat,
-            p.probability_down
+            p.probability_down,
+            {lineage_select}
         FROM serving_predictions AS p
         WHERE p.horizon_min = ?
           AND p.model_version = ?
-          {lineage_filter}
         ORDER BY p.symbol ASC, p.event_time ASC
         """,
-        tuple(params),
+        (horizon_min, f"lightgbm-h{horizon_min}-v1"),
     ).fetchall()
 
     bar_times_by_symbol = {
@@ -477,6 +594,14 @@ def _load_prediction_prices(
     }
     by_symbol: dict[str, list[PredictionPrice]] = {}
     for row in rows:
+        if lineage_keys is not None:
+            row_lineage = (
+                str(row[5]) if row[5] is not None else "",
+                str(row[6]) if row[6] is not None else "",
+                str(row[7]) if row[7] is not None else "",
+            )
+            if row_lineage not in lineage_keys:
+                continue
         symbol = str(row[0])
         event_time = str(row[1])
         event_dt = datetime.fromisoformat(event_time)
@@ -902,7 +1027,10 @@ def build_summary(
             start_date=start_date,
             end_date=end_date,
         )
-        rows, lineage_summary, lineage_key = _select_lineage_segment(window_rows)
+        training_run_completed_at = _load_training_run_completion(connection)
+        rows, lineage_summary, lineage_keys = _select_lineage_segment(
+            window_rows, training_run_completed_at
+        )
         loaded_closed_lots = _load_closed_lots(connection) if evaluate_early_exit else []
         closed_lots = _filter_closed_lots_by_date(
             loaded_closed_lots,
@@ -919,7 +1047,7 @@ def build_summary(
                 connection,
                 horizon_min,
                 bars_by_symbol=bars_by_symbol,
-                lineage_key=lineage_key,
+                lineage_keys=lineage_keys,
             )
             if evaluate_early_exit
             else {}
@@ -1005,20 +1133,20 @@ def build_summary(
     ]
     if not rows:
         status = "no_joined_baseline_lightgbm_rows"
+    elif not bool(lineage_summary.get("candidate_eligible")):
+        status = "diagnostic_only_lineage_missing"
     elif candidate_thresholds:
         status = "portfolio_candidate_found"
     elif any(
-        (
-            (item.get("random_control") or {})
-            .get("comparison", {})
-            .get("verdict")
+        "portfolio_random_control_failed"
+        in (
+            item.get("portfolio_replay", {})
+            .get("candidate_eligibility", {})
+            .get("failed_reasons", [])
         )
-        != VERDICT_BETTER
         for item in threshold_summaries
     ):
-        status = "rejected_random_control"
-    elif not bool(lineage_summary.get("candidate_eligible")):
-        status = "diagnostic_only_lineage_missing"
+        status = "rejected_portfolio_random_control"
     else:
         status = "rejected_no_absolute_portfolio_profit"
 

@@ -3,10 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.summarize_lightgbm_defensive_shadow import _trade_cost_context, build_summary
+from scripts.summarize_lightgbm_defensive_shadow import (
+    ShadowRow,
+    _select_lineage_segment,
+    _trade_cost_context,
+    build_summary,
+)
 
 
 LINEAGE = ("train-1", "artifact-1", "sha-1")
+LINEAGE_2 = ("train-2", "artifact-2", "sha-2")
 
 
 class LightGbmDefensiveCostContextTests(unittest.TestCase):
@@ -17,6 +23,68 @@ class LightGbmDefensiveCostContextTests(unittest.TestCase):
         self.assertEqual(context["version"], "krx-common-stock-2026-v1")
         self.assertEqual(context["round_trip_cost_pct"], 0.29)
         self.assertEqual(context["source"], "shared_current_default")
+
+
+class LightGbmLineageSelectionTests(unittest.TestCase):
+    def test_temporal_chain_keeps_multiple_forward_artifacts(self) -> None:
+        rows = [
+            ShadowRow(
+                signal_id="sig-1",
+                symbol="005930",
+                event_time="2026-07-13T09:15:00+09:00",
+                signal_confidence=0.6,
+                probability_up=0.2,
+                probability_flat=0.2,
+                probability_down=0.6,
+                label="down",
+                future_return_pct=-1.0,
+                training_run_id=LINEAGE[0],
+                artifact_id=LINEAGE[1],
+                artifact_sha256=LINEAGE[2],
+            ),
+            ShadowRow(
+                signal_id="sig-2",
+                symbol="005930",
+                event_time="2026-07-14T09:15:00+09:00",
+                signal_confidence=0.6,
+                probability_up=0.2,
+                probability_flat=0.2,
+                probability_down=0.6,
+                label="down",
+                future_return_pct=-1.0,
+                training_run_id=LINEAGE_2[0],
+                artifact_id=LINEAGE_2[1],
+                artifact_sha256=LINEAGE_2[2],
+            ),
+        ]
+
+        selected, summary, lineage_keys = _select_lineage_segment(
+            rows,
+            {
+                "train-1": "2026-07-10T16:00:00+09:00",
+                "train-2": "2026-07-13T16:00:00+09:00",
+            },
+        )
+
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(summary["status"], "validated_temporal_lineage_chain")
+        self.assertTrue(summary["candidate_eligible"])
+        self.assertEqual(summary["distinct_complete_lineages"], 2)
+        self.assertEqual(summary["trade_dates"], 2)
+        self.assertEqual(len(lineage_keys or set()), 2)
+
+        _, invalid_summary, _ = _select_lineage_segment(
+            rows,
+            {
+                "train-1": "2026-07-13T10:00:00+09:00",
+                "train-2": "2026-07-13T16:00:00+09:00",
+            },
+        )
+        self.assertFalse(invalid_summary["candidate_eligible"])
+        self.assertIn(
+            "training_completed_after_prediction_start",
+            invalid_summary["blockers"],
+        )
 
 
 def _create_schema(connection: sqlite3.Connection, *, include_paper: bool = True) -> None:
@@ -62,6 +130,12 @@ def _create_schema(connection: sqlite3.Connection, *, include_paper: bool = True
             volume REAL,
             trade_count INTEGER
         );
+        CREATE TABLE ml_training_runs (
+            training_run_id TEXT,
+            completed_at TEXT
+        );
+        INSERT INTO ml_training_runs
+        VALUES ('train-1', '2026-06-10T16:00:00+09:00');
         """
     )
     if include_paper:
@@ -160,7 +234,7 @@ class LightGbmDefensiveShadowTests(unittest.TestCase):
                 random_simulations=20,
             )
 
-        self.assertEqual(summary["status"], "rejected_random_control")
+        self.assertEqual(summary["status"], "rejected_no_absolute_portfolio_profit")
         self.assertEqual(summary["cost_model_version"], "legacy_or_custom_unversioned")
         self.assertEqual(summary["cost_model"]["source"], "diagnostics_report")
         self.assertTrue(summary["prediction_lineage"]["candidate_eligible"])

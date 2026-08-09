@@ -37,8 +37,10 @@ Phase 1 수익성 증거 원장 축적과 2026-07-20 사전등록 판정
 - [x] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` lineage 확인 (2026-08-02 dashboard guard 통과)
 - [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결 확인
 - [x] 비정상 호가 fail-closed와 feature JSONL 정본 재생성 보강: raw 감사 보존, 신호/연구 제외, SQLite 행 수 전수 검증
-- [x] KIS live buy-rescue no-trade 모집단 관측: 2026-08-06 decision ledger 67,566행 중 eligible 33,675행. 현행 비용 기준 전까지 모든 rescue 결과는 관측용이며 주문 후보 아님
+- [x] KIS live buy-rescue no-trade 모집단 관측: 2026-08-09 decision ledger 71,369행 중 eligible 35,573행. LightGBM/linear-score rescue는 모두 비용 후 음수이며 주문 후보가 아님
 - [x] broker paper status snapshot 메모리/원장 가드: 과거 2,725,917건을 매 분 메모리로 읽던 경로를 현재 상태 1,819건 SQL 조회와 상태 변화 기록으로 교체. 기존 원본 원장은 삭제하지 않음
+- [x] buy-avoid를 최신 하루 artifact만 보던 구조에서 19거래일 순방향 완전 lineage chain으로 교정. threshold 0.40은 손실 완화만 있고 절대수익은 음수라 후보 0개
+- [x] dashboard signal replay 비용을 공통 왕복 0.29%로 통일하고, 장후 label refresh에 buy-avoid/overlay/hold-rescue/meta-policy 갱신을 포함
 - [ ] Phase 0 mismatch 4종목의 KIS account snapshot 대 order/fill ledger divergence를 자동 align 없이 해소·재확인. 2026-08-02 sanitized trace는 paper snapshot shape와 fetch 시각을 남기며 rejected sell recent count는 모두 0건이다.
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행 complete lineage)
 - [x] 2026-07-20 장후 label refresh 완료 뒤 E1/E5 wrapper 1회 실행 (D드라이브 research snapshot I/O 대기로 결과 파일 미생성). 자동 재실행은 금지하며 다음 명시 실행은 timeout/atomic snapshot으로 보호

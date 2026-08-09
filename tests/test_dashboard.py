@@ -374,8 +374,10 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(summary["signal_exit_count"], 1)
         self.assertEqual(summary["time_exit_count"], 1)
         self.assertEqual(summary["avoided_short_entries"], 1)
-        self.assertAlmostEqual(float(summary["net_return_sum_pct"]), -5.12, places=6)
-        self.assertAlmostEqual(float(summary["estimated_net_pnl"]), -102_400.0, places=2)
+        self.assertEqual(summary["cost_model"], "krx-common-stock-2026-v1")
+        self.assertAlmostEqual(float(summary["round_trip_cost_pct"]), 0.29, places=6)
+        self.assertAlmostEqual(float(summary["net_return_sum_pct"]), -5.58, places=6)
+        self.assertAlmostEqual(float(summary["estimated_net_pnl"]), -111_600.0, places=2)
 
     def test_paper_fill_return_summary_uses_fifo_realized_pnl(self) -> None:
         order_rows = [

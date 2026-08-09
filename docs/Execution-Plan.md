@@ -20,7 +20,7 @@
 
 ## 2. 현재 출발점
 
-2026-08-02 기준 현재 출발점은 아래와 같다.
+2026-08-09 기준 현재 출발점은 아래와 같다.
 
 - 장 상태: `weekend`, live runtime 휴장 정상 정지.
 - runtime watchdog/dashboard/startup launcher: 정상.
@@ -30,10 +30,11 @@
 - Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일, mismatch 4종목; snapshot divergence와 cash gap `714,840.9593원`이 남아 있다.
 - rejected mirrored close의 fail-closed 차단 뒤 recent count는 4종목 모두 0건이다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과.
-- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 2026-08-02 기본 preflight도 네트워크·주문 호출 0회로 통과.
-- buy-avoid: random-control 역선별로 기각된 stale 관측.
-- buy-rescue: KIS live no-trade ledger는 52,417행 중 eligible 25,726행으로 관측됨. 실제 rescue 진단은 모두 비용 후 음수라 주문 후보가 아님.
-- hold-rescue: 현금손익 악화로 후보 아님.
+- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 기본 preflight는 네트워크·주문 호출 0회로 유지.
+- buy-avoid: 순방향 완전 lineage 19거래일, 28,434행을 portfolio replay했다. threshold 0.40은 손실을 2.1045%p 완화했지만 policy return `-34.3196%`로 후보가 아님.
+- buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행. LightGBM과 linear-score rescue가 모두 비용 후 음수라 주문 후보가 아님.
+- hold-rescue: 161 lot 중 threshold 0.40 적용 37 lot, 현금손익 `-26,387원`으로 후보가 아님.
+- dashboard와 장후 자동화: 공통 왕복 비용 0.29%를 쓰고, 매 장후 avoid/rescue/meta-policy 근거를 함께 갱신한다.
 - E1/E5: 2026-07-20 1회 시도는 snapshot I/O 대기로 결과 파일이 없으며 자동 재실행은 금지.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.

@@ -20,6 +20,7 @@ from app.config.settings import load_settings
 from app.models.lightgbm_model import LightGbmDirectionModel, find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
+from app.paper_trading.costs import build_domestic_stock_cost_model_metadata
 from app.services.kis_account import refresh_kis_account_report
 from app.services.live_execution_sync import build_live_order_fill_consistency_summary_from_store
 from app.services.live_order_monitoring import (
@@ -1408,8 +1409,10 @@ def _prediction_flow_primary_prediction(predictions: list[dict[str, Any]]) -> di
     return active_like if active_like is not None else preferred_rows[0]
 
 
-def _round_trip_cost_pct(settings) -> float:
-    return max(float(settings.strategy.slippage_bps), 0.0) * 2.0 / 100.0
+def _signal_replay_cost_model(settings) -> dict[str, object]:
+    return build_domestic_stock_cost_model_metadata(
+        slippage_bps=max(float(settings.strategy.slippage_bps), 0.0)
+    )
 
 
 def _bar_close_at_or_after(
@@ -1446,7 +1449,8 @@ def _build_signal_replay_summary(
     settings,
 ) -> dict[str, Any]:
     _, _, bar_index = _build_bar_lookup(minute_bar_rows)
-    round_trip_cost_pct = _round_trip_cost_pct(settings)
+    cost_model = _signal_replay_cost_model(settings)
+    round_trip_cost_pct = float(cost_model["round_trip_cost_pct"])
     position_notional = float(settings.strategy.paper_initial_cash) * float(settings.strategy.max_position_pct)
     forced_flat_clock = _parse_market_clock(settings.market_calendar.forced_flat_time)
     min_confidence = float(settings.strategy.min_signal_confidence)
@@ -1554,7 +1558,8 @@ def _build_signal_replay_summary(
     return {
         "model": "long_only_signal_replay",
         "description": "미보유+매수 허용은 진입, 보유+매도 신호는 청산, 미보유+매도 신호는 신규 숏 없이 진입 회피로 보는 현물 기준 replay입니다.",
-        "cost_model": "round_trip_slippage_only",
+        "cost_model": cost_model["version"],
+        "cost_model_metadata": cost_model,
         "round_trip_cost_pct": round_trip_cost_pct,
         "position_notional": position_notional,
         "signals_seen": len(signal_views),
@@ -2230,6 +2235,9 @@ def _build_today_report(
     paper_account_view: dict[str, Any],
     active_model: dict[str, Any],
     latest_challenger_report: dict[str, Any] | None,
+    paper_account_reconciliation: dict[str, Any],
+    paper_account_reconciliation_history: dict[str, Any],
+    profitability_evidence: dict[str, Any] | None,
 ) -> dict[str, Any]:
     insights: list[str] = []
     next_steps: list[str] = []
@@ -2239,6 +2247,17 @@ def _build_today_report(
     blocked = int(signal_order_summary.get("signal_blocked", 0))
     total_signals = int(signal_order_summary.get("signal_buy", 0)) + int(signal_order_summary.get("signal_sell", 0))
     realized_pnl = local_account_summary.get("realized_pnl")
+    required_days = int(paper_account_reconciliation_history.get("required_days") or 10)
+    matched_days = int(paper_account_reconciliation_history.get("matched_days") or 0)
+    mismatch_days = int(paper_account_reconciliation_history.get("mismatch_days") or 0)
+    phase0_verified = (
+        paper_account_reconciliation.get("positions_match") is True
+        and paper_account_reconciliation.get("balance_match") is True
+        and paper_account_reconciliation.get("total_asset_match") is True
+        and matched_days >= required_days
+        and mismatch_days == 0
+    )
+
 
     if prediction_summary.get("total", 0) == 0:
         insights.append("선택한 기간에는 실제 예측 기록이 아직 없습니다.")
@@ -2257,7 +2276,7 @@ def _build_today_report(
 
     if blocked > 0:
         insights.append("차단된 신호가 있어 리스크 게이트가 적극적으로 작동 중입니다.")
-        next_steps.append("차단 사유를 확인해 스프레드 기준과 시간 게이트가 과도한지 검토합니다.")
+        next_steps.append("차단 사유와 후행수익을 비교하되, 주문 게이트는 근거 없이 자동 변경하지 않습니다.")
     if orders_total > 0:
         insights.append(f"주문 대비 체결 비율은 {(fills / orders_total) * 100:.1f}% 입니다.")
 
@@ -2266,7 +2285,14 @@ def _build_today_report(
     else:
         insights.append(f"로컬 모의운용 계좌는 현재 {local_account_summary.get('open_positions', 0)}개 종목을 보유 중입니다.")
     if realized_pnl is not None:
-        insights.append(f"로컬 모의운용 계좌의 누적 실현 손익은 {realized_pnl:,.0f}원입니다.")
+        if phase0_verified:
+            insights.append(f"정합성이 확인된 로컬 모의운용 누적 실현 손익은 {realized_pnl:,.0f}원입니다.")
+        else:
+            insights.append(
+                f"로컬 누적 실현 손익 {realized_pnl:,.0f}원은 표시용 원장 값이며, "
+                "KIS 모의계좌 정합 미통과로 수익 증거로 사용할 수 없습니다."
+            )
+            next_steps.append("Phase 0 계좌 스냅샷 불일치를 먼저 해소하고 10거래일 정합을 다시 확인합니다.")
 
     if paper_account_view.get("ok"):
         insights.append("브로커 모의계좌 조회는 정상입니다.")
@@ -2278,6 +2304,14 @@ def _build_today_report(
         insights.append(f"현재 활성 모델 {active_model.get('model_version') or '-'} 유지가 권장되고 있습니다.")
     elif challenger_action:
         next_steps.append(f"챌린저 검토 결과: {challenger_action}")
+
+    if profitability_evidence:
+        primary_candidate = (
+            (profitability_evidence.get("current_recommendation") or {})
+            .get("primary_shadow_candidate")
+        )
+        if primary_candidate is None:
+            insights.append("현재 비용·계보·무작위 대조·포트폴리오 재생을 모두 통과한 수익 후보는 0개입니다.")
 
     if not next_steps:
         next_steps.append("다음 장중 데이터가 더 쌓이면 워크포워드 안정성과 신호 품질을 다시 점검합니다.")
@@ -2657,6 +2691,9 @@ def collect_dashboard_payload(
     latest_lightgbm_performance_diagnostics = _safe_load_json(
         settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-performance-diagnostics-h15.json"
     )
+    latest_meta_policy_shadow = _safe_load_json(
+        settings.runtime_data_dir / "reports" / "research" / "latest-meta-policy-shadow-h15.json"
+    )
     latest_lightgbm_feature_source_experiment = _safe_load_json(
         settings.runtime_data_dir / "reports" / "challengers" / "latest-lightgbm-feature-source-experiment-h15.json"
     )
@@ -2826,6 +2863,13 @@ def collect_dashboard_payload(
         paper_account_view=paper_account_view,
         active_model=active_model_entry,
         latest_challenger_report=latest_challenger_report,
+        paper_account_reconciliation=paper_account_reconciliation,
+        paper_account_reconciliation_history=paper_account_reconciliation_history,
+        profitability_evidence=(
+            latest_meta_policy_shadow
+            if isinstance(latest_meta_policy_shadow, dict)
+            else None
+        ),
     )
 
     return {
@@ -2898,6 +2942,7 @@ def collect_dashboard_payload(
         "latest_lightgbm_performance_diagnostics": latest_lightgbm_performance_diagnostics,
         "latest_lightgbm_feature_source_experiment": latest_lightgbm_feature_source_experiment,
         "latest_lightgbm_feature_profile_experiment": latest_lightgbm_feature_profile_experiment,
+        "latest_meta_policy_shadow": latest_meta_policy_shadow,
         "latest_lightgbm_label_band_experiment": latest_lightgbm_label_band_experiment,
         "latest_lightgbm_label_band_reproducibility": latest_lightgbm_label_band_reproducibility,
         "latest_lightgbm_calibration_experiment": latest_lightgbm_calibration_experiment,
@@ -3881,6 +3926,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     latest_walk_forward_setup = payload.get("latest_walk_forward_setup_status", {}) or {}
     latest_challenger = payload.get("latest_challenger_report", {}) or {}
     latest_lightgbm_performance_diagnostics = payload.get("latest_lightgbm_performance_diagnostics", {}) or {}
+    latest_meta_policy_shadow = payload.get("latest_meta_policy_shadow", {}) or {}
     latest_lightgbm_feature_source_experiment = payload.get("latest_lightgbm_feature_source_experiment", {}) or {}
     latest_lightgbm_feature_profile_experiment = payload.get("latest_lightgbm_feature_profile_experiment", {}) or {}
     latest_lightgbm_label_band_experiment = payload.get("latest_lightgbm_label_band_experiment", {}) or {}
@@ -4365,6 +4411,42 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         ["순손익", _signed_money(signal_replay_summary.get("estimated_net_pnl"))],
         ["거래합산 순수익률", _format_signed_pct(signal_replay_summary.get("net_return_sum_pct"))],
         ["설명", signal_replay_summary.get("description") or "-"],
+    ]
+    meta_recommendation = latest_meta_policy_shadow.get("current_recommendation", {}) or {}
+    meta_primary_candidate = meta_recommendation.get("primary_shadow_candidate")
+    profitability_rows = [
+        ["수익성 검증 상태", latest_meta_policy_shadow.get("status") or "not_available"],
+        ["통과한 shadow 후보", "1개" if meta_primary_candidate else "0개"],
+        [
+            "주요 차단",
+            ", ".join(latest_meta_policy_shadow.get("blockers") or []) or "-",
+        ],
+        [
+            "활성 모델 조치",
+            "승격/변경 없음"
+            if not (
+                latest_challenger.get("promotion_applied")
+                or meta_recommendation.get("active_model_change")
+            )
+            else "변경 기록 확인 필요",
+        ],
+        [
+            "Phase 0 정합",
+            (
+                f"{paper_account_reconciliation_history.get('matched_days') or 0}"
+                f" / {paper_account_reconciliation_history.get('required_days') or 10} 거래일"
+            ),
+        ],
+        [
+            "계좌 손익 해석",
+            (
+                "KIS 모의계좌 정합 미통과로 로컬 누적손익은 수익 증거가 아닙니다."
+                if (paper_account_reconciliation_history.get("mismatch_days") or 0) > 0
+                else "최근 정합성 근거와 함께 해석합니다."
+            ),
+        ],
+        ["최신 근거 생성", latest_meta_policy_shadow.get("generated_at") or "-"],
+        ["범위", "관측/진단 전용, 주문·게이트·활성 모델 자동 변경 없음"],
     ]
     signal_status_pills = [
         f"매수 신호: {signal_order_summary.get('signal_buy', 0)}",
@@ -5439,6 +5521,11 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "요약",
                 _stack_cards(
                     _section_card("예측 요약", _pill_row(prediction_status_pills + [f"최근 예측 시각: {prediction_summary.get('latest_prediction_time') or '-'}"]), note="예측 성공률은 실제 결과가 확정된 예측만 기준으로 계산합니다. 선택 기간 전체 기준으로 집계합니다."),
+                    _section_card(
+                        "수익성 판정",
+                        _table(["항목", "판정"], profitability_rows, "수익성 판정 근거가 없습니다.", scroll_height=300),
+                        note="비용 후 절대수익, 평균 거래 기대값, 무작위 대조, 일별 반복성, 계보, 포트폴리오 재생을 모두 통과해야 후보로 표시합니다.",
+                    ),
                     _section_card(
                         "수익률 해석 분리",
                         _table(["구분", "표본", "결과", "해석"], return_interpretation_rows, "수익률 해석 데이터가 없습니다.", scroll_height=260),

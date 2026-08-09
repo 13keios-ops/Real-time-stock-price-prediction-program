@@ -714,6 +714,10 @@ PY
     "summarize-kis-live-data-quality"
     "summarize-feature-source-drift"
     "summarize-kis-live-feature-diagnostics"
+    "summarize-lightgbm-defensive-shadow"
+    "summarize-model-overlay-comparison"
+    "summarize-hold-rescue-paper-replay"
+    "summarize-meta-policy-shadow"
     "build-runtime-report"
     "build-dashboard"
   )
@@ -763,6 +767,10 @@ PY
     run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
     run_label_python_step scripts/summarize_feature_source_drift.py
     run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py
+    run_label_python_step scripts/summarize_lightgbm_defensive_shadow.py --horizon-min 15
+    run_label_python_step scripts/summarize_model_overlay_comparison.py --horizon-min 15
+    run_label_python_step scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15
+    run_label_python_step scripts/summarize_meta_policy_shadow.py --horizon-min 15
     run_label_app_step --build-runtime-report
     run_label_app_step --build-dashboard
     return 0
@@ -775,6 +783,10 @@ PY
   run_label_python_step scripts/summarize_kis_live_data_quality.py --recent-days "$recent_days"
   run_label_python_step scripts/summarize_feature_source_drift.py
   run_label_python_step scripts/summarize_kis_live_feature_diagnostics.py
+  run_label_python_step scripts/summarize_lightgbm_defensive_shadow.py --horizon-min 15
+  run_label_python_step scripts/summarize_model_overlay_comparison.py --horizon-min 15
+  run_label_python_step scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15
+  run_label_python_step scripts/summarize_meta_policy_shadow.py --horizon-min 15
   run_label_app_step --build-runtime-report
   write_label_refresh_state "ok" 0
   run_label_app_step --build-dashboard
