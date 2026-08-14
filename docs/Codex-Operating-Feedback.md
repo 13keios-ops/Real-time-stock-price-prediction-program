@@ -117,6 +117,25 @@
 
 ## 5. 현재 Skill 후보
 
+### Full Check
+
+- 후보 상태: skill 승격 완료
+- 대상:
+  프로젝트 목표 정합성, 수집과 source provenance, 판단 lineage,
+  paper/KIS 정합성, 비용 후 수익성, 코드·테스트·문서 품질의 전면 감사와 안전한 개선 조치.
+- 이유:
+  사용자가 같은 전면 검수와 수익화 관점 점검을 반복 요청했고,
+  운영 점검, 수익성 해석, 승인 경계, 최종 보고 순서에서 누락 위험이 크다.
+- 권장안:
+  `.agents/skills/full-check/SKILL.md`를 기준으로 사용하고,
+  장전/장후 운영 절차는 `daily-ops-check`에 위임한다.
+
+관련 문서/코드 경로:
+`.agents/skills/full-check/SKILL.md`,
+`.agents/skills/daily-ops-check/SKILL.md`,
+`docs/Execution-Plan.md`,
+`docs/Model-Research-PreRegistration.md`
+
 ### Daily Ops Check
 
 - 후보 상태: skill 승격 완료

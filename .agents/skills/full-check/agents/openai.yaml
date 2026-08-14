@@ -1,0 +1,4 @@
+interface:
+  display_name: "FULL CHECK"
+  short_description: "프로젝트 목표·데이터·판단·수익성을 전면 검수하고 개선"
+  default_prompt: "Use $full-check to audit this project end to end, fix safe findings, and report the profitability verdict with evidence."

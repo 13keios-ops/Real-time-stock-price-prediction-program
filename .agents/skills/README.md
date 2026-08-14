@@ -15,3 +15,4 @@ skill 후보 관리는 `docs/Codex-Operating-Feedback.md`의 판정 기준을 �
 현재 저장소 전용 skill:
 
 - `daily-ops-check/`: 장전/장후 자동화 상태 확인과 조치 절차.
+- `full-check/`: 프로젝트 목표, 수집, 판단 근거, 수익성, 코드와 문서를 전면 검수하고 안전한 개선을 끝까지 수행하는 절차.

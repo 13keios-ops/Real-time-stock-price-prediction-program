@@ -62,6 +62,13 @@
 - live runtime 상태와 watchdog 증거에 현재 RSS/peak RSS를 추가했다. 다음 장전/장중에 실제 실행 프로세스 값을 확인한다.
 - 관련 targeted unittest 33건과 실제 25GB DB 리포트 재생성을 통과했다. 주문 정책, gate, threshold, active model, `app/risk/`, config, VERSION, ALLOW_LIVE_ORDERS, 실전 주문·취소, NAS 백업은 변경하지 않았다.
 
+## [2026-08-14] FULL CHECK 저장소 전용 skill 승격
+
+- 반복 요청된 프로젝트 목표 정합성, 수집·source provenance, 판단 lineage, paper/KIS 정합성, 비용 후 수익성, 코드·테스트·문서 품질 전면 감사를 `.agents/skills/full-check/SKILL.md`로 고정했다.
+- skill은 장 상태와 runtime부터 확인하고, 장중 보호 모드에서는 read-only로 제한하며, 장전/장후 세부 운영 절차는 기존 `daily-ops-check`를 함께 사용한다.
+- 수익성 판정은 canonical 비용 버전, decision-episode portfolio replay, same-count random control, 비중복 기간, 최소 표본, 완전 lineage, 낙폭·비용 민감도를 요구한다. 손실 감소나 겹치는 신호 수익률 합은 수익 후보로 인정하지 않는다.
+- 안전하고 원인이 확정된 결함은 수정·검증·문서화·commit/push까지 진행하되, 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, active model/gate/threshold, clean baseline, NAS 백업은 승인 경계 밖으로 유지한다.
+
 ## [2026-08-09] 전체 수익성·근거 감사와 fail-closed 교정
 
 - 휴장 상태에서 runtime/watchdog/dashboard/startup launcher, 2026-08-07 수집 품질, 학습/label refresh, Phase 0, 모델·rescue/avoid 원장을 read-only로 전수 점검했다. live runtime은 정상 정지이고 데이터 품질은 `ok`다.
