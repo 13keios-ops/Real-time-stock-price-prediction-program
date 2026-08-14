@@ -9,7 +9,7 @@
 - Phase 1b의 주문 없는 live 계좌 조회 준비는 통과했다.
 - 현재 수익 후보는 `0개`다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
-- 2026-08-15 새 승인 E1/E5 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출은 0회이며 유효 연구 결과는 아직 없다.
+- 2026-08-15 승인 E1/E5 완결 실행은 26GB snapshot `quick_check=ok`, 라운드 `status=ok`다. 주문·네트워크·학습 호출과 정책/model/gate 변경은 0회이며 E1 `0/3`, E5 second interval 미재현으로 기존 가설을 기각했다.
 - 2026-08-07 수집은 raw/feature coverage 97.5%, decision lineage 100%로 정상이다. WebSocket reconnect 29회는 별도 주의다.
 
 ## 2. Phase 상태
@@ -80,28 +80,28 @@
 - active baseline 평가는 31건의 작은 표본이고 3분류 정확도 `0.267826`이므로 겹치는 거래 수익률 합 `+20.458524%p`를 수익 후보로 쓰지 않는다.
 - LightGBM challenger는 5건 합산 `-5.218279%p`다.
 - buy-avoid, buy-rescue, hold-rescue는 모두 현행 비용 후 절대 수익성이 음수다.
-- 유효 E1/E5 결과 전 threshold/EV 반복 탐색을 하지 않는다.
-- 이후 연구도 실현 p75 미래변동을 entry 필터로 쓰지 않는다. entry 시점 정보만 사용하는 저빈도 비용여유 후보, h60 별도 트랙, entry/exit 분리 가설을 같은 portfolio replay·random control·비중복 구간으로 비교한다.
+- E1/E5 실패를 threshold/EV나 종목별 정책 반복 탐색으로 구제하지 않는다.
+- 이후 연구도 실현 p75 미래변동을 entry 필터로 쓰지 않는다. orderbook×regime/시간대/변동성/source/horizon과 entry/exit 분리 가설을 새로 사전등록하고 같은 portfolio replay·random control·비중복 구간으로 비교한다.
 
 ## 5. 현재 P0
 
 1. Phase 0 clean baseline 이후 새 기준선의 10개 유효 거래일 모두 정합
 2. WebSocket reconnect 47/storm 19와 15:01~15:29 공통 market 공백 재발 여부, real recovery evidence
-3. E1/E5 유효 결과 확보. repo-local 26GB snapshot도 180초를 초과하므로 다음 명시 실행 전 bounded 장시간 상한 또는 고정 기간 전용 snapshot을 검증
+3. 기각된 E1/E5 뒤 비용을 이길 새 사전등록 가설과 평가 설계
 4. 비용 후 양수 entry 후보와 독립 exit 후보를 동일 portfolio replay에서 검증
 5. 당일 fresh market status와 유효 kill switch OFF
 6. 26GB 운영 DB의 보존·집계 비용 관리
 
 ## 6. 동결 범위
 
-E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
+E1/E5 실패 뒤 새 사전등록과 Phase 0 새 기준선 10거래일 정합 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영을 바꾸지 않는다.
 
 운영 장애, 데이터 누락, lineage 저장 오류, snapshot 원자성, 관측 리포트 수정은 동결 대상이 아니다.
 
 ## 7. 운영자 작업
 
 현재 즉시 필요한 수동 작업은 없다.
-Phase 0 clean baseline은 승인·실행 완료됐다. E1/E5의 추가 실행, 자격정보, market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
+Phase 0 clean baseline과 E1/E5 완결 실행은 승인·실행 완료됐다. E1/E5는 추가 실행하지 않으며 자격정보, market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
 
 ## 8. 종료 체크
 

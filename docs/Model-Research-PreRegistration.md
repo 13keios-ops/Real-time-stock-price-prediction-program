@@ -17,6 +17,7 @@
 - E6의 `breakeven_win_rate_long_reference`와 변동폭 분포는 구조 진단일 뿐 모델 수익성 증거가 아니다. h15 폐기나 h60 주문 정책 전환 근거로 단독 사용하지 않는다.
 - KIS live 전체 long-only 손익분기 참고 승률은 h15 `0.724041`, h60 `0.624676`이고 baseline-buy join은 각각 `0.748325`, `0.646466`이다. 이는 현재 관측 평균 이익·손실과 비용을 고정한 동적 기준선이며 모델 3분류 정확도나 long/short 방향 거래 적중률과 직접 비교하지 않는다.
 - 넓은 KIS 근사 표본의 관측 시작은 `2026-06-11 08:30 KST`라 장전 구간이 포함된다. 실행 후보는 `09:15 KST`부터 시작하는 baseline-buy join 또는 별도 사전등록 regular-session decision episode에서 다시 평가한다.
+- 2026-08-15 완결 E1/E5 라운드는 E1 후보 재현 `0/3`, E5 random 대비 excess `-96.7921%`로 기존 가설을 기각했다. 이 실패를 threshold/EV 또는 종목별 정책 조정으로 구제하지 않는다.
 
 관련 문서/코드 경로: `runtime-data/reports/research/latest-cybos-kis-transfer-review.md`, `runtime-data/reports/research/latest-cost-horizon-diagnostics.md`, `runtime-data/reports/research/latest-signal-ic-h15.md`
 
@@ -154,14 +155,15 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 
 ## 7. 다음 작업 순서
 
-1. E1/E5 자동 재실행은 금지한다. 2026-08-09 명시 실행도 snapshot timeout으로 끝났으며 다음 실행은 계좌 소유자가 해당 작업에서 승인한 경우에만 장외 1회 수행한다.
+1. E1/E5 완결 라운드는 2026-08-15 승인 실행으로 종료했다. 같은 고정 라운드를 자동 또는 수동 재실행하지 않는다.
 2. 다음 거래일마다 raw→분봉→feature→decision ledger와 complete lineage, WebSocket reconnect/storm을 함께 확인한다.
-3. Phase 0은 bounded recent lookup과 historical mirrored-order evidence를 구분하고, sanitized full-period account activity 또는 계좌 소유자 승인 clean baseline 중 하나로 해소한다.
-4. E1/E5 유효 결과가 나오기 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경을 하지 않는다.
-5. 유효 결과 뒤에도 저빈도 entry 후보는 entry 시점에 존재하는 score만 사용한다. 실현 p75 미래변동은 선별 변수가 아니다.
-6. h15 저빈도 entry, h60 별도 horizon, exit/hold 모델은 같은 초기 현금, 비용, 다음 분봉 실행가, 최대 보유 수, 장마감 청산의 portfolio replay에서 비교한다.
-7. 후보는 절대 비용 후 기대값과 portfolio return 양수, same-count random control 우위, 비중복 2구간, 최소 표본과 일별 일관성을 모두 통과해야 한다.
-8. 결과가 기준을 통과하거나 3회 연속 개선이 없을 때 cowork 리뷰를 요청한다.
+3. Phase 0은 승인 clean baseline 뒤 새 기준선 10개 유효 거래일의 전일 matched를 누적한다.
+4. 실패한 E1/E5를 신규 threshold/EV tuning, 종목별·h60 주문 정책으로 구제하지 않는다.
+5. 다음 가설은 orderbook×regime, 시간대, 변동성, source, horizon 중 고정 조합과 비교 수를 먼저 사전등록한다.
+6. 저빈도 entry 후보는 entry 시점에 존재하는 score만 사용한다. 실현 p75 미래변동은 선별 변수가 아니다.
+7. h15/h60과 exit/hold 모델은 같은 초기 현금, 비용, 다음 분봉 실행가, 최대 보유 수, 장마감 청산의 portfolio replay에서 비교한다.
+8. 후보는 절대 비용 후 기대값과 portfolio return 양수, same-count random control 우위, 비중복 2구간, 최소 표본과 일별 일관성을 모두 통과해야 한다.
+9. 새 사전등록 결과가 기준을 통과하거나 3회 연속 개선이 없을 때 cowork 리뷰를 요청한다.
 
 ## 8. 2026-08-09 실행 상태
 
@@ -171,3 +173,13 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 - 다음 실행기의 snapshot 기본 경로와 partial cleanup은 보강했지만 유효 연구 결과가 아니므로 E1/E5 판정과 연구 분기는 계속 보류한다.
 
 관련 문서/코드 경로: `runtime-data/reports/research/preregistered-e1-e5-20260718/latest-attempt.json`, `scripts/create_research_db_snapshot.sh`, `docs/Execution-Plan.md`, `docs/Production-Transition-Progress.md`
+
+## 9. 2026-08-15 완결 실행과 판정
+
+- 계좌 소유자 승인으로 `--snapshot-timeout-seconds 1800 --execute`를 장외에 정확히 1회 실행했다. 26GB snapshot은 830.5초, `quick_check=ok`였고 라운드는 `status=ok`다.
+- E1은 14,004행/9거래일, 후보 재현 `0/3`, 전체 probability_down 일평균 IC `-0.019927`, t `-0.730524`로 `signal_quality_insufficient`, E2/E3 진행 불가다.
+- `105560` p_down/p_up daily IC Pearson `0.897613`, same-sign 7/9일이며 p_flat도 근거가 없다. 세 class 확률 제약 또는 공통 regime 영향 가능성이 커 방향 후보로 유지하지 않는다.
+- E5는 검증된 temporal lineage 6,195행/4거래일에서 threshold 0.40의 random 대비 excess `-96.7921%`, z `-3.4051`로 `reverse_selection_not_reproduced_second_interval`이다.
+- 네트워크·주문·학습 호출, 자동 정책 변경, active model/gate 변경은 모두 0회다. 기존 후보는 종료하고 다음 새 가설 사전등록 전까지 추가 탐색하지 않는다.
+
+관련 문서/코드 경로: `runtime-data/reports/research/preregistered-e1-e5-20260718/latest-completed-round.json`, `runtime-data/reports/research/preregistered-e1-e5-20260718/runs/20260815-015049-710415/preregistered-e1-e5-round.md`

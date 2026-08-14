@@ -135,6 +135,8 @@ try:
 finally:
     partial.unlink(missing_ok=True)
     partial_manifest.unlink(missing_ok=True)
+    for suffix in ("-journal", "-wal", "-shm"):
+        Path(f"{partial}{suffix}").unlink(missing_ok=True)
 PY
 )"
 snapshot_status=$?

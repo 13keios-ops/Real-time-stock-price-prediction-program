@@ -7,7 +7,7 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-15 01:17 KST
+- 기준 시각: 2026-08-15 02:30 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
@@ -32,9 +32,9 @@
 - [x] 계좌 소유자 승인 clean baseline 생성과 즉시 KIS/local 정합 확인
 - [ ] 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
-- [ ] E1/E5 결과 확보: 2026-08-15 새 승인 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출과 final 교체는 0회이며 같은 승인 범위에서 재실행하지 않았다.
-- [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
-- [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
+- [x] E1/E5 결과 확보: 1800초 상한의 새 승인 실행 1회로 26GB snapshot과 고정 라운드 완결
+- [x] E1 후보 `0/3`, E5 second interval 미재현으로 기존 가설 기각 및 h15/h60 정책 비교 미진입 결정
+- [ ] threshold tuning 없이 orderbook×regime/시간대/변동성/source/horizon 가설 새 사전등록
 
 현재 상세 작업 범위는 `docs/SPRINT_CURRENT.md`를 따른다.
 
@@ -42,7 +42,8 @@
 
 - Phase 0 clean baseline: `aligned_at=2026-08-15T00:20:42.862713+09:00`, KIS/local 3종목 정합, mismatch/cash/total asset gap 0
 - clean baseline/trace targeted unittest `13 tests OK`
-- full unittest `554 tests OK`, repository structure audit errors 0/warnings 2
+- E1/E5 snapshot targeted unittest `6 tests OK`, bash syntax 통과
+- full unittest `555 tests OK`, repository structure audit errors 0/warnings 2
 - 실제 KIS data-quality 재생성: 2026-08-14 22:24 KST, latest trade date 2026-08-14, assessment `needs_attention`
 - decision ledger: 3,608행, complete lineage 3,608행, ratio 1.0
 - WebSocket: reconnect 47, storm 19; market 공통 공백 15:01~15:29, orderbook 공통 공백 15:01~15:24
@@ -51,7 +52,16 @@
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
 
-## [2026-08-15] E1/E5 승인 재실행
+## [2026-08-15] E1/E5 승인 장시간 상한 완결 실행
+
+- KST 01:50 휴장·live runtime 정지 상태에서 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --snapshot-timeout-seconds 1800 --execute`를 정확히 1회 실행했다.
+- 26GB SQLite snapshot은 830.5초 안에 복사와 `quick_check=ok` 검증을 마쳤고, 고정 구간 `2026-07-04~2026-07-18`의 `latest-completed-round.json`은 `status=ok`다. 네트워크·주문·학습 호출 및 정책/model/gate 변경은 모두 0회다.
+- E1은 14,004행/9거래일, 후보 재현 `0/3`, 전체 probability_down IC `-0.019927`, t `-0.730524`로 `signal_quality_insufficient`다. `105560` p_down/p_up 상관 `0.897613`은 독립 방향 신호가 아니라 공통 확률 움직임 가능성을 강화한다.
+- E5는 유효 temporal lineage 6,195행/4거래일에서 threshold 0.40의 random 대비 excess `-96.7921%`, z `-3.4051`로 second interval 재현에 실패했다.
+- 기존 E1/E5를 threshold·EV·종목별 정책으로 구제하지 않는다. 다음 연구는 orderbook×regime/시간대/변동성/source/horizon을 새로 사전등록하고 current cost, 동일 portfolio replay, same-count random, 비중복 구간으로만 검증한다.
+- 성공 경로 뒤 남은 partial SQLite `-wal/-shm` sidecar를 정리하도록 snapshot helper를 보강하고 성공 회귀 테스트를 추가했다.
+
+## [2026-08-15] E1/E5 180초 승인 실행 안전 종료
 
 - KST 01:13 휴장·live runtime 정지와 중복 프로세스 부재를 확인한 뒤 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --execute`를 정확히 1회 실행했다.
 - gate와 2026-08-14 label refresh는 통과했지만 26GB SQLite를 repo-local `runtime-data/research-snapshots/`에 일관 복사하고 검증하는 단계가 180초를 초과해 `snapshot_failed/research_snapshot_timeout`으로 종료됐다.

@@ -9,7 +9,7 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - 시작: `2026-07-13`
 - E1/E5 최초 시도: `2026-07-20` 장후, snapshot I/O timeout
 - E1/E5 명시 재시도: `2026-08-09` 장외, snapshot I/O timeout
-- E1/E5 승인 재실행: `2026-08-15` 장외, repo-local 26GB snapshot timeout
+- E1/E5 승인 완결 실행: `2026-08-15` 장외, 26GB snapshot `quick_check=ok`, 라운드 `status=ok`
 - 후속 checkpoint: `10/20/30/60거래일`
 
 일주일은 최종 승격 기간이 아니라 첫 조기 진단 구간이다.
@@ -18,9 +18,9 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 
 1. 정규장 예측부터 실제 결과까지 완전한 decision lineage를 축적한다.
 2. buy-rescue의 실제 no-trade 모집단을 관찰한다.
-3. Phase 0 paper/KIS 정합성 증거 범위를 정확히 분리하고 해소 경로를 결정한다.
-4. E1/E5 고정 라운드 실행기가 대용량 DB snapshot 실패를 안전하게 기록·정리하도록 한다.
-5. 유효 결과 뒤에만 h15 저빈도 entry, h60 별도 트랙, entry/exit 분리 가설을 동일 포트폴리오 재생으로 비교한다.
+3. Phase 0 paper/KIS 정합성 증거 범위를 정확히 분리하고 clean baseline 이후 10개 유효일을 축적한다.
+4. E1/E5 고정 라운드를 대용량 DB snapshot에서도 완결하고 사전 기준으로 판정한다.
+5. 실패 결과를 threshold로 구제하지 않고 다음 orderbook×regime/source/horizon 가설을 사전등록한다.
 
 ## 현재 기준선
 
@@ -54,15 +54,17 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - [x] 새 명시 승인 30페이지 조회: 22페이지/329행/20거래일, pagination 완결, external/unlinked broker 활동 9행으로 원인 확정
 - [x] 계좌 소유자 승인 KIS snapshot 기준 clean baseline 생성; mismatch/cash/total asset gap 0 확인
 - [ ] 새 기준선 이후 10개 유효 거래일 모두 정합 확인; 자동 align 금지
-- [x] 2026-08-15 새 승인 E1/E5 wrapper 1회 실행: repo-local 26GB snapshot도 `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
-- [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
-- [ ] E1/E5 유효 결과 확보
-- [ ] 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간으로 판정
-- [ ] cowork 리뷰가 필요한 결과면 새 review/work 라운드 생성
+- [x] 2026-08-15 첫 승인 E1/E5 wrapper 1회 실행: 180초 상한으로 안전 종료, 주문·네트워크 0회
+- [x] 새 명시 승인으로 `--snapshot-timeout-seconds 1800 --execute` 정확히 1회 실행: 26GB snapshot `quick_check=ok`, 830.5초, 라운드 `status=ok`
+- [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 및 SQLite sidecar 정리를 보강
+- [x] E1/E5 유효 결과 확보: E1 후보 `0/3` 재현, E5 second interval 미재현
+- [x] 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 기존 가설 기각
+- [x] cowork 검토용 `work_ver_35` 결과 전달 작성
+- [ ] 실패 결과 뒤 orderbook×regime/시간대/변동성/source/horizon 가설 새 사전등록
 
 ## 동결 범위
 
-E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
+E1/E5 실패 뒤 새 가설 사전등록과 Phase 0 새 기준선 10거래일 정합 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
 
 운영 장애, 데이터 lineage 누락, snapshot 원자성, 관측 리포트 오류를 고치는 작업은 동결 대상이 아니다.
 

@@ -64,6 +64,38 @@ class PreregisteredE1E5RoundTests(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertEqual(list(tmp_path.glob("*.partial*")), [])
 
+    def test_snapshot_script_cleans_partial_sidecars_after_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source.db"
+            destination = tmp_path / "snapshot.db"
+            connection = sqlite3.connect(source)
+            connection.execute("create table sample (value integer)")
+            connection.commit()
+            connection.close()
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(Path(__file__).resolve().parents[1] / "scripts" / "create_research_db_snapshot.sh"),
+                    "--src",
+                    str(source),
+                    "--dst",
+                    str(destination),
+                    "--timeout-seconds",
+                    "5",
+                    "--json",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(destination.exists())
+            self.assertEqual(list(tmp_path.glob("*.partial*")), [])
+
     def test_execution_gate_enforces_not_before_and_protected_session(self) -> None:
         kst = ZoneInfo("Asia/Seoul")
         early = evaluate_execution_gate(

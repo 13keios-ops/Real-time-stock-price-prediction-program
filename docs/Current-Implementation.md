@@ -8,7 +8,7 @@
 - challenger와 rescue/avoid는 3분류 정확도만 보지 않고 현행 왕복비용 `0.29%`, random control, 일별 재현성, 완전 lineage, 실제 portfolio replay를 함께 보도록 구현돼 있다.
 - buy-avoid는 손실을 조금 줄였지만 절대 손익이 큰 음수이고 무작위보다 선별력이 나빠 기각됐다. buy-rescue KIS live no-trade 원장은 2026-08-02 기준 52,417행 중 eligible 25,726행이지만, LightGBM/linear-score/두 모델 동시 상승 진단이 모두 비용 후 음수라 후보가 아니다. hold-rescue도 현금손익을 악화시켜 후보가 아니다.
 - 최신 walk-forward 산출물의 `0.108%` 비용 결과는 과거 진단이다. 정확도 gate도 실패했으며 현행 수익성 증거로 쓰지 않는다. 다음 생성물부터 `cost_model_version`을 기록한다.
-- 다음 수익 연구 판정은 2026-07-20 E1/E5 고정 라운드와 그 뒤 동일 비용·동일 portfolio 조건의 h15 저빈도/h60 비중복 구간 비교다.
+- 2026-08-15 완결 E1/E5 라운드는 E1 후보 `0/3`, E5 second interval 미재현으로 기존 가설을 기각했다. 다음 수익 연구는 threshold 구제가 아니라 orderbook×regime/시간대/변동성/source/horizon의 새 사전등록 뒤 동일 비용·portfolio·random control·비중복 구간 비교다.
 
 이 프로젝트는 국내 주식 실시간 데이터를 로컬에 저장하고, 분봉과 특징을 만들고, 15분/60분 예측과 모의운용 검증까지 이어지는 기본 운영 흐름을 갖췄다.
 현재 목표는 실전 자동매매가 아니라 `수집 -> 특징 생성 -> 예측 -> 로컬 모의운용 + KIS 모의계좌 검증 -> 리포트` 흐름을 안정화하는 것이다.
@@ -77,7 +77,7 @@
 - 장외 Phase 1b readiness cycle.
   `run_phase1b_readiness_cycle.sh` 기본 실행은 외부 KIS 네트워크 없이 local premarket/WS/preflight/fixture/readiness를 순서대로 갱신한다. 실제 live 조회는 `--execute`에서만 요청하고, `pre-open`/`regular-session`은 step 시작 전에 차단한다. preflight·실행 미시작·실제 실행 readiness 파일을 분리한다.
 - review_ver_27 사전등록 E1/E5 단일 라운드.
-  `run_preregistered_e1_e5_round.sh`는 기본 dry-run이며 `2026-07-20 15:30 KST` 이전, `pre-open`/`regular-session`, 또는 2026-07-20 장후 label refresh 미완료 상태에는 실제 계산을 fail-closed로 차단한다. `--execute`가 허용되는 첫 장후에는 D드라이브 연구 스냅샷을 만들고 고정 구간 `2026-07-04~2026-07-18`만 읽어 E1 전체/분해 IC, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` random-control excess/z를 한 번에 기록한다. 이 라운드는 학습·네트워크·주문 호출과 정책/model/gate 변경을 하지 않는다. research snapshot은 기본 180초 timeout을 두고 partial SQLite에서 quick_check 뒤 final 파일을 atomic replace한다. 실패하면 완료 파일을 만들지 않고 sanitized attempt 상태만 남긴다.
+  `run_preregistered_e1_e5_round.sh`는 기본 dry-run이며 `2026-07-20 15:30 KST` 이전, `pre-open`/`regular-session`, 또는 2026-07-20 장후 label refresh 미완료 상태에는 실제 계산을 fail-closed로 차단한다. `--execute`가 허용되는 장외에는 D드라이브 연구 스냅샷을 만들고 고정 구간 `2026-07-04~2026-07-18`만 읽어 E1 전체/분해 IC, 후보 3건 재현성, `105560` p_flat 및 p_down/p_up 일별 IC 관계, E5 threshold `0.40` random-control excess/z를 한 번에 기록한다. 이 라운드는 학습·네트워크·주문 호출과 정책/model/gate 변경을 하지 않는다. research snapshot은 기본 180초 timeout을 두고 partial SQLite에서 quick_check 뒤 final 파일을 atomic replace하며 partial SQLite의 journal/WAL/SHM sidecar도 종료 시 정리한다. 2026-08-15 승인 실행은 명시적 1800초 상한으로 26GB snapshot을 830.5초에 검증하고 라운드를 완결했다.
 
 ## 데이터 흐름
 

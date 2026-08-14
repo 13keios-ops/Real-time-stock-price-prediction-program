@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-15 01:17 KST
+- 확인 시각: 2026-08-15 02:30 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -66,17 +66,18 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## E1/E5
 
-- 2026-08-15 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --execute`를 정확히 1회 실행했다.
-- gate와 label refresh는 통과했으나 repo-local 경로에서도 26GB SQLite snapshot 복사와 검증이 180초 안에 끝나지 않아 `snapshot_failed/research_snapshot_timeout`으로 안전 종료됐다.
-- 네트워크·주문 호출은 각각 0회이고 final snapshot/manifest는 교체되지 않았으며 partial과 실행 프로세스도 남지 않았다. 같은 승인 범위에서 재실행하지 않았다.
-- 유효 E1/E5 결과는 아직 없다. 다음 시도 전에는 26GB 전체 snapshot에 맞는 bounded 장시간 상한 또는 고정 날짜 구간 전용 read-only snapshot 설계를 검증해야 하며 자동화는 재실행하지 않는다.
+- 2026-08-15 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --snapshot-timeout-seconds 1800 --execute`를 정확히 1회 실행했다.
+- 26GB read-only snapshot은 830.5초 안에 복사·`quick_check=ok` 검증됐고 고정 구간 `2026-07-04~2026-07-18` 라운드는 `status=ok`로 완료됐다. 네트워크·주문·모델 학습 호출은 각각 0회이고 정책·active model·gate 변경도 0회다.
+- E1은 14,004행/9거래일에서 후보 재현 `0/3`, 전체 `probability_down` 일평균 IC `-0.019927`(t=`-0.730524`)로 `signal_quality_insufficient`, `proceed_to_e2_e3=false`다. `105560`의 up/down 확률 상관은 `0.897613`이고 flat IC도 근거가 없어 방향 신호로 구제하지 않는다.
+- E5는 유효 temporal lineage 6,195행/4거래일에서 threshold `0.40`의 random 대비 초과수익 `-96.7921%`, z-score `-3.4051`로 `reverse_selection_not_reproduced_second_interval`, 정책 검토 불가다.
+- 기존 E1 후보와 E5 역선별 가설은 기각한다. threshold 반복 탐색이나 종목별 구제 정책은 하지 않고 orderbook×regime, 시간대, 변동성, source, horizon의 새 가설을 별도 사전등록한 뒤 같은 비용·portfolio replay·비중복 구간으로만 검증한다.
 
 ## 현재 blocker
 
 1. Phase 0 clean baseline 이후 새 유효 거래일 `0/10`; 이후 10거래일 모두 정합 필요
 2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
-4. E1/E5의 26GB research snapshot이 180초 상한을 초과해 유효 결과가 없음
+4. 기각된 E1/E5 뒤 비용을 이길 새 사전등록 가설과 평가 설계
 5. Phase 2/3용 실제 WebSocket recovery 증거
 6. 당일 fresh market status
 7. 유효기간이 있는 kill switch OFF 상태
@@ -86,7 +87,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 - 다음 거래일 장전: runtime/watchdog/dashboard/startup launcher와 Phase 1b 네트워크 0회 preflight를 확인한다. live runtime 실행 뒤 RSS/peak RSS와 broker sync backoff 로그를 함께 본다.
 - 다음 거래일 장후: raw/feature coverage, 공통 누락 구간, decision ledger 증가와 lineage 100%, WebSocket reconnect/storm을 같은 리포트에서 확인한다. 당일 유효 Phase 0 기록이 없고 runtime이 정지했을 때만 reconciliation을 1회 실행한다.
-- 수익 연구: E1/E5 유효 결과 전 신규 threshold 탐색은 하지 않는다. 이후에도 실현 p75를 entry 필터로 쓰지 않고, entry 시점 정보만 쓰는 저빈도 비용여유 후보, h60 별도 트랙, entry/exit 분리 가설을 동일 portfolio replay와 random control로만 비교한다.
+- 수익 연구: E1/E5 실패를 threshold나 종목별 정책으로 구제하지 않는다. 실현 p75를 entry 필터로 쓰지 않고, orderbook×regime/시간대/변동성/source/horizon과 entry/exit 분리 가설을 새로 사전등록한 뒤 동일 portfolio replay, current cost, same-count random control, 비중복 구간으로만 비교한다.
 
 ## 기준 문서
 

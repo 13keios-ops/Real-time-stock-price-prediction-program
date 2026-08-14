@@ -36,7 +36,7 @@
 - buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행. LightGBM과 linear-score rescue가 모두 비용 후 음수라 주문 후보가 아님.
 - hold-rescue: 161 lot 중 threshold 0.40 적용 37 lot, 현금손익 `-26,387원`으로 후보가 아님.
 - dashboard와 장후 자동화: 공통 왕복 비용 0.29%를 쓰고 avoid/rescue/meta-policy와 함께 raw/feature coverage, decision lineage, WebSocket reconnect/storm을 갱신한다. 2026-08-07은 decision 3,803행·lineage 100%·reconnect 29/storm 0이다.
-- E1/E5: 2026-08-15 새 승인 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출은 0회이고 같은 승인 범위에서 재실행하지 않았다.
+- E1/E5: 2026-08-15 새 승인으로 1800초 bounded 실행을 정확히 1회 수행했다. 26GB snapshot `quick_check=ok`, 라운드 `status=ok`이며 E1 후보 `0/3`, E5 second interval 미재현으로 기존 가설을 기각했다. 주문·네트워크·학습·정책 변경은 0회다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -84,7 +84,7 @@
 5. serving prediction마다 `training_run_id`, `artifact_id`, `artifact_sha256`를 보존하고 lineage 없는 기존 82,583개 LightGBM shadow 예측은 혼합-vintage 진단으로만 본다.
 6. buy-rescue 모집단은 단순 `not baseline allowed-buy`가 아니라 baseline 판단, gate, allocator, 보유·현금 제약, 주문·체결 여부를 분리한 decision ledger로 다시 정의한다.
 7. 현재 hold-rescue 규칙은 종료한다. early-exit은 같은 bar close 체결과 날짜 범위 누락을 바로잡은 미래 전용 portfolio replay에서만 재검토하고, 이후 별도 exit/hold 모델을 설계한다.
-8. E1/E5는 자동화로 재실행하지 않는다. 다음 실행은 26GB snapshot 방식과 bounded 상한을 먼저 검증하고 계좌 소유자의 해당 작업 명시 승인 뒤 장외에서 1회만 수행하며, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
+8. E1/E5 고정 라운드는 완결됐으며 자동·수동 재실행하지 않는다. 실패 결과를 threshold/EV 또는 종목별 정책으로 구제하지 않고 새 가설의 비교 수·구간·비용·random control을 먼저 사전등록한다.
 
 그 다음 모델 개선은 3분류 정확도만 높이는 방향이 아니라 `비용 후 기대수익/하방 quantile/거래하지 않음`을 직접 다루는 entry 모델과 별도 exit 모델, 그리고 h15/h60 후보를 동일 portfolio replay에서 비교하는 방향으로 진행한다. Phase 2 실제 주문 canary는 이 평가 정본에서 절대 수익성이 확인되기 전까지 시작하지 않는다.
 
@@ -98,7 +98,7 @@
 - hold-rescue threshold `0.40`은 `-26,387원`으로 현재 규칙을 기각한다. buy-rescue는 실제 no-trade ledger 0행이라 아직 평가 시작 전이다.
 - 2026-07-20 전 실험 동결은 유지한다. 새 threshold, EV tuning, 주문 정책, active model, gate는 바꾸지 않았다.
 
-다음 순서는 `거래일별 decision ledger/lineage/reconnect 확인 -> Phase 0 증거 범위 해소 -> 명시 승인된 E1/E5 유효 결과 -> entry 시점 저빈도 비용여유 후보와 h60/exit 별도 가설의 동일 portfolio replay`다. 10/20/30/60거래일 checkpoint의 중간 수치만으로 주문 정책을 바꾸지 않는다.
+다음 순서는 `거래일별 decision ledger/lineage/reconnect 확인 -> Phase 0 새 기준선 10일 정합 -> E1/E5 실패 뒤 새 가설 사전등록 -> entry 시점 저빈도 비용여유 후보와 h60/exit 별도 가설의 동일 portfolio replay`다. 10/20/30/60거래일 checkpoint의 중간 수치만으로 주문 정책을 바꾸지 않는다.
 
 #### 2026-07-12 review_ver_33 증거 정합성
 
@@ -106,7 +106,7 @@
 - standalone hold-rescue 기본 비용을 구형 `0.13%`에서 공통 `0.29%`로 교정하고 비용 세대 메타데이터를 추가했다. 재생성 후 기각 결론은 그대로다.
 - E6 `cybos_historical`은 순수 Cybos가 아니라 pre-KIS 혼합 근사치다. 별도의 순수 Cybos proxy 리포트와 혼동하지 않는다.
 - 최신 walk-forward는 구형 비용 `0.108%` 산출물이라 현재 수익성 정본이 아니다. 이미 3분류 정확도 `0.414466`으로 gate도 실패했으며 자동 승격은 없었다.
-- 2026-07-20 전에는 새 threshold를 탐색하지 않는다. E1/E5가 재현되면 h15 저빈도 entry와 h60을 같은 현재비용 portfolio replay 및 비중복 2구간으로 비교하고, 실패하면 피처/원천/horizon 가설을 새로 사전등록한다.
+- 2026-08-15 E1/E5는 재현에 실패했다. 새 threshold를 탐색하지 않고 피처/원천/regime/horizon 가설을 새로 사전등록한 뒤 같은 현재비용 portfolio replay 및 비중복 2구간으로 비교한다.
 
 2026-07-03 기준 모델 운용 방향은 단독 모델 선택보다 `baseline 신호 -> meta filter/router shadow -> 비용 반영 관측 -> 제한적 승격 검토`가 우선이다.
 따라서 LightGBM, linear-score, KIS-only orderbook, 시간대/모멘텀 후보는 `scripts/summarize_meta_policy_shadow.py --horizon-min 15`로 하나의 Phase 1 shadow 관측판에 묶어 본다.
@@ -806,9 +806,9 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 2. 완료(2026-07-12): 최신 LightGBM·buy-avoid를 재평가했다. threshold `0.40`은 baseline `-38.1734%`, filtered `-36.3645%`, 평균 거래 `-0.285710%`, 비음수 거래일 `0/22`로 수익 후보가 아니다.
 3. 다음 정규장: 완전한 prediction lineage와 `serving_decision_ledger`의 실제 no-trade 결정을 수집한다. 10거래일 조기 진단에는 decision stage와 차단 사유별 분포를 반드시 포함한다.
 4. 다음 거래일 장후: Phase 0 paper/KIS 정합성은 자동 align 없이 하루 1회만 확인하고 10개 유효 거래일 누적을 이어간다.
-5. 실행 준비 완료·실측 예약(2026-07-20 장후): `./scripts/run_preregistered_e1_e5_round.sh --execute`로 고정 E1/E5 한 라운드만 수행한다. E1 legacy/mixed 진단과 E5 실제 lineage를 분리 표기하며 정책·승격 근거로 자동 사용하지 않는다.
-6. 2026-07-20 결과 후: challenger의 서로 겹치지 않는 평가구간 2개 재현성 evidence 생성기를 설계할지 판정한다. 같은 holdout 단순 재실행은 인정하지 않는다.
-7. 동결 유지: 07-20 전 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경과 신규 수익 실험을 하지 않는다.
+5. 완료(2026-08-15): 승인된 고정 E1/E5 라운드를 26GB read-only snapshot에서 완결했다. E1 legacy/mixed 진단과 E5 실제 lineage를 분리했고 기존 후보를 모두 기각했다.
+6. 다음 연구: 같은 holdout이나 threshold를 재탐색하지 않고 orderbook×regime/시간대/변동성/source/horizon 가설의 비교 범위와 비중복 평가구간을 먼저 사전등록한다.
+7. 동결 유지: 새 threshold/EV tuning, 종목별 주문 정책, h60 주문 정책, active model/gate 변경과 rescue/avoid 주문 반영을 하지 않는다.
 8. 운영 관찰: dashboard/watchdog/startup launcher를 유지하고 다음 정규장에는 수집과 decision ledger를 read-only로 확인한다.
 9. Phase 1b read-only 관측 통과 상태는 유지하지만 Phase 2는 Phase 0 정합성, 양수 비용 후 전략, real WS recovery, fresh market status, 유효 kill switch가 모두 닫힐 때까지 시작하지 않는다.
 
