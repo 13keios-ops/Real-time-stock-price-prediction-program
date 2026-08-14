@@ -2,9 +2,9 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-14 23:30 KST
-- 장 상태: post-close
-- live runtime: 장후 정상 정지
+- 확인 시각: 2026-08-15 00:00 KST
+- 장 상태: weekend
+- live runtime: 휴장 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
 - dashboard: `http://127.0.0.1:8765`, server/API 정상
 - Windows startup launcher: 설치 및 정상
@@ -52,9 +52,10 @@
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 최신 trace는 KIS 최근 3일 조회 0행과 보관된 320건 historical mirrored submission을 전체 계좌 활동과 분리한다.
 - 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-14`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
-- 2026-08-14 계좌 소유자 명시 승인 조회 1회에서 sanitized 활동 150행/14거래일을 확보했다. 10페이지 상한에 도달해 `pagination_complete=false`이며 주문·취소는 0회다.
-- 확보된 150행은 모두 로컬 submission과 연결됐지만 169개 로컬 submission이 아직 조회 범위에 나타나지 않았고 ambiguous fallback key 1개가 있다. 미완결 증거로 position 원인을 확정하지 않는다.
-- Phase 0 해소 상태: `blocked_requires_complete_full_account_activity_evidence`. 자동 align과 clean baseline은 금지하며, 다음 네트워크 실행은 계좌 소유자의 새 명시 승인 뒤 충분한 page cap을 둔 완결 조회 1회로 제한한다.
+- 2026-08-14 새 명시 승인으로 `--max-pages 30 --execute`를 1회 실행해 22페이지, sanitized 활동 329행/20거래일, `pagination_complete=true`를 확보했다. 주문·취소는 0회다.
+- 로컬 submission 320개는 모두 broker 활동과 연결됐고 추가 broker 활동 9행이 확인됐다. ambiguous fallback key는 1개지만 duplicate exact key는 0개다.
+- 전체 활동 position 재구성은 KIS account snapshot과 일치하고 로컬 paper만 `035420 +2`, `086520 +1`, `105560 +4`, `247540 -5` 수량 차이다. root cause는 `external_or_unlinked_broker_activity`로 확정했다.
+- Phase 0 해소 상태: `cause_identified_clean_baseline_still_required`. 자동 align은 금지하며 clean baseline은 계좌 소유자의 별도 명시 승인 전 실행하지 않는다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -70,7 +71,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0 전체 기간 sanitized 계좌 활동 완결 증거. 10페이지/150행 결과는 미완결이며 새 명시 승인 전 재호출하지 않음
+1. Phase 0 원인은 외부/미연결 broker 활동 9행에 따른 local ledger divergence로 확정. 계좌 소유자 승인 clean baseline과 이후 새 10거래일 정합 필요
 2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거

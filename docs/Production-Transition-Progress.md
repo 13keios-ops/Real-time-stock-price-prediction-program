@@ -27,11 +27,11 @@
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 최신 KIS bounded 주문·체결 조회는 3일 범위에서 0행이다. 보관된 320건은 전체 계좌 활동이 아니라 과거 mirrored submission 증거다.
 - full-period probe 범위: `2026-06-14~2026-08-14`, 로컬 mirrored submission 320건/20거래일
-- 2026-08-14 명시 승인 조회 1회: sanitized 150행/14거래일, 10페이지 상한 도달, pagination 미완결, 주문·취소 0회
-- 현재 root cause scope: `full_account_activity_evidence_incomplete`
-- 해소 상태: `blocked_requires_complete_full_account_activity_evidence`
+- 2026-08-14 새 명시 승인 30페이지 조회: 22페이지/329행/20거래일, pagination 완결, local submission 320개 연결, broker-only 9행, 주문·취소 0회
+- 현재 root cause scope: `external_or_unlinked_broker_activity`
+- 해소 상태: `cause_identified_clean_baseline_still_required`
 - 자동 align과 `SyncInitialCash`: 금지
-- 완료 전 조건: 계좌 소유자의 새 명시 승인 뒤 충분한 page cap으로 pagination이 완결된 sanitized full-period 조회 1회
+- 완료 전 조건: 계좌 소유자 승인 clean baseline과 새 local 기준선 생성; 자동 align 금지
 - 완료 조건: 미러링 기간 전체 sanitized 계좌 활동 또는 계좌 소유자 승인 clean baseline 뒤 새 local baseline으로 divergence를 해소하고, 이후 10개 유효 거래일이 모두 정합
 
 ### Phase 1a: KIS 모의투자 read-only
@@ -84,7 +84,7 @@
 
 ## 5. 현재 P0
 
-1. Phase 0 sanitized full-period account activity pagination 완결. 10페이지/150행 증거는 미완결이며 새 승인 전 재호출 금지
+1. Phase 0 external/unlinked broker 활동 9행에 따른 local ledger divergence를 clean baseline으로 해소하고 새 기준선 뒤 10개 유효 거래일 모두 정합
 2. WebSocket reconnect 47/storm 19와 15:01~15:29 공통 market 공백 재발 여부, real recovery evidence
 3. E1/E5 유효 결과 확보. 다음 명시 실행부터 대형 DB snapshot은 repo-local D드라이브 물리 저장소와 token별 partial 정리를 사용
 4. 비용 후 양수 entry 후보와 독립 exit 후보를 동일 portfolio replay에서 검증

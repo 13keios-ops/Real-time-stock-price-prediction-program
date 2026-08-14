@@ -7,14 +7,14 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-14 23:30 KST
-- 장 상태: post-close
-- live runtime: 장후 정상 정지
+- 기준 시각: 2026-08-15 00:00 KST
+- 장 상태: weekend
+- live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 최근 유효일 `10/10`, matched 0일, mismatch 10일이다. 승인된 전체 기간 probe가 150행을 확보했지만 10페이지 상한으로 미완결이며 상태는 `blocked_requires_complete_full_account_activity_evidence`다.
+- Phase 0: 최근 유효일 `10/10`, matched 0일, mismatch 10일이다. 329행/20거래일 full-period probe가 완결됐고 external/unlinked broker 활동 9행에 따른 local ledger divergence로 원인을 확정했다. 상태는 `cause_identified_clean_baseline_still_required`다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
 - runtime 원장: 2026-08-14 decision ledger 3,608행, complete lineage 100%다. WebSocket storm 19회와 15:01~15:29 전 종목 market 공백으로 수집은 `needs_attention`이다.
 - 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 policy `-40.3788%`, buy-rescue/hold-rescue도 비용 후 음수다.
@@ -27,8 +27,9 @@
 - [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
 - [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
 - [x] Phase 0 full-period probe, pagination 완결성, 외부/미연결 활동, 로컬 원장 divergence 판정 구현
-- [x] 2026-08-14 명시 승인 조회 1회로 150행/14거래일 확보; 10페이지 상한으로 미완결, 주문·취소 0회
-- [ ] 새 명시 승인 뒤 충분한 page cap으로 full-period 조회 1회 완결. 완결 전 clean baseline·자동 align 금지
+- [x] 2026-08-14 기본 10페이지 조회로 150행/14거래일 확보; page cap으로 미완결, 주문·취소 0회
+- [x] 새 명시 승인 30페이지 조회로 22페이지/329행/20거래일 완결; broker 추가 활동 9행과 local ledger divergence 원인 확정
+- [ ] 계좌 소유자 승인 clean baseline 뒤 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 같은 작업에서 재실행하지 않았다. 다음 실행부터 8GiB 이상 DB는 repo-local D드라이브 물리 snapshot 경로와 token별 partial cleanup을 사용한다.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -47,13 +48,14 @@
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
 
-## [2026-08-14] Phase 0 승인 전체 기간 조회 1회
+## [2026-08-14] Phase 0 승인 전체 기간 조회 완결
 
-- KST 23:28 장후, live runtime 정지와 cooldown 만료를 확인한 뒤 계좌 소유자 명시 승인으로 `python3 scripts/probe_kis_paper_account_activity.py --execute`를 정확히 1회 실행했다.
-- 범위는 `2026-06-14~2026-08-14`다. sanitized 활동 150행/14거래일, distinct order key 150개를 확보했고 계좌번호·주문번호·raw response는 저장하지 않았다. 주문·취소 호출은 0회다.
-- 10페이지 상한에 도달해 `pagination_complete=false`다. 150행은 모두 로컬 submission과 연결됐지만 로컬 submission 169개는 아직 조회 결과와 연결되지 않았고 ambiguous fallback key 1개가 있다.
-- 미완결 활동으로 재구성한 position은 계좌 snapshot과 일치하지 않으므로 원인 확정에 쓰지 않았다. 로컬 trace를 갱신해 `blocked_requires_complete_full_account_activity_evidence`와 자동 align 금지를 유지했다.
-- 같은 endpoint는 재호출하지 않았다. 다음 실행은 계좌 소유자의 새 명시 승인 뒤 충분한 page cap으로 정확히 1회 수행하고, 그 전에는 clean baseline도 적용하지 않는다.
+- KST 23:28 장후, 첫 명시 승인 기본 10페이지 조회 1회는 150행/14거래일을 확보했지만 page cap으로 미완결됐다. 같은 승인 범위에서 재실행하지 않았다.
+- KST 23:52 새 명시 승인으로 `--max-pages 30 --execute`를 정확히 1회 실행했다. 22페이지/329행/20거래일, distinct order key 329개로 pagination이 완결됐고 주문·취소는 0회다.
+- 로컬 submission 320개는 모두 broker 활동에 연결됐으며 broker-only 활동 9행이 추가로 확인됐다. 계좌번호·주문번호·raw response는 저장하지 않았다.
+- 전체 활동 position은 KIS snapshot과 일치했다. 로컬 paper만 `035420 +2`, `086520 +1`, `105560 +4`, `247540 -5` 차이여서 root cause를 `external_or_unlinked_broker_activity`로 확정했다.
+- trace는 `cause_identified_clean_baseline_still_required`, `automatic_alignment_allowed=false`다. clean baseline과 새 local 기준선은 계좌 소유자의 별도 명시 승인 전 실행하지 않는다.
+- 최근 10거래일 matched 0/mismatch 10은 과거 기준선의 누적이므로 유지한다. clean baseline 뒤 새 기준선에서 10개 유효 거래일을 다시 모두 정합시켜야 Phase 0을 통과한다.
 
 ## [2026-08-14] FULL CHECK 수집 보호와 수익성 재검수
 
