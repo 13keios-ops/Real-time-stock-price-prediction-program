@@ -36,7 +36,7 @@
 - buy-rescue: serving no-trade decision ledger 71,369행 중 eligible 35,573행. LightGBM과 linear-score rescue가 모두 비용 후 음수라 주문 후보가 아님.
 - hold-rescue: 161 lot 중 threshold 0.40 적용 37 lot, 현금손익 `-26,387원`으로 후보가 아님.
 - dashboard와 장후 자동화: 공통 왕복 비용 0.29%를 쓰고 avoid/rescue/meta-policy와 함께 raw/feature coverage, decision lineage, WebSocket reconnect/storm을 갱신한다. 2026-08-07은 decision 3,803행·lineage 100%·reconnect 29/storm 0이다.
-- E1/E5: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 주문·네트워크 호출은 0회이고 같은 작업에서 재실행하지 않았다.
+- E1/E5: 2026-08-15 새 승인 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출은 0회이고 같은 승인 범위에서 재실행하지 않았다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, Phase blocker는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -84,7 +84,7 @@
 5. serving prediction마다 `training_run_id`, `artifact_id`, `artifact_sha256`를 보존하고 lineage 없는 기존 82,583개 LightGBM shadow 예측은 혼합-vintage 진단으로만 본다.
 6. buy-rescue 모집단은 단순 `not baseline allowed-buy`가 아니라 baseline 판단, gate, allocator, 보유·현금 제약, 주문·체결 여부를 분리한 decision ledger로 다시 정의한다.
 7. 현재 hold-rescue 규칙은 종료한다. early-exit은 같은 bar close 체결과 날짜 범위 누락을 바로잡은 미래 전용 portfolio replay에서만 재검토하고, 이후 별도 exit/hold 모델을 설계한다.
-8. E1/E5는 자동화로 재실행하지 않는다. 다음 실행은 계좌 소유자의 해당 작업 명시 승인 뒤 장외에서 1회만 수행하며, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
+8. E1/E5는 자동화로 재실행하지 않는다. 다음 실행은 26GB snapshot 방식과 bounded 상한을 먼저 검증하고 계좌 소유자의 해당 작업 명시 승인 뒤 장외에서 1회만 수행하며, 결과 전까지 새 threshold/EV tuning은 하지 않는다.
 
 그 다음 모델 개선은 3분류 정확도만 높이는 방향이 아니라 `비용 후 기대수익/하방 quantile/거래하지 않음`을 직접 다루는 entry 모델과 별도 exit 모델, 그리고 h15/h60 후보를 동일 portfolio replay에서 비교하는 방향으로 진행한다. Phase 2 실제 주문 canary는 이 평가 정본에서 절대 수익성이 확인되기 전까지 시작하지 않는다.
 

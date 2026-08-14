@@ -7,7 +7,7 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-15 00:47 KST
+- 기준 시각: 2026-08-15 01:17 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
@@ -32,7 +32,7 @@
 - [x] 계좌 소유자 승인 clean baseline 생성과 즉시 KIS/local 정합 확인
 - [ ] 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
-- [ ] E1/E5 결과 확보: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 같은 작업에서 재실행하지 않았다. 다음 실행부터 8GiB 이상 DB는 repo-local D드라이브 물리 snapshot 경로와 token별 partial cleanup을 사용한다.
+- [ ] E1/E5 결과 확보: 2026-08-15 새 승인 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출과 final 교체는 0회이며 같은 승인 범위에서 재실행하지 않았다.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
 - [ ] 수익 후보가 없으면 threshold tuning 대신 새 가설 사전등록
 
@@ -50,6 +50,13 @@
 - 최신 비용/horizon 진단: 2026-08-14 22:06 KST, 비용 0.29%, h15 median_abs 0.371216%, h60 0.695410%
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-15] E1/E5 승인 재실행
+
+- KST 01:13 휴장·live runtime 정지와 중복 프로세스 부재를 확인한 뒤 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --execute`를 정확히 1회 실행했다.
+- gate와 2026-08-14 label refresh는 통과했지만 26GB SQLite를 repo-local `runtime-data/research-snapshots/`에 일관 복사하고 검증하는 단계가 180초를 초과해 `snapshot_failed/research_snapshot_timeout`으로 종료됐다.
+- 네트워크·주문 호출은 각각 0회다. final snapshot/manifest와 `latest-completed-round.json`은 생성되지 않았고 partial 및 실행 프로세스도 남지 않았다.
+- 같은 승인 범위에서 재실행하지 않았다. 다음 실행 전에는 26GB 전체 snapshot에 맞는 bounded 장시간 상한 또는 고정 기간 전용 read-only snapshot 방식을 별도로 검증해야 한다.
 
 ## [2026-08-15] Phase 0 승인 clean baseline 생성
 

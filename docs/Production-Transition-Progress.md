@@ -9,7 +9,7 @@
 - Phase 1b의 주문 없는 live 계좌 조회 준비는 통과했다.
 - 현재 수익 후보는 `0개`다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
-- 2026-08-09 E1/E5 명시 실행도 snapshot timeout으로 안전 종료됐다. 주문·네트워크 호출은 0회이며 유효 연구 결과는 아직 없다.
+- 2026-08-15 새 승인 E1/E5 실행도 repo-local 26GB snapshot이 180초를 초과해 안전 종료됐다. 주문·네트워크 호출은 0회이며 유효 연구 결과는 아직 없다.
 - 2026-08-07 수집은 raw/feature coverage 97.5%, decision lineage 100%로 정상이다. WebSocket reconnect 29회는 별도 주의다.
 
 ## 2. Phase 상태
@@ -87,7 +87,7 @@
 
 1. Phase 0 clean baseline 이후 새 기준선의 10개 유효 거래일 모두 정합
 2. WebSocket reconnect 47/storm 19와 15:01~15:29 공통 market 공백 재발 여부, real recovery evidence
-3. E1/E5 유효 결과 확보. 다음 명시 실행부터 대형 DB snapshot은 repo-local D드라이브 물리 저장소와 token별 partial 정리를 사용
+3. E1/E5 유효 결과 확보. repo-local 26GB snapshot도 180초를 초과하므로 다음 명시 실행 전 bounded 장시간 상한 또는 고정 기간 전용 snapshot을 검증
 4. 비용 후 양수 entry 후보와 독립 exit 후보를 동일 portfolio replay에서 검증
 5. 당일 fresh market status와 유효 kill switch OFF
 6. 26GB 운영 DB의 보존·집계 비용 관리
@@ -101,7 +101,7 @@ E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 threshold
 ## 7. 운영자 작업
 
 현재 즉시 필요한 수동 작업은 없다.
-Phase 0 clean baseline은 승인·실행 완료됐다. E1/E5 재실행, 자격정보, market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
+Phase 0 clean baseline은 승인·실행 완료됐다. E1/E5의 추가 실행, 자격정보, market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
 
 ## 8. 종료 체크
 

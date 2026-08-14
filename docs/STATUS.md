@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-15 00:47 KST
+- 확인 시각: 2026-08-15 01:17 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -66,20 +66,21 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## E1/E5
 
-- 2026-08-09 계좌 소유자 명시 승인으로 wrapper를 정확히 1회 실행했다.
-- gate와 label refresh는 통과했으나 25GB SQLite snapshot이 180초 안에 끝나지 않아 `snapshot_failed/research_snapshot_timeout`으로 안전 종료됐다. 네트워크·주문 호출은 각각 0회이고 final snapshot은 교체되지 않았다.
-- 같은 작업에서 재실행하지 않았다. 8GiB 이상 DB가 WSL 9P 경로로 복사되는 경우 repo-local `runtime-data/research-snapshots/`를 쓰도록 보강했고 timeout partial 정리를 실행 token 단위로 고정했다.
-- 유효 E1/E5 결과는 아직 없으며 자동화는 재실행하지 않는다.
+- 2026-08-15 계좌 소유자의 새 명시 승인으로 `./scripts/run_preregistered_e1_e5_round.sh --execute`를 정확히 1회 실행했다.
+- gate와 label refresh는 통과했으나 repo-local 경로에서도 26GB SQLite snapshot 복사와 검증이 180초 안에 끝나지 않아 `snapshot_failed/research_snapshot_timeout`으로 안전 종료됐다.
+- 네트워크·주문 호출은 각각 0회이고 final snapshot/manifest는 교체되지 않았으며 partial과 실행 프로세스도 남지 않았다. 같은 승인 범위에서 재실행하지 않았다.
+- 유효 E1/E5 결과는 아직 없다. 다음 시도 전에는 26GB 전체 snapshot에 맞는 bounded 장시간 상한 또는 고정 날짜 구간 전용 read-only snapshot 설계를 검증해야 하며 자동화는 재실행하지 않는다.
 
 ## 현재 blocker
 
 1. Phase 0 clean baseline 이후 새 유효 거래일 `0/10`; 이후 10거래일 모두 정합 필요
 2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
-4. Phase 2/3용 실제 WebSocket recovery 증거
-5. 당일 fresh market status
-6. 유효기간이 있는 kill switch OFF 상태
-7. 26GB 운영 DB의 장기 보관. data-quality 최근 10일 집계는 전체 분 그룹화를 제거해 `439초 -> 126초`로 줄였지만 추가 인덱스/요약 테이블 여부는 계속 본다.
+4. E1/E5의 26GB research snapshot이 180초 상한을 초과해 유효 결과가 없음
+5. Phase 2/3용 실제 WebSocket recovery 증거
+6. 당일 fresh market status
+7. 유효기간이 있는 kill switch OFF 상태
+8. 26GB 운영 DB의 장기 보관. data-quality 최근 10일 집계는 전체 분 그룹화를 제거해 `439초 -> 126초`로 줄였지만 추가 인덱스/요약 테이블 여부는 계속 본다.
 
 ## 다음 일정
 

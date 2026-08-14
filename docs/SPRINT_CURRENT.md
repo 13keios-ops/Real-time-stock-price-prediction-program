@@ -9,6 +9,7 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - 시작: `2026-07-13`
 - E1/E5 최초 시도: `2026-07-20` 장후, snapshot I/O timeout
 - E1/E5 명시 재시도: `2026-08-09` 장외, snapshot I/O timeout
+- E1/E5 승인 재실행: `2026-08-15` 장외, repo-local 26GB snapshot timeout
 - 후속 checkpoint: `10/20/30/60거래일`
 
 일주일은 최종 승격 기간이 아니라 첫 조기 진단 구간이다.
@@ -53,7 +54,7 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - [x] 새 명시 승인 30페이지 조회: 22페이지/329행/20거래일, pagination 완결, external/unlinked broker 활동 9행으로 원인 확정
 - [x] 계좌 소유자 승인 KIS snapshot 기준 clean baseline 생성; mismatch/cash/total asset gap 0 확인
 - [ ] 새 기준선 이후 10개 유효 거래일 모두 정합 확인; 자동 align 금지
-- [x] E1/E5 wrapper 명시 1회 실행: `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
+- [x] 2026-08-15 새 승인 E1/E5 wrapper 1회 실행: repo-local 26GB snapshot도 `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
 - [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
 - [ ] E1/E5 유효 결과 확보
 - [ ] 유효 결과를 현재 비용 `0.29%`, random control, 비중복 구간으로 판정
