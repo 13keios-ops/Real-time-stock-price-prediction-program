@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-15 00:00 KST
+- 확인 시각: 2026-08-15 00:47 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -47,15 +47,17 @@
 
 ## Phase
 
-- Phase 0: 유효 10거래일 관측은 완료됐지만 통과하지 못함
-- Phase 0 matched/mismatch: `0일/10일`
-- mismatch 종목: `035420`, `086520`, `105560`, `247540`
+- Phase 0: 과거 기준선의 유효 10거래일 관측은 `matched 0일/mismatch 10일`로 미통과 이력을 보존한다.
+- 2026-08-15 00:20 KST 계좌 소유자 승인으로 KIS snapshot 기준 marker-only clean baseline을 생성했다. `SyncInitialCash`, 주문, 취소는 실행하지 않았다.
+- 새 기준선 정합: KIS/local 보유 3종목, 현금, 총자산이 모두 일치하며 mismatch `0`, cash/total asset gap `0원`, 상태 `aligned_waiting_first_submission`이다.
+- 새 Phase 0 epoch: 휴장일 기준 `0/10` 유효 거래일이다. 이후 10개 유효 거래일이 모두 matched여야 통과한다.
+- 과거 mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 최신 trace는 KIS 최근 3일 조회 0행과 보관된 320건 historical mirrored submission을 전체 계좌 활동과 분리한다.
 - 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-14`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
 - 2026-08-14 새 명시 승인으로 `--max-pages 30 --execute`를 1회 실행해 22페이지, sanitized 활동 329행/20거래일, `pagination_complete=true`를 확보했다. 주문·취소는 0회다.
 - 로컬 submission 320개는 모두 broker 활동과 연결됐고 추가 broker 활동 9행이 확인됐다. ambiguous fallback key는 1개지만 duplicate exact key는 0개다.
 - 전체 활동 position 재구성은 KIS account snapshot과 일치하고 로컬 paper만 `035420 +2`, `086520 +1`, `105560 +4`, `247540 -5` 수량 차이다. root cause는 `external_or_unlinked_broker_activity`로 확정했다.
-- Phase 0 해소 상태: `cause_identified_clean_baseline_still_required`. 자동 align은 금지하며 clean baseline은 계좌 소유자의 별도 명시 승인 전 실행하지 않는다.
+- Phase 0 해소 상태: `clean_baseline_created_waiting_10_matched_days`. 새 marker는 full-period 증거보다 뒤이며 자동 정렬은 계속 금지한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -71,7 +73,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0 원인은 외부/미연결 broker 활동 9행에 따른 local ledger divergence로 확정. 계좌 소유자 승인 clean baseline과 이후 새 10거래일 정합 필요
+1. Phase 0 clean baseline 이후 새 유효 거래일 `0/10`; 이후 10거래일 모두 정합 필요
 2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거

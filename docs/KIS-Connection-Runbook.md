@@ -120,7 +120,7 @@ python3 scripts/probe_kis_paper_account_activity.py
 - 완료 결과는 `latest-paper-account-activity.json`, 제한/차단 시도는 `latest-paper-account-activity-attempt.json`에 분리한다.
 - 어떤 결과도 자동 align, `SyncInitialCash`, 주문 정책 변경을 허용하지 않는다.
 
-2026-08-14 새 승인 조회 범위는 `2026-06-14~2026-08-14`다. `--max-pages 30` 실행은 22페이지/329행/20거래일에서 `pagination_complete=true`였고 로컬 submission 320개와 broker-only 활동 9행을 확인했다. 전체 활동 position은 KIS snapshot과 일치하고 local paper만 divergence여서 `external_or_unlinked_broker_activity`로 확정했다. 주문·취소는 0회이며 clean baseline은 별도 승인 전 실행하지 않는다.
+2026-08-14 새 승인 조회 범위는 `2026-06-14~2026-08-14`다. `--max-pages 30` 실행은 22페이지/329행/20거래일에서 `pagination_complete=true`였고 로컬 submission 320개와 broker-only 활동 9행을 확인했다. 전체 활동 position은 KIS snapshot과 일치하고 local paper만 divergence여서 `external_or_unlinked_broker_activity`로 확정했다. 2026-08-15 별도 승인으로 KIS snapshot 기준 marker-only clean baseline을 생성했고 mismatch/cash/total asset gap 0을 확인했다. 과거 10일 이력은 보존하며 새 기준선 이후 10개 유효 거래일을 다시 누적한다.
 
 ### 3.2. read-only probe 실패 분류
 

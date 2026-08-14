@@ -448,6 +448,7 @@ python scripts/summarize_paper_cash_gap.py --as-json
 `-SyncInitialCash`는 코드상 root `.env`의 `PAPER_INITIAL_CASH`만 브로커 원시 예수금(`cash_balance`)으로 바꾸며, 최신 portfolio snapshot, fills, broker order backlog 는 다시 쓰지 않는다.
 따라서 브로커 원시 예수금과 유효현금(`total_asset_amount - stock_evaluation_amount`)이 다르거나 local snapshot cash gap 이 남아 있으면, `-SyncInitialCash`만으로는 정합성 blocker가 닫히지 않을 수 있다.
 `-AlignToBroker`는 marker-only baseline 을 새로 쓰고 과거 paper row 를 현재 view 에서 cutoff 하므로, 원장 보존성은 남지만 paper 기준선이 바뀐다.
+alignment은 `runtime-data/backups/paper-alignment/`에 microsecond timestamp의 immutable JSON marker를 함께 기록한다. `backup_path`가 실제로 존재하지 않는 `.sqlite3`를 가리키던 문제는 2026-08-15 수정했다.
 이 명령은 open order backlog 와 당일 감사 메모를 확인한 뒤 적용한다.
 
 브로커 주문 backlog read-only 분석:
@@ -483,6 +484,8 @@ broker sync는 분봉 확정 경로 안의 동기 호출이므로 장애 시 반
 이 처리는 KIS 조회가 정상 응답한 경우의 해석이며, `EGW00201` rate-limit 등으로 조회 자체가 실패했을 때는 기존처럼 pending 상태를 안전하게 보존한다.
 2026-06-14 수정 뒤 실제 broker paper sync 를 1회 실행해 marker 이후 현재 view 의 open order backlog 는 0건으로 닫혔다.
 같은 날 `-SyncInitialCash` 없이 marker-only `-AlignToBroker`를 적용한 뒤 최신 dual account match 는 `matched_waiting_first_submission`, effective cash gap 과 total asset gap 은 `0원`이다. 브로커 원시 예수금과 유효현금 차이는 `raw_cash_gap`으로 별도 표시한다.
+
+2026-08-15 계좌 소유자 승인으로 KIS paper snapshot 기준 clean baseline을 생성했다. 새 current view는 `086520 5주`, `247540 10주`, `373220 1주`, 현금 `5,992,204원`, 총자산 `7,996,704원`이며 KIS/local mismatch, cash gap, total asset gap은 모두 0이다. 과거 원장과 과거 10거래일 mismatch 이력은 삭제하지 않고 새 기준선 epoch를 `0/10`에서 시작한다.
 
 2026-07-10 재점검 기준 최신 paper/KIS position mismatch는 4종목(`035420`, `086520`, `105560`, `247540`)이다. `scripts/trace_paper_kis_mismatch.py`가 계산한 KIS order-fill 원장 순수량과 로컬 paper 수량은 네 종목 모두 일치하지만 KIS 계좌 잔고 snapshot 수량만 다르므로, 즉시 `AlignToBroker`로 덮지 않고 `kis_account_snapshot_vs_order_fill_ledger_divergence`로 분류한다. `035420`, `105560`은 주문/체결 원장은 보유를 말하지만 계좌 잔고가 flat 이고 반복 청산 주문이 거부된 상태이며, `086520`, `247540`은 계좌 잔고 수량이 order-fill 순수량과 다르다. `005380`은 최신 mismatch 목록에서 빠졌다. 다음 조치는 2시간 cooldown 이후의 다음 거래일 장후에 account snapshot과 order-fill sync를 1회만 비교하고, 계속 유지되면 KIS 모의계좌의 수동/외부 체결 또는 계좌 snapshot 원천 차이를 사람 검토 대상으로 올리는 것이다.
 

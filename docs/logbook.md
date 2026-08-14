@@ -7,14 +7,14 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-15 00:00 KST
+- 기준 시각: 2026-08-15 00:47 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 최근 유효일 `10/10`, matched 0일, mismatch 10일이다. 329행/20거래일 full-period probe가 완결됐고 external/unlinked broker 활동 9행에 따른 local ledger divergence로 원인을 확정했다. 상태는 `cause_identified_clean_baseline_still_required`다.
+- Phase 0: 과거 기준선 최근 유효일 `10/10`, matched 0일, mismatch 10일은 미통과 이력으로 보존한다. 2026-08-15 승인 clean baseline 뒤 현재 mismatch/cash/total asset gap은 모두 0이고, 새 epoch는 휴장일 기준 `0/10`, 상태 `clean_baseline_created_waiting_10_matched_days`다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
 - runtime 원장: 2026-08-14 decision ledger 3,608행, complete lineage 100%다. WebSocket storm 19회와 15:01~15:29 전 종목 market 공백으로 수집은 `needs_attention`이다.
 - 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 policy `-40.3788%`, buy-rescue/hold-rescue도 비용 후 음수다.
@@ -29,7 +29,8 @@
 - [x] Phase 0 full-period probe, pagination 완결성, 외부/미연결 활동, 로컬 원장 divergence 판정 구현
 - [x] 2026-08-14 기본 10페이지 조회로 150행/14거래일 확보; page cap으로 미완결, 주문·취소 0회
 - [x] 새 명시 승인 30페이지 조회로 22페이지/329행/20거래일 완결; broker 추가 활동 9행과 local ledger divergence 원인 확정
-- [ ] 계좌 소유자 승인 clean baseline 뒤 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
+- [x] 계좌 소유자 승인 clean baseline 생성과 즉시 KIS/local 정합 확인
+- [ ] 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
 - [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
 - [ ] E1/E5 결과 확보: 2026-08-09 명시 실행도 180초 snapshot timeout으로 안전 종료됐다. 같은 작업에서 재실행하지 않았다. 다음 실행부터 8GiB 이상 DB는 repo-local D드라이브 물리 snapshot 경로와 token별 partial cleanup을 사용한다.
 - [ ] E1/E5 유효 결과에 따라 h15 저빈도/h60 비교 여부 결정
@@ -39,7 +40,9 @@
 
 ## 최신 검증
 
-- targeted unittest `16 tests OK`, full unittest `553 tests OK`, repository structure audit errors 0/warnings 2
+- Phase 0 clean baseline: `aligned_at=2026-08-15T00:20:42.862713+09:00`, KIS/local 3종목 정합, mismatch/cash/total asset gap 0
+- clean baseline/trace targeted unittest `13 tests OK`
+- full unittest `554 tests OK`, repository structure audit errors 0/warnings 2
 - 실제 KIS data-quality 재생성: 2026-08-14 22:24 KST, latest trade date 2026-08-14, assessment `needs_attention`
 - decision ledger: 3,608행, complete lineage 3,608행, ratio 1.0
 - WebSocket: reconnect 47, storm 19; market 공통 공백 15:01~15:29, orderbook 공통 공백 15:01~15:24
@@ -47,6 +50,14 @@
 - 최신 비용/horizon 진단: 2026-08-14 22:06 KST, 비용 0.29%, h15 median_abs 0.371216%, h60 0.695410%
 - dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-15] Phase 0 승인 clean baseline 생성
+
+- KST 00:20 휴장·live runtime 정지를 확인한 뒤 계좌 소유자 승인 범위로 `python3 -m app --align-local-paper-to-broker`를 정확히 1회 실행했다. KIS paper account snapshot 조회만 사용했고 실전/모의 주문·취소와 `SyncInitialCash`는 실행하지 않았다.
+- 기준선은 KIS 보유 `086520 5주`, `247540 10주`, `373220 1주`와 현금/총자산을 반영했다. 오프라인 reconciliation 결과 mismatch 0, cash gap 0원, total asset gap 0원, `aligned_waiting_first_submission`이다.
+- 과거 SQLite 원장과 과거 최근 10거래일 `matched 0/mismatch 10`은 삭제하지 않았다. 새 marker 이후 current view만 분리했고 새 Phase 0 epoch는 휴장일이라 유효일 `0/10`이다.
+- 기존 marker JSON/Markdown과 새 marker JSON을 `runtime-data/backups/paper-alignment/`에 보존했다. 이후 alignment는 실제 immutable JSON backup을 만들도록 가짜 `.sqlite3` 경로를 수정했다.
+- trace가 과거 full-period 결과를 그대로 복사하던 문제를 수정해 새 marker가 증거 생성 이후이고 mismatch가 0이면 `clean_baseline_created_waiting_10_matched_days`로 판정한다. 관련 targeted unittest 13건을 통과했다.
 
 ## [2026-08-14] Phase 0 승인 전체 기간 조회 완결
 

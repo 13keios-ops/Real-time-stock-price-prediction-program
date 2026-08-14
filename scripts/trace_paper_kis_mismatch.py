@@ -349,6 +349,29 @@ def _apply_full_account_activity_resolution(
         }
         return
     if status.startswith("resolved_") or status == "full_activity_and_accounts_matched":
+        alignment_cutoff = report.get("paper_alignment_cutoff")
+        activity_generated_at = activity.get("generated_at")
+        clean_baseline_created = False
+        if not report.get("mismatch_count") and alignment_cutoff and activity_generated_at:
+            try:
+                clean_baseline_created = datetime.fromisoformat(str(alignment_cutoff)) > datetime.fromisoformat(
+                    str(activity_generated_at)
+                )
+            except ValueError:
+                clean_baseline_created = False
+        if clean_baseline_created:
+            report["assessment"] = {
+                "status": "ok",
+                "summary": "owner-approved clean baseline created after full-period account activity evidence",
+            }
+            report["phase0_resolution"] = {
+                "status": "clean_baseline_created_waiting_10_matched_days",
+                "automatic_alignment_allowed": False,
+                "baseline_aligned_at": alignment_cutoff,
+                "previous_root_cause_scope": activity.get("root_cause_scope"),
+                "required_matched_days": 10,
+            }
+            return
         report["assessment"] = {
             "status": "needs_review" if report.get("mismatch_count") else "ok",
             "summary": f"full-period account activity result: {status}",

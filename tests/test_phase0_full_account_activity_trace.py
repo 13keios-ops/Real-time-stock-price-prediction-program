@@ -51,6 +51,30 @@ class Phase0FullAccountActivityTraceTests(unittest.TestCase):
         self.assertNotIn("account_number", summary)
         self.assertNotIn("raw_response", summary)
 
+    def test_new_clean_baseline_replaces_stale_required_resolution(self) -> None:
+        trace = {
+            "mismatch_count": 0,
+            "paper_alignment_cutoff": "2026-08-15T00:20:42+09:00",
+        }
+        activity = {
+            "generated_at": "2026-08-14T23:52:16+09:00",
+            "status": "resolved_external_or_unlinked_account_activity",
+            "root_cause_scope": "external_or_unlinked_broker_activity",
+            "phase0_resolution": {
+                "status": "cause_identified_clean_baseline_still_required",
+                "automatic_alignment_allowed": False,
+            },
+        }
+
+        _apply_full_account_activity_resolution(trace, activity)
+
+        resolution = trace["phase0_resolution"]
+        self.assertEqual(resolution["status"], "clean_baseline_created_waiting_10_matched_days")
+        self.assertEqual(resolution["required_matched_days"], 10)
+        self.assertEqual(resolution["previous_root_cause_scope"], activity["root_cause_scope"])
+        self.assertFalse(resolution["automatic_alignment_allowed"])
+        self.assertEqual(trace["assessment"]["status"], "ok")
+
     def test_incomplete_pagination_cannot_resolve_phase0(self) -> None:
         trace = {"mismatch_count": 4}
 

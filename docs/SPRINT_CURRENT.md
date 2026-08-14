@@ -27,7 +27,8 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
 - 자동 승격: 없음
-- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일로 미통과
+- Phase 0 과거 기준선: 유효일 `10/10`, matched 0일, mismatch 10일로 미통과 이력 보존
+- Phase 0 새 기준선: 2026-08-15 clean baseline 생성 및 즉시 정합 완료, 새 유효일 `0/10`
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -50,7 +51,8 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - [x] 장중 broker paper sync 일반 실패에 지수 백오프, `EGW00201`에 120분 process pause 적용
 - [x] 2026-08-14 기본 10페이지 조회: 150행/14거래일 확보, page cap으로 미완결, 주문·취소 0회
 - [x] 새 명시 승인 30페이지 조회: 22페이지/329행/20거래일, pagination 완결, external/unlinked broker 활동 9행으로 원인 확정
-- [ ] 계좌 소유자 승인 clean baseline 뒤 새 local 기준선으로 10개 유효 거래일 모두 정합 확인; 자동 align 금지
+- [x] 계좌 소유자 승인 KIS snapshot 기준 clean baseline 생성; mismatch/cash/total asset gap 0 확인
+- [ ] 새 기준선 이후 10개 유효 거래일 모두 정합 확인; 자동 align 금지
 - [x] E1/E5 wrapper 명시 1회 실행: `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
 - [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
 - [ ] E1/E5 유효 결과 확보
@@ -67,7 +69,7 @@ E1/E5 유효 결과와 Phase 0 해소 경로가 정해지기 전에는 신규 th
 
 - 각 거래일 raw→분봉→feature→decision ledger와 complete lineage가 같이 보고된다.
 - WebSocket reconnect와 storm이 coverage와 함께 판정된다.
-- Phase 0이 전체 기간 계좌 활동 또는 clean baseline 근거로 해소된다.
+- Phase 0 clean baseline 이후 새 기준선의 10개 유효 거래일이 모두 정합이다.
 - E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다.
 - 결과와 무관하게 주문 정책과 active model이 자동 변경되지 않는다.
 - 다음 연구를 계속할지 보류할지 숫자 기준으로 문서화된다.

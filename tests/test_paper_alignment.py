@@ -1,4 +1,5 @@
-﻿import os
+﻿import json
+import os
 from datetime import datetime
 from pathlib import Path
 import unittest
@@ -139,6 +140,10 @@ class PaperAlignmentTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertTrue(result.report_json_path.exists())
+        self.assertTrue(result.backup_path.exists())
+        backup_payload = json.loads(result.backup_path.read_text(encoding="utf-8"))
+        self.assertEqual(backup_payload["aligned_at"], result.aligned_at)
+        self.assertEqual(backup_payload["status"], "aligned_to_broker_marker")
         self.assertIsNotNone(sqlite_store)
         self.assertEqual(sqlite_store.count_rows("paper_positions"), 1)
         self.assertEqual(local_state["cash_balance"], 10000000.0)

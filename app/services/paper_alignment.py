@@ -253,7 +253,7 @@ def align_local_paper_to_broker(project_root: Path) -> PaperAlignmentResult:
     markdown_path, json_path = _report_paths(settings.runtime_data_dir)
     backup_dir = settings.runtime_data_dir / "backups" / "paper-alignment"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / f"{aligned_at.strftime('%y%m%d_%H%M')}_marker-only.sqlite3"
+    backup_path = backup_dir / f"{aligned_at.strftime('%y%m%d_%H%M%S_%f')}_marker-only.json"
 
     payload = {
         "ok": True,
@@ -282,7 +282,9 @@ def align_local_paper_to_broker(project_root: Path) -> PaperAlignmentResult:
         + "\n",
         encoding="utf-8",
     )
-    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    serialized_payload = json.dumps(payload, ensure_ascii=False, indent=2)
+    backup_path.write_text(serialized_payload, encoding="utf-8")
+    json_path.write_text(serialized_payload, encoding="utf-8")
     return PaperAlignmentResult(
         ok=True,
         aligned_at=payload["aligned_at"],

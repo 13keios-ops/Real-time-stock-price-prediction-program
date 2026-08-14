@@ -27,8 +27,8 @@
 - trading mode: `paper`, 실전 주문 비활성.
 - active h15: `baseline-h15-v1`, challenger action `keep_active`, 승격 없음.
 - 현재 통과한 수익 후보: `0개`.
-- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. full-period scope는 `2026-06-14~2026-08-14`, mirrored submission 320건/20거래일이다.
-- 2026-08-14 새 승인 30페이지 조회는 22페이지/329행/20거래일로 완결됐다. 전체 활동은 KIS snapshot과 일치하고 local paper만 divergence여서 다음 순서는 계좌 소유자 승인 clean baseline과 새 기준선이며 자동 align은 실행하지 않는다.
+- Phase 0 과거 기준선은 유효일 `10/10`, matched 0일, mismatch 10일이다. full-period scope는 `2026-06-14~2026-08-14`, mirrored submission 320건/20거래일이다.
+- 2026-08-15 승인 clean baseline은 KIS snapshot과 local current view를 mismatch/cash/total asset gap 0으로 맞췄다. 새 기준선 유효일은 `0/10`이며 자동 align은 계속 금지한다.
 - rejected mirrored close의 fail-closed 차단 뒤 recent count는 4종목 모두 0건이다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과.
 - Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과; 기본 preflight는 네트워크·주문 호출 0회로 유지.
@@ -195,7 +195,7 @@ git status --short --branch
 - KIS `EGW00201`이 있으면 cooldown 동안 같은 order-fill endpoint를 반복 호출하지 않는다.
 - cooldown 이후 장외에 `python3 scripts/probe_kis_paper_account_activity.py --execute`를 1회만 실행하고, 페이지 완결성과 sanitized 원인 판정을 확인한다.
 - 기본 10페이지 상한으로 `blocked_incomplete_pagination`이면 같은 작업에서 재실행하지 않는다. 새 명시 승인 뒤 예상 행 수를 덮는 충분한 `--max-pages`로 full-period 조회를 정확히 1회 수행한다.
-- 2026-08-14 `--max-pages 30` 승인 조회는 22페이지에서 완결됐고 `external_or_unlinked_broker_activity`를 확인했다. 이후 네트워크 재조회보다 계좌 소유자 승인 clean baseline과 새 기준선을 우선한다.
+- 2026-08-14 `--max-pages 30` 승인 조회는 22페이지에서 완결됐고 `external_or_unlinked_broker_activity`를 확인했다. 2026-08-15 승인 clean baseline까지 완료했으므로 이후에는 새 기준선 10개 유효 거래일 정합을 우선한다.
 - 계속 rate limit이면 재호출하지 않고 KIS support 또는 계좌 소유자 승인 clean baseline 판단으로 넘긴다.
 - pagination이 완결되지 않은 position reconstruction은 원인 확정에 쓰지 않으며 local-only position을 marker-only alignment로 즉시 덮지 않는다.
 - 실제 브로커 계좌 스냅샷과 local paper 상태가 일치할 때만 alignment를 고려한다.
