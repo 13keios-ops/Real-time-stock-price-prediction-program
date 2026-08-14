@@ -46,7 +46,9 @@ from app.utils.time import now_local, parse_hhmm
 
 
 LOGGER = logging.getLogger(__name__)
-BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES = 5
+BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES = 120
+BROKER_SYNC_FAILURE_COOLDOWN_BASE_MINUTES = 5
+BROKER_SYNC_FAILURE_COOLDOWN_MAX_MINUTES = 60
 
 
 @dataclass(slots=True)
@@ -156,6 +158,7 @@ class OnlinePipelineProcessor:
         self.close_retry_blocked_symbols: set[str] = set()
         self._last_broker_sync_minute: datetime | None = None
         self._broker_sync_pause_until: datetime | None = None
+        self._broker_sync_consecutive_failures = 0
         self._restore_pending_order_state()
         self._restore_close_retry_block_state()
 
@@ -294,14 +297,25 @@ class OnlinePipelineProcessor:
             return
         if not force and self._last_broker_sync_minute == sync_minute:
             return
+        cooldown_minutes = 0
         try:
             result = self.broker_paper_sync.sync_recent_orders(
                 retry_delays_seconds=(),
             )
         except Exception:
-            LOGGER.exception("Broker paper sync failed; keeping live runtime active.")
-            self._broker_sync_pause_until = sync_minute + timedelta(minutes=BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES)
+            self._broker_sync_consecutive_failures += 1
+            cooldown_minutes = min(
+                BROKER_SYNC_FAILURE_COOLDOWN_BASE_MINUTES
+                * (2 ** (self._broker_sync_consecutive_failures - 1)),
+                BROKER_SYNC_FAILURE_COOLDOWN_MAX_MINUTES,
+            )
+            self._broker_sync_pause_until = sync_minute + timedelta(minutes=cooldown_minutes)
+            LOGGER.exception(
+                "Broker paper sync failed; keeping live runtime active and pausing sync for %s minute(s).",
+                cooldown_minutes,
+            )
             return
+        self._broker_sync_consecutive_failures = 0
         self.pending_order_symbols = set(result.pending_symbols)
         self.pending_buy_symbols = {
             symbol

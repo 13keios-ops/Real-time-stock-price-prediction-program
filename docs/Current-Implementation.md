@@ -144,6 +144,8 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `챌린저 및 워크포워드` 카드는 LightGBM 성능 진단, feature source, feature profile, label band, label band 재현성, probability calibration 연구 리포트도 함께 보여준다. 이 카드들은 후보 탐색용이며 active model 승격, threshold 변경, 실전 주문 판단 변경을 의미하지 않는다.
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
+- 같은 리포트는 raw market/orderbook의 watchlist 공통 누락 구간과 종목별 누락 분 수·범위를 별도 `raw_minute_gaps` 증거로 남긴다. WebSocket reconnect 객체와 공백 증거를 분리해 연결 이벤트와 실제 데이터 손실을 독립 판정한다.
+- `--recent-days 10` 집계는 전체 관측 거래일 수와 source 총계는 유지하되, 가장 비싼 symbol×minute 원천 그룹화는 최근 10거래일로 제한한다. 26GB 운영 DB 실측은 약 439초에서 126초로 줄었고 결과 행·coverage·gap 판정은 동일했다.
 - 과거 watch 사례는 feature/bar 비율과 시간대 공백을 함께 본다. 2026-06-05와 2026-06-09는 종가 동시호가 구간 공백 영향이 컸고, 2026-06-08은 raw market symbol-minute 가 약한 구간이 길었지만 orderbook 은 비교적 유지됐다. 따라서 같은 패턴이 재발하면 `watchdog` heartbeat, KIS WS frame, raw market/orderbook coverage 를 함께 비교한다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.
 - 머신러닝 현황 탭의 `KIS live feature-label 진단` 카드는 `runtime-data/reports/data-quality/latest-kis-live-feature-diagnostics.json`을 읽어 KIS live 단일 피처와 h15 label/future return 의 약한 관계를 보여준다. 이 카드는 feature triage 용이며 모델 승격 근거가 아니다.
@@ -473,7 +475,8 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 KIS 주문/체결 조회는 수동·장후 배치·장중 종료 동기화 모두 HTTP 1회만 시도하고, `EGW00201` rate-limit 뒤 같은 호출 안에서 재시도하지 않는다.
 제한이 발생하면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남기고, 2시간 안의 후속 실행은 같은 endpoint 를 호출하지 않은 채 `skipped_broker_call=true`로 끝낸다.
-실시간 수집기는 별도로 5분 process pause를 유지하지만, service의 2시간 cooldown이 실제 KIS order-fill 추가 호출을 차단한다.
+실시간 수집기도 `rate_limited` 결과에 120분 process pause를 적용한다. timeout, gateway routing error 같은 일반 예외는 5분부터 시작해 10/20/40/60분으로 늘어나는 지수 백오프를 적용하고, 정상 sync 뒤 실패 횟수를 초기화한다.
+broker sync는 분봉 확정 경로 안의 동기 호출이므로 장애 시 반복 호출을 줄여 WebSocket frame 처리 여유를 보호한다. 회귀 위험은 체결 상태 반영이 늦어지는 것이며 pending 상태와 강제 종료 sync를 유지해 주문 상태를 임의 확정하지 않는다.
 
 브로커 order-fill 조회가 정상 응답했는데 특정 주문이 최신 KIS lookback 에서 사라지면, paper sync 는 이전 status snapshot 과 이미 적용한 체결 수량을 우선 보존한다.
 이전 적용 체결 수량이 주문 수량 이상이면 `filled`로 유지하고, 잔량이 남은 과거 주문일 row 는 다음 거래일에 새 체결로 이어질 수 없으므로 `expired` 또는 `expired_partial` final 상태로 해석한다.

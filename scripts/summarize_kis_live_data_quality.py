@@ -199,15 +199,108 @@ def _latest_intraday_coverage(
     }
 
 
+def _compact_minute_ranges(minute_keys: set[str]) -> list[str]:
+    if not minute_keys:
+        return []
+    values = [datetime.fromisoformat(value) for value in sorted(minute_keys)]
+    groups: list[list[datetime]] = [[values[0]]]
+    for value in values[1:]:
+        if value - groups[-1][-1] == timedelta(minutes=1):
+            groups[-1].append(value)
+        else:
+            groups.append([value])
+    return [
+        group[0].strftime("%H:%M")
+        if len(group) == 1
+        else f"{group[0].strftime('%H:%M')}-{group[-1].strftime('%H:%M')}"
+        for group in groups
+    ]
+
+
+def _latest_raw_gap_summary(
+    *,
+    root: Path,
+    trade_date: str | None,
+    raw_market_actual_minutes: dict[str, dict[str, set[str]]],
+    raw_orderbook_actual_minutes: dict[str, dict[str, set[str]]],
+) -> dict[str, Any]:
+    if not trade_date:
+        return {"status": "no_latest_day"}
+    watchlist_symbols = _read_watchlist(root)
+    observed_symbols = sorted(
+        set(raw_market_actual_minutes.get(trade_date, {}))
+        | set(raw_orderbook_actual_minutes.get(trade_date, {}))
+    )
+    symbols = watchlist_symbols or observed_symbols
+    if not symbols:
+        return {"status": "no_symbols", "trade_date": trade_date}
+
+    _, session_open_text, session_close_text = _read_market_clock(root)
+    current = datetime.fromisoformat(f"{trade_date}T{session_open_text}:00")
+    session_end = datetime.fromisoformat(f"{trade_date}T{session_close_text}:00")
+    expected_minutes: set[str] = set()
+    while current <= session_end:
+        expected_minutes.add(current.strftime("%Y-%m-%dT%H:%M"))
+        current += timedelta(minutes=1)
+
+    streams: dict[str, Any] = {}
+    has_gaps = False
+    for stream_name, actual_by_date in (
+        ("raw_market", raw_market_actual_minutes),
+        ("raw_orderbook", raw_orderbook_actual_minutes),
+    ):
+        actual_by_symbol = actual_by_date.get(trade_date, {})
+        common_missing = set(expected_minutes)
+        missing_by_symbol: dict[str, Any] = {}
+        total_missing = 0
+        for symbol in symbols:
+            observed = {
+                minute_key
+                for minute_key in actual_by_symbol.get(symbol, set())
+                if minute_key in expected_minutes
+            }
+            missing = expected_minutes - observed
+            common_missing &= missing
+            total_missing += len(missing)
+            missing_by_symbol[symbol] = {
+                "missing_minutes": len(missing),
+                "missing_ranges": _compact_minute_ranges(missing),
+            }
+        has_gaps = has_gaps or total_missing > 0
+        streams[stream_name] = {
+            "expected_minutes_per_symbol": len(expected_minutes),
+            "symbols": len(symbols),
+            "total_missing_symbol_minutes": total_missing,
+            "common_missing_minutes": len(common_missing),
+            "common_missing_ranges": _compact_minute_ranges(common_missing),
+            "missing_by_symbol": missing_by_symbol,
+        }
+
+    return {
+        "status": "gaps_detected" if has_gaps else "complete",
+        "trade_date": trade_date,
+        "session_open": session_open_text,
+        "session_close": session_close_text,
+        "streams": streams,
+    }
+
+
 def _raw_minute_index(
     connection: sqlite3.Connection,
     table_name: str,
+    trade_dates: list[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, int]], dict[str, dict[str, set[str]]]]:
     day_stats: dict[str, dict[str, Any]] = {}
     symbol_minutes: dict[str, dict[str, int]] = {}
     actual_minutes: dict[str, dict[str, set[str]]] = {}
     if not _table_exists(connection, table_name):
         return day_stats, symbol_minutes, actual_minutes
+    date_where = ""
+    params: tuple[Any, ...] = ACTUAL_RAW_SOURCES
+    if trade_dates is not None:
+        date_clause, date_params = _date_filter("event_time", trade_dates)
+        date_where = f" AND {date_clause}"
+        params = (*params, *date_params)
     query = f"""
         SELECT
             symbol,
@@ -217,10 +310,11 @@ def _raw_minute_index(
             COUNT(*) AS row_count
         FROM {table_name}
         WHERE {_source_clause()}
+          {date_where}
         GROUP BY symbol, minute_key, source
         ORDER BY minute_key, symbol
     """
-    for row in connection.execute(query, ACTUAL_RAW_SOURCES):
+    for row in connection.execute(query, params):
         symbol = str(row["symbol"])
         minute_key = str(row["minute_key"])
         trade_date = minute_key[:10]
@@ -835,6 +929,7 @@ def _overall_assessment(
     latest_intraday_coverage: dict[str, Any] | None = None,
     latest_decision_lineage: dict[str, Any] | None = None,
     latest_websocket_reconnects: dict[str, Any] | None = None,
+    latest_raw_gap_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not recent_days:
         return {
@@ -874,6 +969,17 @@ def _overall_assessment(
             "interpret this together with raw and derived coverage."
         )
         observability_severity = "watch"
+    raw_gap_summary = latest_raw_gap_summary or {}
+    if raw_gap_summary.get("status") == "gaps_detected":
+        streams = raw_gap_summary.get("streams") or {}
+        market_ranges = (streams.get("raw_market") or {}).get("common_missing_ranges") or []
+        orderbook_ranges = (streams.get("raw_orderbook") or {}).get("common_missing_ranges") or []
+        if market_ranges or orderbook_ranges:
+            notes.append(
+                "Latest date has common raw-data gap ranges across the watchlist: "
+                f"market={market_ranges}, orderbook={orderbook_ranges}."
+            )
+            observability_severity = "needs_attention"
     if coverage_severity == "needs_attention" or observability_severity == "needs_attention":
         status = "needs_attention"
     elif not notes:
@@ -890,15 +996,15 @@ def summarize(
     live_runtime_log_path: Path | None = None,
 ) -> dict[str, Any]:
     with _connect(database_path) as connection:
+        trade_dates = _trade_dates(connection)
+        selected_dates = trade_dates[-recent_days:] if recent_days > 0 else trade_dates
         raw_market_by_date, raw_market_symbol_minutes, raw_market_actual_minutes = _raw_minute_index(
-            connection, "raw_market_ticks"
+            connection, "raw_market_ticks", selected_dates
         )
         raw_orderbook_by_date, raw_orderbook_symbol_minutes, raw_orderbook_actual_minutes = _raw_minute_index(
-            connection, "raw_orderbook_ticks"
+            connection, "raw_orderbook_ticks", selected_dates
         )
         actual_minutes_by_date = _merge_actual_minutes(raw_market_actual_minutes, raw_orderbook_actual_minutes)
-        trade_dates = sorted(set(raw_market_by_date) | set(raw_orderbook_by_date))
-        selected_dates = trade_dates[-recent_days:] if recent_days > 0 else trade_dates
         day_rows: list[dict[str, Any]] = []
         derived_symbols_by_date: dict[str, dict[str, dict[str, int]]] = {}
         for trade_date in selected_dates:
@@ -927,6 +1033,12 @@ def summarize(
             )
             if latest_trade_date in selected_dates
             else []
+        )
+        latest_raw_gap_summary = _latest_raw_gap_summary(
+            root=_repo_root(),
+            trade_date=latest_trade_date,
+            raw_market_actual_minutes=raw_market_actual_minutes,
+            raw_orderbook_actual_minutes=raw_orderbook_actual_minutes,
         )
         source_summary = {
             "raw_market_ticks": _source_summary(connection, "raw_market_ticks"),
@@ -957,12 +1069,14 @@ def summarize(
         "latest_session_observability": {
             "serving_decision_ledger": (day_rows[-1].get("serving_decision_ledger") if day_rows else {}),
             "websocket_reconnects": (day_rows[-1].get("websocket_reconnects") if day_rows else {}),
+            "raw_minute_gaps": latest_raw_gap_summary,
         },
         "assessment": _overall_assessment(
             day_rows,
             latest_intraday_coverage=latest_intraday_coverage,
             latest_decision_lineage=(day_rows[-1].get("serving_decision_ledger") if day_rows else None),
             latest_websocket_reconnects=(day_rows[-1].get("websocket_reconnects") if day_rows else None),
+            latest_raw_gap_summary=latest_raw_gap_summary,
         ),
         "next_actions": [
             "On the next market day, compare actual symbol-minutes, decision-ledger lineage, and reconnect evidence against watchdog/live-runtime status.",
@@ -1042,6 +1156,21 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"- websocket_reconnect_count: `{reconnects.get('count')}`",
             f"- websocket_reconnect_storm_count: `{reconnects.get('storm_count')}`",
             f"- websocket_reconnect_reasons: `{reconnects.get('reasons')}`",
+        ]
+    )
+    raw_gaps = observability.get("raw_minute_gaps") or {}
+    gap_streams = raw_gaps.get("streams") or {}
+    market_gaps = gap_streams.get("raw_market") or {}
+    orderbook_gaps = gap_streams.get("raw_orderbook") or {}
+    lines.extend(
+        [
+            f"- raw_minute_gap_status: `{raw_gaps.get('status')}`",
+            f"- raw_market_common_missing_ranges: `{market_gaps.get('common_missing_ranges')}`",
+            f"- raw_orderbook_common_missing_ranges: `{orderbook_gaps.get('common_missing_ranges')}`",
+            f"- raw_market_missing_symbol_minutes: `{market_gaps.get('total_missing_symbol_minutes')}`",
+            f"- raw_orderbook_missing_symbol_minutes: `{orderbook_gaps.get('total_missing_symbol_minutes')}`",
+            f"- raw_market_missing_by_symbol: `{market_gaps.get('missing_by_symbol')}`",
+            f"- raw_orderbook_missing_by_symbol: `{orderbook_gaps.get('missing_by_symbol')}`",
         ]
     )
 

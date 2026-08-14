@@ -55,6 +55,8 @@
 - 기본 helper, 장후 batch, 장중 종료 force sync 모두 한 실행에서 HTTP 1회만 시도하며 in-call retry는 하지 않는다.
 - 이 저장소의 기본 cooldown은 2시간이다. 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남긴다.
 - cooldown 중에는 broker paper sync가 KIS order-fill 조회를 건너뛰고 `skipped_broker_call=true`, 남은 `retry_after_seconds`를 리포트에 남긴다.
+- 실시간 수집기의 process pause도 `rate_limited` 결과에는 120분을 적용한다.
+- timeout/게이트웨이 routing 같은 일반 예외는 5/10/20/40/60분 지수 백오프로 낮추고, 성공하면 초기화한다. 분봉 확정 경로를 반복 REST timeout으로 막지 않는 것이 우선이다.
 - order-fill이 복구되지 않은 상태에서 `AlignToBroker`나 `SyncInitialCash`를 자동 적용하지 않는다.
 
 권장 절차:
@@ -71,7 +73,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 변경 전 | 장후 batch는 한 실행에서 최대 5회, 기본 helper는 최대 4회까지 같은 order-fill endpoint를 재시도할 수 있었다. |
-| 변경 후 | 모든 운영 경로를 HTTP 1회로 제한하고, 최초 `EGW00201`부터 2시간 cooldown과 남은 초를 명시한다. |
+| 변경 후 | 모든 운영 경로를 HTTP 1회로 제한하고, 최초 `EGW00201`부터 service/runtime 2시간 cooldown을 함께 적용한다. 일반 장중 실패는 최대 60분 지수 백오프로 수집 경로를 보호한다. |
 | 영향 범위 | `app/services/broker_paper.py`, `app/services/broker_paper_sync.py`, `app/services/streaming.py`, 관련 테스트와 장후 reconciliation 절차. |
 | 회귀 위험 | 체결 복구가 최대 2시간 늦어질 수 있다. 대신 rate limit 연쇄와 잘못된 자동 align 위험을 줄인다. |
 

@@ -7,18 +7,18 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-09 22:49 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
+- 기준 시각: 2026-08-14 22:29 KST
+- 장 상태: post-close
+- live runtime: 장후 정상 정지
 - watchdog/dashboard/startup launcher: 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 수익 후보: `0개`
-- Phase 0: 유효일 `10/10`, matched 0일, mismatch 10일이다. 전체 기간 probe 범위는 `2026-06-14~2026-08-07`, mirrored submission 320건/20거래일이다.
-- 첫 전체 기간 read-only 조회가 `EGW00201`에 걸려 `2026-08-10 00:48 KST`까지 cooldown이며, 해소 상태는 `blocked_full_account_history_rate_limited`다.
+- Phase 0: 최근 유효일 `10/10`, matched 0일, mismatch 10일이다. 2026-08-14도 동일 네 종목이 불일치하며, 전체 기간 probe는 `EGW00201`로 pagination 미완결이다.
 - Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
-- runtime 원장: 2026-08-07 decision ledger 3,803행과 active/shadow complete lineage 100%를 확인했다. broker paper status는 현재 1,819건만 SQL 조회하며 기존 원장은 보존한다.
-- 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 19거래일에서 손실만 완화했고 정책 계좌 수익률은 `-34.3196%`다.
+- runtime 원장: 2026-08-14 decision ledger 3,608행, complete lineage 100%다. WebSocket storm 19회와 15:01~15:29 전 종목 market 공백으로 수집은 `needs_attention`이다.
+- 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 policy `-40.3788%`, buy-rescue/hold-rescue도 비용 후 음수다.
+- 비용 구조: h15 중위 절대변동 0.371216%는 2배 비용 0.58% 미만이고 h60 0.695410%는 초과하지만, h60 실행 replay는 미검증·동결 상태다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -37,13 +37,25 @@
 
 ## 최신 검증
 
-- 전체 unittest: 2026-08-09 `539 tests OK`
-- 전체 unittest: `551 tests OK`; 저장소 구조 감사 errors 0, 기존 대형 모듈 warnings 2
-- 실제 KIS data-quality 재생성: 2026-08-09 20:49 KST, latest trade date 2026-08-07, assessment `watch`
-- decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
-- WebSocket: reconnect 29, storm 0; raw/feature coverage와 함께 연결 주의로 판정
-- dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 휴장 정상 정지
+- targeted unittest `16 tests OK`, full unittest `553 tests OK`, repository structure audit errors 0/warnings 2
+- 실제 KIS data-quality 재생성: 2026-08-14 22:24 KST, latest trade date 2026-08-14, assessment `needs_attention`
+- decision ledger: 3,608행, complete lineage 3,608행, ratio 1.0
+- WebSocket: reconnect 47, storm 19; market 공통 공백 15:01~15:29, orderbook 공통 공백 15:01~15:24
+- data-quality 실측 실행시간: 전체 minute group 439초, 최근 10거래일 제한 후 126초
+- 최신 비용/horizon 진단: 2026-08-14 22:06 KST, 비용 0.29%, h15 median_abs 0.371216%, h60 0.695410%
+- dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-14] FULL CHECK 수집 보호와 수익성 재검수
+
+- post-close에서 runtime/watchdog/dashboard/startup launcher, 26GB SQLite/날짜별 JSONL, Phase 0, 학습·label, challenger, rescue/avoid, 비용/horizon 근거를 다시 검수했다. 현재 통과한 수익 후보는 0개다.
+- 8월 14일 raw JSONL은 market 10종목 공통 `15:01~15:29`, orderbook 공통 `15:01~15:24` 공백을 보였고 WebSocket reconnect 47/storm 19와 일치했다. decision ledger 3,608행의 lineage는 100%지만 coverage 92.5128%라 수집 성공으로 덮지 않는다.
+- 같은 날 broker paper sync 일반 예외가 38회 발생했다. sync가 분봉 확정 경로의 동기 호출인 점을 고려해 일반 실패는 5/10/20/40/60분 지수 백오프, rate-limit은 120분 process pause로 보강했다. 주문 상태는 pending 보존하며 주문/취소·정렬은 수행하지 않았다.
+- data-quality 리포트에 공통/종목별 raw 누락 범위를 추가하고 WebSocket 이벤트와 별도 증거로 분리했다. 비싼 raw minute grouping은 최근 요청 거래일로 제한해 동일 판정 기준 실행시간을 439초에서 126초로 줄였다.
+- 비용/horizon 진단을 8월 14일까지 갱신했다. h60은 2배 비용 기준을 넘지만 신호·체결·보유 replay와 E1/E5 관문이 없어 `research_candidate_only`에도 못 미치는 연구 우선순위다. h15/LightGBM/buy-avoid/buy-rescue/hold-rescue는 모두 비용 후 절대 양수 후보가 아니다.
+- Phase 0은 최근 10거래일 matched 0/mismatch 10과 네 종목 불일치를 유지한다. 최신 trace만 로컬에서 갱신했고 broker endpoint, 자동 align, clean baseline은 호출하지 않았다.
+- targeted unittest 16건과 전체 unittest 553건을 통과했고, 저장소 구조 감사는 errors 0/warnings 2였다. 경고는 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`다.
+- 보호 범위인 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, active model/gate/threshold, NAS 백업은 변경하지 않았다.
 
 ## [2026-08-09] Phase 0 전체 기간 계좌 활동 probe
 

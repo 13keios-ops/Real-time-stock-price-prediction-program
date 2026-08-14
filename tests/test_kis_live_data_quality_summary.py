@@ -7,6 +7,8 @@ from pathlib import Path
 
 from scripts.summarize_kis_live_data_quality import (
     _decision_lineage_summary,
+    _latest_raw_gap_summary,
+    _raw_minute_index,
     _websocket_reconnect_summary,
     summarize,
 )
@@ -155,6 +157,46 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
             any("coverage is below 80%" in note for note in result["assessment"]["notes"])
         )
 
+    def test_raw_minute_index_limits_expensive_grouping_to_selected_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database_path = Path(tmp) / "test.db"
+            connection = sqlite3.connect(database_path)
+            connection.row_factory = sqlite3.Row
+            connection.execute(
+                """
+                CREATE TABLE raw_market_ticks (
+                    symbol TEXT NOT NULL,
+                    event_time TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    volume INTEGER NOT NULL,
+                    source TEXT NOT NULL
+                )
+                """
+            )
+            connection.executemany(
+                "INSERT INTO raw_market_ticks VALUES (?, ?, ?, ?, ?)",
+                [
+                    ("005930", "2026-05-07T09:00:01+09:00", 70000, 10, "kis-ws"),
+                    ("005930", "2026-05-08T09:00:01+09:00", 70100, 12, "kis-ws"),
+                    ("005930", "2026-05-08T09:01:01+09:00", 70110, 11, "kis-ws"),
+                ],
+            )
+            connection.commit()
+            day_stats, symbol_minutes, actual_minutes = _raw_minute_index(
+                connection,
+                "raw_market_ticks",
+                ["2026-05-08"],
+            )
+            connection.close()
+
+        self.assertEqual(list(day_stats), ["2026-05-08"])
+        self.assertEqual(day_stats["2026-05-08"]["symbol_minutes"], 2)
+        self.assertEqual(symbol_minutes["2026-05-08"]["005930"], 2)
+        self.assertEqual(
+            actual_minutes["2026-05-08"]["005930"],
+            {"2026-05-08T09:00", "2026-05-08T09:01"},
+        )
+
 
 class KisLiveSessionObservabilityTests(unittest.TestCase):
     def test_decision_lineage_and_reconnect_summary_are_date_scoped(self) -> None:
@@ -235,6 +277,51 @@ class KisLiveSessionObservabilityTests(unittest.TestCase):
         self.assertEqual(reconnects["status"], "observed_no_storm")
         self.assertEqual(reconnects["count"], 1)
         self.assertEqual(reconnects["max_attempt"], 1)
+
+    def test_raw_gap_summary_reports_common_watchlist_gap_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_dir = root / "config"
+            config_dir.mkdir(parents=True)
+            (config_dir / "watchlist.txt").write_text("005930\n000660\n", encoding="utf-8")
+            (config_dir / "market_calendar.toml").write_text(
+                "[market]\n"
+                'timezone = "Asia/Seoul"\n'
+                'session_open = "09:00"\n'
+                'session_close = "09:02"\n',
+                encoding="utf-8",
+            )
+            market_minutes = {
+                "2026-08-07": {
+                    "005930": {"2026-08-07T09:00", "2026-08-07T09:02"},
+                    "000660": {"2026-08-07T09:00", "2026-08-07T09:02"},
+                }
+            }
+            orderbook_minutes = {
+                "2026-08-07": {
+                    "005930": {
+                        "2026-08-07T09:00",
+                        "2026-08-07T09:01",
+                        "2026-08-07T09:02",
+                    },
+                    "000660": {
+                        "2026-08-07T09:00",
+                        "2026-08-07T09:01",
+                        "2026-08-07T09:02",
+                    },
+                }
+            }
+            gaps = _latest_raw_gap_summary(
+                root=root,
+                trade_date="2026-08-07",
+                raw_market_actual_minutes=market_minutes,
+                raw_orderbook_actual_minutes=orderbook_minutes,
+            )
+
+        self.assertEqual(gaps["status"], "gaps_detected")
+        self.assertEqual(gaps["streams"]["raw_market"]["common_missing_ranges"], ["09:01"])
+        self.assertEqual(gaps["streams"]["raw_market"]["total_missing_symbol_minutes"], 2)
+        self.assertEqual(gaps["streams"]["raw_orderbook"]["total_missing_symbol_minutes"], 0)
 
 
 if __name__ == "__main__":

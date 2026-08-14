@@ -388,8 +388,9 @@ class StreamingPipelineTests(unittest.TestCase):
             processor._run_broker_sync(bar_time=first_time.replace(minute=20))
             processor._run_broker_sync(bar_time=first_time.replace(minute=21), force=True)
 
-        self.assertEqual(fake_sync.calls, 3)
-        self.assertEqual(fake_sync.retry_delays_seen, [(), (), ()])
+        self.assertEqual(fake_sync.calls, 2)
+        self.assertEqual(fake_sync.retry_delays_seen, [(), ()])
+        self.assertEqual(processor._broker_sync_consecutive_failures, 0)
 
     def test_broker_sync_exception_keeps_runtime_alive_and_enters_cooldown(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -406,26 +407,46 @@ class StreamingPipelineTests(unittest.TestCase):
             "KIS_PRODUCT_CODE_PAPER": "01",
         }
 
-        class FailingBrokerSync:
+        class FlakyBrokerSync:
             def __init__(self) -> None:
                 self.calls = 0
 
-            def sync_recent_orders(self, **kwargs):
+            def sync_recent_orders(self, **kwargs) -> BrokerPaperSyncResult:
                 self.calls += 1
-                raise TimeoutError("broker sync timed out")
+                if self.calls <= 2:
+                    raise TimeoutError("broker sync timed out")
+                return BrokerPaperSyncResult(
+                    ok=True,
+                    synced_at="2026-04-13T10:30:00+09:00",
+                    status="ok",
+                    total_submissions=0,
+                    matched_orders=0,
+                    updated_orders=0,
+                    applied_fill_events=0,
+                    applied_fill_qty=0,
+                    open_order_count=0,
+                    final_order_count=0,
+                    pending_symbols=[],
+                    report_markdown_path=runtime_root / "sync.md",
+                    report_json_path=runtime_root / "sync.json",
+                )
 
         with patch.dict(os.environ, env, clear=False):
             settings = load_settings(project_root=root)
             processor = OnlinePipelineProcessor(settings)
-            fake_sync = FailingBrokerSync()
+            fake_sync = FlakyBrokerSync()
             processor.broker_paper_sync = fake_sync
 
             first_time = datetime.fromisoformat("2026-04-13T10:15:30+09:00")
             processor._run_broker_sync(bar_time=first_time)
             processor._run_broker_sync(bar_time=first_time.replace(minute=16))
+            processor._run_broker_sync(bar_time=first_time.replace(minute=20))
+            processor._run_broker_sync(bar_time=first_time.replace(minute=25))
+            processor._run_broker_sync(bar_time=first_time.replace(minute=30))
 
-        self.assertEqual(fake_sync.calls, 1)
-        self.assertIsNotNone(processor._broker_sync_pause_until)
+        self.assertEqual(fake_sync.calls, 3)
+        self.assertIsNone(processor._broker_sync_pause_until)
+        self.assertEqual(processor._broker_sync_consecutive_failures, 0)
 
     def test_pending_broker_order_blocks_repeated_close_submission(self) -> None:
         root = Path(__file__).resolve().parents[1]

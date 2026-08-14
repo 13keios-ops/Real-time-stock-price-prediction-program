@@ -2,9 +2,9 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-09 20:50 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
+- 확인 시각: 2026-08-14 22:29 KST
+- 장 상태: post-close
+- live runtime: 장후 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
 - dashboard: `http://127.0.0.1:8765`, server/API 정상
 - Windows startup launcher: 설치 및 정상
@@ -20,13 +20,14 @@
 
 ## 데이터와 학습
 
-- 최신 KIS 거래일: 2026-08-07
-- 2026-08-07 장후 ML: `status=ok`, `quick-live-train`, 16:28 KST 완료
-- 2026-08-07 label refresh: `status=ok`, 16:55 KST 완료
-- 최신 challenger: active `baseline-h15-v1`, `keep_active`, promotion 없음. top active-model 평가는 31거래의 작은 표본이며 3분류 정확도 `0.267826`, buy hit `0.580645`, 겹치는 거래 수익률 합 `+20.458524%p`이므로 포트폴리오 수익 증거로 쓰지 않는다.
-- 2026-08-07 raw market/orderbook symbol-minute는 `3,815/4,059`, 분봉·feature는 각각 `3,803`이다. 닫힌 분 기준 분봉·feature coverage는 `97.5128%`, feature/bar ratio는 `100%`다.
-- 2026-08-07 serving decision ledger는 `3,803`행이며 active lineage `3,803/3,803`, shadow lineage `7,606/7,606`, 전체 lineage completion `100%`다. 판단 단계는 signal blocked 2,266, position/pending constraint 1,261, allocator zero target 276건이다.
-- WebSocket 재연결은 29회로, no-close-frame 28회와 no-frame timeout 1회다. reconnect storm은 0건이고 데이터·계보 손실로 번지지 않았으므로 수집은 정상, 연결 안정성은 주의로 분리한다.
+- 최신 KIS 거래일: 2026-08-14
+- 2026-08-14 장후 ML: `status=ok`, `quick-live-train`, 16:32 KST 완료
+- 2026-08-14 label refresh: `status=ok`, 17:01 KST 완료
+- 최신 challenger: active `baseline-h15-v1`, `keep_active`, promotion 없음. top LightGBM은 거래 2건의 작은 표본이며 3분류 정확도 `0.4812`, buy hit `0.5000`, 겹치는 가상 방향 순수익 합 `+1.5325%p`, 매수 순수익 합 `+0.4283%p`라 수익 후보로 쓰지 않는다.
+- 2026-08-14 raw market/orderbook symbol-minute는 `3,622/3,821`, 분봉·feature는 각각 `3,608`이다. 닫힌 분 기준 분봉·feature coverage는 `92.5128%`, feature/bar ratio는 `100%`다.
+- 2026-08-14 serving decision ledger는 `3,608`행이며 complete lineage `3,608/3,608`, ratio `100%`다. 판단 단계는 signal blocked 2,037, position/pending constraint 1,180, allocator zero target 391건이다.
+- WebSocket 재연결은 47회, storm 19회다. 10종목 공통 market 공백은 `15:01~15:29`, orderbook 공백은 `15:01~15:24`이며 수집 판정은 `needs_attention`이다.
+- 같은 날 분봉 확정 경로의 broker paper sync 실패는 38회였다. 일반 예외는 5/10/20/40/60분 지수 백오프, `EGW00201` 결과는 120분 process pause를 적용해 WebSocket 처리 여유를 보호한다.
 - live runtime 상태 출력은 다음 거래일부터 현재 RSS와 peak RSS를 함께 제공한다.
 - 호가 무결성: bid 또는 ask가 0 이하이거나 crossed인 호가는 raw 감사 원장에는 보존하지만 신호 상태, feature, 연구 입력에는 반영하지 않고 fail-closed로 차단한다.
 - feature JSONL 보조본: 2026-08-02 SQLite 정본 6,603,588 입력과 11,936,383 라벨로 재생성해 54GB에서 3.6GB로 정리했다. 이후 오프라인 재구축은 SQLite만 upsert해 JSONL 이력을 중복 기록하지 않는다.
@@ -36,10 +37,11 @@
 
 ## Rescue/Avoid
 
-- buy-avoid: 완전 lineage 19거래일, `joined_rows=28,434`. threshold `0.40`은 baseline `-36.4241%`에서 `-34.3196%`로 손실을 `+2.1045%p` 줄였지만 절대 수익, 평균 거래 기대값, 일별 일관성이 모두 음수여서 `rejected_no_absolute_portfolio_profit`이다.
-- buy-rescue: serving no-trade decision ledger는 실제로 존재한다. 71,369행 중 rescue eligible 35,573행이며 LightGBM 최선은 6건 `-4.153997%p`, linear-score 최선은 269건 `-90.797762%p`다.
+- buy-avoid: `2026-07-13~2026-08-14`, joined 68,597행/완전 lineage 35,590행이다. threshold `0.40` portfolio replay는 baseline `-41.9823%`에서 `-40.3788%`로 손실을 `+1.6036%p` 줄였지만 절대 수익이 음수라 `rejected_no_absolute_portfolio_profit`이다.
+- buy-rescue: serving no-trade decision ledger는 실제로 존재한다. rescue eligible 45,585행이며 LightGBM 최선 6건 `-4.153997%p`, linear-score 최선 294건 `-100.308821%p`로 모두 음수다.
 - hold-rescue: paper-only replay는 eligible 161 lot 중 threshold 0.40을 37 lot에 적용했을 때 `delta_cash_sum=-26,387원`으로 후보가 아니다.
 - meta-policy: `blocked_evidence`; primary candidate는 없다.
+- 비용 구조: 현행 `krx-common-stock-2026-v1` 왕복 `0.29%`, 2배 여유 `0.58%`다. KIS live h15 중위 절대변동 `0.371216%`는 기준 미달, h60 `0.695410%`는 기준 초과지만 실행·보유 replay 미검증이라 연구 우선순위일 뿐 후보가 아니다.
 
 세 항목은 관측/진단용이며 주문 정책에 반영되지 않는다.
 
@@ -50,8 +52,8 @@
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 최신 trace는 KIS 최근 3일 조회 0행과 보관된 320건 historical mirrored submission을 전체 계좌 활동과 분리한다.
 - 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-07`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
-- 2026-08-09 첫 전체 기간 조회는 주문·취소 0회 상태에서 `EGW00201`로 제한됐고 `2026-08-10 00:48 KST`까지 2시간 cooldown을 기록했다. 즉시 재시도하지 않았다.
-- Phase 0 해소 상태: `blocked_full_account_history_rate_limited`. 자동 align은 금지하며, cooldown 뒤 전체 기간 조회 1회가 완결돼야 clean baseline 필요 여부를 판단한다.
+- 2026-08-10 전체 기간 조회 시도도 주문·취소 0회 상태에서 `EGW00201`로 제한됐고 pagination은 미완결이다. 같은 endpoint를 반복 호출하지 않았다.
+- Phase 0 해소 상태: `blocked_full_account_history_rate_limited`. 자동 align은 금지하며, 계좌 소유자가 전체 기간 sanitized 조회를 다시 명시 승인하거나 clean baseline을 승인하기 전에는 차단을 유지한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -67,18 +69,18 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0 전체 기간 sanitized 계좌 활동 probe를 cooldown 뒤 1회 완결하고, 결과가 실제 이력 미제공일 때만 계좌 소유자 승인 clean baseline으로 진행
-2. KIS WebSocket no-close-frame 재연결 29회 수준의 반복 원인과 실제 stable-frame 복구 증거
+1. Phase 0 전체 기간 sanitized 계좌 활동 완결 증거 또는 계좌 소유자 승인 clean baseline
+2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거
 5. 당일 fresh market status
 6. 유효기간이 있는 kill switch OFF 상태
-7. 25GB 운영 DB의 장기 보관과 장후 전체 품질 집계 비용
+7. 26GB 운영 DB의 장기 보관. data-quality 최근 10일 집계는 전체 분 그룹화를 제거해 `439초 -> 126초`로 줄였지만 추가 인덱스/요약 테이블 여부는 계속 본다.
 
 ## 다음 일정
 
-- 다음 거래일 장전: runtime/watchdog/dashboard/startup launcher와 Phase 1b 네트워크 0회 preflight를 확인한다. live runtime 실행 뒤 RSS/peak RSS를 함께 본다.
-- 다음 거래일 장후: raw/feature coverage, decision ledger 증가와 lineage 100%, WebSocket reconnect/storm을 같은 리포트에서 확인한다. 당일 유효 Phase 0 기록이 없고 runtime이 정지했을 때만 reconciliation을 1회 실행한다.
+- 다음 거래일 장전: runtime/watchdog/dashboard/startup launcher와 Phase 1b 네트워크 0회 preflight를 확인한다. live runtime 실행 뒤 RSS/peak RSS와 broker sync backoff 로그를 함께 본다.
+- 다음 거래일 장후: raw/feature coverage, 공통 누락 구간, decision ledger 증가와 lineage 100%, WebSocket reconnect/storm을 같은 리포트에서 확인한다. 당일 유효 Phase 0 기록이 없고 runtime이 정지했을 때만 reconciliation을 1회 실행한다.
 - 수익 연구: E1/E5 유효 결과 전 신규 threshold 탐색은 하지 않는다. 이후에도 실현 p75를 entry 필터로 쓰지 않고, entry 시점 정보만 쓰는 저빈도 비용여유 후보, h60 별도 트랙, entry/exit 분리 가설을 동일 portfolio replay와 random control로만 비교한다.
 
 ## 기준 문서
