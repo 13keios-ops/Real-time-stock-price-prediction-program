@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-14 22:29 KST
+- 확인 시각: 2026-08-14 23:30 KST
 - 장 상태: post-close
 - live runtime: 장후 정상 정지
 - runtime watchdog: 실행 중, heartbeat fresh
@@ -51,9 +51,10 @@
 - Phase 0 matched/mismatch: `0일/10일`
 - mismatch 종목: `035420`, `086520`, `105560`, `247540`
 - 최신 trace는 KIS 최근 3일 조회 0행과 보관된 320건 historical mirrored submission을 전체 계좌 활동과 분리한다.
-- 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-07`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
-- 2026-08-10 전체 기간 조회 시도도 주문·취소 0회 상태에서 `EGW00201`로 제한됐고 pagination은 미완결이다. 같은 endpoint를 반복 호출하지 않았다.
-- Phase 0 해소 상태: `blocked_full_account_history_rate_limited`. 자동 align은 금지하며, 계좌 소유자가 전체 기간 sanitized 조회를 다시 명시 승인하거나 clean baseline을 승인하기 전에는 차단을 유지한다.
+- 전체 기간 read-only probe 범위는 alignment `2026-06-14`부터 최신 account snapshot `2026-08-14`까지이며, 로컬 mirrored submission 320건/20거래일을 포함한다.
+- 2026-08-14 계좌 소유자 명시 승인 조회 1회에서 sanitized 활동 150행/14거래일을 확보했다. 10페이지 상한에 도달해 `pagination_complete=false`이며 주문·취소는 0회다.
+- 확보된 150행은 모두 로컬 submission과 연결됐지만 169개 로컬 submission이 아직 조회 범위에 나타나지 않았고 ambiguous fallback key 1개가 있다. 미완결 증거로 position 원인을 확정하지 않는다.
+- Phase 0 해소 상태: `blocked_requires_complete_full_account_activity_evidence`. 자동 align과 clean baseline은 금지하며, 다음 네트워크 실행은 계좌 소유자의 새 명시 승인 뒤 충분한 page cap을 둔 완결 조회 1회로 제한한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: live bounded read-only 관측과 전용 readiness 1회 통과
 - Phase 2/3: 미시작
@@ -69,7 +70,7 @@ Phase 1b 통과는 조회 연결 준비이며 수익성 통과나 주문 승인�
 
 ## 현재 blocker
 
-1. Phase 0 전체 기간 sanitized 계좌 활동 완결 증거 또는 계좌 소유자 승인 clean baseline
+1. Phase 0 전체 기간 sanitized 계좌 활동 완결 증거. 10페이지/150행 결과는 미완결이며 새 명시 승인 전 재호출하지 않음
 2. 2026-08-14 WebSocket storm 19회와 `15:01~15:29` 전 종목 market 공백의 재발 여부
 3. 비용 후 양수 전략과 비중복 기간 재현성
 4. Phase 2/3용 실제 WebSocket recovery 증거

@@ -113,14 +113,14 @@ python3 scripts/probe_kis_paper_account_activity.py
 계좌 소유자의 해당 작업 명시 승인, 장외, live runtime 정지를 모두 확인했을 때만 `--execute`를 붙여 1회 실행한다.
 
 - 조회 범위는 latest alignment marker부터 latest account snapshot까지다.
-- 페이지 끝을 확인하지 못하면 `blocked_incomplete_pagination`으로 남기며 정합 근거로 쓰지 않는다.
+- 페이지 끝을 확인하지 못하면 `blocked_incomplete_pagination`으로 남기며 정합 근거로 쓰지 않는다. 기본 page cap에 도달하면 같은 작업에서 재실행하지 않고, 다음 실행은 계좌 소유자의 새 명시 승인 뒤 예상 행 수를 덮는 충분한 `--max-pages`를 지정해 정확히 1회 수행한다.
 - 보고서에는 계좌번호, 주문번호, raw response를 남기지 않는다.
 - 로컬 submission에 없는 broker 활동, 로컬 원장 divergence, account snapshot과 전체 활동 divergence를 분리한다.
 - `EGW00201`이면 2시간 cooldown 동안 어떤 dry-run도 네트워크 실행으로 승격하지 않는다.
 - 완료 결과는 `latest-paper-account-activity.json`, 제한/차단 시도는 `latest-paper-account-activity-attempt.json`에 분리한다.
 - 어떤 결과도 자동 align, `SyncInitialCash`, 주문 정책 변경을 허용하지 않는다.
 
-2026-08-09 확정 범위는 `2026-06-14~2026-08-07`, 로컬 mirrored submission 320건/20거래일이다. 첫 실행은 `EGW00201`로 제한돼 `2026-08-10 00:48 KST`까지 cooldown이며 즉시 재시도하지 않았다.
+2026-08-14 승인 조회 범위는 `2026-06-14~2026-08-14`, 로컬 mirrored submission 320건/20거래일이다. 150행/14거래일을 확보했지만 10페이지 상한으로 `pagination_complete=false`다. 주문·취소는 0회이며 같은 작업에서 재실행하지 않았다.
 
 ### 3.2. read-only probe 실패 분류
 

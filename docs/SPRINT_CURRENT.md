@@ -48,7 +48,8 @@ Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
 - [x] Phase 0 full-period read-only probe와 페이지 완결성/외부 활동/원장 차이 fail-closed 판정 구현
 - [x] data-quality에 watchlist 공통 raw 누락 구간과 종목별 누락 범위를 추가하고 최근 10일 분 인덱스만 집계하도록 최적화
 - [x] 장중 broker paper sync 일반 실패에 지수 백오프, `EGW00201`에 120분 process pause 적용
-- [ ] `EGW00201` cooldown 뒤 full-period sanitized account activity 1회 완결; 이력 미제공일 때만 계좌 소유자 승인 clean baseline 선택
+- [x] 2026-08-14 명시 승인 full-period 조회 1회: 150행/14거래일 확보, 10페이지 상한으로 미완결, 주문·취소 0회
+- [ ] 계좌 소유자 새 승인 뒤 충분한 page cap의 full-period 조회 1회 완결; 완결 증거 전 clean baseline·자동 align 금지
 - [x] E1/E5 wrapper 명시 1회 실행: `snapshot_failed/research_snapshot_timeout`, 주문·네트워크 0회, 재실행 없음
 - [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 정리를 token 단위로 보강
 - [ ] E1/E5 유효 결과 확보
