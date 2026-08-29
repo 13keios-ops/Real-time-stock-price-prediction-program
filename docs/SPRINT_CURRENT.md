@@ -2,86 +2,86 @@
 
 ## 이름
 
-Phase 1 수익성 증거 원장 축적과 사전등록 연구 실행 안정화
+Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 ## 기간
 
 - 시작: `2026-07-13`
-- E1/E5 최초 시도: `2026-07-20` 장후, snapshot I/O timeout
-- E1/E5 명시 재시도: `2026-08-09` 장외, snapshot I/O timeout
-- E1/E5 승인 완결 실행: `2026-08-15` 장외, 26GB snapshot `quick_check=ok`, 라운드 `status=ok`
+- E1/E5 완결: `2026-08-15`
+- E7 독립 미래 구간 시작: `2026-08-31 09:15 KST`
 - 후속 checkpoint: `10/20/30/60거래일`
 
 일주일은 최종 승격 기간이 아니라 첫 조기 진단 구간이다.
 
 ## 목표
 
-1. 정규장 예측부터 실제 결과까지 완전한 decision lineage를 축적한다.
-2. buy-rescue의 실제 no-trade 모집단을 관찰한다.
-3. Phase 0 paper/KIS 정합성 증거 범위를 정확히 분리하고 clean baseline 이후 10개 유효일을 축적한다.
-4. E1/E5 고정 라운드를 대용량 DB snapshot에서도 완결하고 사전 기준으로 판정한다.
-5. 실패 결과를 threshold로 구제하지 않고 다음 orderbook×regime/source/horizon 가설을 사전등록한다.
+1. 정규장 raw부터 실제 판단까지 완전한 decision lineage를 축적한다.
+2. Phase 0 clean baseline 이후 10개 유효 거래일의 paper/KIS 정합성을 검증한다.
+3. 탐색적으로 양수인 LightGBM buy-rescue를 독립 미래 구간의 실제 portfolio와 random control로 검증한다.
+4. 실패 결과를 threshold로 구제하지 않고 h60 또는 entry/exit 분리 가설로 이동할 기준을 고정한다.
+5. active model, gate, 주문 정책은 검증 통과 전까지 동결한다.
 
 ## 현재 기준선
 
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
-- 현재 수익 후보: `0개`
+- 현재 통과한 수익 후보: `0개`
+- 수익화 판정: `no_profitable_candidate`
 - 자동 승격: 없음
-- Phase 0 과거 기준선: 유효일 `10/10`, matched 0일, mismatch 10일로 미통과 이력 보존
-- Phase 0 새 기준선: 2026-08-15 clean baseline 생성 및 즉시 정합 완료, 새 유효일 `0/10`
+- Phase 0 과거 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
+- Phase 0 현재 epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
-- Phase 1b: 실전계좌 bounded read-only 관측과 전용 readiness 1회 통과
+- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-08-14 decision ledger: 3,608행, complete lineage 3,608행, ratio 1.0
-- 2026-08-14 WebSocket: reconnect 47, storm 19, closed feature coverage 92.5128%, 전 종목 market 공백 15:01~15:29
+- 2026-08-28 decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
+- 2026-08-28 data quality: raw market session coverage 97.5959%, feature closed coverage 97.4872%, reconnect 28, storm 0, assessment `watch`
+- 2026-08-28 challenger: LightGBM 거래 1건, net `-0.757017%`; active 유지
+- E7 탐색 기준선: LightGBM threshold 0.55, 76행/9거래일, 신호행 합 `+13.073707%p`; portfolio 수익 증거 아님
 
 ## 활성 체크리스트
 
-- [x] 정규장 `serving_decision_ledger` 축적과 완전 lineage 확인
-- [x] prediction의 `training_run_id`, `artifact_id`, `artifact_sha256` lineage 확인
-- [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결 확인
-- [x] 비정상 호가 fail-closed, feature JSONL 정본 재생성, broker status 중복 적재 차단
-- [x] buy-rescue 실제 no-trade 모집단 확보와 비용 후 음수 판정
-- [x] buy-avoid 19거래일 순방향 lineage 교정과 절대수익 음수 판정
-- [x] 장후 data-quality에 거래일별 decision lineage와 WebSocket reconnect/storm 추가
-- [x] live runtime 상태에 current/peak RSS 추가
-- [x] Phase 0 trace에서 bounded recent lookup과 historical mirrored-order evidence를 분리하고 자동 align을 금지
-- [x] Phase 0 full-period read-only probe와 페이지 완결성/외부 활동/원장 차이 fail-closed 판정 구현
-- [x] data-quality에 watchlist 공통 raw 누락 구간과 종목별 누락 범위를 추가하고 최근 10일 분 인덱스만 집계하도록 최적화
-- [x] 장중 broker paper sync 일반 실패에 지수 백오프, `EGW00201`에 120분 process pause 적용
-- [x] 2026-08-14 기본 10페이지 조회: 150행/14거래일 확보, page cap으로 미완결, 주문·취소 0회
-- [x] 새 명시 승인 30페이지 조회: 22페이지/329행/20거래일, pagination 완결, external/unlinked broker 활동 9행으로 원인 확정
-- [x] 계좌 소유자 승인 KIS snapshot 기준 clean baseline 생성; mismatch/cash/total asset gap 0 확인
-- [ ] 새 기준선 이후 10개 유효 거래일 모두 정합 확인; 자동 align 금지
-- [x] 2026-08-15 첫 승인 E1/E5 wrapper 1회 실행: 180초 상한으로 안전 종료, 주문·네트워크 0회
-- [x] 새 명시 승인으로 `--snapshot-timeout-seconds 1800 --execute` 정확히 1회 실행: 26GB snapshot `quick_check=ok`, 830.5초, 라운드 `status=ok`
-- [x] 8GiB 이상 DB의 WSL 9P snapshot 기본 경로를 repo-local D드라이브 물리 저장소로 변경하고 partial 및 SQLite sidecar 정리를 보강
-- [x] E1/E5 유효 결과 확보: E1 후보 `0/3` 재현, E5 second interval 미재현
-- [x] 현재 비용 `0.29%`, random control, 비중복 구간 기준으로 기존 가설 기각
-- [x] cowork 검토용 `work_ver_35` 결과 전달 작성
-- [ ] 실패 결과 뒤 orderbook×regime/시간대/변동성/source/horizon 가설 새 사전등록
+- [x] 정규장 `serving_decision_ledger`와 prediction artifact lineage 축적
+- [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결
+- [x] 비정상 호가 fail-closed와 broker 상태 snapshot 중복 적재 차단
+- [x] data-quality에 coverage, complete lineage, reconnect/storm, 공통 gap 보고
+- [x] `15:20~15:29 KST` 예상 종가 동시호가 market gap을 unexpected gap과 분리
+- [x] reconnect가 있어도 storm 0·coverage 95% 이상·lineage 100%이면 수집과 연결 주의를 분리
+- [x] Phase 0 full-period account activity 22페이지/329행과 pagination 완결 확보
+- [x] broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
+- [x] Phase 0 history를 clean baseline 이전/이후 epoch로 분리
+- [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
+- [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
+- [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단
+- [x] buy-avoid의 절대 portfolio 손실을 근거로 기각 유지
+- [x] E7 LightGBM buy-rescue 미래 검증을 threshold 0.55와 고정 기준으로 사전등록
+- [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
+- [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
+- [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
+- [ ] fresh Phase 1b read-only readiness와 실제 WebSocket recovery evidence 확보
+
+## E7 통과 기준
+
+- 현행 비용 0.29%와 2배 비용 0.58%에서 portfolio return과 평균 거래 기대값이 모두 양수
+- random control 상위 5% 초과
+- 비음수 거래일 비율 2/3 이상
+- 한 종목 또는 한 거래일의 총이익 기여가 50% 이하
+- lineage 100%, 10거래일, 100 episode, 5종목 이상
+- 서로 겹치지 않는 미래 평가구간 두 개에서 재현
+
+최소 표본 미달은 `observe_more`, 기준 실패는 `rejected`, 두 구간 통과만 `research_candidate`다.
 
 ## 동결 범위
 
-E1/E5 실패 뒤 새 가설 사전등록과 Phase 0 새 기준선 10거래일 정합 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
+Phase 0 현재 epoch 10거래일 정합과 E7 미래 검증 전에는 신규 threshold/EV tuning, 종목별·h60 주문 정책, active model/gate 변경, rescue/avoid 주문 반영, 실전 주문/취소를 하지 않는다.
 
-운영 장애, 데이터 lineage 누락, snapshot 원자성, 관측 리포트 오류를 고치는 작업은 동결 대상이 아니다.
-
-## 완료 조건
-
-- 각 거래일 raw→분봉→feature→decision ledger와 complete lineage가 같이 보고된다.
-- WebSocket reconnect와 storm이 coverage와 함께 판정된다.
-- Phase 0 clean baseline 이후 새 기준선의 10개 유효 거래일이 모두 정합이다.
-- E1 후보 3건 재현성과 E5 역선별 부호가 사전 기준으로 판정된다.
-- 결과와 무관하게 주문 정책과 active model이 자동 변경되지 않는다.
-- 다음 연구를 계속할지 보류할지 숫자 기준으로 문서화된다.
+운영 장애, 데이터 lineage 누락, 관측 리포트 오류를 고치는 작업은 동결 대상이 아니다.
 
 ## 다음 분기
 
-- E1/E5 통과: entry 시점 정보만 사용하는 h15 저빈도 비용여유 후보와 h60을 동일 초기 현금·체결·비용·보유 제약의 portfolio replay와 비중복 2구간에서 비교한다.
-- E1/E5 실패: threshold 반복 탐색을 멈추고 orderbook×regime, 시간대, 변동성, source, horizon 가설을 새로 사전등록한다.
-- 어느 분기든 entry와 exit 모델은 분리 평가하고, 실현 미래 변동폭을 entry 필터로 사용하지 않는다.
+- E7 두 구간 통과: 운영자/cowork 검토 뒤에도 바로 승격하지 않고 paper canary 설계만 검토한다.
+- E7 표본 부족: 기준을 바꾸지 않고 관측을 연장한다.
+- E7 세 번 고정 평가 실패: threshold 탐색을 중단하고 h60 또는 entry/exit 분리 가설을 새로 사전등록한다.
+- 어느 분기든 실현 미래 변동폭을 entry 필터로 사용하지 않는다.
 
 ## 과거 스프린트
 

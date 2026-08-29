@@ -153,13 +153,45 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 
 관련 문서/코드 경로: `docs/Execution-Plan.md`, `docs/Buy-Avoid-Random-Control-Methodology.md`, `app/services/portfolio_replay.py`
 
+## 6-1. E7 LightGBM buy-rescue 미래 검증 사전등록
+
+### 연구 질문
+
+2026-08-28까지의 serving no-trade decision ledger에서 탐색적으로 양수였던 LightGBM buy-rescue가, 사후 선택 효과가 아닌 미래의 실행 가능한 비용 후 알파인가를 검증한다. 현재 관측은 threshold `0.55`에서 76건, 9거래일, 누적 신호행 순손익 `+13.073707%p`, 평균 `+0.172022%p`, precision `0.578947`이다. 이 값은 겹치는 신호행의 합이고 실제 계좌 수익률이 아니므로 `research_lead`로만 둔다.
+
+### 고정 입력과 구간
+
+- 모델은 `lightgbm-h15-v1`, score는 entry 시점의 `probability_up`, threshold는 `0.55`로 고정한다.
+- 모집단은 baseline이 매수를 허용하지 않았고, 완전한 artifact lineage가 있으며, 정규장 decision episode로 묶을 수 있는 serving ledger다.
+- 독립 미래 구간은 `2026-08-31 09:15 KST` 이후로 시작한다. 이 날짜 이전 행은 설계·기준선 설명에만 쓰고 통과 판정에 재사용하지 않는다.
+- 현행 비용 모델 `krx-common-stock-2026-v1`, 왕복 `0.29%`를 고정하고 2배 비용 `0.58%` 민감도도 함께 계산한다.
+- active model, gate, threshold 설정, 주문 정책은 바꾸지 않으며 paper-only 오프라인 재생으로만 평가한다.
+
+### 필수 평가
+
+- 같은 초기 현금, 최대 보유 수, 현금·보유·pending 제약, 다음 실행 가능한 분봉 가격, 장마감 `15:20 KST` 강제청산을 적용한 decision-episode portfolio replay.
+- 동일 거래일·종목·시간대 층 안에서 같은 episode 수를 뽑는 random control 1,000회와 empirical percentile.
+- 비용 후 누적 portfolio return, 거래당 기대값, 최대 낙폭, 비음수 거래일 비율, 종목·시간대 집중도.
+- lineage completion `100%`, 최소 `10`거래일, 최소 `100`개 rescue episode, 최소 `5`종목.
+- 첫 판정 구간 뒤 서로 겹치지 않는 두 번째 미래 구간 재현. 첫 구간 통과만으로 승격하지 않는다.
+
+### 통과와 중단 기준
+
+- 현행 비용과 2배 비용에서 모두 portfolio return과 평균 거래 기대값이 `> 0`이어야 한다.
+- random control 상위 `5%`를 넘어야 하고, 비음수 거래일 비율은 `>= 2/3`이어야 한다.
+- 최대 낙폭이 baseline보다 나빠지거나 한 종목 또는 한 거래일이 총이익의 `50%`를 초과하면 탈락한다.
+- 최소 표본 미달은 `observe_more`, 조건 실패는 `rejected`, 두 비중복 미래 구간을 모두 통과한 경우에만 `research_candidate`다.
+- 세 번의 고정 미래 평가에서 개선이 없으면 이 가설을 종료하고 h60 또는 entry/exit 분리 가설로 이동한다. 같은 데이터에서 threshold를 다시 탐색해 구제하지 않는다.
+
+관련 문서/코드 경로: `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`, `app/services/portfolio_replay.py`, `docs/Execution-Plan.md`
+
 ## 7. 다음 작업 순서
 
 1. E1/E5 완결 라운드는 2026-08-15 승인 실행으로 종료했다. 같은 고정 라운드를 자동 또는 수동 재실행하지 않는다.
 2. 다음 거래일마다 raw→분봉→feature→decision ledger와 complete lineage, WebSocket reconnect/storm을 함께 확인한다.
 3. Phase 0은 승인 clean baseline 뒤 새 기준선 10개 유효 거래일의 전일 matched를 누적한다.
 4. 실패한 E1/E5를 신규 threshold/EV tuning, 종목별·h60 주문 정책으로 구제하지 않는다.
-5. 다음 가설은 orderbook×regime, 시간대, 변동성, source, horizon 중 고정 조합과 비교 수를 먼저 사전등록한다.
+5. E7 LightGBM buy-rescue는 threshold `0.55`와 2026-08-31 이후 미래 구간을 고정하고, 최소 표본·portfolio replay·random control을 충족할 때만 판정한다.
 6. 저빈도 entry 후보는 entry 시점에 존재하는 score만 사용한다. 실현 p75 미래변동은 선별 변수가 아니다.
 7. h15/h60과 exit/hold 모델은 같은 초기 현금, 비용, 다음 분봉 실행가, 최대 보유 수, 장마감 청산의 portfolio replay에서 비교한다.
 8. 후보는 절대 비용 후 기대값과 portfolio return 양수, same-count random control 우위, 비중복 2구간, 최소 표본과 일별 일관성을 모두 통과해야 한다.

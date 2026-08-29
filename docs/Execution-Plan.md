@@ -20,7 +20,21 @@
 
 ## 2. 현재 출발점
 
-2026-08-09 기준 현재 출발점은 아래와 같다.
+### 2026-08-29 FULL CHECK checkpoint
+
+- 장 상태는 `weekend`, live runtime은 정상 정지다. PC 재부팅 뒤 watchdog과 dashboard만 장외에 안전 복구했다.
+- trading mode는 `paper`, active h15는 `baseline-h15-v1`, 현재 통과한 수익 후보는 `0개`다.
+- 2026-08-28 raw market session coverage는 `97.5959%`, feature closed coverage는 `97.4872%`, decision ledger 3,802행의 complete lineage는 100%다.
+- WebSocket reconnect 28회는 주의지만 storm 0이다. `15:20~15:29 KST` 종가 동시호가 예상 gap과 unexpected gap을 분리한다.
+- Phase 0 현재 epoch는 clean baseline 뒤 `0/10`, mismatch 0이다. 이전 epoch의 10일 불일치는 과거 이력으로만 보존한다.
+- top challenger LightGBM은 거래 1건, net `-0.757017%`로 승격 불가다. buy-avoid와 hold-rescue도 절대 손익이 음수다.
+- LightGBM buy-rescue threshold 0.55의 76행/9거래일 양수 관측은 `research_lead`다. 2026-08-31 이후 미래 구간에서 최소 10거래일/100 episode/5종목과 실제 portfolio/random control을 검증한다.
+- 세 번의 고정 평가에서 개선이 없으면 threshold를 다시 찾지 않고 h60 또는 entry/exit 분리 가설로 이동한다.
+
+현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, 연구 기준은 `docs/Model-Research-PreRegistration.md`를 따른다.
+
+### 2026-08-15까지 완료한 기반 기록
+아래 항목은 E1/E5와 clean baseline을 완료한 시점의 기반 기록이다.
 
 - 장 상태: `weekend`, live runtime 휴장 정상 정지.
 - runtime watchdog/dashboard/startup launcher: 정상.

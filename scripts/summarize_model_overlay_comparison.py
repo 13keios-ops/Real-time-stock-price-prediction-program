@@ -48,6 +48,8 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "runtime-data" / "reports" / "challengers"
 DEFAULT_AVOID_THRESHOLDS = (0.40, 0.45, 0.50, 0.54, 0.58)
 DEFAULT_RESCUE_THRESHOLDS = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65)
 DEFAULT_HOLD_THRESHOLDS = (0.40, 0.45, 0.50, 0.55, 0.60, 0.65)
+DEFAULT_HOLD_MAX_EXTENSION_MINUTES = 15
+DEFAULT_HOLD_MAX_LOSS_PCT = 2.0
 MIN_DIAGNOSTIC_TRADES = 30
 
 
@@ -997,6 +999,22 @@ def _load_stored_prediction_points(
     }
 
 
+def _best_applied_hold_result(replay: dict[str, Any]) -> dict[str, Any] | None:
+    applied_results = [
+        row
+        for row in replay.get("threshold_results", [])
+        if int(row.get("applied_lots") or 0) > 0
+    ]
+    return max(
+        applied_results,
+        key=lambda item: (
+            float(item.get("delta_cash_sum", 0.0)),
+            int(item.get("applied_lots") or 0),
+        ),
+        default=None,
+    )
+
+
 def _hold_rescue_summary(
     connection: sqlite3.Connection,
     *,
@@ -1047,11 +1065,7 @@ def _hold_rescue_summary(
         trade_cost_pct=trade_cost_pct,
     )
     decision = _hold_decision(eligibility, replay)
-    best = max(
-        replay.get("threshold_results", []),
-        key=lambda item: float(item.get("delta_cash_sum", 0.0)),
-        default=None,
-    )
+    best = _best_applied_hold_result(replay)
     return {
         "definition": "paper closed lots where model up probability can delay the actual paper sell fill",
         "fill_source": fill_summary,
@@ -1290,9 +1304,10 @@ def build_report(
     require_up_argmax: bool,
     max_extension_minutes: int,
     max_loss_pct: float | None,
-    forced_flat_time: str,
+    forced_flat_time: str | None,
 ) -> dict[str, Any]:
     settings = load_settings(REPO_ROOT)
+    resolved_forced_flat_time = forced_flat_time or settings.market_calendar.forced_flat_time
     cost_model = _trade_cost_context(diagnostics_path)
     trade_cost_pct = float(cost_model["round_trip_cost_pct"])
     connection = _connect_readonly(database_path)
@@ -1377,7 +1392,7 @@ def build_report(
                     max_extension_minutes=max_extension_minutes,
                     max_loss_pct=max_loss_pct,
                     trade_cost_pct=trade_cost_pct,
-                    forced_flat_time=forced_flat_time,
+                    forced_flat_time=resolved_forced_flat_time,
                     feature_set_version=settings.feature_set_version,
                 ),
             }
@@ -1404,6 +1419,12 @@ def build_report(
         "trade_cost_pct": trade_cost_pct,
         "cost_model_version": cost_model["version"],
         "cost_model": cost_model,
+        "hold_rescue_parameters": {
+            "max_extension_minutes": max_extension_minutes,
+            "max_loss_pct": max_loss_pct,
+            "forced_flat_time": resolved_forced_flat_time,
+            "source": "cli_override_or_market_calendar",
+        },
         "models": model_summaries,
         "decision_ledger": decision_ledger_summary,
         "combination_policy_review": combination_policy_review,
@@ -1440,6 +1461,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- scope: `{report.get('scope_guardrail')}`",
         f"- trade_cost_pct: `{report.get('trade_cost_pct')}`",
         f"- cost_model_version: `{report.get('cost_model_version')}`",
+        f"- hold_rescue_parameters: `{report.get('hold_rescue_parameters')}`",
         "",
         "## 비교 요약",
         "",
@@ -1556,9 +1578,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hold-thresholds", default=",".join(str(value) for value in DEFAULT_HOLD_THRESHOLDS))
     parser.add_argument("--no-require-down-argmax", action="store_true")
     parser.add_argument("--no-require-up-argmax", action="store_true")
-    parser.add_argument("--max-extension-minutes", type=int, default=20)
-    parser.add_argument("--max-loss-pct", type=float, default=1.2)
-    parser.add_argument("--forced-flat-time", default="15:10")
+    parser.add_argument("--max-extension-minutes", type=int, default=DEFAULT_HOLD_MAX_EXTENSION_MINUTES)
+    parser.add_argument("--max-loss-pct", type=float, default=DEFAULT_HOLD_MAX_LOSS_PCT)
+    parser.add_argument("--forced-flat-time", default=None)
     return parser.parse_args()
 
 

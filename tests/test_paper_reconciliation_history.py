@@ -106,6 +106,67 @@ class PaperReconciliationHistoryTests(unittest.TestCase):
         self.assertFalse(summary["ready"])
         self.assertEqual(summary["latest_mismatch_symbols"], ["005930"])
 
+    def test_owner_approved_baseline_starts_a_new_phase0_epoch(self) -> None:
+        old_entries = [
+            build_paper_reconciliation_history_entry(
+                _payload(f"2026-07-{day:02d}", matched=False),
+                market_session_status="post-close",
+            )
+            for day in range(1, 11)
+        ]
+        new_entries = [
+            build_paper_reconciliation_history_entry(
+                _payload(f"2026-07-{day:02d}"),
+                market_session_status="post-close",
+            )
+            for day in range(11, 13)
+        ]
+        summary = summarize_paper_reconciliation_history(
+            [*old_entries, *new_entries],
+            epoch_start_at="2026-07-10T23:59:00+09:00",
+        )
+
+        self.assertEqual(summary["status"], "insufficient_history")
+        self.assertEqual(summary["days_available"], 2)
+        self.assertEqual(summary["matched_days"], 2)
+        self.assertEqual(summary["mismatch_days"], 0)
+        self.assertEqual(summary["days_remaining"], 8)
+        self.assertEqual(summary["phase0_epoch"]["baseline_trade_date"], "2026-07-10")
+        self.assertEqual(summary["prior_epoch"]["status"], "needs_review")
+        self.assertEqual(summary["prior_epoch"]["mismatch_days"], 10)
+
+    def test_record_uses_alignment_marker_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_data_dir = Path(tmp)
+            for day in range(1, 11):
+                record_paper_reconciliation_history(
+                    runtime_data_dir,
+                    _payload(f"2026-07-{day:02d}", matched=False),
+                    market_session_status="post-close",
+                )
+            marker_path = runtime_data_dir / "reports" / "broker-paper" / "latest-alignment.json"
+            marker_path.parent.mkdir(parents=True)
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "status": "aligned_to_broker_marker",
+                        "aligned_at": "2026-07-10T23:59:00+09:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = record_paper_reconciliation_history(
+                runtime_data_dir,
+                _payload("2026-07-11"),
+                market_session_status="post-close",
+            )
+            loaded = load_paper_reconciliation_history(runtime_data_dir)
+
+        self.assertEqual(result["summary"]["status"], "insufficient_history")
+        self.assertEqual(result["summary"]["days_available"], 1)
+        self.assertEqual(loaded["matched_days"], 1)
+        self.assertEqual(loaded["prior_epoch"]["mismatch_days"], 10)
+
     def test_record_overwrites_same_day_and_loads_latest_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             runtime_data_dir = Path(tmp)

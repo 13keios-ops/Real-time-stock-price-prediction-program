@@ -2,6 +2,17 @@
 
 ## 현재 요약
 
+### 2026-08-29 FULL CHECK 기준
+
+- 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.
+- 2026-08-28 raw market session coverage는 `97.5959%`, feature closed coverage는 `97.4872%`이며 serving decision ledger는 `3,802`행이고 complete lineage는 `100%`다.
+- WebSocket reconnect는 `28`, storm은 `0`이다. `forced_flat_time=15:20` 뒤 `15:20~15:29 KST` 공통 market gap은 예상 종가 동시호가 구간으로 분리하고, 예상 밖 공통 gap만 수집 실패 근거로 쓴다.
+- top challenger LightGBM은 거래 1건과 누적 순수익 `-0.757017%`로 표본과 절대 수익성 기준을 모두 통과하지 못했다.
+- buy-avoid는 portfolio 손실을 `+1.450780%p` 줄였지만 policy return `-49.442452%`라 기각한다. hold-rescue도 실제 적용된 최선이 음수다.
+- LightGBM buy-rescue threshold `0.55`의 76행/9거래일 탐색 관측은 양수지만 겹치는 신호행 합이다. 2026-08-31 이후 미래 구간의 decision-episode portfolio replay와 random control을 통과하기 전에는 `research_lead`다.
+- Phase 0 history는 2026-08-15 clean baseline marker로 epoch를 분리한다. 과거 epoch `matched 0/mismatch 10`은 보존하고 현재 epoch는 `0/10`, mismatch 0이다.
+- Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
+
 ### 2026-07-12 수익성 판정
 
 - 현재 실제 수익 후보는 `0개`다. active `baseline-h15-v1`은 안전한 기준선 역할일 뿐 수익성이 입증된 모델이 아니다.

@@ -2292,7 +2292,7 @@ def _build_today_report(
                 f"로컬 누적 실현 손익 {realized_pnl:,.0f}원은 표시용 원장 값이며, "
                 "KIS 모의계좌 정합 미통과로 수익 증거로 사용할 수 없습니다."
             )
-            next_steps.append("Phase 0 계좌 스냅샷 불일치를 먼저 해소하고 10거래일 정합을 다시 확인합니다.")
+            next_steps.append("Phase 0 현재 기준선 이후 10거래일 정합 근거를 누적해 수익 증거 자격을 다시 확인합니다.")
 
     if paper_account_view.get("ok"):
         insights.append("브로커 모의계좌 조회는 정상입니다.")
@@ -4441,7 +4441,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
             "계좌 손익 해석",
             (
                 "KIS 모의계좌 정합 미통과로 로컬 누적손익은 수익 증거가 아닙니다."
-                if (paper_account_reconciliation_history.get("mismatch_days") or 0) > 0
+                if paper_account_reconciliation_history.get("ready") is not True
                 else "최근 정합성 근거와 함께 해석합니다."
             ),
         ],
@@ -4501,6 +4501,10 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     )
     reconciliation_history_rows = [
         ["Phase 0 누적 판정", reconciliation_history_status_label],
+        [
+            "현재 기준선",
+            (paper_account_reconciliation_history.get("phase0_epoch") or {}).get("baseline_at") or "-",
+        ],
         [
             "유효 거래일",
             f"{paper_account_reconciliation_history.get('days_available') or 0} / {paper_account_reconciliation_history.get('required_days') or 10}",

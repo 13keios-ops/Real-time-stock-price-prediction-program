@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts.summarize_kis_live_data_quality import (
     _decision_lineage_summary,
     _latest_raw_gap_summary,
+    _overall_assessment,
     _raw_minute_index,
     _websocket_reconnect_summary,
     summarize,
@@ -320,8 +321,81 @@ class KisLiveSessionObservabilityTests(unittest.TestCase):
 
         self.assertEqual(gaps["status"], "gaps_detected")
         self.assertEqual(gaps["streams"]["raw_market"]["common_missing_ranges"], ["09:01"])
+        self.assertEqual(gaps["streams"]["raw_market"]["unexpected_common_missing_ranges"], ["09:01"])
         self.assertEqual(gaps["streams"]["raw_market"]["total_missing_symbol_minutes"], 2)
         self.assertEqual(gaps["streams"]["raw_orderbook"]["total_missing_symbol_minutes"], 0)
+
+    def test_closing_auction_market_gap_is_expected_but_orderbook_gap_is_not(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_dir = root / "config"
+            config_dir.mkdir(parents=True)
+            (config_dir / "watchlist.txt").write_text("005930\n000660\n", encoding="utf-8")
+            (config_dir / "market_calendar.toml").write_text(
+                "[market]\n"
+                'timezone = "Asia/Seoul"\n'
+                'session_open = "09:00"\n'
+                'session_close = "09:02"\n'
+                'forced_flat_time = "09:01"\n',
+                encoding="utf-8",
+            )
+            common_minutes = {
+                "2026-08-07": {
+                    "005930": {"2026-08-07T09:00", "2026-08-07T09:02"},
+                    "000660": {"2026-08-07T09:00", "2026-08-07T09:02"},
+                }
+            }
+            gaps = _latest_raw_gap_summary(
+                root=root,
+                trade_date="2026-08-07",
+                raw_market_actual_minutes=common_minutes,
+                raw_orderbook_actual_minutes=common_minutes,
+            )
+
+        market = gaps["streams"]["raw_market"]
+        orderbook = gaps["streams"]["raw_orderbook"]
+        self.assertEqual(market["expected_closing_auction_common_missing_ranges"], ["09:01"])
+        self.assertEqual(market["unexpected_common_missing_ranges"], [])
+        self.assertEqual(orderbook["unexpected_common_missing_ranges"], ["09:01"])
+
+    def test_expected_closing_auction_gap_does_not_raise_data_quality_severity(self) -> None:
+        recent_days = [
+            {
+                "raw_market": {"symbol_minutes": 100},
+                "raw_orderbook": {"symbol_minutes": 100},
+                "feature_to_bar_symbol_minute_ratio": 1.0,
+                "label_h15_to_feature_symbol_minute_ratio": 1.0,
+            }
+        ]
+        gaps = {
+            "status": "gaps_detected",
+            "streams": {
+                "raw_market": {
+                    "common_missing_ranges": ["15:20-15:29"],
+                    "expected_closing_auction_common_missing_ranges": ["15:20-15:29"],
+                    "unexpected_common_missing_ranges": [],
+                },
+                "raw_orderbook": {
+                    "common_missing_ranges": [],
+                    "unexpected_common_missing_ranges": [],
+                },
+            },
+        }
+        assessment = _overall_assessment(
+            recent_days,
+            latest_decision_lineage={"status": "ok"},
+            latest_websocket_reconnects={"status": "no_events", "count": 0},
+            latest_raw_gap_summary=gaps,
+        )
+        self.assertEqual(assessment["status"], "ok")
+
+        reconnect_watch = _overall_assessment(
+            recent_days,
+            latest_decision_lineage={"status": "ok"},
+            latest_websocket_reconnects={"status": "observed_no_storm", "count": 2},
+            latest_raw_gap_summary=gaps,
+        )
+        self.assertEqual(reconnect_watch["status"], "watch")
 
 
 if __name__ == "__main__":

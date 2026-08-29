@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.summarize_model_overlay_comparison import (
     OverlayRow,
+    _best_applied_hold_result,
     _buy_rescue_summary,
     build_report,
     render_markdown,
@@ -167,13 +168,22 @@ class ModelOverlayComparisonTests(unittest.TestCase):
                 hold_thresholds=(0.4,),
                 require_down_argmax=True,
                 require_up_argmax=True,
-                max_extension_minutes=10,
-                max_loss_pct=1.2,
-                forced_flat_time="15:10",
+                max_extension_minutes=15,
+                max_loss_pct=2.0,
+                forced_flat_time=None,
             )
 
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["cost_model_version"], "legacy_or_custom_unversioned")
+        self.assertEqual(
+            report["hold_rescue_parameters"],
+            {
+                "max_extension_minutes": 15,
+                "max_loss_pct": 2.0,
+                "forced_flat_time": "15:20",
+                "source": "cli_override_or_market_calendar",
+            },
+        )
         models = {model["name"]: model for model in report["models"]}
         self.assertIn("LightGBM", models)
         self.assertIn("linear-score", models)
@@ -199,6 +209,18 @@ class ModelOverlayComparisonTests(unittest.TestCase):
         self.assertIn("주문 정책", markdown)
         self.assertIn("cost_model_version", markdown)
 
+
+    def test_hold_rescue_best_ignores_noop_thresholds(self) -> None:
+        best = _best_applied_hold_result(
+            {
+                "threshold_results": [
+                    {"threshold": 0.4, "applied_lots": 5, "delta_cash_sum": -1000.0},
+                    {"threshold": 0.5, "applied_lots": 0, "delta_cash_sum": 0.0},
+                ]
+            }
+        )
+        self.assertEqual(best["threshold"], 0.4)
+        self.assertEqual(best["applied_lots"], 5)
 
     def test_buy_rescue_best_ignores_empty_thresholds(self) -> None:
         summary = _buy_rescue_summary(

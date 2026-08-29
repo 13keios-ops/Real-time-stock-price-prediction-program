@@ -7,50 +7,64 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-15 02:30 KST
+- 기준 시각: 2026-08-29 10:40 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
-- watchdog/dashboard/startup launcher: 정상
+- watchdog/dashboard/startup launcher: 정상; PC 재부팅 뒤 watchdog/dashboard 안전 복구 완료
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
-- 현재 수익 후보: `0개`
-- Phase 0: 과거 기준선 최근 유효일 `10/10`, matched 0일, mismatch 10일은 미통과 이력으로 보존한다. 2026-08-15 승인 clean baseline 뒤 현재 mismatch/cash/total asset gap은 모두 0이고, 새 epoch는 휴장일 기준 `0/10`, 상태 `clean_baseline_created_waiting_10_matched_days`다.
-- Phase 1b: bounded read-only 관측 1회 통과; 기본 preflight는 네트워크·주문 호출 0회
-- runtime 원장: 2026-08-14 decision ledger 3,608행, complete lineage 100%다. WebSocket storm 19회와 15:01~15:29 전 종목 market 공백으로 수집은 `needs_attention`이다.
-- 수익성 판정: 비용·순방향 lineage·decision episode portfolio replay 기준 통과 후보 0개. buy-avoid는 policy `-40.3788%`, buy-rescue/hold-rescue도 비용 후 음수다.
-- 비용 구조: h15 중위 절대변동 0.371216%는 2배 비용 0.58% 미만이고 h60 0.695410%는 초과하지만, h60 실행 replay는 미검증·동결 상태다.
+- 현재 통과한 수익 후보: `0개`
+- 수익화 판정: `no_profitable_candidate`
+- Phase 0 current epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일, remaining 10일. 실제 mirrored submission이 있는 post-close 유효일만 센다.
+- Phase 0 prior epoch: `10/10`, matched 0일, mismatch 10일과 `035420/086520/105560/247540` 불일치 이력을 보존한다.
+- Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 2026-08-29 preflight는 `ready/passed`, 네트워크·주문 호출 0회다.
+- runtime 원장: 2026-08-28 decision ledger 3,802행, complete lineage 100%, raw market session coverage 97.5959%, feature closed coverage 97.4872%다.
+- WebSocket: reconnect 28, storm 0. `15:20~15:29 KST` 공통 market gap은 forced-flat 뒤 예상 종가 동시호가 구간이며 unexpected common gap은 없다.
+- 수익성: buy-avoid policy `-49.442452%`, hold-rescue 실제 적용 최선도 음수다. LightGBM buy-rescue 76행/9거래일 양수 관측은 portfolio/random-control 미검증 `research_lead`다.
+- 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
 ## 활성 체크리스트
 
-- [x] 2026-07-13~16 complete lineage decision ledger 축적 확인 (2026-07-17 KIS 수집 공백 별도 P0)
-- [x] prediction artifact lineage와 baseline 판단/gate/allocator/주문·체결 chain 연결 확인 (2026-08-02)
-- [x] Phase 0 full-period probe, pagination 완결성, 외부/미연결 활동, 로컬 원장 divergence 판정 구현
-- [x] 2026-08-14 기본 10페이지 조회로 150행/14거래일 확보; page cap으로 미완결, 주문·취소 0회
-- [x] 새 명시 승인 30페이지 조회로 22페이지/329행/20거래일 완결; broker 추가 활동 9행과 local ledger divergence 원인 확정
-- [x] 계좌 소유자 승인 clean baseline 생성과 즉시 KIS/local 정합 확인
-- [ ] 새 기준선에서 10개 유효 거래일 모두 정합 확인; 자동 align 금지
-- [x] 2026-07-20 장전 KIS approval-key 재시도와 decision ledger 수집 정상화 확인 (3,812행, complete lineage 3,812행)
-- [x] E1/E5 결과 확보: 1800초 상한의 새 승인 실행 1회로 26GB snapshot과 고정 라운드 완결
-- [x] E1 후보 `0/3`, E5 second interval 미재현으로 기존 가설 기각 및 h15/h60 정책 비교 미진입 결정
-- [ ] threshold tuning 없이 orderbook×regime/시간대/변동성/source/horizon 가설 새 사전등록
+- [x] 2026-08-28 raw→feature→decision ledger와 complete lineage 100% 확인
+- [x] 종가 동시호가 예상 gap과 unexpected common gap 분리
+- [x] reconnect 28/storm 0을 수집 정상 범위와 연결 주의로 분리
+- [x] Phase 0 clean baseline 이전/이후 epoch 분리
+- [ ] Phase 0 current epoch 유효 거래일 10개 모두 matched 확인
+- [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
+- [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
+- [x] E7 LightGBM buy-rescue threshold 0.55 미래 검증 사전등록
+- [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
+- [ ] E7 portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간 판정
+- [ ] fresh Phase 1b readiness와 real WebSocket recovery evidence 확보
 
 현재 상세 작업 범위는 `docs/SPRINT_CURRENT.md`를 따른다.
 
 ## 최신 검증
 
-- Phase 0 clean baseline: `aligned_at=2026-08-15T00:20:42.862713+09:00`, KIS/local 3종목 정합, mismatch/cash/total asset gap 0
-- clean baseline/trace targeted unittest `13 tests OK`
-- E1/E5 snapshot targeted unittest `6 tests OK`, bash syntax 통과
-- full unittest `555 tests OK`, repository structure audit errors 0/warnings 2
-- 실제 KIS data-quality 재생성: 2026-08-14 22:24 KST, latest trade date 2026-08-14, assessment `needs_attention`
-- decision ledger: 3,608행, complete lineage 3,608행, ratio 1.0
-- WebSocket: reconnect 47, storm 19; market 공통 공백 15:01~15:29, orderbook 공통 공백 15:01~15:24
-- data-quality 실측 실행시간: 전체 minute group 439초, 최근 10거래일 제한 후 126초
-- 최신 비용/horizon 진단: 2026-08-14 22:06 KST, 비용 0.29%, h15 median_abs 0.371216%, h60 0.695410%
-- dashboard server/API와 runtime watchdog/startup launcher: 정상; live runtime은 장후 정상 정지
+- targeted unittest: `37 tests OK`
+- full unittest: `560 tests OK` in 31.063s
+- repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
+- 실제 KIS data-quality 재생성: latest trade date 2026-08-28, assessment `watch`
+- raw market session coverage: `97.5959%`; feature closed coverage: `97.4872%`
+- decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
+- WebSocket: reconnect 28, storm 0, reason `no close frame` 28회
+- Phase 0 history 재생성: current epoch 0/10, matched 0, mismatch 0; prior epoch 10/10, matched 0, mismatch 10
+- model overlay/meta-policy 재생성: buy-rescue research lead, hold-rescue actual-best 음수, meta-policy `blocked_evidence`
+- 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
+- dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-29] FULL CHECK 수집·판단·수익화 근거 교정
+
+- 프로젝트 목표를 raw 수집부터 비용 후 portfolio까지의 증거 체인으로 재검수했다. 2026-08-28 수집 coverage와 lineage는 정상 범위지만 검증된 절대 양수 수익 후보는 0개다.
+- data-quality가 `15:20~15:29 KST` 종가 동시호가 예상 market gap을 실패로 세던 문제를 고쳤다. orderbook gap과 forced-flat 전 unexpected common gap은 계속 fail-closed이며 reconnect 28/storm 0은 별도 `watch`다.
+- model overlay의 hold-rescue 기본값을 standalone/config와 같은 15분, 최대손실 2.0%, 15:20 강제청산으로 통일했다. 적용 lot 0인 threshold가 최선으로 선택되던 문제도 차단했다.
+- Phase 0 history가 clean baseline 이전 불일치 10일과 이후 관측을 섞던 문제를 epoch로 분리했다. dashboard는 current epoch가 통과하기 전 로컬 누적손익을 수익 증거로 사용하지 않는다.
+- buy-avoid는 baseline 대비 손실을 1.450780%p 완화했지만 policy return -49.442452%라 기각한다. hold-rescue도 음수다.
+- LightGBM buy-rescue threshold 0.55는 76행/9거래일에서 신호행 합 +13.073707%p, 평균 +0.172022%p, precision 0.578947이지만 실제 계좌 수익률이 아니다. 2026-08-31 이후 최소 10거래일/100 episode/5종목, portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간을 E7으로 사전등록했다.
+- 실전 주문/취소, `app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`, active model/gate/threshold, NAS 백업은 변경하지 않았다.
 
 ## [2026-08-15] E1/E5 승인 장시간 상한 완결 실행
 

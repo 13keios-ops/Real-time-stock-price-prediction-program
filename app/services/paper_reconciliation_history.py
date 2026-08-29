@@ -24,6 +24,24 @@ def _history_directory(runtime_data_dir: Path) -> Path:
     return _report_directory(runtime_data_dir) / HISTORY_DIRECTORY_NAME
 
 
+def _load_phase0_epoch_start(runtime_data_dir: Path) -> str | None:
+    marker_path = runtime_data_dir / "reports" / "broker-paper" / "latest-alignment.json"
+    if not marker_path.is_file():
+        return None
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(marker, dict) or marker.get("status") != "aligned_to_broker_marker":
+        return None
+    aligned_at = str(marker.get("aligned_at") or "")
+    try:
+        datetime.fromisoformat(aligned_at)
+    except ValueError:
+        return None
+    return aligned_at
+
+
 def _safe_float(value: Any) -> float | None:
     try:
         return float(value) if value is not None else None
@@ -93,25 +111,11 @@ def build_paper_reconciliation_history_entry(
     }
 
 
-def summarize_paper_reconciliation_history(
-    entries: Iterable[dict[str, Any]],
+def _summarize_eligible_days(
+    all_days: list[dict[str, Any]],
     *,
-    required_days: int = DEFAULT_REQUIRED_DAYS,
+    required_days: int,
 ) -> dict[str, Any]:
-    if required_days <= 0:
-        raise ValueError("required_days must be positive")
-    latest_by_day: dict[str, dict[str, Any]] = {}
-    for entry in entries:
-        if not entry.get("eligible_for_phase0_gate"):
-            continue
-        trade_date = str(entry.get("trade_date") or "")
-        if not trade_date:
-            continue
-        previous = latest_by_day.get(trade_date)
-        if previous is None or str(entry.get("as_of") or "") >= str(previous.get("as_of") or ""):
-            latest_by_day[trade_date] = dict(entry)
-
-    all_days = [latest_by_day[trade_date] for trade_date in sorted(latest_by_day)]
     window = all_days[-required_days:]
     matched_days = sum(1 for entry in window if entry.get("matched") is True)
     mismatch_days = sum(1 for entry in window if entry.get("matched") is not True)
@@ -165,11 +169,65 @@ def summarize_paper_reconciliation_history(
         "max_abs_cash_gap": max(cash_gaps) if cash_gaps else None,
         "max_abs_total_asset_gap": max(asset_gaps) if asset_gaps else None,
         "days": window,
-        "interpretation": (
-            "Phase 0 requires ten eligible post-close trading days with aligned mirrored-account evidence. "
-            "Pre-open, regular-session, weekend, holiday, and no-submission observations do not count as matched days."
-        ),
     }
+
+
+def _entry_is_after_epoch(entry: dict[str, Any], epoch_start_at: str) -> bool:
+    try:
+        return datetime.fromisoformat(str(entry.get("as_of") or "")) > datetime.fromisoformat(epoch_start_at)
+    except (TypeError, ValueError):
+        return False
+
+
+def summarize_paper_reconciliation_history(
+    entries: Iterable[dict[str, Any]],
+    *,
+    required_days: int = DEFAULT_REQUIRED_DAYS,
+    epoch_start_at: str | None = None,
+) -> dict[str, Any]:
+    if required_days <= 0:
+        raise ValueError("required_days must be positive")
+    latest_by_day: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not entry.get("eligible_for_phase0_gate"):
+            continue
+        trade_date = str(entry.get("trade_date") or "")
+        if not trade_date:
+            continue
+        previous = latest_by_day.get(trade_date)
+        if previous is None or str(entry.get("as_of") or "") >= str(previous.get("as_of") or ""):
+            latest_by_day[trade_date] = dict(entry)
+
+    all_days = [latest_by_day[trade_date] for trade_date in sorted(latest_by_day)]
+    if epoch_start_at:
+        current_days = [entry for entry in all_days if _entry_is_after_epoch(entry, epoch_start_at)]
+        prior_days = [entry for entry in all_days if not _entry_is_after_epoch(entry, epoch_start_at)]
+    else:
+        current_days = all_days
+        prior_days = []
+
+    summary = _summarize_eligible_days(current_days, required_days=required_days)
+    summary["phase0_epoch"] = (
+        {
+            "status": "owner_approved_clean_baseline",
+            "baseline_at": epoch_start_at,
+            "baseline_trade_date": _parse_trade_date(epoch_start_at),
+            "eligible_evidence_scope": "strictly_after_baseline",
+        }
+        if epoch_start_at
+        else None
+    )
+    summary["prior_epoch"] = (
+        _summarize_eligible_days(prior_days, required_days=required_days)
+        if epoch_start_at
+        else None
+    )
+    summary["interpretation"] = (
+        "Phase 0 requires ten eligible post-close trading days with aligned mirrored-account evidence "
+        "inside the current clean-baseline epoch. Pre-open, regular-session, weekend, holiday, "
+        "no-submission, and pre-baseline observations do not count as current matched days."
+    )
+    return summary
 
 
 def _load_daily_entries(runtime_data_dir: Path) -> list[dict[str, Any]]:
@@ -192,6 +250,14 @@ def load_paper_reconciliation_history(
     *,
     required_days: int = DEFAULT_REQUIRED_DAYS,
 ) -> dict[str, Any]:
+    epoch_start_at = _load_phase0_epoch_start(runtime_data_dir)
+    if epoch_start_at:
+        return summarize_paper_reconciliation_history(
+            _load_daily_entries(runtime_data_dir),
+            required_days=required_days,
+            epoch_start_at=epoch_start_at,
+        )
+
     latest_path = _report_directory(runtime_data_dir) / LATEST_JSON_NAME
     if latest_path.is_file():
         try:
@@ -228,6 +294,7 @@ def record_paper_reconciliation_history(
     summary = summarize_paper_reconciliation_history(
         _load_daily_entries(runtime_data_dir),
         required_days=required_days,
+        epoch_start_at=_load_phase0_epoch_start(runtime_data_dir),
     )
     summary["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     report_dir = _report_directory(runtime_data_dir)
@@ -255,6 +322,9 @@ def render_paper_reconciliation_history_markdown(summary: dict[str, Any]) -> str
         f"- mismatch_days: `{summary.get('mismatch_days')}`",
         f"- consecutive_matched_days: `{summary.get('consecutive_matched_days')}`",
         f"- date_range: `{summary.get('date_range', {}).get('start')}` ~ `{summary.get('date_range', {}).get('end')}`",
+        f"- clean_baseline_at: `{(summary.get('phase0_epoch') or {}).get('baseline_at')}`",
+        f"- prior_epoch_status: `{(summary.get('prior_epoch') or {}).get('status')}`",
+        f"- prior_epoch_days: `{(summary.get('prior_epoch') or {}).get('days_available')}`",
         "",
         "| date | status | matched | mismatch_count | cash_gap | total_asset_gap | mismatch_symbols |",
         "| --- | --- | --- | ---: | ---: | ---: | --- |",

@@ -98,10 +98,10 @@ def _read_watchlist(root: Path) -> list[str]:
     return symbols
 
 
-def _read_market_clock(root: Path) -> tuple[str, str, str]:
+def _read_market_clock(root: Path) -> tuple[str, str, str, str]:
     path = root / "config" / "market_calendar.toml"
     if not path.exists():
-        return "Asia/Seoul", "09:00", "15:30"
+        return "Asia/Seoul", "09:00", "15:30", "15:20"
     with path.open("rb") as handle:
         config = tomllib.load(handle)
     market = config.get("market") if isinstance(config, dict) else {}
@@ -111,6 +111,7 @@ def _read_market_clock(root: Path) -> tuple[str, str, str]:
         str(market.get("timezone") or "Asia/Seoul"),
         str(market.get("session_open") or "09:00"),
         str(market.get("session_close") or "15:30"),
+        str(market.get("forced_flat_time") or "15:20"),
     )
 
 
@@ -136,7 +137,7 @@ def _latest_intraday_coverage(
     if symbol_count <= 0:
         return {"status": "no_symbols", "trade_date": trade_date_text}
 
-    timezone_name, session_open_text, session_close_text = _read_market_clock(root)
+    timezone_name, session_open_text, session_close_text, _ = _read_market_clock(root)
     tz_suffix = "+09:00" if timezone_name in {"Asia/Seoul", "KST"} else ""
     session_start = datetime.fromisoformat(f"{trade_date_text}T{session_open_text}:00{tz_suffix}")
     session_end = datetime.fromisoformat(f"{trade_date_text}T{session_close_text}:00{tz_suffix}")
@@ -235,16 +236,22 @@ def _latest_raw_gap_summary(
     if not symbols:
         return {"status": "no_symbols", "trade_date": trade_date}
 
-    _, session_open_text, session_close_text = _read_market_clock(root)
+    _, session_open_text, session_close_text, forced_flat_time_text = _read_market_clock(root)
     current = datetime.fromisoformat(f"{trade_date}T{session_open_text}:00")
     session_end = datetime.fromisoformat(f"{trade_date}T{session_close_text}:00")
+    forced_flat_start = datetime.fromisoformat(f"{trade_date}T{forced_flat_time_text}:00")
     expected_minutes: set[str] = set()
     while current <= session_end:
         expected_minutes.add(current.strftime("%Y-%m-%dT%H:%M"))
         current += timedelta(minutes=1)
+    expected_closing_auction_minutes: set[str] = set()
+    while forced_flat_start < session_end:
+        expected_closing_auction_minutes.add(forced_flat_start.strftime("%Y-%m-%dT%H:%M"))
+        forced_flat_start += timedelta(minutes=1)
 
     streams: dict[str, Any] = {}
     has_gaps = False
+    has_unexpected_common_gaps = False
     for stream_name, actual_by_date in (
         ("raw_market", raw_market_actual_minutes),
         ("raw_orderbook", raw_orderbook_actual_minutes),
@@ -267,12 +274,23 @@ def _latest_raw_gap_summary(
                 "missing_ranges": _compact_minute_ranges(missing),
             }
         has_gaps = has_gaps or total_missing > 0
+        expected_closing_auction_common_missing = (
+            common_missing & expected_closing_auction_minutes
+            if stream_name == "raw_market"
+            else set()
+        )
+        unexpected_common_missing = common_missing - expected_closing_auction_common_missing
+        has_unexpected_common_gaps = has_unexpected_common_gaps or bool(unexpected_common_missing)
         streams[stream_name] = {
             "expected_minutes_per_symbol": len(expected_minutes),
             "symbols": len(symbols),
             "total_missing_symbol_minutes": total_missing,
             "common_missing_minutes": len(common_missing),
             "common_missing_ranges": _compact_minute_ranges(common_missing),
+            "expected_closing_auction_common_missing_ranges": _compact_minute_ranges(
+                expected_closing_auction_common_missing
+            ),
+            "unexpected_common_missing_ranges": _compact_minute_ranges(unexpected_common_missing),
             "missing_by_symbol": missing_by_symbol,
         }
 
@@ -281,6 +299,11 @@ def _latest_raw_gap_summary(
         "trade_date": trade_date,
         "session_open": session_open_text,
         "session_close": session_close_text,
+        "expected_closing_auction_window": {
+            "start": forced_flat_time_text,
+            "end_exclusive": session_close_text,
+        },
+        "unexpected_common_gaps_detected": has_unexpected_common_gaps,
         "streams": streams,
     }
 
@@ -972,8 +995,14 @@ def _overall_assessment(
     raw_gap_summary = latest_raw_gap_summary or {}
     if raw_gap_summary.get("status") == "gaps_detected":
         streams = raw_gap_summary.get("streams") or {}
-        market_ranges = (streams.get("raw_market") or {}).get("common_missing_ranges") or []
-        orderbook_ranges = (streams.get("raw_orderbook") or {}).get("common_missing_ranges") or []
+        market_stream = streams.get("raw_market") or {}
+        orderbook_stream = streams.get("raw_orderbook") or {}
+        market_ranges = market_stream.get("unexpected_common_missing_ranges")
+        if market_ranges is None:
+            market_ranges = market_stream.get("common_missing_ranges") or []
+        orderbook_ranges = orderbook_stream.get("unexpected_common_missing_ranges")
+        if orderbook_ranges is None:
+            orderbook_ranges = orderbook_stream.get("common_missing_ranges") or []
         if market_ranges or orderbook_ranges:
             notes.append(
                 "Latest date has common raw-data gap ranges across the watchlist: "
@@ -1165,8 +1194,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(
         [
             f"- raw_minute_gap_status: `{raw_gaps.get('status')}`",
+            f"- expected_closing_auction_window: `{raw_gaps.get('expected_closing_auction_window')}`",
             f"- raw_market_common_missing_ranges: `{market_gaps.get('common_missing_ranges')}`",
+            f"- raw_market_expected_closing_auction_ranges: `{market_gaps.get('expected_closing_auction_common_missing_ranges')}`",
+            f"- raw_market_unexpected_common_missing_ranges: `{market_gaps.get('unexpected_common_missing_ranges')}`",
             f"- raw_orderbook_common_missing_ranges: `{orderbook_gaps.get('common_missing_ranges')}`",
+            f"- raw_orderbook_unexpected_common_missing_ranges: `{orderbook_gaps.get('unexpected_common_missing_ranges')}`",
             f"- raw_market_missing_symbol_minutes: `{market_gaps.get('total_missing_symbol_minutes')}`",
             f"- raw_orderbook_missing_symbol_minutes: `{orderbook_gaps.get('total_missing_symbol_minutes')}`",
             f"- raw_market_missing_by_symbol: `{market_gaps.get('missing_by_symbol')}`",
