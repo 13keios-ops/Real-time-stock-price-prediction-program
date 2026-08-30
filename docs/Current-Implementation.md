@@ -271,6 +271,9 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 
 - 겹치는 분 단위 신호의 수익률 합은 `sum_net_return_pct_points`로만 부르며 계좌 수익률로 해석하지 않는다.
 - 수익 후보는 다음 분봉 시가, 동일 현금, 종목별 비중, 동시 보유 수, 수수료, 세금, 슬리피지를 적용한 decision-episode portfolio replay에서 절대 비용 후 수익과 평균 거래 기대값이 모두 양수여야 한다.
+- 기존 `app/services/portfolio_replay.py`는 `portfolio-replay-v1-entry-mark` 역사 증거로 byte-level 보존한다. v1은 보유 포지션을 entry raw price로 평가해 intratrade drawdown과 이후 sizing을 왜곡할 수 있다.
+- `app/services/portfolio_replay_v2.py`의 `portfolio-replay-v2-minute-mtm`은 시각 T에 T-1분 completed close로 활성 포지션을 평가하고 T분 open으로 기존 entry/exit 의미를 유지한다. 매분 equity, peak/MDD, sizing, gross exposure, concentration이 같은 MTM 값을 사용하며 exact mark가 없으면 entry price로 fallback하지 않는다.
+- E7 공식 정본은 `app/services/e7_portfolio_evaluator.py`의 frozen manifest다. baseline/policy/actual/random, normal/double cost, 두 비중복 구간의 16개 결과 중 evaluator, manifest, valuation, 비용, 제약, 구간, random seed/strata가 하나라도 다르면 통합 판정을 거부한다. 상세 시간 의미와 hash는 `docs/Portfolio-Replay-Evaluator.md`를 따른다.
 - 2026 국내 보통주 비용 정본은 `krx-common-stock-2026-v1`이다. [국가법령정보센터 2026 증권거래세 신고서 작성방법](https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162621569)의 유가증권시장 증권거래세 5/10,000, 농어촌특별세 15/10,000, 코스닥시장 증권거래세 20/10,000을 기준으로 현재 10종목 보통주 watchlist는 매도 시 총 `0.20%`를 적용한다. 매수에는 거래세를 붙이지 않으며, 편도 수수료 `0.015%`와 편도 슬리피지 3bp를 합친 왕복 연구 비용은 `0.29%`다.
 - 세금 `0.20%`와 달리 편도 수수료 `0.015%` 및 편도 슬리피지 3bp는 브로커 확정 수수료표나 실제 체결 관측값이 아니라 보수적 연구 가정이다. 모든 새 연구 리포트는 `cost_model_version`과 가정 상태를 기록하며, Phase 2 canary 전에 실제 계좌 현금 변화와 체결 미끄러짐으로 다시 보정한다.
 - `PaperTradingEngine`, broker paper fill sync, LightGBM 연구 비용, portfolio replay가 같은 helper를 쓴다. 2026-07-12 이전 체결·snapshot은 소급 재작성하지 않아 비용 모델 단절이 있으며, KIS daily order/fill adapter에는 수수료·세금 분리 필드가 없으므로 Phase 2 전 canary에서 브로커 계좌 현금 변화와 다시 대조한다. ETF/ETN 등 상품별 과세는 현재 범위 밖이다.

@@ -42,6 +42,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
 - `docs/Execution-Plan.md`: 현재 상태에서 다음 작업을 어떤 순서와 방법으로 진행할지 정리한 실행 계획판
 - `docs/Model-Research-PreRegistration.md`: Cybos-KIS 격차, orderbook 피처 가설, h60 트랙 사전등록 기준
+- `docs/Portfolio-Replay-Evaluator.md`: portfolio replay v1/v2 시간 의미, MTM, E7 evaluator manifest와 호환성 기준
 - `docs/Social-Signal-Shadow-Plan.md`: SNS/공개 영향력 이벤트를 Phase 1 shadow 로 관측·평가하는 기준
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
@@ -75,6 +76,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - SNS/공개 영향력 이벤트 shadow 평가 계획과 read-only 사후평가 리포트
 - paper/KIS mismatch trace 리포트와 gate walk-forward 극단 fold 요약/장세 분석 리포트
 - online replay 기반 paper trading 상태 기록
+- 기존 entry-mark replay를 보존한 minute MTM portfolio replay v2와 immutable E7 evaluator manifest
 - KIS WebSocket 연결 준비와 검증 리포트
 - 실행 / 백테스트 / 워크포워드 리포트 생성
 - 로컬 모니터링 대시보드 snapshot 생성과 HTTP serving

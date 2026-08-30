@@ -166,6 +166,8 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 - 독립 미래 구간은 `2026-08-31 09:15 KST` 이후로 시작한다. 이 날짜 이전 행은 설계·기준선 설명에만 쓰고 통과 판정에 재사용하지 않는다.
 - 현행 비용 모델 `krx-common-stock-2026-v1`, 왕복 `0.29%`를 고정하고 2배 비용 `0.58%` 민감도도 함께 계산한다.
 - active model, gate, threshold 설정, 주문 정책은 바꾸지 않으며 paper-only 오프라인 재생으로만 평가한다.
+- 공식 evaluator는 `portfolio-replay-v2-minute-mtm`으로 고정한다. 시각 T의 보유 포지션은 T-1분 completed close로 평가하며 exact minute mark가 없으면 전체 평가를 invalid 처리한다. 기존 `portfolio-replay-v1-entry-mark` 결과와 수익률/MDD를 섞지 않는다.
+- evaluator manifest는 모델, threshold, horizon, 미래 시작, 비용, 포트폴리오 제약, random 1,000회/seed/strata, 두 구간 규칙을 하나의 hash로 잠근다. 실제 두 구간 경계는 판정 전에 고정하고 겹치면 거부한다.
 
 ### 필수 평가
 
@@ -183,7 +185,7 @@ h60은 신 비용 E6에서 KIS live 중위 절대변동 `0.739523%`로 2배 비�
 - 최소 표본 미달은 `observe_more`, 조건 실패는 `rejected`, 두 비중복 미래 구간을 모두 통과한 경우에만 `research_candidate`다.
 - 세 번의 고정 미래 평가에서 개선이 없으면 이 가설을 종료하고 h60 또는 entry/exit 분리 가설로 이동한다. 같은 데이터에서 threshold를 다시 탐색해 구제하지 않는다.
 
-관련 문서/코드 경로: `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`, `app/services/portfolio_replay.py`, `docs/Execution-Plan.md`
+관련 문서/코드 경로: `runtime-data/reports/challengers/latest-model-overlay-comparison-h15.json`, `app/services/portfolio_replay_v2.py`, `app/services/e7_portfolio_evaluator.py`, `docs/Portfolio-Replay-Evaluator.md`, `docs/Execution-Plan.md`
 
 ## 7. 다음 작업 순서
 

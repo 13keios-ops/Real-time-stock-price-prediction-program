@@ -7,7 +7,7 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-30 21:57 KST
+- 기준 시각: 2026-08-30 23:38 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상; PC 재부팅 뒤 watchdog/dashboard 안전 복구 완료
@@ -23,6 +23,7 @@
 - WebSocket: reconnect 28, storm 0. `15:20~15:29 KST` 공통 market gap은 forced-flat 뒤 예상 종가 동시호가 구간이며 unexpected common gap은 없다.
 - 수익성: buy-avoid policy `-49.442452%`, hold-rescue 실제 적용 최선도 음수다. LightGBM buy-rescue 76행/9거래일 양수 관측은 portfolio/random-control 미검증 `research_lead`다.
 - 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
+- E7 evaluator: 기존 v1은 보존하고 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`를 검증했다. 아직 미래 표본이 없어 수익성 판정은 시작 전이다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -38,6 +39,7 @@
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
 - [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
 - [x] E7 LightGBM buy-rescue threshold 0.55 미래 검증 사전등록
+- [x] replay v1 보존, minute MTM v2, immutable E7 manifest와 혼합 차단 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간 판정
 - [ ] fresh Phase 1b readiness와 real WebSocket recovery evidence 확보
@@ -46,8 +48,9 @@
 
 ## 최신 검증
 
-- targeted unittest: `49 tests OK`
-- full unittest: `569 tests OK` in 30.381s
+- A1 targeted unittest: `49 tests OK`
+- A2/B1 replay targeted unittest: `21 tests OK`
+- full unittest: `586 tests OK` in 32.523s
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 실제 KIS data-quality 재생성: latest trade date 2026-08-28, assessment `watch`
 - raw market session coverage: `97.5959%`; feature closed coverage: `97.4872%`
@@ -58,6 +61,16 @@
 - 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-30] E7 portfolio replay v2와 evaluator manifest
+
+- 기존 `app/services/portfolio_replay.py`는 변경 없이 보존해 과거 `portfolio-replay-v1-entry-mark` 결과의 의미를 유지했다.
+- 신규 v2는 `ReplayBar.bar_time`을 minute start로 해석하고 시각 T에 T-1분 completed close만 사용한다. T분 close/high/low는 아직 미래 정보이므로 쓰지 않으며 entry/exit는 기존대로 T분 open이다.
+- 보유 중 매분 MTM equity를 관측해 peak/MDD, 다음 position sizing, gross exposure, concentration에 같은 값을 사용한다. exact mark 누락, stale, invalid close는 fallback 없이 evaluation 전체를 invalid 처리한다.
+- E7 frozen manifest는 LightGBM h15 v1, threshold 0.55, 2026-08-31 09:15 KST, 15:20 forced-flat, 2,500만원, 8%/5포지션, canonical/2배 비용, 층화 random 1,000회 seed 202608310915, 최소 표본과 두 비중복 구간을 hash `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`로 잠갔다.
+- baseline/policy/actual/random x normal/double cost x 두 구간의 16개 결과가 동일 identity가 아니면 통합 E7 판정을 만들지 않는다. random control은 immutable mark index와 timeline을 1,000회 공유하고 actual effective-veto lineage와 같은 count만 허용한다.
+- synthetic 1,000원 사례에서 100 진입→80 하락→110 청산은 v1 MDD 0%, v2 중간 equity 800원/MDD 20%, 두 버전 최종 equity 1,100원으로 손검산과 일치했다. 하락 MTM에서 두 번째 주문 qty 23, 상승 MTM에서 qty 26도 기대값과 일치했다.
+- 관련 targeted 21건, 전체 586건, repository structure audit errors 0/warnings 2, Python compile, `git diff --check`를 통과했다. E7 전략, active model, threshold, signal/gate, allocator, Phase 0, live 코드는 변경하지 않았다.
 
 ## [2026-08-30] Phase 0 broker account rejection 원인 규명과 호출 보호
 

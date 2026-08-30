@@ -58,6 +58,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단
 - [x] buy-avoid의 절대 portfolio 손실을 근거로 기각 유지
 - [x] E7 LightGBM buy-rescue 미래 검증을 threshold 0.55와 고정 기준으로 사전등록
+- [x] 기존 replay v1 보존, minute MTM v2와 immutable E7 manifest/compatibility guard 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
@@ -65,6 +66,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 ## E7 통과 기준
 
+- 공식 비교 16개 결과가 모두 `portfolio-replay-v2-minute-mtm`과 동일 manifest/구간/비용/제약을 사용
 - 현행 비용 0.29%와 2배 비용 0.58%에서 portfolio return과 평균 거래 기대값이 모두 양수
 - random control 상위 5% 초과
 - 비음수 거래일 비율 2/3 이상

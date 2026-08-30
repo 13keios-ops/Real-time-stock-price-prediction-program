@@ -29,6 +29,7 @@
 - Phase 0 현재 epoch는 clean baseline 뒤 `0/10`, mismatch 0이다. 이전 epoch의 10일 불일치는 과거 이력으로만 보존한다.
 - top challenger LightGBM은 거래 1건, net `-0.757017%`로 승격 불가다. buy-avoid와 hold-rescue도 절대 손익이 음수다.
 - LightGBM buy-rescue threshold 0.55의 76행/9거래일 양수 관측은 `research_lead`다. 2026-08-31 이후 미래 구간에서 최소 10거래일/100 episode/5종목과 실제 portfolio/random control을 검증한다.
+- E7 공식 평가는 기존 entry-mark v1이 아니라 검증된 `portfolio-replay-v2-minute-mtm`만 사용한다. 동일 manifest의 baseline/policy/actual/random, normal/double cost, 비중복 두 구간 16개 결과가 완전할 때만 통합 판정한다.
 - 세 번의 고정 평가에서 개선이 없으면 threshold를 다시 찾지 않고 h60 또는 entry/exit 분리 가설로 이동한다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, 연구 기준은 `docs/Model-Research-PreRegistration.md`를 따른다.
