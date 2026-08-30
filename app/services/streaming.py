@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -32,7 +33,11 @@ from app.paper_trading.engine import PaperTradingEngine
 from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
-from app.services.broker_paper import BrokerPaperMirror
+from app.services.broker_paper import (
+    BrokerPaperMirror,
+    BrokerPaperSubmissionError,
+    classify_broker_paper_failure,
+)
 from app.services.broker_paper_sync import BrokerPaperExecutionSync
 from app.services.paper_alignment import (
     adjust_snapshot_for_fills_after_snapshot,
@@ -262,24 +267,47 @@ class OnlinePipelineProcessor:
             and self.portfolio_book.positions[symbol].qty > 0
         }
 
-    def _mirror_order_to_broker(self, order) -> None:
+    def _mirror_order_to_broker(self, order, *, decision_id: str | None = None):
         if not self.broker_paper_mirror.enabled:
-            return None
+            return None, None
         try:
-            submission = self.broker_paper_mirror.submit_local_order(order)
-        except Exception as exc:
-            self.writer.write_risk_event(
-                RiskEvent(
-                    risk_event_id=self._next_scoped_id("risk"),
-                    symbol=order.symbol,
-                    event_time=order.event_time,
-                    gate="broker_paper_mirroring",
-                    detail=f"broker_paper_order_failed={exc}",
-                    )
+            submission = self.broker_paper_mirror.submit_local_order(
+                order,
+                decision_id=decision_id,
             )
-            return None
-        self.writer.write_broker_order_submission(submission)
-        return submission
+        except BrokerPaperSubmissionError as exc:
+            failure = exc.failure
+            attempt_id = exc.attempt_id
+            request_evidence = exc.request_evidence
+        except Exception as exc:
+            failure = classify_broker_paper_failure(exc, network_attempted=True)
+            attempt_id = f"broker-paper-attempt-{order.order_id}"
+            request_evidence = {}
+        else:
+            self.writer.write_broker_order_submission(submission)
+            return submission, None
+
+        detail = {
+            "schema_version": 1,
+            "attempt_id": attempt_id,
+            "decision_id": decision_id,
+            "local_order_id": order.order_id,
+            "prediction_id": order.prediction_id,
+            "signal_id": order.signal_id,
+            "target_id": order.target_id,
+            "failure": failure.to_dict(),
+            "request": request_evidence,
+        }
+        self.writer.write_risk_event(
+            RiskEvent(
+                risk_event_id=self._next_scoped_id("risk"),
+                symbol=order.symbol,
+                event_time=order.event_time,
+                gate="broker_paper_mirroring",
+                detail=json.dumps(detail, ensure_ascii=False, sort_keys=True),
+            )
+        )
+        return None, failure
 
     def _can_open_with_pending(self, symbol: str) -> tuple[bool, str]:
         if symbol in self.pending_order_symbols:
@@ -474,6 +502,7 @@ class OnlinePipelineProcessor:
         self.predictions_written += len(predictions)
         self.signals_written += 1
 
+        decision_id = self._next_scoped_id("decision")
         decision_stage = "no_order"
         decision_reason = "not_evaluated"
         decision_order_id: str | None = None
@@ -498,7 +527,10 @@ class OnlinePipelineProcessor:
             ack = self.engine.acknowledge(order, order_event_id=self._next_scoped_id("order-event"))
             self.writer.write_order_event(ack)
             if self.broker_paper_mirror.enabled:
-                submission = self._mirror_order_to_broker(order)
+                submission, broker_failure = self._mirror_order_to_broker(
+                    order,
+                    decision_id=decision_id,
+                )
                 if submission is not None:
                     order.status = "submitted"
                     decision_stage = "order_submitted"
@@ -518,7 +550,12 @@ class OnlinePipelineProcessor:
                 else:
                     order.status = "rejected"
                     decision_stage = "order_rejected"
-                    decision_reason = "broker_paper_submission_failed"
+                    broker_failure_category = (
+                        broker_failure.category
+                        if broker_failure is not None
+                        else "broker_unknown_error"
+                    )
+                    decision_reason = f"broker_paper_submission_failed:{broker_failure_category}"
                     decision_order_status = order.status
                     self.writer.write_paper_order(order)
                     self.writer.write_order_event(
@@ -527,7 +564,18 @@ class OnlinePipelineProcessor:
                             order_id=order.order_id,
                             event_time=order.event_time,
                             event_type="rejected",
-                            detail="broker_paper_submission_failed",
+                            detail=json.dumps(
+                                {
+                                    "attempt_id": f"broker-paper-attempt-{order.order_id}",
+                                    "failure_category": broker_failure_category,
+                                    "network_attempted": (
+                                        broker_failure.network_attempted
+                                        if broker_failure is not None
+                                        else True
+                                    ),
+                                },
+                                sort_keys=True,
+                            ),
                         )
                     )
             else:
@@ -582,7 +630,7 @@ class OnlinePipelineProcessor:
 
         self.writer.write_serving_decision(
             ServingDecision(
-                decision_id=self._next_scoped_id("decision"),
+                decision_id=decision_id,
                 symbol=state.symbol,
                 event_time=prediction.event_time,
                 horizon_min=prediction.horizon_min,
@@ -666,7 +714,7 @@ class OnlinePipelineProcessor:
         ack = self.engine.acknowledge(order, order_event_id=order_event_id)
         self.writer.write_order_event(ack)
         if self.broker_paper_mirror.enabled:
-            submission = self._mirror_order_to_broker(order)
+            submission, broker_failure = self._mirror_order_to_broker(order)
             if submission is not None:
                 order.status = "submitted"
                 self.pending_order_symbols.add(symbol)
@@ -681,7 +729,22 @@ class OnlinePipelineProcessor:
                         order_id=order.order_id,
                         event_time=event_time,
                         event_type="rejected",
-                        detail="broker_paper_submission_failed",
+                        detail=json.dumps(
+                            {
+                                "attempt_id": f"broker-paper-attempt-{order.order_id}",
+                                "failure_category": (
+                                    broker_failure.category
+                                    if broker_failure is not None
+                                    else "broker_unknown_error"
+                                ),
+                                "network_attempted": (
+                                    broker_failure.network_attempted
+                                    if broker_failure is not None
+                                    else True
+                                ),
+                            },
+                            sort_keys=True,
+                        ),
                     )
                 )
         else:

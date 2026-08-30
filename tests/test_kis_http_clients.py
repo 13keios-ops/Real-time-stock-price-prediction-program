@@ -512,6 +512,26 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertEqual(result.qty, 3)
         self.assertEqual(result.broker_order_no, "1234567890")
         self.assertEqual(result.broker_branch_no, "00111")
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "https://openapivts.koreainvestment.com:29443/uapi/domestic-stock/v1/trading/order-cash",
+        )
+        self.assertEqual(request.get_header("Tr_id"), "VTTC0012U")
+        self.assertEqual(
+            json.loads(request.data.decode("utf-8")),
+            {
+                "CANO": "12345678",
+                "ACNT_PRDT_CD": "01",
+                "PDNO": "005930",
+                "ORD_DVSN": "00",
+                "ORD_QTY": "3",
+                "ORD_UNPR": "70000",
+                "EXCG_ID_DVSN_CD": "KRX",
+                "SLL_TYPE": "",
+                "CNDT_PRIC": "",
+            },
+        )
 
 
 if __name__ == "__main__":

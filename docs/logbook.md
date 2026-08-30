@@ -7,7 +7,7 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-29 10:40 KST
+- 기준 시각: 2026-08-30 21:57 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - watchdog/dashboard/startup launcher: 정상; PC 재부팅 뒤 watchdog/dashboard 안전 복구 완료
@@ -16,6 +16,7 @@
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
 - Phase 0 current epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일, remaining 10일. 실제 mirrored submission이 있는 post-close 유효일만 센다.
+- 2026-08-28 broker 실패 832건은 계좌 hard rejection 830건과 `EGW00201` 2건이다. 성공 submission 0건이며 KIS paper 계좌 주문 가능 상태 확인 전에는 Phase 0 준비 완료가 아니다.
 - Phase 0 prior epoch: `10/10`, matched 0일, mismatch 10일과 `035420/086520/105560/247540` 불일치 이력을 보존한다.
 - Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 2026-08-29 preflight는 `ready/passed`, 네트워크·주문 호출 0회다.
 - runtime 원장: 2026-08-28 decision ledger 3,802행, complete lineage 100%, raw market session coverage 97.5959%, feature closed coverage 97.4872%다.
@@ -31,6 +32,8 @@
 - [x] 종가 동시호가 예상 gap과 unexpected common gap 분리
 - [x] reconnect 28/storm 0을 수집 정상 범위와 연결 주의로 분리
 - [x] Phase 0 clean baseline 이전/이후 epoch 분리
+- [x] broker 실패 taxonomy, account hard-rejection circuit, stable failure lineage 추가
+- [ ] KIS paper 계좌 주문 가능 상태와 다음 정상 거래 성공 submission 확인
 - [ ] Phase 0 current epoch 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
 - [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
@@ -43,8 +46,8 @@
 
 ## 최신 검증
 
-- targeted unittest: `37 tests OK`
-- full unittest: `560 tests OK` in 31.063s
+- targeted unittest: `49 tests OK`
+- full unittest: `569 tests OK` in 30.381s
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 실제 KIS data-quality 재생성: latest trade date 2026-08-28, assessment `watch`
 - raw market session coverage: `97.5959%`; feature closed coverage: `97.4872%`
@@ -55,6 +58,16 @@
 - 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-08-30] Phase 0 broker account rejection 원인 규명과 호출 보호
+
+- 2026-08-28 risk/decision/order 원장을 sanitized 상태로 재분석했다. `order_rejected=832` 중 830건은 `모의투자 주문이 불가한 계좌`, 2건은 `EGW00201`이며, 830건은 gate/allocator 차단이 아니라 KIS `order-cash` 실제 호출 뒤 응답이다.
+- 대표 표본의 symbol/side/qty/order type/limit, paper profile shape, TR ID, 비밀값 제외 body를 비교했다. 저장소의 `VTTC0012U/VTTC0011U`와 요청 필드는 한국투자증권 공식 국내주식 paper 주문 예제와 일치해 repository 구현 오류 근거는 발견되지 않았다.
+- root cause는 KIS가 현재 paper 계좌를 국내주식 주문 불가로 판정한 계좌/환경 상태까지 확정했다. paper app 자격정보-모의계좌 연결 또는 계좌 활성/주문 가능 상태 중 어느 쪽인지는 비밀값 없이 코드만으로 확정할 수 없다.
+- 정확한 계좌 hard rejection 1회 뒤 30분 동안 broker paper network 제출만 fail-closed하는 process-local circuit을 추가했다. rate limit, auth, invalid request, 일반 order rejection, network, unknown 오류는 별도로 분류하고 account circuit을 열지 않는다.
+- `decision_id/prediction_id/signal_id/target_id/local_order_id/attempt_id`와 sanitized request shape를 failure risk event와 성공 submission에 연결했다. local paper/E7 수집은 계속되며 성공 응답이 없을 때 broker submission 행을 만들지 않아 Phase 0 no-submission day 의미는 유지된다.
+- E7 threshold 0.55, active model, signal/gate, allocator, trading mode, live flag, `app/risk/`, Phase 0 baseline은 변경하지 않았다.
+- broker/streaming/Phase 0 targeted unittest 49건과 전체 unittest 569건, Python 문법, `git diff --check`, repository structure audit errors=0을 통과했다.
 
 ## [2026-08-29] FULL CHECK 수집·판단·수익화 근거 교정
 

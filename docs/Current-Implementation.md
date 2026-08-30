@@ -11,6 +11,7 @@
 - buy-avoid는 portfolio 손실을 `+1.450780%p` 줄였지만 policy return `-49.442452%`라 기각한다. hold-rescue도 실제 적용된 최선이 음수다.
 - LightGBM buy-rescue threshold `0.55`의 76행/9거래일 탐색 관측은 양수지만 겹치는 신호행 합이다. 2026-08-31 이후 미래 구간의 decision-episode portfolio replay와 random control을 통과하기 전에는 `research_lead`다.
 - Phase 0 history는 2026-08-15 clean baseline marker로 epoch를 분리한다. 과거 epoch `matched 0/mismatch 10`은 보존하고 현재 epoch는 `0/10`, mismatch 0이다.
+- 2026-08-28 broker order rejection 832건은 계좌 hard rejection 830건과 rate limit 2건이다. paper 주문 요청 계약은 공식 KIS 예제와 일치하며, 성공 제출 전까지 KIS paper 계좌의 주문 가능 상태를 Phase 0 blocker로 둔다.
 - Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
 
 ### 2026-07-12 수익성 판정
@@ -391,6 +392,8 @@ snapshot DB와 격리된 research run runtime 을 쓰는 heavy research 는 아�
 로컬 가상 계좌는 프로그램 내부 모의주문 엔진의 장부다.
 KIS 모의계좌는 한국투자 모의투자 서버에서 직접 조회한 계좌 상태다.
 두 값은 주문 거절, 부분 체결, 체결 시차, KIS 예수금 표시 방식 때문에 일시적으로 다를 수 있다.
+
+KIS broker paper mirroring 실패는 `broker_account_not_orderable`, `broker_rate_limited`, `broker_auth_error`, `broker_invalid_request`, `broker_order_rejected`, `broker_network_error`, `broker_unknown_error`로 나눈다. 계좌 hard rejection만 30분 account-level circuit을 열며, circuit 중에는 broker 네트워크 제출만 막고 prediction, signal, local paper order, serving decision은 계속 기록한다. 최초 실제 오류와 circuit 차단 행은 `attempt_id`, `decision_id`, `prediction_id`, `signal_id`, `target_id`, `local_order_id`, 비밀값을 제외한 request shape로 연결한다. 성공 응답만 `broker_paper_order_submissions`에 기록하므로 Phase 0 no-submission day 의미는 유지된다. circuit은 process-local이라 runtime 재시작 뒤 최초 후보 1건은 다시 확인하며, 성공·30분 만료·명시적 reset에서 해제된다.
 
 브로커 모의계좌 잔고 갱신:
 

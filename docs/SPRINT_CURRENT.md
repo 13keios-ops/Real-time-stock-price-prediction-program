@@ -34,6 +34,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
 - 2026-08-28 decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
+- 2026-08-28 broker order rejection: 832건 중 계좌 hard rejection 830건, `EGW00201` 2건; 성공 broker submission 0건
 - 2026-08-28 data quality: raw market session coverage 97.5959%, feature closed coverage 97.4872%, reconnect 28, storm 0, assessment `watch`
 - 2026-08-28 challenger: LightGBM 거래 1건, net `-0.757017%`; active 유지
 - E7 탐색 기준선: LightGBM threshold 0.55, 76행/9거래일, 신호행 합 `+13.073707%p`; portfolio 수익 증거 아님
@@ -49,6 +50,9 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] Phase 0 full-period account activity 22페이지/329행과 pagination 완결 확보
 - [x] broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
 - [x] Phase 0 history를 clean baseline 이전/이후 epoch로 분리
+- [x] broker failure taxonomy, 30분 account hard-rejection circuit, decision→attempt→failure lineage 추가
+- [ ] KIS paper 국내주식 계좌 주문 가능 상태와 자격정보-계좌 연결 확인
+- [ ] 다음 정상 거래에서 성공 broker submission 또는 hard rejection 재현 확인
 - [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단

@@ -7,7 +7,9 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+from app.brokers.kis_auth import KisApiError
 from app.config.settings import load_settings
+from app.services.broker_paper import BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE
 from app.services.broker_paper_sync import BrokerPaperSyncResult
 from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, Prediction
 from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
@@ -533,6 +535,100 @@ class StreamingPipelineTests(unittest.TestCase):
         self.assertEqual(first, "recently_closed")
         self.assertEqual(second, "broker_close_retry_blocked")
         self.assertEqual(submit.call_count, 1)
+
+
+    def test_account_hard_rejection_blocks_repeated_network_but_keeps_local_lineage(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-broker-account-circuit" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{runtime_root / 'test.db'}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+        sync_result = BrokerPaperSyncResult(
+            ok=True,
+            synced_at="2026-04-13T10:16:00+09:00",
+            status="no_submissions",
+            total_submissions=0,
+            matched_orders=0,
+            updated_orders=0,
+            applied_fill_events=0,
+            applied_fill_qty=0,
+            open_order_count=0,
+            final_order_count=0,
+            pending_symbols=[],
+            report_markdown_path=runtime_root / "sync.md",
+            report_json_path=runtime_root / "sync.json",
+        )
+
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            with patch(
+                "app.services.broker_paper.KisRestQuoteClient.submit_cash_order",
+                side_effect=KisApiError(
+                    f"KIS REST quote error: {BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE}"
+                ),
+            ) as submit_cash_order:
+                with patch(
+                    "app.services.streaming.BrokerPaperExecutionSync.sync_recent_orders",
+                    return_value=sync_result,
+                ):
+                    result = replay_ws_frames(
+                        project_root=root,
+                        frames=build_sample_ws_frames("005930"),
+                    )
+            sqlite_store = get_sqlite_store(settings)
+            self.assertIsNotNone(sqlite_store)
+            risk_rows = [
+                row
+                for row in sqlite_store.fetch_all_rows("ops_risk_events", "event_time")
+                if str(row["gate"]) == "broker_paper_mirroring"
+            ]
+            decision_rows = sqlite_store.fetch_all_rows("serving_decision_ledger", "event_time")
+            paper_orders = sqlite_store.fetch_all_rows("paper_orders", "event_time")
+            submissions = sqlite_store.fetch_all_rows(
+                "broker_paper_order_submissions",
+                "event_time",
+            )
+
+        details = [json.loads(str(row["detail"])) for row in risk_rows]
+        self.assertEqual(submit_cash_order.call_count, 1)
+        self.assertGreaterEqual(result.predictions_written, 4)
+        self.assertGreaterEqual(len(decision_rows), 2)
+        self.assertGreaterEqual(len(paper_orders), 2)
+        self.assertEqual(submissions, [])
+        self.assertGreaterEqual(len(details), 2)
+        self.assertTrue(details[0]["failure"]["network_attempted"])
+        self.assertTrue(
+            any(not detail["failure"]["network_attempted"] for detail in details[1:])
+        )
+        self.assertTrue(
+            all(
+                detail["decision_id"]
+                and detail["local_order_id"]
+                and detail["prediction_id"]
+                and detail["signal_id"]
+                and detail["target_id"]
+                for detail in details
+            )
+        )
+        rejected = [
+            row
+            for row in decision_rows
+            if str(row["decision_stage"]) == "order_rejected"
+        ]
+        self.assertGreaterEqual(len(rejected), 2)
+        self.assertTrue(
+            all(
+                str(row["decision_reason"]).endswith("broker_account_not_orderable")
+                for row in rejected
+            )
+        )
 
 
 if __name__ == "__main__":

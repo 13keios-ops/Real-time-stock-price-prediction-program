@@ -122,6 +122,31 @@ python3 scripts/probe_kis_paper_account_activity.py
 
 2026-08-14 새 승인 조회 범위는 `2026-06-14~2026-08-14`다. `--max-pages 30` 실행은 22페이지/329행/20거래일에서 `pagination_complete=true`였고 로컬 submission 320개와 broker-only 활동 9행을 확인했다. 전체 활동 position은 KIS snapshot과 일치하고 local paper만 divergence여서 `external_or_unlinked_broker_activity`로 확정했다. 2026-08-15 별도 승인으로 KIS snapshot 기준 marker-only clean baseline을 생성했고 mismatch/cash/total asset gap 0을 확인했다. 과거 10일 이력은 보존하며 새 기준선 이후 10개 유효 거래일을 다시 누적한다.
 
+### 3.1.3. broker paper 주문 계좌 hard rejection
+
+2026-08-28 `order_rejected=832`를 risk event와 local order/decision lineage로 다시 분해했다.
+
+- 830건: KIS 응답 `모의투자 주문이 불가한 계좌`
+- 2건: `EGW00201` 초당 거래건수 초과
+- 830건은 signal/gate/allocator 이전 차단이 아니라 `BrokerPaperMirror -> KisRestQuoteClient.submit_cash_order` 실제 호출 뒤 발생했다.
+- 대표 표본은 모두 paper profile, 국내주식 product shape, 지정가 `ORD_DVSN=00`, 양수 수량/가격, KRX였다.
+- 저장소의 paper 매수/매도 TR ID `VTTC0012U/VTTC0011U`와 `CANO`, `ACNT_PRDT_CD`, `PDNO`, `ORD_DVSN`, `ORD_QTY`, `ORD_UNPR`, `EXCG_ID_DVSN_CD`, `SLL_TYPE`, `CNDT_PRIC` 구성은 공식 국내주식 `order_cash` 예제와 일치한다.
+- 공식 근거: `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_cash/order_cash.py`, `https://github.com/koreainvestment/open-trading-api/blob/main/README.md`
+
+따라서 현재 증거로는 repository 주문 요청 구현 오류를 root cause로 볼 수 없다. KIS 서버가 현재 설정된 paper 계좌를 국내주식 주문 불가로 판정한 사실까지 확정되며, 세부 원인은 paper app 자격정보와 모의계좌 연결 상태, 계좌의 모의투자 활성/주문 가능 상태 중 하나로 남는다. 계좌번호, app key/secret, token을 로그나 문서에 남기지 말고 계좌 소유자가 KIS/HTS에서 이 두 항목만 확인한다.
+
+운영 보호는 다음과 같다.
+
+1. 정확한 계좌 hard rejection이 한 번 발생하면 해당 runtime process에서 broker paper 제출 circuit을 30분 연다.
+2. circuit 동안 같은 계좌의 broker network call은 하지 않지만 local paper 판단, E7 수집, order rejection lineage는 계속 기록한다.
+3. `EGW00201`, auth, invalid request, 종목별 거절, network, unknown 오류는 account circuit을 열지 않는다.
+4. 30분 만료 뒤 주문 후보 1건만 probe하고, 성공하면 circuit을 해제한다. 같은 hard rejection이면 다시 30분 연다.
+5. runtime 재시작 뒤 circuit은 초기화되므로 첫 후보 1건은 다시 probe한다.
+6. 성공 acknowledgement가 없으면 broker submission 행을 만들지 않는다. 해당 거래일은 기존 Phase 0 no-submission day 규칙대로 유효일이 아니다.
+7. 성공 submission이 실제로 생성되기 전에는 다음 정상 거래 준비를 통과로 표시하지 않는다.
+
+실패 evidence는 원문 예외 대신 분류, sanitized code/message, `network_attempted`, circuit 상태와 stable lineage ID를 JSON으로 남긴다. 계좌값과 자격정보 값은 기록하지 않는다.
+
 ### 3.2. read-only probe 실패 분류
 
 기본 판단:

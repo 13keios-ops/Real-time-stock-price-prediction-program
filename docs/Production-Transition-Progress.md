@@ -29,7 +29,10 @@
 - 현재 KIS/local 보유 3종목, 현금, 총자산은 mismatch/gap 0
 - full-period sanitized activity: 22페이지/329행/20거래일, pagination complete
 - local-linked 320행, broker-only 9행; 이전 root cause는 `external_or_unlinked_broker_activity`
-- 해소 상태: `clean_baseline_created_waiting_10_matched_days`
+- 해소 상태: `clean_baseline_created_waiting_broker_orderability_and_10_matched_days`
+- 2026-08-28 broker 실패: 계좌 hard rejection 830건, rate limit 2건, 성공 submission 0건
+- paper 주문 요청 계약은 공식 KIS 국내주식 예제와 일치한다. KIS paper 계좌 주문 가능 상태 확인과 다음 정상 거래의 성공 submission이 선행 blocker다.
+- 계좌 hard rejection은 30분 broker-network circuit으로 제한하며 local paper/E7 원장은 계속 쌓는다.
 - 유효일 조건: post-close, broker snapshot available, clean baseline 뒤 실제 mirrored submission 존재
 - 무거래일과 weekend/holiday는 분모를 늘리지 않는다.
 - 완료 조건: 현재 epoch 유효 거래일 10개가 모두 matched

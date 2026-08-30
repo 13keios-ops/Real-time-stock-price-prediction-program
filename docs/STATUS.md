@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-29 10:43 KST
+- 확인 시각: 2026-08-30 21:57 KST
 - 장 상태: weekend
 - live runtime: 휴장 정상 정지
 - runtime watchdog: PC 재부팅 뒤 안전 복구, heartbeat fresh
@@ -48,6 +48,9 @@
 
 - 2026-08-15 계좌 소유자 승인 clean baseline marker 뒤 현재 KIS/local 보유 3종목, 현금, 총자산은 mismatch `0`이다.
 - 현재 epoch는 `0/10`, matched `0`, mismatch `0`, remaining `10`이다. baseline 뒤 실제 mirrored submission이 있는 유효 거래일만 분모를 늘리며 무거래일을 강제로 채우지 않는다.
+- 2026-08-28의 `order_rejected=832`는 KIS 실제 제출 뒤 계좌 hard rejection 830건(`모의투자 주문이 불가한 계좌`)과 `EGW00201` 2건이다. prediction/signal/gate/allocator 단계 차단이나 allocator 0을 broker 제출 실패로 센 값이 아니다.
+- 국내주식 paper 주문 TR ID와 요청 필드는 한국투자증권 공식 `order_cash` 예제와 일치한다. 저장소 요청 구현 오류 근거는 없고, KIS 측 paper 계좌 주문 가능 상태 또는 paper app 자격정보와 모의계좌 연결 상태가 남은 원인 후보다. 실제 성공 제출 전에는 Phase 0 준비 완료로 판정하지 않는다.
+- 동일 계좌 hard rejection은 최초 응답 뒤 30분 동안 broker paper 네트워크 제출만 fail-closed 한다. local paper 판단과 E7 원장은 계속 기록하고, rate limit·인증·요청·종목 거절·네트워크 오류는 별도 taxonomy로 남긴다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
@@ -61,14 +64,17 @@
 3. Phase 0 clean baseline 이전/이후 epoch를 분리하고 dashboard의 로컬 손익을 Phase 0 통과 전 수익 증거로 보지 않게 했다.
 4. E7 LightGBM buy-rescue 미래 검증을 사전등록해 사후 threshold 탐색을 막고 실제 수익화 검증 순서를 고정했다.
 5. runtime/watchdog/dashboard/startup launcher를 확인했고 재부팅 뒤 watchdog과 dashboard만 장외에 안전 복구했다. live runtime은 시작하지 않았다.
+6. 2026-08-28 broker 실패 832건을 830건 계좌 hard rejection과 2건 rate limit으로 분리하고, 30분 account circuit과 decision→attempt→failure 계보를 추가했다. E7 threshold/model/gate/allocator는 변경하지 않았다.
 
 ## 현재 blocker와 다음 순서
 
-1. E7 미래 구간에서 최소 10거래일·100 episode를 확보하고 portfolio/random-control/2배 비용/비중복 2구간을 검증한다.
-2. Phase 0 clean baseline 뒤 실제 유효 거래일 `10/10`을 모두 matched로 채운다.
-3. 다음 거래일 reconnect 수와 storm 0 유지, coverage 95% 이상, lineage 100%를 함께 확인한다.
-4. Phase 1b fresh read-only readiness와 실제 WebSocket recovery 증거를 별도로 갱신한다.
-5. E7이 3회 고정 평가에서 개선되지 않으면 threshold 재탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
+1. KIS/HTS에서 현재 paper app 자격정보가 국내주식 모의계좌와 연결돼 있고 해당 계좌가 주문 가능 상태인지 계좌 소유자가 확인한다. 비밀값 본문은 공유하지 않는다.
+2. 다음 정상 거래의 첫 주문 후보에서 `broker_account_not_orderable`이 재현되는지 또는 성공 submission이 생성되는지 확인한다. 성공 전에는 Phase 0 유효일 누적 준비를 통과로 보지 않는다.
+3. E7 미래 구간에서 최소 10거래일·100 episode를 확보하고 portfolio/random-control/2배 비용/비중복 2구간을 검증한다.
+4. 성공 submission 확인 뒤 Phase 0 clean baseline 이후 실제 유효 거래일 `10/10`을 모두 matched로 채운다.
+5. 다음 거래일 reconnect 수와 storm 0 유지, coverage 95% 이상, lineage 100%를 함께 확인한다.
+6. Phase 1b fresh read-only readiness와 실제 WebSocket recovery 증거를 별도로 갱신한다.
+7. E7이 3회 고정 평가에서 개선되지 않으면 threshold 재탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
 
 ## 기준 문서
 
