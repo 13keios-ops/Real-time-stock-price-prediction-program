@@ -2,17 +2,17 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-08-30 23:38 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
-- runtime watchdog: PC 재부팅 뒤 안전 복구, heartbeat fresh
-- dashboard: PC 재부팅 뒤 안전 복구, 10:40 KST 실제 snapshot 재생성, `http://127.0.0.1:8765`
+- 확인 시각: 2026-09-01 02:33 KST
+- 장 상태: overnight
+- live runtime: 2026-08-31 15:30 KST 정상 종료 후 정지
+- runtime watchdog: 종료 상태를 장외에 안전 복구, heartbeat fresh
+- dashboard: watchdog가 안전 복구, server/API 정상, `http://127.0.0.1:8765`
 - Windows startup launcher: 설치 및 정상
 
 ## 프로젝트 목표 정합성
 
 - 현재 운영 목표는 실전 자동매매가 아니라 `paper` 기준으로 `수집 -> 특징 -> 예측 -> 판단 -> 모의주문/체결 -> KIS 모의계좌 정합 -> 비용 후 포트폴리오 검증`을 증거로 연결하는 것이다.
-- 2026-08-28 decision ledger와 model artifact lineage는 완전하며, active model과 주문 정책을 자동 변경하지 않는 fail-closed 경계도 유지된다.
+- 2026-08-31 decision ledger와 model artifact lineage는 완전하며, active model과 주문 정책을 자동 변경하지 않는 fail-closed 경계도 유지된다.
 - 현재 통과한 수익 후보는 `0개`이고 수익화 판정은 `no_profitable_candidate`다. 시스템은 개발 목표에는 대체로 맞지만 실전 수익화 준비는 아직 통과하지 못했다.
 
 ## 운용과 수집
@@ -22,13 +22,13 @@
 - active h15: `baseline-h15-v1`
 - challenger 조치: `keep_active`
 - 모델 승격: 없음
-- 최신 KIS 거래일: `2026-08-28`
-- raw market/orderbook symbol-minute: `3,816/4,062`; raw market 전체 session coverage `97.5959%`, feature closed coverage `97.4872%`
-- serving decision ledger: `3,802`행, complete lineage `3,802/3,802`, ratio `100%`
-- 판단 단계: allocator 258, order rejected 832, position/pending 483, signal blocked 2,229건
-- WebSocket: reconnect `28`, storm `0`, 사유는 모두 `no close frame`
+- 최신 KIS 거래일: `2026-08-31`
+- raw market/orderbook coverage: `97.60%/103.73%`; feature closed coverage `97.51%`
+- serving decision ledger: `3,803`행, complete lineage `3,803/3,803`, ratio `100%`
+- broker order rejected: `871`건; failure lineage `871/871` complete
+- WebSocket: reconnect `27`, storm `0`
 - `15:20~15:29 KST` market 공통 공백은 설정된 `forced_flat_time=15:20` 뒤 종가 동시호가 구간으로 분리한다. 이 구간만으로 수집 실패로 판정하지 않으며 예상 밖 공통 공백은 없다.
-- 최신 data-quality 판정은 `watch`다. coverage와 lineage는 정상 범위지만 reconnect 28회는 연결 안정성 주의로 남긴다.
+- 최신 data-quality 판정은 `watch`다. coverage와 lineage는 정상 범위지만 reconnect 27회는 연결 안정성 주의로 남긴다.
 - 운영 SQLite는 약 `27.203 GiB`, journal mode `wal`이다. 대형 DB 전체 집계와 snapshot은 장외·D드라이브 기준을 유지한다.
 
 ## 학습과 수익성
@@ -44,14 +44,15 @@
 - 현행 비용 모델은 `krx-common-stock-2026-v1`, 왕복 `0.29%`, 2배 민감도 `0.58%`다.
 - E7 buy-rescue 미래 검증은 threshold `0.55`, `2026-08-31 09:15 KST` 이후 구간, 최소 10거래일/100 episode/5종목, portfolio replay, random control 1,000회, 비중복 2구간을 사전등록했다. 주문 정책에는 반영하지 않는다.
 - 기존 `portfolio-replay-v1-entry-mark` 코드는 그대로 보존했다. 신규 `portfolio-replay-v2-minute-mtm`은 직전 completed minute close로 보유 포지션을 매분 평가하고, missing/stale mark와 v1/v2·manifest·비용·구간 혼합을 fail-closed 한다. E7 manifest hash는 `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`다.
+- 2026-08-31 미래 원장은 수집됐지만 당시 공식 daily artifact writer가 없어 cumulative/mark/cost/random/interval 상태는 기록되지 않았다. 새 writer는 과거를 소급 작성하지 않고 다음 안전한 post-close부터 `collecting_future_sample` 증적을 남긴다.
 
 ## Phase 0과 readiness
 
 - 2026-08-15 계좌 소유자 승인 clean baseline marker 뒤 현재 KIS/local 보유 3종목, 현금, 총자산은 mismatch `0`이다.
 - 현재 epoch는 `0/10`, matched `0`, mismatch `0`, remaining `10`이다. baseline 뒤 실제 mirrored submission이 있는 유효 거래일만 분모를 늘리며 무거래일을 강제로 채우지 않는다.
-- 2026-08-28의 `order_rejected=832`는 KIS 실제 제출 뒤 계좌 hard rejection 830건(`모의투자 주문이 불가한 계좌`)과 `EGW00201` 2건이다. prediction/signal/gate/allocator 단계 차단이나 allocator 0을 broker 제출 실패로 센 값이 아니다.
-- 국내주식 paper 주문 TR ID와 요청 필드는 한국투자증권 공식 `order_cash` 예제와 일치한다. 저장소 요청 구현 오류 근거는 없다. 계좌 소유자는 현재 paper app 자격정보와 해당 국내주식 모의계좌 연결, 2027-04-10 만료를 확인했다. 다만 KIS가 실제 주문 가능으로 응답한 성공 제출은 아직 없어 Phase 0 준비 완료로 판정하지 않는다.
-- 동일 계좌 hard rejection은 최초 응답 뒤 30분 동안 broker paper 네트워크 제출만 fail-closed 한다. local paper 판단과 E7 원장은 계속 기록하고, rate limit·인증·요청·종목 거절·네트워크 오류는 별도 taxonomy로 남긴다.
+- 2026-08-31의 `broker_account_not_orderable=871`은 실제 KIS cash-order network call 11건과 circuit 차단 860건이다. 성공 submission은 0이며 current Phase 0 epoch는 계속 `0/10`이다.
+- 국내주식 paper 주문 계약은 공식 `order_cash` 예제와 일치하고, 계좌 소유자는 paper 자격정보 연결과 2027-04-10 만료를 확인했다. 새 `VTTC8908R` read-only orderability probe로 entitlement/API 정책을 주문 없이 분리 진단한다.
+- 동일 계좌 hard rejection circuit은 정상 동작했고 local paper 판단과 E7 원장은 계속 기록됐다. 성공 submission 전에는 Phase 0 준비 완료로 판정하지 않는다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
@@ -67,15 +68,18 @@
 5. runtime/watchdog/dashboard/startup launcher를 확인했고 재부팅 뒤 watchdog과 dashboard만 장외에 안전 복구했다. live runtime은 시작하지 않았다.
 6. 2026-08-28 broker 실패 832건을 830건 계좌 hard rejection과 2건 rate limit으로 분리하고, 30분 account circuit과 decision→attempt→failure 계보를 추가했다. E7 threshold/model/gate/allocator는 변경하지 않았다.
 7. 기존 replay v1 결과를 보존하고 minute MTM v2, exact-mark coverage, E7 immutable manifest, 1,000회 shared-context random control, 16개 공식 결과 compatibility guard를 추가했다. 관련 targeted 21건과 전체 586건을 통과했다.
+8. E7 일일 read-only artifact writer와 identity/mark/sample fail-closed 상태를 추가했다.
+9. KIS paper `VTTC8908R` 매수가능조회 dry-run/명시 실행 probe와 sanitized taxonomy를 추가했다.
+10. targeted 56건과 전체 605건, repository audit 오류 0건을 통과하고 장외에 watchdog/dashboard만 안전 복구했다.
 
 ## 현재 blocker와 다음 순서
 
-1. 다음 정상 거래의 첫 주문 후보에서 `broker_account_not_orderable`이 재현되는지 또는 성공 submission이 생성되는지 확인한다. 성공 전에는 Phase 0 유효일 누적 준비를 통과로 보지 않는다.
-2. E7 미래 구간에서 최소 10거래일·100 episode를 확보하고 `portfolio-replay-v2-minute-mtm`으로 portfolio/random-control/2배 비용/비중복 2구간을 검증한다.
-4. 성공 submission 확인 뒤 Phase 0 clean baseline 이후 실제 유효 거래일 `10/10`을 모두 matched로 채운다.
-5. 다음 거래일 reconnect 수와 storm 0 유지, coverage 95% 이상, lineage 100%를 함께 확인한다.
-6. Phase 1b fresh read-only readiness와 실제 WebSocket recovery 증거를 별도로 갱신한다.
-7. E7이 3회 고정 평가에서 개선되지 않으면 threshold 재탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
+1. 명시 승인된 read-only orderability probe 결과를 먼저 해석한다. cash order를 추가로 반복하지 않는다.
+2. 다음 안전한 거래일 post-close부터 E7 immutable daily artifact를 축적하고 최소 10거래일·100 episode·5종목을 기다린다.
+3. 성공 submission 확인 뒤 Phase 0 clean baseline 이후 실제 유효 거래일 `10/10`을 모두 matched로 채운다.
+4. 성공 submission/fill 뒤 B2 broker-paper cumulative→delta partial-fill economics를 진행한다.
+5. B2 뒤 B3 SQLite accounting transaction atomicity를 별도 storage 작업으로 진행한다.
+6. reconnect/storm/coverage/lineage와 fresh Phase 1b/real WebSocket recovery 증거를 계속 관찰한다.
 
 ## 기준 문서
 

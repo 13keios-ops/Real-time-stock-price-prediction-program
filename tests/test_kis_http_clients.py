@@ -479,6 +479,58 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertEqual(rows[1].remaining_qty, 1)
 
     @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_get_paper_orderability_uses_official_readonly_contract(
+        self, mocked_urlopen
+    ) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "0",
+                "msg_cd": "APBK0013",
+                "msg1": "조회 완료",
+                "output": {
+                    "ord_psbl_cash": "1000000",
+                    "nrcvb_buy_amt": "900000",
+                    "nrcvb_buy_qty": "12",
+                    "max_buy_amt": "1000000",
+                    "max_buy_qty": "13",
+                },
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        result = client.get_orderability(
+            symbol="005930",
+            order_price=70_000,
+            order_type="01",
+        )
+
+        self.assertEqual(result.non_receivable_buy_qty, 12)
+        self.assertEqual(mocked_urlopen.call_count, 1)
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(request.get_method(), "GET")
+        self.assertEqual(request.get_header("Tr_id"), "VTTC8908R")
+        self.assertIn("/inquire-psbl-order?", request.full_url)
+        for field in (
+            "CANO=12345678",
+            "ACNT_PRDT_CD=01",
+            "PDNO=005930",
+            "ORD_UNPR=70000",
+            "ORD_DVSN=01",
+            "CMA_EVLU_AMT_ICLD_YN=N",
+            "OVRS_ICLD_YN=N",
+        ):
+            self.assertIn(field, request.full_url)
+
+    @patch("app.brokers.kis_quote_rest.urlopen")
     def test_submit_cash_order(self, mocked_urlopen) -> None:
         mocked_urlopen.return_value = _mock_response(
             {

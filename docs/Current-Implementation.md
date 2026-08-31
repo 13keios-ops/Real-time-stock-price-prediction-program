@@ -274,6 +274,7 @@ python scripts/summarize_kis_live_feature_diagnostics.py
 - 기존 `app/services/portfolio_replay.py`는 `portfolio-replay-v1-entry-mark` 역사 증거로 byte-level 보존한다. v1은 보유 포지션을 entry raw price로 평가해 intratrade drawdown과 이후 sizing을 왜곡할 수 있다.
 - `app/services/portfolio_replay_v2.py`의 `portfolio-replay-v2-minute-mtm`은 시각 T에 T-1분 completed close로 활성 포지션을 평가하고 T분 open으로 기존 entry/exit 의미를 유지한다. 매분 equity, peak/MDD, sizing, gross exposure, concentration이 같은 MTM 값을 사용하며 exact mark가 없으면 entry price로 fallback하지 않는다.
 - E7 공식 정본은 `app/services/e7_portfolio_evaluator.py`의 frozen manifest다. baseline/policy/actual/random, normal/double cost, 두 비중복 구간의 16개 결과 중 evaluator, manifest, valuation, 비용, 제약, 구간, random seed/strata가 하나라도 다르면 통합 판정을 거부한다. 상세 시간 의미와 hash는 `docs/Portfolio-Replay-Evaluator.md`를 따른다.
+- `app/services/e7_daily_evidence.py`와 `scripts/generate_e7_daily_evidence.py`는 future start 이후 decision/mark를 SQLite read-only로 읽어 거래일별 immutable progress artifact를 만든다. 최소 표본 전 상태는 `collecting_future_sample`이며 수익성 실패가 아니다. 현재 거래일 post-close와 runtime 정지 조건이 아니면 DB 접근과 report write 전에 차단한다.
 - 2026 국내 보통주 비용 정본은 `krx-common-stock-2026-v1`이다. [국가법령정보센터 2026 증권거래세 신고서 작성방법](https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162621569)의 유가증권시장 증권거래세 5/10,000, 농어촌특별세 15/10,000, 코스닥시장 증권거래세 20/10,000을 기준으로 현재 10종목 보통주 watchlist는 매도 시 총 `0.20%`를 적용한다. 매수에는 거래세를 붙이지 않으며, 편도 수수료 `0.015%`와 편도 슬리피지 3bp를 합친 왕복 연구 비용은 `0.29%`다.
 - 세금 `0.20%`와 달리 편도 수수료 `0.015%` 및 편도 슬리피지 3bp는 브로커 확정 수수료표나 실제 체결 관측값이 아니라 보수적 연구 가정이다. 모든 새 연구 리포트는 `cost_model_version`과 가정 상태를 기록하며, Phase 2 canary 전에 실제 계좌 현금 변화와 체결 미끄러짐으로 다시 보정한다.
 - `PaperTradingEngine`, broker paper fill sync, LightGBM 연구 비용, portfolio replay가 같은 helper를 쓴다. 2026-07-12 이전 체결·snapshot은 소급 재작성하지 않아 비용 모델 단절이 있으며, KIS daily order/fill adapter에는 수수료·세금 분리 필드가 없으므로 Phase 2 전 canary에서 브로커 계좌 현금 변화와 다시 대조한다. ETF/ETN 등 상품별 과세는 현재 범위 밖이다.
@@ -397,6 +398,7 @@ KIS 모의계좌는 한국투자 모의투자 서버에서 직접 조회한 계�
 두 값은 주문 거절, 부분 체결, 체결 시차, KIS 예수금 표시 방식 때문에 일시적으로 다를 수 있다.
 
 KIS broker paper mirroring 실패는 `broker_account_not_orderable`, `broker_rate_limited`, `broker_auth_error`, `broker_invalid_request`, `broker_order_rejected`, `broker_network_error`, `broker_unknown_error`로 나눈다. 계좌 hard rejection만 30분 account-level circuit을 열며, circuit 중에는 broker 네트워크 제출만 막고 prediction, signal, local paper order, serving decision은 계속 기록한다. 최초 실제 오류와 circuit 차단 행은 `attempt_id`, `decision_id`, `prediction_id`, `signal_id`, `target_id`, `local_order_id`, 비밀값을 제외한 request shape로 연결한다. 성공 응답만 `broker_paper_order_submissions`에 기록하므로 Phase 0 no-submission day 의미는 유지된다. circuit은 process-local이라 runtime 재시작 뒤 최초 후보 1건은 다시 확인하며, 성공·30분 만료·명시적 reset에서 해제된다.
+`KisReadonlyClient.get_orderability()`와 `scripts/probe_kis_paper_orderability.py`는 공식 paper 매수가능조회 `VTTC8908R`을 주문/취소 없이 진단한다. 기본 dry-run은 network 0회고, 명시 승인된 `--execute`도 read-only call 1회와 order/cancel 0회만 허용한다. 보고서는 계좌 식별자와 exact 현금 대신 product-code shape와 positive/zero/unavailable만 저장한다.
 
 브로커 모의계좌 잔고 갱신:
 

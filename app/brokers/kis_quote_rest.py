@@ -31,6 +31,9 @@ ORDER_RVSECNCL_TR_ID_PAPER = "VTTC0803U"
 ORDER_DAILY_CCLD_PATH = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
 ORDER_DAILY_CCLD_TR_ID_LIVE = "TTTC0081R"
 ORDER_DAILY_CCLD_TR_ID_PAPER = "VTTC0081R"
+ORDERABILITY_PATH = "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
+ORDERABILITY_TR_ID_LIVE = "TTTC8908R"
+ORDERABILITY_TR_ID_PAPER = "VTTC8908R"
 
 
 def _as_int(payload: dict, key: str) -> int:
@@ -125,6 +128,22 @@ class KisAccountBalanceSnapshot:
     total_asset_amount: int
     summary_row_count: int
     position_row_count: int
+
+
+@dataclass(slots=True)
+class KisOrderabilitySnapshot:
+    mode: str
+    symbol: str
+    order_price: float
+    order_type: str
+    rt_cd: str
+    message_code: str
+    message: str
+    orderable_cash: int
+    non_receivable_buy_amount: int
+    non_receivable_buy_qty: int
+    max_buy_amount: int
+    max_buy_qty: int
 
 
 @dataclass(slots=True)
@@ -229,6 +248,7 @@ class KisRestQuoteClient:
         *,
         extra_headers: dict[str, str] | None = None,
         allow_retry: bool = True,
+        allow_business_error: bool = False,
     ) -> tuple[dict, dict[str, str]]:
         self._last_response_headers = {}
         token = self.token_manager.get_access_token()
@@ -261,13 +281,14 @@ class KisRestQuoteClient:
                     query_params=query_params,
                     extra_headers=extra_headers,
                     allow_retry=False,
+                    allow_business_error=allow_business_error,
                 )
             raise KisApiError(f"KIS HTTP error {exc.code}: {body}") from exc
         except URLError as exc:
             raise KisApiError(f"KIS network error: {exc}") from exc
 
         rt_cd = str(payload.get("rt_cd", ""))
-        if rt_cd and rt_cd != "0":
+        if rt_cd and rt_cd != "0" and not allow_business_error:
             message = payload.get("msg1") or payload.get("msg_cd") or payload
             raise KisApiError(f"KIS REST quote error: {message}")
         self._last_response_headers = response_headers
@@ -491,6 +512,64 @@ class KisRestQuoteClient:
             total_asset_amount=_as_int(summary, "nass_amt") or _as_int(summary, "tot_evlu_amt"),
             summary_row_count=len(summary_payload),
             position_row_count=len(positions),
+        )
+
+    def get_orderability(
+        self,
+        *,
+        symbol: str,
+        order_price: float,
+        order_type: str = "01",
+        include_cma_evaluation: bool = False,
+        include_overseas: bool = False,
+    ) -> KisOrderabilitySnapshot:
+        """Read domestic-stock buy orderability without submitting an order."""
+
+        if not self.profile.is_configured:
+            raise KisApiError(
+                "KIS account number and product code are required before requesting orderability."
+            )
+        if not symbol:
+            raise KisApiError("Orderability symbol is required.")
+        if order_price <= 0:
+            raise KisApiError("Orderability price must be positive.")
+        if not order_type:
+            raise KisApiError("Orderability order type is required.")
+
+        tr_id = (
+            ORDERABILITY_TR_ID_LIVE
+            if self.profile.mode == "live"
+            else ORDERABILITY_TR_ID_PAPER
+        )
+        payload, _ = self._request_response(
+            path=ORDERABILITY_PATH,
+            tr_id=tr_id,
+            query_params={
+                "CANO": self.profile.account_no,
+                "ACNT_PRDT_CD": self.profile.product_code,
+                "PDNO": symbol,
+                "ORD_UNPR": str(int(round(order_price))),
+                "ORD_DVSN": order_type,
+                "CMA_EVLU_AMT_ICLD_YN": "Y" if include_cma_evaluation else "N",
+                "OVRS_ICLD_YN": "Y" if include_overseas else "N",
+            },
+            allow_retry=False,
+            allow_business_error=True,
+        )
+        output = payload.get("output", {}) or {}
+        return KisOrderabilitySnapshot(
+            mode=self.profile.mode,
+            symbol=symbol,
+            order_price=float(order_price),
+            order_type=order_type,
+            rt_cd=_as_text(payload, "rt_cd"),
+            message_code=_as_text(payload, "msg_cd"),
+            message=_as_text(payload, "msg1"),
+            orderable_cash=_as_int(output, "ord_psbl_cash"),
+            non_receivable_buy_amount=_as_int(output, "nrcvb_buy_amt"),
+            non_receivable_buy_qty=_as_int(output, "nrcvb_buy_qty"),
+            max_buy_amount=_as_int(output, "max_buy_amt"),
+            max_buy_qty=_as_int(output, "max_buy_qty"),
         )
 
     def submit_cash_order(

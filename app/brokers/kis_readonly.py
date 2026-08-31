@@ -9,6 +9,7 @@ from app.brokers.kis_quote_rest import (
     KisDailyOrderFillRecord,
     KisIntradayMinuteRecord,
     KisOrderbookQuote,
+    KisOrderabilitySnapshot,
     KisRestQuoteClient,
 )
 from app.config.settings import AppSettings
@@ -62,6 +63,23 @@ class KisReadOnlyClient:
 
     def get_account_balance(self, *, inqr_dvsn: str = "02", max_pages: int = 10) -> KisAccountBalanceSnapshot:
         return self._client.get_account_balance(inqr_dvsn=inqr_dvsn, max_pages=max_pages)
+
+    def get_orderability(
+        self,
+        *,
+        symbol: str,
+        order_price: float,
+        order_type: str = "01",
+        include_cma_evaluation: bool = False,
+        include_overseas: bool = False,
+    ) -> KisOrderabilitySnapshot:
+        return self._client.get_orderability(
+            symbol=symbol,
+            order_price=order_price,
+            order_type=order_type,
+            include_cma_evaluation=include_cma_evaluation,
+            include_overseas=include_overseas,
+        )
 
     def get_daily_order_fills(
         self,

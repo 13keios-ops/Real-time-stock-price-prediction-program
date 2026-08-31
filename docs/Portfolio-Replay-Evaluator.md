@@ -113,3 +113,17 @@ v2 evaluator 구현은 E7 전략 변경이 아니다.
 
 신규 targeted test, 기존 관련 test, 전체 suite, no-look-ahead, missing/stale, manifest isolation, synthetic manual check가 모두 통과해야 공식 evaluator 준비 상태로 표시할 수 있다.
 하나라도 실패하면 미래 원장 수집은 계속하되 공식 수익성 판정만 보류한다.
+
+## E7 daily evidence artifact
+
+- entrypoint: `./scripts/generate_e7_daily_evidence.sh`
+- service: `app/services/e7_daily_evidence.py`
+- immutable daily path: `runtime-data/reports/research/e7/daily/YYYY-MM-DD.json`
+- latest path: `runtime-data/reports/research/e7/latest-e7-daily-evidence.json`
+- 입력 SQLite는 URI `mode=ro`로 열며 원장·평가 입력을 수정하지 않는다.
+- 실제 거래일 post-close, live runtime 정지, current trading day 조건에서만 생성한다. 같은 날짜 재실행은 immutable 파일을 재사용한다.
+
+artifact는 evaluator/manifest identity, 미래 거래일·episode·종목, mark 관측과 missing/stale/invalid, normal/2x cost 전제, random control, 두 미래구간, 최소 표본 진행률을 기록한다.
+`evidence_health`와 `profitability_assessment`는 별도다. 최소 10거래일/100 episode/5종목 전에는 `collecting_future_sample`이며 전략 성공/실패를 만들지 않는다.
+공식 evaluator 또는 manifest 상수, 비용·제약·random·구간 identity, mark coverage가 다르면 `invalid_evidence`로 fail-closed한다.
+2026-08-31 첫 미래 거래일 데이터는 수집됐지만 당시 daily ops에는 writer가 없어 공식 artifact가 없었다. 과거 evidence는 소급 작성하지 않고 다음 안전한 post-close부터 immutable 일일 증적을 축적한다.

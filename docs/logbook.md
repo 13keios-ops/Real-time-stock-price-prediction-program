@@ -7,23 +7,25 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-08-30 23:38 KST
-- 장 상태: weekend
-- live runtime: 휴장 정상 정지
-- watchdog/dashboard/startup launcher: 정상; PC 재부팅 뒤 watchdog/dashboard 안전 복구 완료
+- 기준 시각: 2026-09-01 02:33 KST
+- 장 상태: overnight
+- live runtime: 2026-08-31 15:30 KST 정상 종료 후 정지
+- watchdog/dashboard: 장외 안전 복구 후 정상; startup launcher 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
 - Phase 0 current epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일, remaining 10일. 실제 mirrored submission이 있는 post-close 유효일만 센다.
-- 2026-08-28 broker 실패 832건은 계좌 hard rejection 830건과 `EGW00201` 2건이다. 성공 submission 0건이며 KIS paper 계좌 주문 가능 상태 확인 전에는 Phase 0 준비 완료가 아니다.
+- 2026-08-31 broker account rejection 871건은 network call 11건과 circuit 차단 860건이다. 성공 submission 0건이며 Phase 0 준비 완료가 아니다.
 - Phase 0 prior epoch: `10/10`, matched 0일, mismatch 10일과 `035420/086520/105560/247540` 불일치 이력을 보존한다.
-- Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 2026-08-29 preflight는 `ready/passed`, 네트워크·주문 호출 0회다.
-- runtime 원장: 2026-08-28 decision ledger 3,802행, complete lineage 100%, raw market session coverage 97.5959%, feature closed coverage 97.4872%다.
-- WebSocket: reconnect 28, storm 0. `15:20~15:29 KST` 공통 market gap은 forced-flat 뒤 예상 종가 동시호가 구간이며 unexpected common gap은 없다.
+- Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 반복 자동화 preflight는 네트워크·주문 호출 0회다.
+- runtime 원장: 2026-08-31 decision ledger 3,803행, complete lineage 100%, market/orderbook coverage 97.60%/103.73%, feature 97.51%다.
+- WebSocket: reconnect 27, storm 0. 수집 정상과 연결 주의를 분리한다.
+- KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료는 확인됐다. 실제 orderability/entitlement는 신규 read-only probe 결과가 필요하다.
 - 수익성: buy-avoid policy `-49.442452%`, hold-rescue 실제 적용 최선도 음수다. LightGBM buy-rescue 76행/9거래일 양수 관측은 portfolio/random-control 미검증 `research_lead`다.
 - 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
-- E7 evaluator: 기존 v1은 보존하고 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`를 검증했다. 아직 미래 표본이 없어 수익성 판정은 시작 전이다.
+- E7 evaluator: 기존 v1은 보존하고 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`를 검증했다.
+- 2026-08-31 첫 미래 원장은 수집됐지만 당시 official daily artifact writer가 없어 소급 평가하지 않는다. 다음 안전한 post-close부터 `collecting_future_sample` artifact를 축적한다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -34,12 +36,15 @@
 - [x] reconnect 28/storm 0을 수집 정상 범위와 연결 주의로 분리
 - [x] Phase 0 clean baseline 이전/이후 epoch 분리
 - [x] broker 실패 taxonomy, account hard-rejection circuit, stable failure lineage 추가
-- [ ] KIS paper 계좌 주문 가능 상태와 다음 정상 거래 성공 submission 확인
+- [x] KIS paper 자격정보 연결/만료 확인과 read-only orderability probe 구현
+- [ ] 명시 승인된 orderability 결과 해석
+- [ ] 다음 정상 거래 성공 submission 확인
 - [ ] Phase 0 current epoch 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
 - [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
 - [x] E7 LightGBM buy-rescue threshold 0.55 미래 검증 사전등록
 - [x] replay v1 보존, minute MTM v2, immutable E7 manifest와 혼합 차단 검증
+- [x] E7 daily read-only artifact writer와 sample/drift/mark/idempotency 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간 판정
 - [ ] fresh Phase 1b readiness와 real WebSocket recovery evidence 확보
@@ -61,6 +66,18 @@
 - 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-09-01] E7 daily evidence와 KIS orderability 진단 경로
+
+- 2026-08-31 첫 E7 미래 거래일은 market/orderbook/feature coverage와 decision lineage가 정상 범위였지만 기존 daily ops에 공식 artifact writer가 없어 E7 진행 필드가 `not available yet`이었다.
+- `app/services/e7_daily_evidence.py`와 post-close entrypoint를 추가했다. future start 이후 자료만 SQLite read-only로 읽고 current trading day immutable report를 1회 생성하며, 같은 날 재실행은 기존 파일을 재사용한다.
+- evaluator/manifest 고정 상수, mark validity, lineage, 최소 10거래일/100 episode/5종목을 evidence health로 기록한다. 표본 부족은 `collecting_future_sample`이고 수익성 실패가 아니다. 2026-08-31 artifact는 소급 생성하지 않는다.
+- KIS 공식 `inquire-psbl-order` paper TR `VTTC8908R`을 쓰는 read-only client/probe를 추가했다. dry-run은 network 0회, 명시 승인 실행은 read-only 1회/order·cancel 0회다.
+- 계좌 식별자·자격정보·exact 현금은 기록하지 않고 positive/zero/unavailable 및 sanitized `rt_cd/msg_cd/msg1`과 taxonomy만 남긴다.
+- daily ops skill을 common/pre-open/post-close/Phase0/E7/orderability/ML/recovery/protected/classification/report 구조로 정리했다. 종료된 날짜 one-off는 자동 재실행 금지와 canonical history 링크만 남겼다.
+- threshold 0.55, active model, feature/signal/gate/allocator, portfolio/cost/manifest, Phase 0 baseline, live 설정, `app/risk/`, `VERSION`은 변경하지 않았다.
+- targeted 56건과 전체 605건, Python compile, Bash parse, repository audit 오류 0건/warning 2건, diff check를 통과했다.
+- 02:33 KST overnight에 종료된 watchdog를 기존 helper로 안전 복구했고 dashboard server/API도 정상화했다. live runtime은 시작하지 않았다.
 
 ## [2026-08-30] E7 portfolio replay v2와 evaluator manifest
 

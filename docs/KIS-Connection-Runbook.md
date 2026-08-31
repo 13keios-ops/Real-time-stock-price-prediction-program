@@ -312,3 +312,20 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 - 실전 계좌 read-only Phase 1에서는 모의투자 REST 제한과 다르게 동작할 수 있으므로 별도 호출량 budget을 잡아야 한다.
 
 관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Transition-Progress.md`, `runtime-data/logs/app/live-runtime.stderr.log`
+
+## 6. KIS paper 매수가능조회 진단
+
+계좌 소유자가 확인한 현재 사실은 paper API 자격정보가 해당 국내주식 모의계좌에 연결돼 있고 만료일이 `2027-04-10`이라는 점이다.
+`모의투자 주문이 불가한 계좌`가 재발해도 미연결/만료로 단정하지 않고 orderability/entitlement 상태를 분리한다.
+
+공식 국내주식 매수가능조회 계약:
+
+- endpoint: `/uapi/domestic-stock/v1/trading/inquire-psbl-order`
+- paper TR ID: `VTTC8908R`
+- query: `CANO`, `ACNT_PRDT_CD`, `PDNO`, `ORD_UNPR`, `ORD_DVSN`, `CMA_EVLU_AMT_ICLD_YN`, `OVRS_ICLD_YN`
+- 구현: `KisReadonlyClient.get_orderability()`와 `scripts/probe_kis_paper_orderability.py`
+
+기본 실행은 dry-run이며 network/order/cancel call이 모두 0이다. `--execute`는 계좌 소유자의 해당 작업 명시 승인, 장외, live runtime 정지 조건에서 read-only endpoint를 정확히 1회 호출하고 주문/취소는 0회다.
+결과는 `orderability_ok`, `orderability_zero`, `account_not_orderable`, `auth_error`, `invalid_request`, `rate_limited`, `network_error`, `unknown_error`로 나눈다.
+보고서에는 exact 현금 대신 positive/zero/unavailable만 남기고 full CANO, app key/secret, token, raw response를 저장하지 않는다.
+`account_not_orderable`이면 KIS 계좌 측 orderability/entitlement 근거가 강해지고, 정상/positive인데 cash order만 실패하면 endpoint 간 정책 차이를 KIS 지원에 문의한다. 어느 경우에도 실제 주문을 반복하지 않는다.

@@ -22,6 +22,7 @@ class LiveReadOnlyGuardTests(unittest.TestCase):
             "get_orderbook",
             "get_intraday_minute_chart",
             "get_account_balance",
+            "get_orderability",
             "get_daily_order_fills",
         )
 
@@ -39,6 +40,7 @@ class LiveReadOnlyGuardTests(unittest.TestCase):
         delegate.get_orderbook.return_value = object()
         delegate.get_intraday_minute_chart.return_value = []
         delegate.get_account_balance.return_value = object()
+        delegate.get_orderability.return_value = object()
         delegate.get_daily_order_fills.return_value = []
         client = KisReadOnlyClient(delegate)
 
@@ -62,6 +64,15 @@ class LiveReadOnlyGuardTests(unittest.TestCase):
 
         self.assertIs(client.get_account_balance(), delegate.get_account_balance.return_value)
         delegate.get_account_balance.assert_called_once_with(inqr_dvsn="02", max_pages=10)
+
+        self.assertIs(
+            client.get_orderability(symbol="005930", order_price=70_000),
+            delegate.get_orderability.return_value,
+        )
+        delegate.get_orderability.assert_called_once_with(
+            symbol="005930", order_price=70_000, order_type="01",
+            include_cma_evaluation=False, include_overseas=False,
+        )
 
         self.assertEqual(client.get_daily_order_fills(start_date="20260514", end_date="20260514"), [])
         delegate.get_daily_order_fills.assert_called_once_with(

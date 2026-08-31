@@ -33,11 +33,11 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-08-28 decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
-- 2026-08-28 broker order rejection: 832건 중 계좌 hard rejection 830건, `EGW00201` 2건; 성공 broker submission 0건
-- 2026-08-28 data quality: raw market session coverage 97.5959%, feature closed coverage 97.4872%, reconnect 28, storm 0, assessment `watch`
-- 2026-08-28 challenger: LightGBM 거래 1건, net `-0.757017%`; active 유지
-- E7 탐색 기준선: LightGBM threshold 0.55, 76행/9거래일, 신호행 합 `+13.073707%p`; portfolio 수익 증거 아님
+- 2026-08-31 decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
+- 2026-08-31 broker account rejection: 871건, network call 11건, circuit 차단 860건, 성공 broker submission 0건
+- 2026-08-31 data quality: market/orderbook coverage 97.60%/103.73%, feature 97.51%, reconnect 27, storm 0, assessment `watch`
+- 2026-08-31 E7 첫 미래 거래일 원장은 수집됐지만 당시 official daily artifact writer가 없어 수익성 판정은 하지 않는다.
+- E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
 ## 활성 체크리스트
 
@@ -51,7 +51,9 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
 - [x] Phase 0 history를 clean baseline 이전/이후 epoch로 분리
 - [x] broker failure taxonomy, 30분 account hard-rejection circuit, decision→attempt→failure lineage 추가
-- [ ] KIS paper 국내주식 계좌 주문 가능 상태와 자격정보-계좌 연결 확인
+- [x] KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료 확인
+- [x] KIS `VTTC8908R` read-only orderability probe와 sanitized taxonomy 구현
+- [ ] 명시 승인된 orderability 실제 1회 결과 해석
 - [ ] 다음 정상 거래에서 성공 broker submission 또는 hard rejection 재현 확인
 - [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
@@ -59,6 +61,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] buy-avoid의 절대 portfolio 손실을 근거로 기각 유지
 - [x] E7 LightGBM buy-rescue 미래 검증을 threshold 0.55와 고정 기준으로 사전등록
 - [x] 기존 replay v1 보존, minute MTM v2와 immutable E7 manifest/compatibility guard 검증
+- [x] E7 current-day post-close read-only daily artifact writer와 sample/drift/mark/idempotency 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
