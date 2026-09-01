@@ -35,6 +35,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 2/3: 미시작
 - 2026-08-31 decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
 - 2026-08-31 broker account rejection: 871건, network call 11건, circuit 차단 860건, 성공 broker submission 0건
+- 2026-09-01 broker account rejection: 811건, network call 12건, circuit 차단 799건, 성공 broker submission 0건
+- `VTTC8908R` orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`다. `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`이며 다음 단계는 KIS support 문의다.
 - 2026-08-31 data quality: market/orderbook coverage 97.60%/103.73%, feature 97.51%, reconnect 27, storm 0, assessment `watch`
 - 2026-08-31 E7 첫 미래 거래일 원장은 수집됐지만 당시 official daily artifact writer가 없어 수익성 판정은 하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
@@ -53,7 +55,9 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] broker failure taxonomy, 30분 account hard-rejection circuit, decision→attempt→failure lineage 추가
 - [x] KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료 확인
 - [x] KIS `VTTC8908R` read-only orderability probe와 sanitized taxonomy 구현
-- [ ] 명시 승인된 orderability 실제 1회 결과 해석
+- [x] 명시 승인된 `ORD_DVSN=01/00` orderability 결과 해석과 주문구분 원인 제외
+- [x] KIS support용 sanitized evidence packet과 문의 초안 작성
+- [ ] KIS support에서 paper cash-order entitlement/service 상태 확인
 - [ ] 다음 정상 거래에서 성공 broker submission 또는 hard rejection 재현 확인
 - [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각

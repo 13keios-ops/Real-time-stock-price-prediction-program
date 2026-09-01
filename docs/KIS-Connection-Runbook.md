@@ -329,3 +329,9 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 결과는 `orderability_ok`, `orderability_zero`, `account_not_orderable`, `auth_error`, `invalid_request`, `rate_limited`, `network_error`, `unknown_error`로 나눈다.
 보고서에는 exact 현금 대신 positive/zero/unavailable만 남기고 full CANO, app key/secret, token, raw response를 저장하지 않는다.
 `account_not_orderable`이면 KIS 계좌 측 orderability/entitlement 근거가 강해지고, 정상/positive인데 cash order만 실패하면 endpoint 간 정책 차이를 KIS 지원에 문의한다. 어느 경우에도 실제 주문을 반복하지 않는다.
+
+2026-09-01 계좌 소유자 승인으로 같은 `005930`과 최신 확정 분봉 가격을 사용해 `ORD_DVSN=01`, 실제 지정가 주문과 같은 `ORD_DVSN=00`을 각각 read-only 1회 확인했다. 두 조회 모두 transport/business success, `rt_cd=0`, `orderability_ok`, value presence `positive`였고 주문/취소 호출은 0회다. 따라서 `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`로 판정하며, 계좌 미연결·만료·주문구분 차이보다 KIS paper cash-order endpoint별 entitlement 또는 정책 문제를 우선 의심한다. 이는 KIS 서버 결함 확정이 아니다.
+
+2026-08-31 `broker_account_not_orderable` 871건은 실제 network attempt 11건과 circuit 차단 860건, 2026-09-01 811건은 실제 attempt 12건과 circuit 차단 799건이다. 두 날 모두 failure lineage는 100%이고 성공 submission은 0건이다. 지원 문의용 sanitized 증적은 `runtime-data/reports/broker-paper/kis-support-paper-orderability-evidence.md`에 둔다.
+
+KIS 회신 또는 새로운 증거 전에는 orderability `--execute`, 다른 symbol/order type probe, 강제 cash order/cancel을 반복하지 않는다. account hard-rejection circuit도 완화하지 않고, 기존 정책에서 자연 발생한 broker submission만 관찰한다. Phase 0은 성공 submission이 확인되기 전까지 `0/10`, `waiting_first_submission`으로 유지한다.

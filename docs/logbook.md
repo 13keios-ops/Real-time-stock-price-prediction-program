@@ -7,21 +7,21 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-09-01 02:33 KST
-- 장 상태: overnight
-- live runtime: 2026-08-31 15:30 KST 정상 종료 후 정지
+- 기준 시각: 2026-09-01 22:30 KST
+- 장 상태: post-close
+- live runtime: 2026-09-01 15:30 KST 정상 종료 후 정지
 - watchdog/dashboard: 장외 안전 복구 후 정상; startup launcher 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
 - Phase 0 current epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일, remaining 10일. 실제 mirrored submission이 있는 post-close 유효일만 센다.
-- 2026-08-31 broker account rejection 871건은 network call 11건과 circuit 차단 860건이다. 성공 submission 0건이며 Phase 0 준비 완료가 아니다.
+- 2026-08-31 broker account rejection 871건은 network call 11건과 circuit 차단 860건, 2026-09-01 811건은 network call 12건과 circuit 차단 799건이다. 두 날 모두 성공 submission 0건이며 Phase 0 준비 완료가 아니다.
 - Phase 0 prior epoch: `10/10`, matched 0일, mismatch 10일과 `035420/086520/105560/247540` 불일치 이력을 보존한다.
 - Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 반복 자동화 preflight는 네트워크·주문 호출 0회다.
 - runtime 원장: 2026-08-31 decision ledger 3,803행, complete lineage 100%, market/orderbook coverage 97.60%/103.73%, feature 97.51%다.
 - WebSocket: reconnect 27, storm 0. 수집 정상과 연결 주의를 분리한다.
-- KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료는 확인됐다. 실제 orderability/entitlement는 신규 read-only probe 결과가 필요하다.
+- KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료는 확인됐다. `VTTC8908R` read-only orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`다. 주문구분 차이는 원인이 아니며 KIS paper cash-order endpoint별 entitlement/policy 문제를 지원 문의 대상으로 남긴다.
 - 수익성: buy-avoid policy `-49.442452%`, hold-rescue 실제 적용 최선도 음수다. LightGBM buy-rescue 76행/9거래일 양수 관측은 portfolio/random-control 미검증 `research_lead`다.
 - 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
 - E7 evaluator: 기존 v1은 보존하고 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`를 검증했다.
@@ -37,7 +37,9 @@
 - [x] Phase 0 clean baseline 이전/이후 epoch 분리
 - [x] broker 실패 taxonomy, account hard-rejection circuit, stable failure lineage 추가
 - [x] KIS paper 자격정보 연결/만료 확인과 read-only orderability probe 구현
-- [ ] 명시 승인된 orderability 결과 해석
+- [x] 명시 승인된 `ORD_DVSN=01/00` orderability 결과 해석
+- [x] KIS support용 sanitized evidence packet과 문의 초안 작성
+- [ ] KIS support의 paper cash-order entitlement/service 답변 확인
 - [ ] 다음 정상 거래 성공 submission 확인
 - [ ] Phase 0 current epoch 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
@@ -66,6 +68,15 @@
 - 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-09-01] KIS paper cash-order 지원 증적 작성
+
+- 계좌 소유자 승인으로 `ORD_DVSN=01`과 실제 주문과 같은 `ORD_DVSN=00` 매수가능조회를 각각 read-only 1회 실행했다. 두 결과 모두 `orderability_ok`, `rt_cd=0`, value presence `positive`이고 실제 주문·취소는 0회다.
+- 저장 DB를 read-only 재검산해 2026-08-31 account rejection 871건이 network 11/circuit 860, 2026-09-01 811건이 network 12/circuit 799임을 확인했다. 두 날짜 failure lineage는 모두 100%이고 성공 submission은 0건이다.
+- 현행 `order-cash` endpoint, paper buy/sell TR ID, body field, 문자열 수량/가격, KRX, hashkey/header shape를 한국투자증권 공식 현재 예제와 다시 비교해 contract drift 근거를 찾지 못했다.
+- 결론은 `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`이며 `KIS paper cash-order endpoint-specific entitlement/policy issue strongly suspected`로 제한한다. KIS 서버 결함으로 단정하지 않는다.
+- `runtime-data/reports/broker-paper/kis-support-paper-orderability-evidence.md`에 credential-free 증적과 한국어 문의 초안을 만들었다. KIS 회신 전 추가 orderability execute, 다른 symbol/order type probe, 강제 주문·취소, circuit 완화는 중지한다.
+- application code, 전략, E7, Phase 0 baseline, `app/risk/`, `config/`, `VERSION`은 변경하지 않았다. 이번 packet 작성 중 KIS API, 주문, 취소 호출은 0회다.
 
 ## [2026-09-01] 장전 자동화 시간 조정
 

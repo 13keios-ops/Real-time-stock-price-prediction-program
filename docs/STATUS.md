@@ -50,8 +50,8 @@
 
 - 2026-08-15 계좌 소유자 승인 clean baseline marker 뒤 현재 KIS/local 보유 3종목, 현금, 총자산은 mismatch `0`이다.
 - 현재 epoch는 `0/10`, matched `0`, mismatch `0`, remaining `10`이다. baseline 뒤 실제 mirrored submission이 있는 유효 거래일만 분모를 늘리며 무거래일을 강제로 채우지 않는다.
-- 2026-08-31의 `broker_account_not_orderable=871`은 실제 KIS cash-order network call 11건과 circuit 차단 860건이다. 성공 submission은 0이며 current Phase 0 epoch는 계속 `0/10`이다.
-- 국내주식 paper 주문 계약은 공식 `order_cash` 예제와 일치하고, 계좌 소유자는 paper 자격정보 연결과 2027-04-10 만료를 확인했다. 새 `VTTC8908R` read-only orderability probe로 entitlement/API 정책을 주문 없이 분리 진단한다.
+- 2026-08-31의 `broker_account_not_orderable=871`은 실제 KIS cash-order network call 11건과 circuit 차단 860건, 2026-09-01의 811건은 실제 call 12건과 circuit 차단 799건이다. 두 날 모두 failure lineage 100%, 성공 submission 0이며 current Phase 0 epoch는 계속 `0/10`이다.
+- 국내주식 paper 주문 계약은 공식 `order_cash` 예제와 일치한다. 계좌 소유자는 paper 자격정보 연결과 2027-04-10 만료를 확인했고, `VTTC8908R` read-only orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`였다. `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`이며 KIS paper cash-order endpoint별 entitlement/policy 문제를 강하게 의심하되 서버 결함으로 단정하지 않는다.
 - 동일 계좌 hard rejection circuit은 정상 동작했고 local paper 판단과 E7 원장은 계속 기록됐다. 성공 submission 전에는 Phase 0 준비 완료로 판정하지 않는다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
@@ -74,7 +74,7 @@
 
 ## 현재 blocker와 다음 순서
 
-1. 명시 승인된 read-only orderability probe 결과를 먼저 해석한다. cash order를 추가로 반복하지 않는다.
+1. `runtime-data/reports/broker-paper/kis-support-paper-orderability-evidence.md`의 sanitized 증적으로 KIS 지원에 cash-order entitlement/service 상태를 문의한다. KIS 회신 전 추가 orderability probe와 강제 cash order를 반복하지 않는다.
 2. 다음 안전한 거래일 post-close부터 E7 immutable daily artifact를 축적하고 최소 10거래일·100 episode·5종목을 기다린다.
 3. 성공 submission 확인 뒤 Phase 0 clean baseline 이후 실제 유효 거래일 `10/10`을 모두 matched로 채운다.
 4. 성공 submission/fill 뒤 B2 broker-paper cumulative→delta partial-fill economics를 진행한다.
