@@ -45,7 +45,7 @@ git status --short --branch
 
 ## 2. Pre-open procedure
 
-KST 08:20~08:40의 실제 장전 점검에만 수행한다.
+KST 07:20~07:40의 실제 장전 점검에만 수행한다.
 
 1. 공통 안전 확인을 실행한다.
 2. 전 거래일 post-close ML, label refresh, data quality, dashboard, Phase 0 누적과 당일 readiness를 읽는다.

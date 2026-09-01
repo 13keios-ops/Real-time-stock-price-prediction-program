@@ -67,6 +67,12 @@
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
 
+## [2026-09-01] 장전 자동화 시간 조정
+
+- Codex heartbeat 한 개 제한을 유지하면서 장전 실행만 KST 07:25로 앞당기고 장후 실행은 KST 20:25로 유지했다.
+- daily ops Skill의 pre-open 허용 구간만 07:20~07:40으로 맞췄으며 post-close 20:20~20:40과 장후 절차는 변경하지 않았다.
+- application code, 전략, 설정, DB, runtime-data, VERSION은 변경하지 않았다.
+
 ## [2026-09-01] E7 daily evidence와 KIS orderability 진단 경로
 
 - 2026-08-31 첫 E7 미래 거래일은 market/orderbook/feature coverage와 decision lineage가 정상 범위였지만 기존 daily ops에 공식 artifact writer가 없어 E7 진행 필드가 `not available yet`이었다.
