@@ -33,12 +33,13 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-08-31 decision ledger: 3,803행, complete lineage 3,803행, ratio 1.0
+- 2026-09-01 decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
 - 2026-08-31 broker account rejection: 871건, network call 11건, circuit 차단 860건, 성공 broker submission 0건
 - 2026-09-01 broker account rejection: 811건, network call 12건, circuit 차단 799건, 성공 broker submission 0건
 - `VTTC8908R` orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`다. `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`이며 다음 단계는 KIS support 문의다.
-- 2026-08-31 data quality: market/orderbook coverage 97.60%/103.73%, feature 97.51%, reconnect 27, storm 0, assessment `watch`
-- 2026-08-31 E7 첫 미래 거래일 원장은 수집됐지만 당시 official daily artifact writer가 없어 수익성 판정은 하지 않는다.
+- 2026-09-01 data quality: market/orderbook `3,818/4,057` symbol-minute, coverage `97.65%/103.76%`, feature `3,802`행/`97.49%`, reconnect `29`, storm `0`, assessment `watch`
+- 2026-09-01 E7 day 2: `valid_collecting`, future trading days `2`, eligible population `1,300`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
+- KIS support tracked snapshot: `docs/evidence/KIS-Paper-Orderability-Support-Evidence-2026-09-01.md`
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
 ## 활성 체크리스트
@@ -56,7 +57,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료 확인
 - [x] KIS `VTTC8908R` read-only orderability probe와 sanitized taxonomy 구현
 - [x] 명시 승인된 `ORD_DVSN=01/00` orderability 결과 해석과 주문구분 원인 제외
-- [x] KIS support용 sanitized evidence packet과 문의 초안 작성
+- [x] KIS support용 runtime evidence packet과 Git-tracked sanitized snapshot 작성
 - [ ] KIS support에서 paper cash-order entitlement/service 상태 확인
 - [ ] 다음 정상 거래에서 성공 broker submission 또는 hard rejection 재현 확인
 - [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
