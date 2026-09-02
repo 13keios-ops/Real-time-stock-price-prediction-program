@@ -2,16 +2,16 @@
 
 ## 현재 요약
 
-### 2026-08-29 FULL CHECK 기준
+### 2026-09-03 현재 기준
 
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.
-- 2026-08-28 raw market session coverage는 `97.5959%`, feature closed coverage는 `97.4872%`이며 serving decision ledger는 `3,802`행이고 complete lineage는 `100%`다.
-- WebSocket reconnect는 `28`, storm은 `0`이다. `forced_flat_time=15:20` 뒤 `15:20~15:29 KST` 공통 market gap은 예상 종가 동시호가 구간으로 분리하고, 예상 밖 공통 gap만 수집 실패 근거로 쓴다.
-- top challenger LightGBM은 거래 1건과 누적 순수익 `-0.757017%`로 표본과 절대 수익성 기준을 모두 통과하지 못했다.
-- buy-avoid는 portfolio 손실을 `+1.450780%p` 줄였지만 policy return `-49.442452%`라 기각한다. hold-rescue도 실제 적용된 최선이 음수다.
-- LightGBM buy-rescue threshold `0.55`의 76행/9거래일 탐색 관측은 양수지만 겹치는 신호행 합이다. 2026-08-31 이후 미래 구간의 decision-episode portfolio replay와 random control을 통과하기 전에는 `research_lead`다.
-- Phase 0 history는 2026-08-15 clean baseline marker로 epoch를 분리한다. 과거 epoch `matched 0/mismatch 10`은 보존하고 현재 epoch는 `0/10`, mismatch 0이다.
-- 2026-08-28 broker order rejection 832건은 계좌 hard rejection 830건과 rate limit 2건이다. paper 주문 요청 계약은 공식 KIS 예제와 일치하며, 성공 제출 전까지 KIS paper 계좌의 주문 가능 상태를 Phase 0 blocker로 둔다.
+- 2026-09-02 raw market/feature closed coverage는 `97.57%/97.54%`이며 serving decision ledger는 `3,804`행이고 complete lineage는 `100%`다.
+- WebSocket reconnect는 `28`, storm은 `0`이다. `forced_flat_time=15:20` 뒤 공통 market gap은 예상 종가 동시호가 구간으로 분리하고, 예상 밖 공통 gap만 수집 실패 근거로 쓴다.
+- top challenger는 거래 `1,474건`, 3분류 정확도 `19.53%`, buy hit `20.96%`, 누적 진단 순수익 `-363.07%`로 승격 대상이 아니다.
+- buy-avoid는 절대 portfolio 손실 때문에 기각됐고 buy-rescue와 hold-rescue도 주문 정책에 반영할 후보가 아니다.
+- E7은 미래 거래일 3일, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다.
+- current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. auth/account/orderability read-only 확인은 통과했으며 자연 broker cash-order 성공은 아직 관찰되지 않았다.
+- 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`으로 fail-closed한다.
 - Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
 
 ### 2026-07-12 수익성 판정
@@ -400,6 +400,8 @@ KIS 모의계좌는 한국투자 모의투자 서버에서 직접 조회한 계�
 KIS broker paper mirroring 실패는 `broker_account_not_orderable`, `broker_rate_limited`, `broker_auth_error`, `broker_invalid_request`, `broker_order_rejected`, `broker_network_error`, `broker_unknown_error`로 나눈다. 계좌 hard rejection만 30분 account-level circuit을 열며, circuit 중에는 broker 네트워크 제출만 막고 prediction, signal, local paper order, serving decision은 계속 기록한다. 최초 실제 오류와 circuit 차단 행은 `attempt_id`, `decision_id`, `prediction_id`, `signal_id`, `target_id`, `local_order_id`, 비밀값을 제외한 request shape로 연결한다. 성공 응답만 `broker_paper_order_submissions`에 기록하므로 Phase 0 no-submission day 의미는 유지된다. circuit은 process-local이라 runtime 재시작 뒤 최초 후보 1건은 다시 확인하며, 성공·30분 만료·명시적 reset에서 해제된다.
 `KisReadonlyClient.get_orderability()`와 `scripts/probe_kis_paper_orderability.py`는 공식 paper 매수가능조회 `VTTC8908R`을 주문/취소 없이 진단한다. 기본 dry-run은 network 0회고, 명시 승인된 `--execute`도 read-only call 1회와 order/cancel 0회만 허용한다. 보고서는 계좌 식별자와 exact 현금 대신 product-code shape와 positive/zero/unavailable만 저장한다.
 
+`[kis.paper_account_lifecycle]`는 계좌 식별자 대신 안정적인 epoch ID, 활성일, 만료일과 warning/urgent lead day만 저장한다. `scripts/check_kis_paper_account_lifecycle.py`는 네트워크·주문·취소 없이 만료 상태와 Phase 0 baseline 호환성을 계산하며, `--write-report`일 때 sanitized JSON/Markdown을 `runtime-data/reports/broker-paper/latest-kis-paper-account-lifecycle.*`에 원자적으로 갱신한다. 현재 계좌는 `paper-2026-09-03`, 만료 `2026-12-03`, warning `2026-11-03`, urgent `2026-11-26`이다.
+
 브로커 모의계좌 잔고 갱신:
 
 ```bash
@@ -416,7 +418,8 @@ python -m app --reconcile-paper-accounts
 
 reconciliation을 실제 실행하면 계좌 식별자와 원문 응답을 제외한 일별 요약을 `runtime-data/reports/reconciliation/paper-account-history/YYYY-MM-DD.json`에 자동 기록한다.
 최근 10개 유효 장후 거래일 집계는 `latest-paper-account-history.json/.md`에 남고, 대시보드 계좌 화면의 `10거래일 누적 정합성`과 `거래일별 정합성` 카드에서 확인한다.
-`post-close`, 브로커 조회 성공, 브로커 제출 이력 존재가 모두 확인된 날만 Phase 0 분모에 포함한다. 10일이 차기 전에는 `insufficient_history`, 한 날이라도 불일치하면 `needs_review`, 10일 모두 정합할 때만 `ready`다.
+집계는 `account_epoch_id`와 `account_activated_on`을 함께 받아 현재 계좌보다 오래된 baseline과 일별 증거를 제외한다. baseline이 현재 계좌 활성일보다 오래되거나 없으면 `baseline_review_required`로 두고 과거/현재 계좌를 섞지 않는다.
+호환되는 baseline 뒤 `post-close`, 브로커 조회 성공, broker submission 이력 존재가 모두 확인된 날만 Phase 0 분모에 포함한다. 10일이 차기 전에는 `insufficient_history`, 한 날이라도 불일치하면 `needs_review`, 10일 모두 정합할 때만 `ready`다.
 
 Phase 0의 bounded recent lookup이 alignment 이후 기간을 덮지 못하면 아래 probe로 전체 기간 scope와 cooldown을 먼저 확인한다.
 

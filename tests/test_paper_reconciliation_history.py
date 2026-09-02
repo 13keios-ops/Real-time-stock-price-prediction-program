@@ -135,6 +135,38 @@ class PaperReconciliationHistoryTests(unittest.TestCase):
         self.assertEqual(summary["prior_epoch"]["status"], "needs_review")
         self.assertEqual(summary["prior_epoch"]["mismatch_days"], 10)
 
+    def test_current_account_rejects_a_baseline_from_the_previous_account(self) -> None:
+        entry = build_paper_reconciliation_history_entry(
+            _payload("2026-09-03"),
+            market_session_status="post-close",
+        )
+        blocked = summarize_paper_reconciliation_history(
+            [entry],
+            epoch_start_at="2026-08-15T00:20:42+09:00",
+            account_epoch_id="paper-2026-09-03",
+            account_activated_on="2026-09-03",
+        )
+
+        self.assertEqual(blocked["status"], "baseline_review_required")
+        self.assertFalse(blocked["ready"])
+        self.assertEqual(blocked["days_available"], 0)
+        self.assertEqual(
+            blocked["phase0_epoch"]["status"],
+            "baseline_predates_current_account",
+        )
+        self.assertFalse(blocked["phase0_epoch"]["baseline_compatible"])
+        self.assertEqual(blocked["prior_epoch"]["days_available"], 1)
+
+        compatible = summarize_paper_reconciliation_history(
+            [entry],
+            epoch_start_at="2026-09-03T00:00:00+09:00",
+            account_epoch_id="paper-2026-09-03",
+            account_activated_on="2026-09-03",
+        )
+        self.assertEqual(compatible["status"], "insufficient_history")
+        self.assertTrue(compatible["phase0_epoch"]["baseline_compatible"])
+        self.assertEqual(compatible["days_available"], 1)
+
     def test_record_uses_alignment_marker_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             runtime_data_dir = Path(tmp)

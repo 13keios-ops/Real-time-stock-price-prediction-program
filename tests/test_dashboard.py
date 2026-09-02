@@ -1179,6 +1179,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("최근 동기화 점검", html)
         self.assertIn("10거래일 누적 정합성", html)
         self.assertIn("거래일별 정합성", html)
+        self.assertIn("모의계좌 갱신 관리", html)
+        self.assertIn("현재 계좌 기준선 승인 필요", html)
 
     def test_collect_dashboard_payload_uses_read_only_sqlite_path(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1199,6 +1201,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("order_mirroring_enabled", payload["account_sync"])
         self.assertIn("paper_account_reconciliation", payload)
         self.assertIn("paper_account_reconciliation_history", payload)
+        self.assertIn("paper_account_lifecycle", payload)
+        self.assertEqual(payload["paper_account_lifecycle"]["status"], "blocked")
 
     def test_dashboard_shows_live_fill_consistency(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -47,6 +47,8 @@ def main() -> int:
             settings.runtime_data_dir,
             payload,
             market_session_status=session_status,
+            account_epoch_id=settings.kis_paper_account_lifecycle.account_epoch_id,
+            account_activated_on=settings.kis_paper_account_lifecycle.activated_on,
         )
         summary = result["summary"]
         output = {
@@ -58,7 +60,11 @@ def main() -> int:
             "required_days": summary.get("required_days"),
         }
     else:
-        summary = load_paper_reconciliation_history(settings.runtime_data_dir)
+        summary = load_paper_reconciliation_history(
+            settings.runtime_data_dir,
+            account_epoch_id=settings.kis_paper_account_lifecycle.account_epoch_id,
+            account_activated_on=settings.kis_paper_account_lifecycle.activated_on,
+        )
         output = {
             "status": summary.get("status"),
             "recorded": False,

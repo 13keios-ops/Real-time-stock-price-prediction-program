@@ -97,10 +97,18 @@ E7 artifact가 생성되지 않았다는 사실은 전략 실패가 아니다. �
 
 ## 4. Phase 0 check
 
-항상 `latest-paper-account-history.json`을 먼저 확인한다.
+항상 현재 계좌 lifecycle과 `latest-paper-account-history.json`을 먼저 확인한다.
 
+```bash
+python3 scripts/check_kis_paper_account_lifecycle.py
+```
+
+- 현재 paper account epoch는 `paper-2026-09-03`, 활성일은 `2026-09-03`, 만료일은 `2026-12-03`이다.
+- 갱신 준비 경고는 `2026-11-03`부터, 긴급 경고는 `2026-11-26`부터 표시한다. `2026-12-03`부터는 만료로 fail-closed 한다.
+- lifecycle report의 `phase0_baseline.compatible=false`이면 이전 계좌 epoch와 현재 계좌 epoch를 섞지 않는다. broker sync/reconciliation을 반복하지 않고 `baseline_review_required`로 보고한다.
+- 현재 확인된 2026-08-15 clean baseline은 이전 계좌 기준이며 새 계좌 활성일보다 오래됐다. 계좌 소유자가 현재 계좌 기준선 생성을 별도 승인하기 전에는 Phase 0 유효일 누적을 시작하지 않는다.
 - 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 broker sync/reconciliation을 중복 호출하지 않는다.
-- 오늘 유효 기록이 없고 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
+- lifecycle과 baseline이 현재 계좌에 호환되고, 오늘 유효 기록이 없고, 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
 
 ```bash
 ./scripts/recheck_paper_kis_mismatch.sh
@@ -146,29 +154,31 @@ evaluator/manifest/cost/constraint/random/interval identity drift, invalid mark,
 E7 미래 데이터로 threshold 0.55, model, feature, signal/gate, allocator, portfolio, horizon, exit, symbol, cost, manifest를 변경하거나 재탐색하지 않는다.
 상세 기준은 `docs/Portfolio-Replay-Evaluator.md`와 `docs/Model-Research-PreRegistration.md`를 따른다.
 
-## 6. KIS orderability evidence check
+## 6. KIS paper account lifecycle and orderability
 
-확인된 사실:
+현재 기준 사실:
 
-- paper API 자격정보는 해당 국내주식 모의계좌에 연결돼 있다.
-- 모의계좌 만료일은 `2027-04-10`이다.
+- 이전 paper 계좌는 실제로 만료됐고, 그 계좌에서 수집된 `broker_account_not_orderable`은 이전 계좌 무효 상태가 root cause였을 가능성이 높다.
+- 새 paper APP key/secret과 계좌는 `paper-2026-09-03` epoch로 분리한다.
+- 새 계좌의 auth-only token refresh와 account snapshot이 통과했다.
+- 새 계좌의 `VTTC8908R`, `ORD_DVSN=00` read-only orderability는 `orderability_ok`, `rt_cd=0`, 양수 value presence로 통과했고 주문/취소 호출은 0회였다.
+- 새 계좌의 실제 자연 발생 cash-order 성공 여부는 아직 확인되지 않았다.
 
-따라서 `broker_account_not_orderable` 재발을 계좌 미연결/만료로 단정하지 않는다.
-기존 `latest-kis-paper-orderability.json`의 status, `VTTC8908R`, sanitized `rt_cd/msg_cd/msg1`, value presence, cash-order failure taxonomy, network/order/cancel call 수를 보고한다.
+기본 lifecycle 확인은 네트워크 0회다.
 
-기본 dry-run은 네트워크 0회다.
+```bash
+python3 scripts/check_kis_paper_account_lifecycle.py
+```
+
+기존 orderability probe dry-run도 네트워크 0회다. `--execute`는 계좌 소유자가 해당 작업에서 명시 승인했고 장외이며 live runtime이 정지했을 때만 정확히 1회 사용한다. 반복 자동화는 `--execute`를 사용하지 않는다.
 
 ```bash
 python3 scripts/probe_kis_paper_orderability.py
 ```
 
-`--execute`는 계좌 소유자가 해당 작업에서 명시 승인했고 장외이며 live runtime이 정지했을 때만 정확히 1회 사용한다.
-이는 `inquire-psbl-order` read-only 호출 1회이며 주문/취소 호출은 항상 0회여야 한다.
-반복 자동화는 `--execute`를 사용하지 않는다.
-
 분류는 `orderability_ok`, `orderability_zero`, `account_not_orderable`, `auth_error`, `invalid_request`, `rate_limited`, `network_error`, `unknown_error`를 사용한다.
 계좌번호, app key/secret, token, raw response는 출력하지 않는다.
-`account_not_orderable`이면 cash-order payload를 반복 수정하거나 circuit breaker를 느슨하게 하지 않고 KIS account-orderability/entitlement 조사 필요로 남긴다.
+새 계좌에서 자연 발생한 broker cash order가 성공하면 이전 account-orderability blocker는 종료한다. 같은 오류가 재발할 때만 sanitized KIS error, submission attempt, circuit 상태를 근거로 별도 entitlement 조사를 다시 연다.
 
 ## 7. Post-close ML/research observation
 

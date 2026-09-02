@@ -1,5 +1,7 @@
 # KIS Paper Orderability Support Evidence
 
+> Superseded on 2026-09-03. This packet describes the expired previous paper account only. The replacement account passed auth-only token refresh, account snapshot, and `VTTC8908R/ORD_DVSN=00` read-only orderability. Do not use this packet as evidence of a current-account entitlement issue; reopen that investigation only if a natural cash order on the replacement account reproduces the same rejection.
+
 ## Purpose
 
 이 문서는 KIS 국내주식 모의투자 `order-cash` 문의에 사용할 credential-free 증적이다.
@@ -12,7 +14,7 @@
 - trading mode: `paper`
 - live orders: disabled
 - paper API credential/account linkage: confirmed by the account owner
-- paper account expiration: `2027-04-10`
+- paper account expiration reported at the time: `2027-04-10` (superseded; the account was later confirmed expired)
 - account identifier, credential, token, raw header, broker identifier, exact cash and exact orderable quantity: excluded
 
 ## Orderability Comparison
@@ -93,10 +95,11 @@ KIS 회신 전에는 다음을 수행하지 않는다.
 
 ## Phase 0 and Integrity
 
-- current epoch: `0/10`
+- historical account epoch at capture: `0/10`
 - matched/mismatch: `0/0`
 - successful submissions after baseline: `0`
-- reconciliation: `waiting_first_submission`
+- reconciliation at capture: `waiting_first_submission`
+- current replacement-account Phase 0 state: `baseline_review_required`, `0/10`
 - readiness: not ready
 - KIS network call during tracked snapshot creation: `0`
 - order/cancel during tracked snapshot creation: `0/0`

@@ -195,13 +195,17 @@ LightGBM 성능개선 트랙은 threshold 를 바로 낮추거나 active model �
   - 모의투자 계좌 화면에 별도 상품코드가 없으면 root `.env` 에 빈 값으로 둔다.
   - 앱은 KIS 호출에 상품코드가 필요할 때 paper 기본값을 내부에서 적용한다.
   - 모의계좌 연결은 `scripts/connect_kis_paper_account_interactive.sh` 로 8자리 계좌번호만 입력하는 흐름을 기본으로 한다.
+- `모의계좌 lifecycle`
+  - 계좌 식별자가 아닌 `paper-YYYY-MM-DD` epoch와 활성일/만료일을 `[kis.paper_account_lifecycle]`에 기록한다.
+  - `python3 scripts/check_kis_paper_account_lifecycle.py`는 네트워크 없이 만료·갱신 시점과 Phase 0 baseline 호환성을 확인한다.
+  - 현재 `paper-2026-09-03` 계좌는 `2026-12-03` 만료이며 `2026-11-03`부터 갱신 준비, `2026-11-26`부터 긴급 경고를 표시한다.
 - `로컬 모의운용`과 `브로커 모의계좌`는 선택적으로 주문 제출을 함께 보낼 수 있다.
   - `ENABLE_BROKER_PAPER_MIRRORING=true` 이면 로컬 가상 주문을 브로커 모의계좌에도 함께 제출한다.
   - 다만 브로커 쪽 거절, 부분 체결, 체결 시차가 있으면 주문 직후에는 보유 수량과 예수금이 잠시 다를 수 있다.
   - 대시보드의 비교 카드와 `최근 브로커 제출 주문` 표에서 현재 동기화 상태를 확인한다.
 - `로컬 시작 예수금 동기화`
-  - 장 시작 전에는 `scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker` 로 KIS 모의계좌 예수금을 root `.env` 의 `PAPER_INITIAL_CASH` 에 맞추고, 브로커 기준 marker 정렬까지 갱신한다.
-  - 브로커 모의계좌에 이미 보유 종목이 있으면 현재 현금이 총 시작 예수금이 아니므로 `-SyncInitialCash`는 거부된다. 이때는 `scripts/verify_paper_dual_account_match.sh -AlignToBroker -AsJson` 으로 브로커 기준 marker 만 정렬한다.
+  - 이 명령은 일상 장전 절차가 아니다. 새 계좌 연결이나 복구 뒤 계좌 소유자가 해당 작업을 명시 승인했을 때만 `scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker`로 시작 예수금과 marker 정렬을 수행한다.
+  - 브로커 모의계좌에 이미 보유 종목이 있으면 현재 현금이 총 시작 예수금이 아니므로 `-SyncInitialCash`는 거부된다. 이때도 별도 명시 승인 뒤 `scripts/verify_paper_dual_account_match.sh -AlignToBroker -AsJson`으로 marker만 정렬한다.
   - 이후 수시 점검은 `scripts/verify_paper_dual_account_match.sh -AsJson` 으로 한다.
   - 최신 결과는 `runtime-data/reports/reconciliation/latest-paper-dual-account-match.{md,json}` 에 남는다.
 - `paper-account reconciliation`
@@ -216,7 +220,7 @@ LightGBM 성능개선 트랙은 threshold 를 바로 낮추거나 active model �
   - 정렬 이후 대시보드의 `로컬 모의운용 계좌` 요약은 marker 이후 주문/체결/브로커 제출 수만 현재 상태로 집계한다.
   - marker 이후 새 체결이 일부 종목에만 생겨도 baseline 보유종목과 종목별로 병합해서 현재 보유수량을 비교한다.
   - 정렬 뒤에는 정합성 점검, 실행 리포트, 대시보드가 모두 브로커 기준 현재 상태를 우선 보여준다.
-  - 현재 기본 해석 상태는 `aligned_waiting_first_submission` 이고, 뜻은 `브로커 기준 정렬은 끝났고 아직 브로커로 제출된 첫 주문이 없음` 이다.
+  - 현재 상태는 새 계좌 활성일보다 2026-08-15 marker가 오래돼 `baseline_review_required`다. 현재 계좌용 새 marker를 명시 승인하기 전에는 이전/현재 계좌 Phase 0 증거를 섞지 않는다.
 - `모의주문 spread 게이트`
   - `MAX_SPREAD_BPS` 기본 운용값은 현재 `25.0` 이다.
   - 2026-04-29 실제 삼성전자 호가가 약 22bp 수준으로 들어와 기존 15bp 기준에서는 모든 주문 후보가 차단됐기 때문에, 모의운용 검증을 위해 25bp까지 허용한다.
@@ -462,7 +466,7 @@ python -m app --reconcile-paper-accounts
 ```
 
 이 결과는 실행 리포트와 대시보드의 `최근 동기화 점검`, `차이 상세` 카드에도 함께 반영된다.
-실제 reconciliation 실행은 계좌번호나 원문 응답 없이 최근 10개 유효 장후 거래일을 `runtime-data/reports/reconciliation/paper-account-history/`와 `latest-paper-account-history.json/.md`에 누적한다. 대시보드의 `10거래일 누적 정합성`, `거래일별 정합성` 카드에서 현재 `needs_review / insufficient_history / ready` 상태와 차이 종목을 확인할 수 있다.
+실제 reconciliation 실행은 계좌번호나 원문 응답 없이 현재 `account_epoch_id`와 호환되는 baseline 뒤 최근 10개 유효 장후 거래일만 `runtime-data/reports/reconciliation/paper-account-history/`와 `latest-paper-account-history.json/.md`에 누적한다. baseline이 현재 계좌보다 오래되면 `baseline_review_required`로 차단한다. 대시보드의 `모의계좌 갱신 관리`, `10거래일 누적 정합성`, `거래일별 정합성` 카드에서 확인할 수 있다.
 
 브로커 기준으로 로컬 가상 계좌 현재 상태를 다시 맞추려면:
 
@@ -526,7 +530,7 @@ PC 재부팅 후 자동 시작용 runtime autoboot:
 ```
 
 `start_runtime_autoboot.sh` 는 demo/sample SQLite 행 정리, 대시보드, 실시간 수집기, 브로커 모의계좌 잔고 갱신, runtime/dashboard 재생성을 한 번에 수행한다. 장외나 `config/market_calendar.toml`의 `holidays`에 적힌 휴장일에는 실시간 수집기를 새로 켜지 않고 중지 상태로 맞춘다.
-여기에 `sync-broker-paper-orders`, `paper-account reconciliation`, 필요 시 `paper baseline alignment` 도 포함되어, 재부팅 후 바로 브로커 기준 현재 상태를 다시 맞춘다.
+여기에 `sync-broker-paper-orders`와 `paper-account reconciliation`은 포함되지만 `paper baseline alignment`는 포함하지 않는다. 계좌 epoch가 바뀌면 reconciliation은 `baseline_review_required`로 멈추고, 계좌 소유자의 명시 승인 뒤 별도 정렬 명령을 사용한다.
 이제 여기에 runtime watchdog 시작도 포함되어, 로그인 직후부터 dashboard 와 live runtime 이 다시 죽으면 자동 재기동할 수 있는 기반이 같이 올라온다.
 이제 하위 `python -m app` 명령이 실제로 실패하면 성공처럼 지나가지 않고 바로 오류로 올린다.
 `install_runtime_startup_launcher.sh` 는 WSL2/Windows 환경에서는 Windows 시작프로그램의 `RealTimeStockRuntime.cmd`를 현재 WSL 정본 저장소 경로로 설치한다. Windows launcher는 로그인 직후 짧게 대기한 뒤 `--skip-runtime-cleanup --skip-dashboard-build` 빠른 시작 경로로 실행하고, 결과를 `runtime-data/logs/automation/RealTimeStockRuntime.log`에 남긴다. Windows 시작프로그램을 사용할 수 없는 순수 Linux 환경에서만 systemd user service 로 fallback 한다.

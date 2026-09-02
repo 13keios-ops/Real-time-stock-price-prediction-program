@@ -7,27 +7,27 @@
 
 ## 현재 스냅샷
 
-- 기준 시각: 2026-09-01 23:30 KST
-- 장 상태: post-close
-- live runtime: 2026-09-01 15:30 KST 정상 종료 후 정지
-- watchdog/dashboard: 장외 안전 복구 후 정상; startup launcher 정상
+- 기준 시각: 2026-09-03 02:56 KST
+- 장 상태: overnight
+- live runtime: 2026-09-02 15:30 KST 정상 종료 후 정지
+- watchdog/dashboard: 실행·응답 정상, heartbeat fresh; startup launcher 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
-- 2026-09-01 post-close ML은 `status=ok`, 18:11 KST `quick-live-train`; label refresh는 `status=ok`, 19:11 KST 완료했고 모델 승격은 없다.
+- 2026-09-02 post-close ML은 `status=ok`, 18:12 KST `quick-live-train`; label refresh는 `status=ok`, 19:12 KST 완료했고 모델 승격은 없다.
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
-- Phase 0 current epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일, remaining 10일. 실제 mirrored submission이 있는 post-close 유효일만 센다.
-- 최신 reconciliation은 `waiting_first_submission`; 보유수량과 현금은 일치하고 total asset gap은 `+39,500원`, 성공 submission은 0건이다.
-- 2026-08-31 broker account rejection 871건은 network call 11건과 circuit 차단 860건, 2026-09-01 811건은 network call 12건과 circuit 차단 799건이다. 두 날 모두 성공 submission 0건이며 Phase 0 준비 완료가 아니다.
-- Phase 0 prior epoch: `10/10`, matched 0일, mismatch 10일과 `035420/086520/105560/247540` 불일치 이력을 보존한다.
+- 현재 paper account epoch는 `paper-2026-09-03`, 활성일 `2026-09-03`, 만료일 `2026-12-03`이다. 갱신 준비는 `2026-11-03`, 긴급 경고는 `2026-11-26`부터다.
+- 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` read-only orderability가 통과했다. 실제 주문·취소는 없고 자연 cash-order 성공은 아직 관찰되지 않았다.
+- 이전 paper 계좌는 만료된 것으로 확인됐으며 2026-08-31/09-01 account rejection의 유력 root cause다. 이전 endpoint entitlement 가설은 새 계좌에서 같은 오류가 재발할 때만 다시 연다.
+- 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`이고 새 기준선 승인 전에는 유효일을 세지 않는다.
+- Phase 0 prior epoch의 `10/10`, matched 0일, mismatch 10일과 네 종목 불일치 이력은 보존한다.
 - Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 반복 자동화 preflight는 네트워크·주문 호출 0회다.
-- runtime 원장: 2026-09-01 decision ledger `3,802/3,802`, complete lineage 100%, market/orderbook `3,818/4,057` symbol-minute와 coverage `97.65%/103.76%`, feature `3,802`행/`97.49%`다.
-- WebSocket: reconnect 29, storm 0. 수집 정상과 연결 주의를 분리한다.
-- KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료는 확인됐다. `VTTC8908R` read-only orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`다. 주문구분 차이는 원인이 아니며 KIS paper cash-order endpoint별 entitlement/policy 문제를 지원 문의 대상으로 남긴다.
-- 수익성: top challenger linear-score는 3분류 정확도 `19.88%`, buy hit `20.59%`, 누적 진단 순수익 `-355.53%`, 거래 `1,467건`이다. buy-avoid threshold 0.40 portfolio `-51.14%`, buy-rescue 두 모델 동시 상승 62건 `-30.42%p`, hold-rescue threshold 0.40 `-26,387원`으로 모두 후보가 아니다.
+- runtime 원장: 2026-09-02 decision ledger `3,804/3,804`, complete lineage 100%, market/orderbook `3,815/4,060` symbol-minute와 coverage `97.57%/103.84%`, feature `3,804`행/`97.54%`다.
+- WebSocket: reconnect 28, storm 0. 수집 정상과 연결 주의를 분리한다.
+- 수익성: top challenger는 3분류 정확도 `19.53%`, buy hit `20.96%`, 누적 진단 순수익 `-363.07%`, 거래 `1,474건`이다. buy-avoid는 절대 portfolio 손실, buy-rescue는 진단 전용, hold-rescue threshold 0.40은 `-26,387원`이어서 후보가 아니다.
 - 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
-- E7 evaluator: 기존 v1은 보존하고 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`를 검증했다.
-- E7은 2026-09-01 기준 future trading days `2`, eligible population `1,300`, official policy episode/symbol `0/0`, invalid mark `0`, evidence health `valid_collecting`, 공식 상태 `collecting_future_sample`이다. 수익성 실패가 아니라 표본 축적 단계다.
+- E7 evaluator `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`는 일치한다.
+- E7은 2026-09-02 기준 future trading days `3`, official policy episode/symbol `0/0`, invalid mark `0`, evidence health `valid_collecting`, 공식 상태 `collecting_future_sample`이다. 수익성 실패가 아니라 표본 축적 단계다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -36,14 +36,15 @@
 - [x] 2026-08-28 raw→feature→decision ledger와 complete lineage 100% 확인
 - [x] 종가 동시호가 예상 gap과 unexpected common gap 분리
 - [x] reconnect 28/storm 0을 수집 정상 범위와 연결 주의로 분리
-- [x] Phase 0 clean baseline 이전/이후 epoch 분리
+- [x] Phase 0 baseline과 paper account epoch 분리
 - [x] broker 실패 taxonomy, account hard-rejection circuit, stable failure lineage 추가
-- [x] KIS paper 자격정보 연결/만료 확인과 read-only orderability probe 구현
-- [x] 명시 승인된 `ORD_DVSN=01/00` orderability 결과 해석
-- [x] KIS support용 runtime evidence packet과 Git-tracked sanitized snapshot 작성
-- [ ] KIS support의 paper cash-order entitlement/service 답변 확인
-- [ ] 다음 정상 거래 성공 submission 확인
-- [ ] Phase 0 current epoch 유효 거래일 10개 모두 matched 확인
+- [x] 이전 paper 계좌 만료를 account rejection의 유력 root cause로 교정
+- [x] 새 paper APP 자격정보, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability 확인
+- [x] 만료일과 30일/7일 전 갱신 경고를 lifecycle report/dashboard/daily ops에 연결
+- [x] 이전 KIS support snapshot을 superseded 역사 증거로 분리
+- [ ] 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 생성
+- [ ] 다음 정상 거래 자연 broker submission 확인
+- [ ] 현재 계좌 Phase 0 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
 - [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
 - [x] E7 LightGBM buy-rescue threshold 0.55 미래 검증 사전등록
@@ -60,6 +61,8 @@
 - A1 targeted unittest: `49 tests OK`
 - A2/B1 replay targeted unittest: `21 tests OK`
 - full unittest: `586 tests OK` in 32.523s
+- paper account lifecycle/Phase 0/dashboard targeted unittest: `43 tests OK` in 9.128s, 모든 쓰기는 `.tmp-tests/` 격리
+- lifecycle warning/expiry 경계 CLI와 repository structure audit: errors 0/warnings 2
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 실제 KIS data-quality 재생성: latest trade date 2026-08-28, assessment `watch`
 - raw market session coverage: `97.5959%`; feature closed coverage: `97.4872%`
@@ -70,6 +73,16 @@
 - 실제 dashboard 빌드: 2026-08-29 10:40 KST; current epoch와 수익 증거 차단 문구 확인
 - dashboard server/API, runtime watchdog, startup launcher 정상; live runtime은 휴장 정지
 - 작업 시작 시 git: `main`과 `origin/main` 동기화
+
+## [2026-09-03] 새 paper 계좌 lifecycle 및 장전 자동화 복구
+
+- 이전 paper 계좌 만료와 새 자격정보·계좌 교체를 반영해 현재 epoch를 `paper-2026-09-03`, 활성일 `2026-09-03`, 만료일 `2026-12-03`으로 기록했다. 갱신 준비는 `2026-11-03`, 긴급 경고는 `2026-11-26`부터며 만료일부터 fail-closed한다.
+- 네트워크 0회 lifecycle report와 dashboard 카드·경고를 추가하고, Phase 0 history/reconciliation이 현재 계좌 활성일보다 오래된 2026-08-15 baseline을 재사용하지 않도록 `baseline_review_required`, `0/10`으로 분리했다.
+- 새 paper 자격정보 token refresh, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability는 통과했다. 이전 `broker_account_not_orderable`은 만료된 계좌가 유력 root cause지만 새 계좌의 자연 cash-order 성공은 아직 관찰되지 않았다.
+- 07:56 KST 장전 Phase 1b preflight를 수동 1회 보완했다. `status=ready`, `passed=true`, 차단 사유 없음, KIS network/order call은 각각 0회였다.
+- 자동화 프롬프트는 07:20~07:40이었지만 실제 schedule이 08:25로 남아 있어 오늘 예약 실행이 누락됐다. 실제 schedule만 07:25/20:25 KST로 고치고 저장된 automation TOML을 재검수했다.
+- 08:00 KST watchdog가 live runtime을 `paper`/pre-open으로 정상 시작했다. 운영 DB·runtime·dashboard는 재시작하거나 갱신하지 않았고 관련 43개 단위 테스트는 `.tmp-tests/`에서 통과했다.
+- 전략, E7 threshold/model/manifest, signal/gate/allocator, `app/risk/`, 실전 주문 flag, Phase 0 baseline, VERSION, 주문·취소는 변경하지 않았다.
 
 ## [2026-09-01] KIS paper cash-order 지원 증적 작성
 

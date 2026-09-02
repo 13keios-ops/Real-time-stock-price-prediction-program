@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -179,10 +179,23 @@ def _entry_is_after_epoch(entry: dict[str, Any], epoch_start_at: str) -> bool:
         return False
 
 
+def _parse_date(value: date | str | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 def summarize_paper_reconciliation_history(
     entries: Iterable[dict[str, Any]],
     *,
     required_days: int = DEFAULT_REQUIRED_DAYS,
+    account_epoch_id: str | None = None,
+    account_activated_on: date | str | None = None,
     epoch_start_at: str | None = None,
 ) -> dict[str, Any]:
     if required_days <= 0:
@@ -199,33 +212,71 @@ def summarize_paper_reconciliation_history(
             latest_by_day[trade_date] = dict(entry)
 
     all_days = [latest_by_day[trade_date] for trade_date in sorted(latest_by_day)]
-    if epoch_start_at:
+    account_activation_date = _parse_date(account_activated_on)
+    baseline_trade_date = _parse_date(_parse_trade_date(epoch_start_at)) if epoch_start_at else None
+    baseline_compatible = bool(
+        epoch_start_at
+        and (
+            account_activation_date is None
+            or (
+                baseline_trade_date is not None
+                and baseline_trade_date >= account_activation_date
+            )
+        )
+    )
+    if epoch_start_at and baseline_compatible:
         current_days = [entry for entry in all_days if _entry_is_after_epoch(entry, epoch_start_at)]
         prior_days = [entry for entry in all_days if not _entry_is_after_epoch(entry, epoch_start_at)]
+    elif account_activation_date is not None:
+        current_days = []
+        prior_days = all_days
     else:
         current_days = all_days
         prior_days = []
 
     summary = _summarize_eligible_days(current_days, required_days=required_days)
+    if account_activation_date is not None and not baseline_compatible:
+        summary["status"] = "baseline_review_required"
+        summary["observation_status"] = "baseline_review_required"
+        summary["ready"] = False
+
+    if epoch_start_at:
+        epoch_status = (
+            "owner_approved_clean_baseline"
+            if baseline_compatible
+            else "baseline_predates_current_account"
+        )
+    elif account_activation_date is not None:
+        epoch_status = "current_account_baseline_missing"
+    else:
+        epoch_status = None
     summary["phase0_epoch"] = (
         {
-            "status": "owner_approved_clean_baseline",
+            "status": epoch_status,
             "baseline_at": epoch_start_at,
-            "baseline_trade_date": _parse_trade_date(epoch_start_at),
-            "eligible_evidence_scope": "strictly_after_baseline",
+            "baseline_trade_date": (
+                baseline_trade_date.isoformat() if baseline_trade_date else None
+            ),
+            "eligible_evidence_scope": "strictly_after_compatible_baseline",
+            "account_epoch_id": account_epoch_id,
+            "account_activated_on": (
+                account_activation_date.isoformat() if account_activation_date else None
+            ),
+            "baseline_compatible": baseline_compatible,
         }
-        if epoch_start_at
+        if epoch_status
         else None
     )
     summary["prior_epoch"] = (
         _summarize_eligible_days(prior_days, required_days=required_days)
-        if epoch_start_at
+        if prior_days
         else None
     )
     summary["interpretation"] = (
-        "Phase 0 requires ten eligible post-close trading days with aligned mirrored-account evidence "
-        "inside the current clean-baseline epoch. Pre-open, regular-session, weekend, holiday, "
-        "no-submission, and pre-baseline observations do not count as current matched days."
+        "Phase 0 requires a clean baseline compatible with the current paper-account epoch, "
+        "then ten eligible post-close trading days with aligned mirrored-account evidence. "
+        "Pre-open, regular-session, weekend, holiday, no-submission, pre-baseline, and "
+        "prior-account observations do not count as current matched days."
     )
     return summary
 
@@ -249,6 +300,8 @@ def load_paper_reconciliation_history(
     runtime_data_dir: Path,
     *,
     required_days: int = DEFAULT_REQUIRED_DAYS,
+    account_epoch_id: str | None = None,
+    account_activated_on: date | str | None = None,
 ) -> dict[str, Any]:
     epoch_start_at = _load_phase0_epoch_start(runtime_data_dir)
     if epoch_start_at:
@@ -256,10 +309,12 @@ def load_paper_reconciliation_history(
             _load_daily_entries(runtime_data_dir),
             required_days=required_days,
             epoch_start_at=epoch_start_at,
+            account_epoch_id=account_epoch_id,
+            account_activated_on=account_activated_on,
         )
 
     latest_path = _report_directory(runtime_data_dir) / LATEST_JSON_NAME
-    if latest_path.is_file():
+    if account_activated_on is None and latest_path.is_file():
         try:
             payload = json.loads(latest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -269,6 +324,9 @@ def load_paper_reconciliation_history(
     return summarize_paper_reconciliation_history(
         _load_daily_entries(runtime_data_dir),
         required_days=required_days,
+        epoch_start_at=epoch_start_at,
+        account_epoch_id=account_epoch_id,
+        account_activated_on=account_activated_on,
     )
 
 
@@ -278,6 +336,8 @@ def record_paper_reconciliation_history(
     *,
     market_session_status: str,
     required_days: int = DEFAULT_REQUIRED_DAYS,
+    account_epoch_id: str | None = None,
+    account_activated_on: date | str | None = None,
 ) -> dict[str, Any]:
     entry = build_paper_reconciliation_history_entry(
         payload,
@@ -295,6 +355,8 @@ def record_paper_reconciliation_history(
         _load_daily_entries(runtime_data_dir),
         required_days=required_days,
         epoch_start_at=_load_phase0_epoch_start(runtime_data_dir),
+        account_epoch_id=account_epoch_id,
+        account_activated_on=account_activated_on,
     )
     summary["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     report_dir = _report_directory(runtime_data_dir)
@@ -323,6 +385,9 @@ def render_paper_reconciliation_history_markdown(summary: dict[str, Any]) -> str
         f"- consecutive_matched_days: `{summary.get('consecutive_matched_days')}`",
         f"- date_range: `{summary.get('date_range', {}).get('start')}` ~ `{summary.get('date_range', {}).get('end')}`",
         f"- clean_baseline_at: `{(summary.get('phase0_epoch') or {}).get('baseline_at')}`",
+        f"- account_epoch_id: `{(summary.get('phase0_epoch') or {}).get('account_epoch_id')}`",
+        f"- account_activated_on: `{(summary.get('phase0_epoch') or {}).get('account_activated_on')}`",
+        f"- baseline_compatible: `{(summary.get('phase0_epoch') or {}).get('baseline_compatible')}`",
         f"- prior_epoch_status: `{(summary.get('prior_epoch') or {}).get('status')}`",
         f"- prior_epoch_days: `{(summary.get('prior_epoch') or {}).get('days_available')}`",
         "",

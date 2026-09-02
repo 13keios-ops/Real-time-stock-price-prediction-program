@@ -22,6 +22,7 @@ from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
 from app.paper_trading.costs import build_domestic_stock_cost_model_metadata
 from app.services.kis_account import refresh_kis_account_report
+from app.services.kis_paper_account_lifecycle import build_kis_paper_account_lifecycle
 from app.services.live_execution_sync import build_live_order_fill_consistency_summary_from_store
 from app.services.live_order_monitoring import (
     build_live_order_attention_summary_from_store,
@@ -2806,8 +2807,47 @@ def collect_dashboard_payload(
         mirrored_order_count=len(broker_submission_rows_all),
     )
     paper_account_reconciliation_history = load_paper_reconciliation_history(
-        settings.runtime_data_dir
+        settings.runtime_data_dir,
+        account_epoch_id=settings.kis_paper_account_lifecycle.account_epoch_id,
+        account_activated_on=settings.kis_paper_account_lifecycle.activated_on,
     )
+    paper_account_lifecycle = build_kis_paper_account_lifecycle(
+        settings,
+        phase0_history=paper_account_reconciliation_history,
+    )
+    live_safety_alert_titles = {
+        "실전 fill 정합성 불일치",
+        "실전 주문 상태 확인 필요",
+    }
+    lifecycle_alert_index = sum(
+        1
+        for alert in status_alerts
+        if alert.get("title") in live_safety_alert_titles
+    )
+    if paper_account_lifecycle.get("status") == "blocked":
+        renewal = paper_account_lifecycle.get("renewal") or {}
+        phase0_baseline = paper_account_lifecycle.get("phase0_baseline") or {}
+        message = (
+            f"모의계좌 만료 상태는 {renewal.get('status') or '-'}이고 "
+            f"Phase 0 기준선 상태는 {phase0_baseline.get('status') or '-'}입니다. "
+            "현재 계좌와 호환되는 기준선을 승인하기 전 Phase 0 누적은 차단됩니다."
+        )
+        status_alerts.insert(
+            lifecycle_alert_index,
+            {"level": "warning", "title": "모의계좌 기준 갱신 필요", "message": message},
+        )
+        status_alerts = status_alerts[:4]
+    elif paper_account_lifecycle.get("status") == "attention":
+        renewal = paper_account_lifecycle.get("renewal") or {}
+        status_alerts.insert(
+            lifecycle_alert_index,
+            {
+                "level": "warning",
+                "title": "모의계좌 갱신 시점 접근",
+                "message": f"{renewal.get('days_until_expiry')}일 뒤 만료됩니다. 새 계좌 발급과 자격정보 교체를 준비해야 합니다.",
+            },
+        )
+        status_alerts = status_alerts[:4]
     lightgbm_status = _build_lightgbm_status(
         settings=settings,
         latest_training=latest_training,
@@ -2967,6 +3007,7 @@ def collect_dashboard_payload(
         "account_views": account_views,
         "account_sync": account_sync,
         "paper_account_reconciliation": paper_account_reconciliation,
+        "paper_account_lifecycle": paper_account_lifecycle,
         "paper_account_reconciliation_history": paper_account_reconciliation_history,
         "lightgbm_status": lightgbm_status,
         "recent_predictions": recent_predictions,
@@ -3951,6 +3992,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
     live_account = account_views.get("live_broker", {}) or {}
     account_sync = payload.get("account_sync", {}) or {}
     paper_account_reconciliation = payload.get("paper_account_reconciliation", {}) or {}
+    paper_account_lifecycle = payload.get("paper_account_lifecycle", {}) or {}
     paper_account_reconciliation_history = payload.get("paper_account_reconciliation_history", {}) or {}
     audit_progress = (payload.get("audit") or {}).get("progress") or {}
     audit_backlog = (payload.get("audit") or {}).get("backlog") or {}
@@ -4472,6 +4514,20 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         f"총자산: {_money(paper_account.get('total_asset_amount'))}",
         f"총손익: {_money(paper_account.get('total_profit_loss_amount'))}",
     ]
+    lifecycle_account = paper_account_lifecycle.get("account") or {}
+    lifecycle_renewal = paper_account_lifecycle.get("renewal") or {}
+    lifecycle_phase0 = paper_account_lifecycle.get("phase0_baseline") or {}
+    paper_account_lifecycle_rows = [
+        ["관리 상태", paper_account_lifecycle.get("status") or "-"],
+        ["계좌 epoch", lifecycle_account.get("epoch_id") or "-"],
+        ["활성일", lifecycle_account.get("activated_on") or "-"],
+        ["만료일", lifecycle_account.get("expires_on") or "-"],
+        ["만료까지", f"{lifecycle_renewal.get('days_until_expiry')}일"],
+        ["갱신 경고 시작", lifecycle_renewal.get("warning_start_on") or "-"],
+        ["긴급 경고 시작", lifecycle_renewal.get("urgent_start_on") or "-"],
+        ["Phase 0 기준선", lifecycle_phase0.get("status") or "-"],
+        ["기준선 호환", "예" if lifecycle_phase0.get("compatible") else "아니오"],
+    ]
     sync_rows = [
         ["현재 비교 상태", account_sync.get("status") or "-"],
         ["브로커 주문 자동 연동", "예" if account_sync.get("order_mirroring_enabled") else "아니오"],
@@ -4495,6 +4551,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         "needs_review": "불일치 확인 필요",
         "insufficient_history": "표본 누적 중",
         "no_history": "누적 기록 없음",
+        "baseline_review_required": "현재 계좌 기준선 승인 필요",
     }.get(
         str(paper_account_reconciliation_history.get("status") or ""),
         str(paper_account_reconciliation_history.get("status") or "-"),
@@ -4504,6 +4561,22 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         [
             "현재 기준선",
             (paper_account_reconciliation_history.get("phase0_epoch") or {}).get("baseline_at") or "-",
+        ],
+        [
+            "계좌 epoch",
+            (paper_account_reconciliation_history.get("phase0_epoch") or {}).get("account_epoch_id") or "-",
+        ],
+        [
+            "계좌 활성일",
+            (paper_account_reconciliation_history.get("phase0_epoch") or {}).get("account_activated_on") or "-",
+        ],
+        [
+            "기준선 호환",
+            (
+                "예"
+                if (paper_account_reconciliation_history.get("phase0_epoch") or {}).get("baseline_compatible")
+                else "아니오"
+            ),
         ],
         [
             "유효 거래일",
@@ -5150,6 +5223,16 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
                 "매수/매도 및 체결현황",
                 _stack_cards(
                     _section_card("현재 제공 범위", _table(["항목", "값"], paper_compare_rows, "표시할 비교 정보가 없습니다.", scroll_height=280)),
+                    _section_card(
+                        "모의계좌 갱신 관리",
+                        _table(
+                            ["항목", "값"],
+                            paper_account_lifecycle_rows,
+                            "모의계좌 수명 주기 정보가 없습니다.",
+                            scroll_height=300,
+                        ),
+                        note="계좌 식별자와 자격정보 없이 만료 및 Phase 0 기준선 호환성만 표시합니다.",
+                    ),
                     _section_card("로컬 가상계좌 비교", _table(["항목", "값"], sync_rows, "비교할 정보가 없습니다.", scroll_height=280), note=_esc(account_sync.get("note"))),
                     _section_card(
                         "최근 동기화 점검",

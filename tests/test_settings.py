@@ -18,6 +18,11 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("2026-05-01", settings.market_calendar.holidays)
         self.assertIn("2026-05-05", settings.market_calendar.holidays)
         self.assertIn("2026-12-31", settings.market_calendar.holidays)
+        self.assertEqual(settings.kis_paper_account_lifecycle.account_epoch_id, "paper-2026-09-03")
+        self.assertEqual(settings.kis_paper_account_lifecycle.activated_on.isoformat(), "2026-09-03")
+        self.assertEqual(settings.kis_paper_account_lifecycle.expires_on.isoformat(), "2026-12-03")
+        self.assertEqual(settings.kis_paper_account_lifecycle.renewal_warning_days, 30)
+        self.assertEqual(settings.kis_paper_account_lifecycle.renewal_urgent_days, 7)
 
     def test_live_orders_require_live_mode(self) -> None:
         root = Path(__file__).resolve().parents[1]

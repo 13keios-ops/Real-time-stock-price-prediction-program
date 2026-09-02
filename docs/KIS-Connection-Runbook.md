@@ -313,10 +313,25 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 
 관련 문서/코드 경로: `docs/Production-Architecture.md`, `docs/Production-Transition-Progress.md`, `runtime-data/logs/app/live-runtime.stderr.log`
 
-## 6. KIS paper 매수가능조회 진단
+## 6. KIS paper 계좌 lifecycle과 매수가능조회
 
-계좌 소유자가 확인한 현재 사실은 paper API 자격정보가 해당 국내주식 모의계좌에 연결돼 있고 만료일이 `2027-04-10`이라는 점이다.
-`모의투자 주문이 불가한 계좌`가 재발해도 미연결/만료로 단정하지 않고 orderability/entitlement 상태를 분리한다.
+현재 paper account lifecycle:
+
+- epoch ID: `paper-2026-09-03`
+- 활성일: `2026-09-03`
+- 만료일: `2026-12-03`
+- 갱신 준비 경고: `2026-11-03`
+- 긴급 갱신 경고: `2026-11-26`
+- 구현: `app/services/kis_paper_account_lifecycle.py`, `scripts/check_kis_paper_account_lifecycle.py`
+
+lifecycle 확인은 네트워크·주문·취소 없이 실행한다. `--write-report`는 계좌 식별자와 자격정보 없이 현재 만료 상태와 Phase 0 baseline 호환성을 `runtime-data/reports/broker-paper/latest-kis-paper-account-lifecycle.json/.md`에 기록한다.
+
+```bash
+python3 scripts/check_kis_paper_account_lifecycle.py
+python3 scripts/check_kis_paper_account_lifecycle.py --write-report
+```
+
+새 APP 자격정보의 auth-only token refresh와 새 계좌 snapshot은 통과했다. 새 계좌의 `VTTC8908R`, `ORD_DVSN=00`, `005930` read-only orderability도 `orderability_ok`, `rt_cd=0`, value presence `positive`였고 network/order/cancel call은 `1/0/0`이다.
 
 공식 국내주식 매수가능조회 계약:
 
@@ -328,10 +343,9 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 기본 실행은 dry-run이며 network/order/cancel call이 모두 0이다. `--execute`는 계좌 소유자의 해당 작업 명시 승인, 장외, live runtime 정지 조건에서 read-only endpoint를 정확히 1회 호출하고 주문/취소는 0회다.
 결과는 `orderability_ok`, `orderability_zero`, `account_not_orderable`, `auth_error`, `invalid_request`, `rate_limited`, `network_error`, `unknown_error`로 나눈다.
 보고서에는 exact 현금 대신 positive/zero/unavailable만 남기고 full CANO, app key/secret, token, raw response를 저장하지 않는다.
-`account_not_orderable`이면 KIS 계좌 측 orderability/entitlement 근거가 강해지고, 정상/positive인데 cash order만 실패하면 endpoint 간 정책 차이를 KIS 지원에 문의한다. 어느 경우에도 실제 주문을 반복하지 않는다.
 
-2026-09-01 계좌 소유자 승인으로 같은 `005930`과 최신 확정 분봉 가격을 사용해 `ORD_DVSN=01`, 실제 지정가 주문과 같은 `ORD_DVSN=00`을 각각 read-only 1회 확인했다. 두 조회 모두 transport/business success, `rt_cd=0`, `orderability_ok`, value presence `positive`였고 주문/취소 호출은 0회다. 따라서 `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`로 판정하며, 계좌 미연결·만료·주문구분 차이보다 KIS paper cash-order endpoint별 entitlement 또는 정책 문제를 우선 의심한다. 이는 KIS 서버 결함 확정이 아니다.
+2026-08-31/09-01 `broker_account_not_orderable`은 만료된 이전 paper 계좌에서 발생한 이력이다. 이전 계좌 무효 상태가 유력 root cause이며, 당시 support snapshot은 역사 증거로만 보존한다. 현재 계좌의 endpoint entitlement 문제로 이어서 해석하지 않는다.
 
-2026-08-31 `broker_account_not_orderable` 871건은 실제 network attempt 11건과 circuit 차단 860건, 2026-09-01 811건은 실제 attempt 12건과 circuit 차단 799건이다. 두 날 모두 failure lineage는 100%이고 성공 submission은 0건이다. 운영 원본은 `runtime-data/reports/broker-paper/kis-support-paper-orderability-evidence.md`, Git-tracked sanitized support snapshot은 `docs/evidence/KIS-Paper-Orderability-Support-Evidence-2026-09-01.md`에 둔다.
+새 계좌에서는 기존 정책에서 자연 발생한 broker submission만 관찰한다. 성공하면 이전 account-orderability blocker를 종료한다. 같은 hard rejection이 재발할 때만 sanitized KIS error와 circuit/lineage를 확인하고 entitlement 조사를 다시 연다. 강제 cash order/cancel과 반복 orderability `--execute`는 하지 않는다.
 
-KIS 회신 또는 새로운 증거 전에는 orderability `--execute`, 다른 symbol/order type probe, 강제 cash order/cancel을 반복하지 않는다. account hard-rejection circuit도 완화하지 않고, 기존 정책에서 자연 발생한 broker submission만 관찰한다. Phase 0은 성공 submission이 확인되기 전까지 `0/10`, `waiting_first_submission`으로 유지한다.
+2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 새 기준선 생성은 계좌 소유자의 별도 명시 승인이 필요하며, 승인 전 상태는 `baseline_review_required`, `0/10`이다.

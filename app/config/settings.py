@@ -30,6 +30,15 @@ class KisEnvironmentSettings:
 
 
 @dataclass(slots=True)
+class KisPaperAccountLifecycleSettings:
+    account_epoch_id: str
+    activated_on: date
+    expires_on: date
+    renewal_warning_days: int
+    renewal_urgent_days: int
+
+
+@dataclass(slots=True)
 class StrategySettings:
     strategy_version: str
     portfolio_version: str
@@ -78,6 +87,7 @@ class AppSettings:
     kis_paper: KisCredentialSet
     kis_live: KisCredentialSet
     kis_environment: KisEnvironmentSettings
+    kis_paper_account_lifecycle: KisPaperAccountLifecycleSettings
     feature_set_version: str
     model_version_h15: str
     model_version_h60: str
@@ -205,6 +215,7 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
     features_block = app_conf["features"]
     universe_block = app_conf["universe"]
     kis_block = app_conf["kis"]
+    kis_paper_lifecycle_block = kis_block["paper_account_lifecycle"]
     strategy_block = strategy_conf["strategy"]
     market_block = market_conf["market"]
     codex_block = codex_conf["codex_review"]
@@ -274,6 +285,25 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
         ws_url_live=env_map.get("KIS_WS_URL_LIVE", kis_block["ws_url_live"]),
         ws_url_paper=env_map.get("KIS_WS_URL_PAPER", kis_block["ws_url_paper"]),
     )
+    kis_paper_account_lifecycle = KisPaperAccountLifecycleSettings(
+        account_epoch_id=str(kis_paper_lifecycle_block["account_epoch_id"]).strip(),
+        activated_on=date.fromisoformat(str(kis_paper_lifecycle_block["activated_on"])),
+        expires_on=date.fromisoformat(str(kis_paper_lifecycle_block["expires_on"])),
+        renewal_warning_days=int(kis_paper_lifecycle_block["renewal_warning_days"]),
+        renewal_urgent_days=int(kis_paper_lifecycle_block["renewal_urgent_days"]),
+    )
+    if not kis_paper_account_lifecycle.account_epoch_id:
+        raise ValueError("kis.paper_account_lifecycle.account_epoch_id must not be empty.")
+    if kis_paper_account_lifecycle.expires_on <= kis_paper_account_lifecycle.activated_on:
+        raise ValueError("kis.paper_account_lifecycle.expires_on must be after activated_on.")
+    if not (
+        kis_paper_account_lifecycle.renewal_warning_days
+        >= kis_paper_account_lifecycle.renewal_urgent_days
+        >= 0
+    ):
+        raise ValueError(
+            "kis.paper_account_lifecycle renewal days must satisfy warning >= urgent >= 0."
+        )
 
     return AppSettings(
         project_root=root,
@@ -288,6 +318,7 @@ def load_settings(project_root: Path | None = None, env: dict[str, str] | None =
         kis_paper=_build_kis_credential_set(env_map, "PAPER"),
         kis_live=_build_kis_credential_set(env_map, "LIVE"),
         kis_environment=kis_environment,
+        kis_paper_account_lifecycle=kis_paper_account_lifecycle,
         feature_set_version=env_map.get("FEATURE_SET_VERSION", features_block["feature_set_version"]),
         model_version_h15=env_map.get("MODEL_VERSION_H15", features_block["model_version_h15"]),
         model_version_h60=env_map.get("MODEL_VERSION_H60", features_block["model_version_h60"]),

@@ -20,16 +20,17 @@
 
 ## 2. 현재 출발점
 
-### 2026-08-29 FULL CHECK checkpoint
+### 2026-09-03 account lifecycle checkpoint
 
-- 장 상태는 `weekend`, live runtime은 정상 정지다. PC 재부팅 뒤 watchdog과 dashboard만 장외에 안전 복구했다.
+- 장 상태는 `overnight`, live runtime은 2026-09-02 장 마감 뒤 정상 정지다. watchdog, dashboard, startup launcher는 정상이다.
 - trading mode는 `paper`, active h15는 `baseline-h15-v1`, 현재 통과한 수익 후보는 `0개`다.
-- 2026-08-28 raw market session coverage는 `97.5959%`, feature closed coverage는 `97.4872%`, decision ledger 3,802행의 complete lineage는 100%다.
-- WebSocket reconnect 28회는 주의지만 storm 0이다. `15:20~15:29 KST` 종가 동시호가 예상 gap과 unexpected gap을 분리한다.
-- Phase 0 현재 epoch는 clean baseline 뒤 `0/10`, mismatch 0이다. 이전 epoch의 10일 불일치는 과거 이력으로만 보존한다.
-- top challenger LightGBM은 거래 1건, net `-0.757017%`로 승격 불가다. buy-avoid와 hold-rescue도 절대 손익이 음수다.
-- LightGBM buy-rescue threshold 0.55의 76행/9거래일 양수 관측은 `research_lead`다. 2026-08-31 이후 미래 구간에서 최소 10거래일/100 episode/5종목과 실제 portfolio/random control을 검증한다.
-- E7 공식 평가는 기존 entry-mark v1이 아니라 검증된 `portfolio-replay-v2-minute-mtm`만 사용한다. 동일 manifest의 baseline/policy/actual/random, normal/double cost, 비중복 두 구간 16개 결과가 완전할 때만 통합 판정한다.
+- 2026-09-02 raw market/feature closed coverage는 `97.57%/97.54%`, decision ledger 3,804행의 complete lineage는 100%다.
+- WebSocket reconnect 28회는 주의지만 storm 0이다. 종가 동시호가 예상 gap과 unexpected gap을 분리한다.
+- 현재 paper account epoch는 `paper-2026-09-03`, 만료일은 `2026-12-03`이다. 30일/7일 전 갱신 경고를 운영 리포트와 dashboard에 연결한다.
+- 새 자격정보 token refresh, account snapshot, read-only orderability는 통과했다. 이전 account rejection은 만료 계좌에서 발생한 역사 증거다.
+- 2026-08-15 clean baseline은 이전 계좌 기준이므로 Phase 0은 `baseline_review_required`, `0/10`이다. 계좌 소유자 승인 없이 새 baseline을 만들지 않는다.
+- top challenger와 buy-avoid/buy-rescue/hold-rescue 모두 절대 비용 후 수익성 기준을 통과하지 못했다.
+- E7은 미래 거래일 3일, official episode 0으로 표본 축적 중이다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest는 일치한다.
 - 세 번의 고정 평가에서 개선이 없으면 threshold를 다시 찾지 않고 h60 또는 entry/exit 분리 가설로 이동한다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, 연구 기준은 `docs/Model-Research-PreRegistration.md`를 따른다.
@@ -627,7 +628,7 @@ LightGBM이 하락/회피 쪽 단서는 일부 보이지만, 현물 매수 승�
 
 ### 방법
 
-- 12시간 간격 운영 체크는 08:20~08:40, 20:20~20:40 조건으로 유지한다.
+- 장전/장후 운영 체크는 각각 07:20~07:40, 20:20~20:40 조건으로 유지한다.
 - PC 재부팅 뒤 runtime watchdog, dashboard, startup launcher 상태를 항상 확인한다.
 - 장중에는 watchdog heartbeat가 10분 이내로 유지되는지 확인한다.
 - 장후에는 quick maintenance, label refresh, dashboard snapshot, paper reconciliation 결과를 확인한다.

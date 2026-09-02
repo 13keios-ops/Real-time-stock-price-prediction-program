@@ -28,18 +28,18 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
 - 자동 승격: 없음
-- Phase 0 과거 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
-- Phase 0 현재 epoch: 2026-08-15 clean baseline 뒤 `0/10`, matched 0일, mismatch 0일
+- Phase 0 과거 계좌 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
+- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 2026-08-15 기준선은 이전 계좌 자료라 `baseline_review_required`, 유효일 `0/10`
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-09-01 decision ledger: 3,802행, complete lineage 3,802행, ratio 1.0
-- 2026-08-31 broker account rejection: 871건, network call 11건, circuit 차단 860건, 성공 broker submission 0건
-- 2026-09-01 broker account rejection: 811건, network call 12건, circuit 차단 799건, 성공 broker submission 0건
-- `VTTC8908R` orderability는 `ORD_DVSN=01/00` 모두 `orderability_ok/positive`다. `ORDER_TYPE_DIFFERENCE_NOT_CAUSAL`이며 다음 단계는 KIS support 문의다.
-- 2026-09-01 data quality: market/orderbook `3,818/4,057` symbol-minute, coverage `97.65%/103.76%`, feature `3,802`행/`97.49%`, reconnect `29`, storm `0`, assessment `watch`
-- 2026-09-01 E7 day 2: `valid_collecting`, future trading days `2`, eligible population `1,300`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
-- KIS support tracked snapshot: `docs/evidence/KIS-Paper-Orderability-Support-Evidence-2026-09-01.md`
+- 2026-09-02 decision ledger: 3,804행, complete lineage 3,804행, ratio 1.0
+- 2026-08-31/09-01 broker account rejection은 만료된 이전 paper 계좌에서 발생한 이력이며 성공 submission은 0건이다.
+- 새 paper 계좌는 2026-09-03 활성, 2026-12-03 만료다. 30일/7일 전 갱신 경고를 적용한다.
+- 새 자격정보 token refresh, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability가 모두 통과했다. 실제 자연 cash-order 성공은 아직 관찰되지 않았다.
+- 2026-09-02 data quality: market/orderbook `3,815/4,060` symbol-minute, coverage `97.57%/103.84%`, feature `3,804`행/`97.54%`, reconnect `28`, storm `0`, assessment `watch`
+- 2026-09-02 E7 day 3: `valid_collecting`, future trading days `3`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
+- 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
 ## 활성 체크리스트
@@ -50,17 +50,17 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] data-quality에 coverage, complete lineage, reconnect/storm, 공통 gap 보고
 - [x] `15:20~15:29 KST` 예상 종가 동시호가 market gap을 unexpected gap과 분리
 - [x] reconnect가 있어도 storm 0·coverage 95% 이상·lineage 100%이면 수집과 연결 주의를 분리
-- [x] Phase 0 full-period account activity 22페이지/329행과 pagination 완결 확보
-- [x] broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
-- [x] Phase 0 history를 clean baseline 이전/이후 epoch로 분리
+- [x] 이전 계좌 Phase 0 full-period account activity 22페이지/329행과 pagination 완결 확보
+- [x] 이전 계좌 broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
+- [x] Phase 0 history를 baseline 및 paper account epoch로 분리
 - [x] broker failure taxonomy, 30분 account hard-rejection circuit, decision→attempt→failure lineage 추가
-- [x] KIS paper 자격정보-모의계좌 연결과 2027-04-10 만료 확인
-- [x] KIS `VTTC8908R` read-only orderability probe와 sanitized taxonomy 구현
-- [x] 명시 승인된 `ORD_DVSN=01/00` orderability 결과 해석과 주문구분 원인 제외
-- [x] KIS support용 runtime evidence packet과 Git-tracked sanitized snapshot 작성
-- [ ] KIS support에서 paper cash-order entitlement/service 상태 확인
-- [ ] 다음 정상 거래에서 성공 broker submission 또는 hard rejection 재현 확인
-- [ ] 현재 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
+- [x] 이전 paper 계좌 만료를 account rejection의 유력 root cause로 교정
+- [x] 새 paper APP 자격정보, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability 확인
+- [x] 새 계좌 활성일/만료일과 30일/7일 전 갱신 경고를 lifecycle report와 dashboard에 연결
+- [x] 이전 KIS support snapshot을 superseded 역사 증거로 분리
+- [ ] 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 생성
+- [ ] 다음 정상 거래에서 자연 발생 성공 broker submission 또는 hard rejection 재현 확인
+- [ ] 현재 계좌 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단
 - [x] buy-avoid의 절대 portfolio 손실을 근거로 기각 유지

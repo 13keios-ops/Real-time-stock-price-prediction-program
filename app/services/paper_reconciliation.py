@@ -336,6 +336,8 @@ def reconcile_paper_accounts(
             settings.runtime_data_dir,
             payload,
             market_session_status=market_session_status,
+            account_epoch_id=settings.kis_paper_account_lifecycle.account_epoch_id,
+            account_activated_on=settings.kis_paper_account_lifecycle.activated_on,
         )
         history_summary = history_result["summary"]
         payload["history_recording"] = {

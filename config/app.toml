@@ -21,3 +21,10 @@ rest_url_live = "https://openapi.koreainvestment.com:9443"
 rest_url_paper = "https://openapivts.koreainvestment.com:29443"
 ws_url_live = "ws://ops.koreainvestment.com:21000"
 ws_url_paper = "ws://ops.koreainvestment.com:31000"
+
+[kis.paper_account_lifecycle]
+account_epoch_id = "paper-2026-09-03"
+activated_on = "2026-09-03"
+expires_on = "2026-12-03"
+renewal_warning_days = 30
+renewal_urgent_days = 7
