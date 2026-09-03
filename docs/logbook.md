@@ -78,7 +78,7 @@
 - 새 paper 계좌의 자연 KIS cash-order submission 36건 성공을 canonical 사실로 반영했다. 이전 `broker_account_not_orderable` blocker는 만료된 이전 계좌 상태로 사실상 종결하되 같은 taxonomy가 재발하면 새 incident로 다시 조사한다.
 - WebSocket reconnect 36/storm 7과 전 종목 공통 gap `15:01~15:08`은 `UPSTREAM_KIS_OR_NETWORK_DISCONNECT`로 분류했다. KIS와 로컬 네트워크 중 어느 쪽인지는 저장 증거만으로 단정하지 않았다. 기존 5/10/20/40/60초 bounded reconnect와 전체 재구독으로 같은 process가 복구했으므로 retry 정책은 바꾸지 않고 재구독 완료와 복구 후 첫 프레임 로그만 추가했다.
 - coverage 95% 이상·lineage 100%라도 `storm_count>0` 또는 정규장 예상 밖 공통 gap이 있으면 daily data-quality 최종 심각도를 `CRITICAL/실패`로 우선하도록 고쳤다. 단순 reconnect이며 storm 0인 경우는 계속 `ATTENTION/주의`로 분리한다.
-- demo pipeline 테스트가 root runtime 경로를 사용할 수 있던 문제를 발견해 임시 디렉터리와 임시 SQLite로 완전히 격리했다. 운영 DB를 정리·재생성·수정하는 조치는 하지 않았다.
+- 초기 전체 테스트 1회에서 기존 demo pipeline 테스트가 root runtime 경로를 사용해 고정 demo ID를 upsert할 수 있는 경로가 실행됐다. 이후 테스트를 임시 디렉터리와 임시 SQLite로 완전히 격리했다. root DB read-only 확인에서는 해당 prediction·signal·paper order가 각 1행 존재하지만 기존 행인지 이번 실행이 다시 쓴 행인지는 구분할 수 없어 임의 정리·재생성은 하지 않았다.
 - E7 threshold/model/manifest, signal/gate/allocator, `app/risk/`, `config/`, `VERSION`, Phase 0 baseline, 실전 주문 flag는 변경하지 않았다. 이번 작업 중 KIS 네트워크와 주문·취소 호출은 모두 0회다.
 - targeted 55건, pipeline 3건, 전체 619건과 repository structure audit errors 0/warnings 2를 통과했다.
 
