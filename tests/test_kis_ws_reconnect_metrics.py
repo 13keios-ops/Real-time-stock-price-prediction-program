@@ -190,12 +190,75 @@ class KisWebSocketReconnectRetryTests(unittest.TestCase):
             patch.object(KisWebSocketQuoteClient, "issue_approval_key", side_effect=[KisApiError("approval unavailable"), "approval-key"]),
             patch("app.brokers.kis_quote_ws.websockets", FakeWebSockets),
             patch("app.brokers.kis_quote_ws.asyncio.sleep", new_callable=AsyncMock) as sleep,
+            patch("app.brokers.kis_quote_ws.LOGGER.info") as info_log,
         ):
             frames = asyncio.run(collect())
 
         self.assertEqual(len(frames), 1)
         self.assertEqual([snapshot.state for snapshot in snapshots], ["disconnected", "connected"])
         sleep.assert_awaited_once_with(5)
+        messages = [str(call.args[0]) for call in info_log.call_args_list]
+        self.assertTrue(
+            any("subscriptions restored" in message for message in messages)
+        )
+        self.assertTrue(
+            any(
+                "first frame received after subscription restore" in message
+                for message in messages
+            )
+        )
+
+    def test_initial_connection_is_not_counted_as_subscription_restore(self) -> None:
+        class FakeConnection:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+            async def send(self, message: str) -> None:
+                return None
+
+            async def recv(self) -> str:
+                return "0|H0STCNT0|001|005930^090000^70000"
+
+        class FakeWebSockets:
+            @staticmethod
+            def connect(*args, **kwargs):
+                return FakeConnection()
+
+        client = self._client()
+
+        async def collect() -> list[str]:
+            return [
+                frame
+                async for frame in client.listen(
+                    ["005930"],
+                    include_orderbook=False,
+                    max_frames=1,
+                    max_reconnects=0,
+                )
+            ]
+
+        with (
+            patch.object(
+                KisWebSocketQuoteClient,
+                "issue_approval_key",
+                return_value="approval-key",
+            ),
+            patch("app.brokers.kis_quote_ws.websockets", FakeWebSockets),
+            patch("app.brokers.kis_quote_ws.LOGGER.info") as info_log,
+        ):
+            frames = asyncio.run(collect())
+
+        self.assertEqual(len(frames), 1)
+        messages = [str(call.args[0]) for call in info_log.call_args_list]
+        self.assertTrue(
+            any("subscriptions established" in message for message in messages)
+        )
+        self.assertFalse(
+            any("subscriptions restored" in message for message in messages)
+        )
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -34,6 +35,71 @@ ORDER_DAILY_CCLD_TR_ID_PAPER = "VTTC0081R"
 ORDERABILITY_PATH = "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
 ORDERABILITY_TR_ID_LIVE = "TTTC8908R"
 ORDERABILITY_TR_ID_PAPER = "VTTC8908R"
+KRX_INSTRUMENT_COMMON_STOCK = "common_stock"
+KRX_INSTRUMENT_ETF_ETN = "etf_etn"
+KRX_SUPPORTED_INSTRUMENT_TYPES = frozenset(
+    {KRX_INSTRUMENT_COMMON_STOCK, KRX_INSTRUMENT_ETF_ETN}
+)
+
+
+def krx_tick_size(price: float | int | Decimal, *, instrument_type: str) -> int:
+    """Return the KRX quotation unit for an explicitly classified instrument."""
+
+    try:
+        value = Decimal(str(price))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("Order limit price must be a finite positive number.") from exc
+    if not value.is_finite() or value <= 0:
+        raise ValueError("Order limit price must be a finite positive number.")
+    if instrument_type not in KRX_SUPPORTED_INSTRUMENT_TYPES:
+        raise ValueError(f"Unsupported KRX instrument type: {instrument_type}")
+    if instrument_type == KRX_INSTRUMENT_ETF_ETN:
+        return 1 if value < Decimal("2000") else 5
+    if value < Decimal("2000"):
+        return 1
+    if value < Decimal("5000"):
+        return 5
+    if value < Decimal("20000"):
+        return 10
+    if value < Decimal("50000"):
+        return 50
+    if value < Decimal("200000"):
+        return 100
+    if value < Decimal("500000"):
+        return 500
+    return 1000
+
+
+def normalize_krx_limit_price(
+    price: float | int | Decimal,
+    *,
+    side: str,
+    instrument_type: str,
+) -> int:
+    """Snap a max-buy/min-sell limit to a valid KRX quotation price."""
+
+    normalized_side = side.strip().lower()
+    if normalized_side not in {"buy", "sell"}:
+        raise ValueError("Order side must be either 'buy' or 'sell'.")
+    tick = Decimal(krx_tick_size(price, instrument_type=instrument_type))
+    value = Decimal(str(price))
+    rounding = ROUND_FLOOR if normalized_side == "buy" else ROUND_CEILING
+    normalized = int((value / tick).to_integral_value(rounding=rounding) * tick)
+    if normalized <= 0:
+        raise ValueError("Normalized order limit price must be positive.")
+    return normalized
+
+
+def _business_error_detail(payload: dict) -> str:
+    return json.dumps(
+        {
+            "rt_cd": str(payload.get("rt_cd") or ""),
+            "msg_cd": str(payload.get("msg_cd") or ""),
+            "msg1": str(payload.get("msg1") or ""),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
 
 
 def _as_int(payload: dict, key: str) -> int:
@@ -289,8 +355,7 @@ class KisRestQuoteClient:
 
         rt_cd = str(payload.get("rt_cd", ""))
         if rt_cd and rt_cd != "0" and not allow_business_error:
-            message = payload.get("msg1") or payload.get("msg_cd") or payload
-            raise KisApiError(f"KIS REST quote error: {message}")
+            raise KisApiError(f"KIS REST quote error: {_business_error_detail(payload)}")
         self._last_response_headers = response_headers
         return payload, response_headers
 
@@ -342,8 +407,7 @@ class KisRestQuoteClient:
 
         rt_cd = str(payload.get("rt_cd", ""))
         if rt_cd and rt_cd != "0":
-            message = payload.get("msg1") or payload.get("msg_cd") or payload
-            raise KisApiError(f"KIS REST quote error: {message}")
+            raise KisApiError(f"KIS REST quote error: {_business_error_detail(payload)}")
         self._last_response_headers = response_headers
         return payload, response_headers
 
@@ -583,6 +647,7 @@ class KisRestQuoteClient:
         exchange_code: str = "KRX",
         sell_type: str = "",
         condition_price: str = "",
+        instrument_type: str = KRX_INSTRUMENT_COMMON_STOCK,
     ) -> KisCashOrderResult:
         if not self.profile.is_configured:
             raise KisApiError("KIS account number and product code are required before submitting an order.")
@@ -593,6 +658,16 @@ class KisRestQuoteClient:
             raise KisApiError("Order quantity must be positive.")
         if limit_price < 0:
             raise KisApiError("Order limit price cannot be negative.")
+
+        normalized_limit_price = (
+            normalize_krx_limit_price(
+                limit_price,
+                side=normalized_side,
+                instrument_type=instrument_type,
+            )
+            if order_type == "00"
+            else int(round(limit_price))
+        )
 
         tr_id = (
             ORDER_CASH_TR_ID_BUY_LIVE
@@ -613,7 +688,7 @@ class KisRestQuoteClient:
                 "PDNO": symbol,
                 "ORD_DVSN": order_type,
                 "ORD_QTY": str(int(qty)),
-                "ORD_UNPR": str(int(round(limit_price))),
+                "ORD_UNPR": str(normalized_limit_price),
                 "EXCG_ID_DVSN_CD": exchange_code,
                 "SLL_TYPE": sell_type,
                 "CNDT_PRIC": condition_price,
@@ -627,7 +702,7 @@ class KisRestQuoteClient:
             symbol=symbol,
             qty=int(qty),
             order_type=order_type,
-            limit_price=float(limit_price),
+            limit_price=float(normalized_limit_price),
             broker_order_no=_as_text(output, "ODNO"),
             broker_branch_no=_as_text(output, "KRX_FWDG_ORD_ORGNO"),
             order_time=_as_text(output, "ORD_TMD"),

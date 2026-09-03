@@ -193,6 +193,34 @@ class BrokerPaperFailureGuardTests(unittest.TestCase):
         self.assertNotIn("paper-key", serialized)
         self.assertNotIn("paper-secret", serialized)
 
+    def test_invalid_tick_is_normalized_once_across_call_evidence_and_submission(self) -> None:
+        mirror = self._build_mirror()
+        result = self._success()
+        result.limit_price = 252500.0
+        mirror.client.submit_cash_order.return_value = result
+        order = self._order()
+        order.limit_price = 252750.0
+
+        submission = mirror.submit_local_order(order, decision_id="decision-test-tick")
+
+        mirror.client.submit_cash_order.assert_called_once_with(
+            symbol="005930",
+            side="buy",
+            qty=3,
+            limit_price=252500,
+            order_type="00",
+            instrument_type="common_stock",
+        )
+        self.assertEqual(
+            submission.detail["request"]["body"]["ORD_UNPR"],
+            "252500",
+        )
+        self.assertEqual(submission.limit_price, 252500.0)
+        self.assertEqual(submission.detail["decision_id"], "decision-test-tick")
+        serialized = json.dumps(submission.detail, sort_keys=True)
+        self.assertNotIn("12345678", serialized)
+        self.assertNotIn("paper-secret", serialized)
+
     def test_error_redaction_removes_secret_fields_and_account_identifiers(self) -> None:
         unsafe = (
             'appkey="sensitive-key"; appsecret=sensitive-secret; '
@@ -220,6 +248,13 @@ class BrokerPaperFailureGuardTests(unittest.TestCase):
             with self.subTest(category=category):
                 failure = classify_broker_paper_failure(exc, network_attempted=True)
                 self.assertEqual(failure.category, category)
+
+        tick_failure = classify_broker_paper_failure(
+            KisApiError("KIS REST quote error: \ud638\uac00\ub2e8\uc704 \uc624\ub958"),
+            network_attempted=True,
+        )
+        self.assertEqual(tick_failure.category, "broker_invalid_request")
+        self.assertEqual(tick_failure.reason_code, "invalid_price_tick")
 
 
 if __name__ == "__main__":

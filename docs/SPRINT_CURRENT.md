@@ -33,12 +33,12 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-09-02 decision ledger: 3,804행, complete lineage 3,804행, ratio 1.0
-- 2026-08-31/09-01 broker account rejection은 만료된 이전 paper 계좌에서 발생한 이력이며 성공 submission은 0건이다.
+- 2026-09-03 decision ledger: 3,717행, complete lineage 3,717행, ratio 1.0
+- 2026-08-31/09-01 broker account rejection은 만료된 이전 paper 계좌에서 발생한 이력이다. 새 계좌에서 같은 경로의 자연 submission 36건이 성공해 이전 계좌 무효 root cause가 사실상 확인됐다.
 - 새 paper 계좌는 2026-09-03 활성, 2026-12-03 만료다. 30일/7일 전 갱신 경고를 적용한다.
-- 새 자격정보 token refresh, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability가 모두 통과했다. 실제 자연 cash-order 성공은 아직 관찰되지 않았다.
-- 2026-09-02 data quality: market/orderbook `3,815/4,060` symbol-minute, coverage `97.57%/103.84%`, feature `3,804`행/`97.54%`, reconnect `28`, storm `0`, assessment `watch`
-- 2026-09-02 E7 day 3: `valid_collecting`, future trading days `3`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
+- 새 계좌 자연 cash-order는 성공 36건, invalid tick 4건, network timeout 1건이다. order-fill sync는 `EGW00201` 7,200초 cooldown이라 fill lineage는 미완결이다.
+- 2026-09-03 data quality: market/orderbook `3,727/3,983` symbol-minute, feature `3,717`행/`95.31%`, reconnect `36`, storm `7`, unexpected common gap `15:01~15:08`, assessment `CRITICAL/실패`
+- 2026-09-03 E7 day 4: `valid_collecting`, future trading days `4`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
 - 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
@@ -58,8 +58,11 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 새 paper APP 자격정보, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability 확인
 - [x] 새 계좌 활성일/만료일과 30일/7일 전 갱신 경고를 lifecycle report와 dashboard에 연결
 - [x] 이전 KIS support snapshot을 superseded 역사 증거로 분리
+- [x] 새 계좌의 자연 KIS cash-order submission 36건 성공으로 이전 account-orderability blocker 종료
+- [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
+- [x] WebSocket 재구독/첫 프레임 복구 증적과 storm/common-gap 우선 `CRITICAL/실패` 판정 추가
 - [ ] 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 생성
-- [ ] 다음 정상 거래에서 자연 발생 성공 broker submission 또는 hard rejection 재현 확인
+- [ ] cooldown 종료 후 장외 order-fill sync/reconciliation 1회로 36 submission 상태와 local/new-broker 차이 설명
 - [ ] 현재 계좌 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단

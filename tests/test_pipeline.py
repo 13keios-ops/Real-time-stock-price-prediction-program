@@ -1,5 +1,8 @@
+import os
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from app.collectors.market_data import build_sample_orderbook, build_sample_ticks
 from app.features.minute_bars import aggregate_ticks_to_minute_bar, build_feature_snapshot
@@ -25,11 +28,21 @@ class PipelineTests(unittest.TestCase):
 
     def test_demo_pipeline_runs(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        result = run_demo_pipeline(project_root=root, symbol="005930")
+        temp_root = root / ".tmp-tests"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=temp_root) as tmp:
+            runtime_root = Path(tmp)
+            env = {
+                "RUNTIME_DATA_DIR": str(runtime_root),
+                "DATABASE_URL": f"sqlite:///{runtime_root / 'dev.db'}",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                result = run_demo_pipeline(project_root=root, symbol="005930")
 
-        self.assertEqual(result.symbol, "005930")
-        self.assertTrue(result.runtime_root.exists())
-        self.assertTrue(isinstance(result.signal_allowed, bool))
+            self.assertEqual(result.symbol, "005930")
+            self.assertEqual(result.runtime_root, runtime_root)
+            self.assertTrue(result.runtime_root.exists())
+            self.assertTrue(isinstance(result.signal_allowed, bool))
 
 
 if __name__ == "__main__":

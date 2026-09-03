@@ -412,6 +412,24 @@ class KisWebSocketQuoteClient:
                         )
                         if self.subscription_delay_seconds > 0 and index < len(subscriptions) - 1:
                             await asyncio.sleep(self.subscription_delay_seconds)
+                    restoring_subscriptions = metrics.cumulative_reconnects > 0
+                    if restoring_subscriptions:
+                        LOGGER.info(
+                            (
+                                "KIS WebSocket subscriptions restored "
+                                "symbols=%s subscriptions=%s cumulative_reconnects=%s"
+                            ),
+                            len(symbols),
+                            len(subscriptions),
+                            metrics.cumulative_reconnects,
+                        )
+                    else:
+                        LOGGER.info(
+                            "KIS WebSocket subscriptions established symbols=%s subscriptions=%s",
+                            len(symbols),
+                            len(subscriptions),
+                        )
+                    first_frame_after_subscription = True
                     while unbounded or frames_seen < max_frames:
                         try:
                             frame = await asyncio.wait_for(
@@ -425,6 +443,23 @@ class KisWebSocketQuoteClient:
                             )
                             raise KisApiError(message) from exc
                         frames_seen += 1
+                        if first_frame_after_subscription:
+                            if restoring_subscriptions:
+                                LOGGER.info(
+                                    (
+                                        "KIS WebSocket first frame received after subscription restore "
+                                        "frames_seen=%s cumulative_reconnects=%s"
+                                    ),
+                                    frames_seen,
+                                    metrics.cumulative_reconnects,
+                                )
+                            else:
+                                LOGGER.info(
+                                    "KIS WebSocket first frame received after subscription establishment "
+                                    "frames_seen=%s",
+                                    frames_seen,
+                                )
+                            first_frame_after_subscription = False
                         stable_snapshot = metrics.record_frame()
                         if stable_snapshot is not None:
                             _emit_reconnect_snapshot(metrics_callback, stable_snapshot)

@@ -585,6 +585,79 @@ class KisHttpClientTests(unittest.TestCase):
             },
         )
 
+    @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_submit_cash_order_normalizes_invalid_common_stock_tick(self, mocked_urlopen) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "0",
+                "msg_cd": "APBK0013",
+                "msg1": "\uc8fc\ubb38 \uc804\uc1a1 \uc644\ub8cc",
+                "output": {
+                    "KRX_FWDG_ORD_ORGNO": "00111",
+                    "ODNO": "1234567890",
+                    "ORD_TMD": "101530",
+                },
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        manager.issue_hashkey = MagicMock(return_value="hash-key")
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        result = client.submit_cash_order(
+            symbol="005930",
+            side="buy",
+            qty=1,
+            limit_price=252750,
+        )
+
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(json.loads(request.data.decode("utf-8"))["ORD_UNPR"], "252500")
+        self.assertEqual(result.limit_price, 252500.0)
+
+    @patch("app.brokers.kis_quote_rest.urlopen")
+    def test_business_error_preserves_sanitized_kis_code_and_message(self, mocked_urlopen) -> None:
+        mocked_urlopen.return_value = _mock_response(
+            {
+                "rt_cd": "1",
+                "msg_cd": "APBK9999",
+                "msg1": "\ubaa8\uc758\ud22c\uc790 \uc8fc\ubb38\ucc98\ub9ac\uac00 \uc548\ub418\uc5c8\uc2b5\ub2c8\ub2e4(\ud638\uac00\ub2e8\uc704 \uc624\ub958)",
+                "output": {},
+            }
+        )
+        profile = self._build_profile()
+        manager = KisTokenManager(profile)
+        manager.get_access_token = MagicMock(
+            return_value=KisAccessToken(
+                access_token="cached-token",
+                token_type="Bearer",
+                expires_at=now_local("Asia/Seoul"),
+            )
+        )
+        manager.issue_hashkey = MagicMock(return_value="hash-key")
+        client = KisRestQuoteClient(profile=profile, token_manager=manager)
+
+        with self.assertRaises(KisApiError) as raised:
+            client.submit_cash_order(
+                symbol="005930",
+                side="buy",
+                qty=1,
+                limit_price=252500,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("APBK9999", message)
+        self.assertIn("\ud638\uac00\ub2e8\uc704 \uc624\ub958", message)
+        self.assertNotIn("12345678", message)
+        self.assertNotIn("paper-secret", message)
+
 
 if __name__ == "__main__":
     unittest.main()

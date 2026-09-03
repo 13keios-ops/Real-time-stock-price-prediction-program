@@ -153,7 +153,9 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
         self.assertEqual(coverage["raw_market_coverage_ratio"], 0.15)
         self.assertEqual(coverage["feature_coverage_ratio"], 0.15)
         self.assertEqual(coverage["feature_closed_coverage_ratio"], 0.3)
-        self.assertEqual(result["assessment"]["status"], "needs_attention")
+        self.assertEqual(result["assessment"]["status"], "critical")
+        self.assertEqual(result["assessment"]["severity"], "CRITICAL")
+        self.assertEqual(result["assessment"]["korean_prefix"], "\uc2e4\ud328")
         self.assertTrue(
             any("coverage is below 80%" in note for note in result["assessment"]["notes"])
         )
@@ -264,6 +266,12 @@ class KisLiveSessionObservabilityTests(unittest.TestCase):
             log_path.write_text(
                 "2026-08-07 09:00:01,000 WARNING KIS WebSocket disconnected; reconnecting "
                 "in 5s (attempt 1/10, consecutive=1, storm=False): no close frame received or sent\n"
+                "2026-08-07 09:00:06,000 INFO Connected to KIS WebSocket endpoint=wss://example "
+                "symbols=005930 subscriptions=2\n"
+                "2026-08-07 09:00:07,000 INFO KIS WebSocket subscriptions restored "
+                "symbols=1 subscriptions=2 cumulative_reconnects=1\n"
+                "2026-08-07 09:00:08,000 INFO KIS WebSocket first frame received after subscription "
+                "restore frames_seen=1 cumulative_reconnects=1\n"
                 "2026-08-08 09:00:01,000 WARNING KIS WebSocket disconnected; reconnecting "
                 "in 5s (attempt 2/10, consecutive=1, storm=True): timeout\n",
                 encoding="utf-8",
@@ -278,6 +286,9 @@ class KisLiveSessionObservabilityTests(unittest.TestCase):
         self.assertEqual(reconnects["status"], "observed_no_storm")
         self.assertEqual(reconnects["count"], 1)
         self.assertEqual(reconnects["max_attempt"], 1)
+        self.assertEqual(reconnects["connected_count"], 1)
+        self.assertEqual(reconnects["subscription_restore_count"], 1)
+        self.assertEqual(reconnects["first_frame_after_restore_count"], 1)
 
     def test_raw_gap_summary_reports_common_watchlist_gap_ranges(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +407,77 @@ class KisLiveSessionObservabilityTests(unittest.TestCase):
             latest_raw_gap_summary=gaps,
         )
         self.assertEqual(reconnect_watch["status"], "watch")
+        self.assertEqual(reconnect_watch["severity"], "ATTENTION")
+        self.assertEqual(reconnect_watch["korean_prefix"], "\uc8fc\uc758")
+
+    def test_reconnect_storm_overrides_good_coverage_and_lineage_as_critical(self) -> None:
+        recent_days = [
+            {
+                "raw_market": {"symbol_minutes": 100},
+                "raw_orderbook": {"symbol_minutes": 100},
+                "feature_to_bar_symbol_minute_ratio": 1.0,
+                "label_h15_to_feature_symbol_minute_ratio": 1.0,
+            }
+        ]
+
+        assessment = _overall_assessment(
+            recent_days,
+            latest_intraday_coverage={
+                "status": "ok",
+                "expected_symbol_minutes": 100,
+                "raw_market_coverage_ratio": 0.99,
+                "raw_orderbook_coverage_ratio": 0.99,
+                "minute_bar_closed_coverage_ratio": 0.99,
+                "feature_closed_coverage_ratio": 0.99,
+            },
+            latest_decision_lineage={"status": "ok"},
+            latest_websocket_reconnects={
+                "status": "storm_detected",
+                "count": 7,
+                "storm_count": 1,
+            },
+            latest_raw_gap_summary={"status": "ok"},
+        )
+
+        self.assertEqual(assessment["status"], "critical")
+        self.assertEqual(assessment["severity"], "CRITICAL")
+        self.assertEqual(assessment["korean_prefix"], "\uc2e4\ud328")
+
+    def test_unexpected_common_gap_is_critical_without_reconnect_storm(self) -> None:
+        recent_days = [
+            {
+                "raw_market": {"symbol_minutes": 100},
+                "raw_orderbook": {"symbol_minutes": 100},
+                "feature_to_bar_symbol_minute_ratio": 1.0,
+                "label_h15_to_feature_symbol_minute_ratio": 1.0,
+            }
+        ]
+        gaps = {
+            "status": "gaps_detected",
+            "streams": {
+                "raw_market": {
+                    "unexpected_common_missing_ranges": ["15:01-15:08"],
+                },
+                "raw_orderbook": {
+                    "unexpected_common_missing_ranges": ["15:01-15:08"],
+                },
+            },
+        }
+
+        assessment = _overall_assessment(
+            recent_days,
+            latest_decision_lineage={"status": "ok"},
+            latest_websocket_reconnects={
+                "status": "observed_no_storm",
+                "count": 1,
+                "storm_count": 0,
+            },
+            latest_raw_gap_summary=gaps,
+        )
+
+        self.assertEqual(assessment["status"], "critical")
+        self.assertEqual(assessment["severity"], "CRITICAL")
+        self.assertEqual(assessment["korean_prefix"], "\uc2e4\ud328")
 
 
 if __name__ == "__main__":

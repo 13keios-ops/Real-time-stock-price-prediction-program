@@ -133,7 +133,9 @@ python3 scripts/probe_kis_paper_account_activity.py
 - 저장소의 paper 매수/매도 TR ID `VTTC0012U/VTTC0011U`와 `CANO`, `ACNT_PRDT_CD`, `PDNO`, `ORD_DVSN`, `ORD_QTY`, `ORD_UNPR`, `EXCG_ID_DVSN_CD`, `SLL_TYPE`, `CNDT_PRIC` 구성은 공식 국내주식 `order_cash` 예제와 일치한다.
 - 공식 근거: `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_cash/order_cash.py`, `https://github.com/koreainvestment/open-trading-api/blob/main/README.md`
 
-따라서 현재 증거로는 repository 주문 요청 구현 오류를 root cause로 볼 수 없다. KIS 서버가 현재 설정된 paper 계좌를 국내주식 주문 불가로 판정한 사실까지 확정되며, 세부 원인은 paper app 자격정보와 모의계좌 연결 상태, 계좌의 모의투자 활성/주문 가능 상태 중 하나로 남는다. 계좌번호, app key/secret, token을 로그나 문서에 남기지 말고 계좌 소유자가 KIS/HTS에서 이 두 항목만 확인한다.
+당시 증거만으로는 repository 주문 요청 구현 오류를 root cause로 볼 수 없었다. KIS 서버가 당시 paper 계좌를 국내주식 주문 불가로 판정한 사실까지 확정됐고, 세부 원인은 자격정보 연결 또는 계좌 활성 상태로 남겨 두었다.
+
+2026-09-03 새 epoch `paper-2026-09-03`에서 같은 cash-order 경로로 자연 submission 36건이 성공했다. 따라서 이전 `broker_account_not_orderable`의 주원인은 만료·무효 상태였던 이전 계좌로 사실상 확인됐고, endpoint entitlement 지원 문의는 종료한다. 같은 hard rejection이 새 계좌에서 재발할 때만 별도 사건으로 다시 연다.
 
 운영 보호는 다음과 같다.
 
@@ -143,9 +145,24 @@ python3 scripts/probe_kis_paper_account_activity.py
 4. 30분 만료 뒤 주문 후보 1건만 probe하고, 성공하면 circuit을 해제한다. 같은 hard rejection이면 다시 30분 연다.
 5. runtime 재시작 뒤 circuit은 초기화되므로 첫 후보 1건은 다시 probe한다.
 6. 성공 acknowledgement가 없으면 broker submission 행을 만들지 않는다. 해당 거래일은 기존 Phase 0 no-submission day 규칙대로 유효일이 아니다.
-7. 성공 submission이 실제로 생성되기 전에는 다음 정상 거래 준비를 통과로 표시하지 않는다.
+7. 성공 submission은 account orderability만 증명한다. fill sync와 reconciliation이 완결되기 전에는 Phase 0 유효일 또는 정합 통과로 표시하지 않는다.
 
 실패 evidence는 원문 예외 대신 분류, sanitized code/message, `network_attempted`, circuit 상태와 stable lineage ID를 JSON으로 남긴다. 계좌값과 자격정보 값은 기록하지 않는다.
+
+### 3.1.4. KRX 지정가 호가단위
+
+현재 주문 universe는 `docs/Universe-Freeze-Policy.md`에 따라 보통주만 허용하고 ETF/ETN·우선주·SPAC 등은 제외한다. 주문 경로는 종목 코드나 이름으로 유형을 추정하지 않고 명시적 `instrument_type`을 사용한다.
+
+주권 일반 호가단위는 KRX 공식 표의 1/5/10/50/100/500/1,000원 구간을 사용한다. ETF/ETN은 별도 명시 유형일 때만 2,000원 미만 1원, 이상 5원 규칙을 적용한다. 지원하지 않는 유형은 fail-closed 한다.
+
+`PaperOrder.limit_price`는 매수 최대 지불가·매도 최소 수취가 의미다. 따라서 invalid tick은 매수는 아래 유효 호가로, 매도는 위 유효 호가로 정규화한다. 실제 KIS body와 sanitized request evidence는 같은 정규화 함수를 사용하며 성공 submission에도 broker로 보낸 정규화 가격을 저장한다.
+
+2026-09-03 `005930`의 252,750/253,250/253,750원 지정가 4건은 200,000원 이상 500,000원 미만의 500원 호가단위를 지키지 않아 KIS `호가단위 오류`로 거절됐다. 이 오류는 `broker_invalid_request`, reason `invalid_price_tick`으로 기록한다.
+
+공식 근거:
+
+- `https://regulation.krx.co.kr/contents/RGL/03/03010100/RGL03010100T3.jsp`
+- `https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/order_cash/order_cash.py`
 
 ### 3.2. read-only probe 실패 분류
 
@@ -271,6 +288,10 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 - 2026-07-17 approval-key SSL EOF/timeout은 KIS 또는 네트워크 계열 후보로 기록했다. 원인을 자격증명이나 코드 결함으로 단정하지 않으며, 다음 장전 수집 재개 여부로 확인한다.
 - `storm=false`이고 watchdog heartbeat가 정상이라면 runtime을 즉시 재시작하지 않는다.
 - 짧은 시간 안에 반복되어 `storm=true`가 되거나 stable frame이 사라지면 신규 신호/주문 판단은 보수적으로 차단하는 방향으로 연결해야 한다.
+- 2026-09-03 15:00~15:09에는 read timeout/no-close-frame 연속 재접속 뒤 market/orderbook 전 종목 공통 `15:01~15:08` 공백이 발생했다. 같은 process가 5/10/20/40/60초 bounded backoff와 전체 구독 재전송 뒤 다시 수신했으므로 분류는 `UPSTREAM_KIS_OR_NETWORK_DISCONNECT`가 가장 유력하되 KIS와 로컬 네트워크 중 어느 쪽인지는 미확정이다.
+- 해당 공백에는 raw market/orderbook, feature/decision, broker submission이 모두 0건이었다. 15:09 복구 뒤 판단도 entry window 종료로 signal-blocked되어 stale/missing data 기반 신규 주문 증거는 없다.
+- listener는 연결 로그와 별도로 `subscriptions restored`와 `first frame received after subscription restore`를 남긴다. 다음 장애부터 연결 수립, 전체 재구독, 실제 데이터 복구를 분리해서 확인한다.
+- `storm_count > 0` 또는 정규장 예상 밖 전 종목 공통 gap은 coverage와 lineage가 양호해도 운영 `CRITICAL/실패`다.
 
 운영 확인:
 
@@ -300,7 +321,7 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 
 - `EGW00201`이 cooldown 이후에도 반복되어 1거래일 이상 order-fill 감사가 복구되지 않음.
 - broker 계좌와 local 장부의 수량 mismatch가 있는데 자동 align을 적용하려는 상황.
-- WebSocket reconnect storm 또는 데이터 coverage 공백이 발생.
+- WebSocket reconnect `storm_count > 0` 또는 정규장 예상 밖 전 종목 공통 데이터 공백이 발생. 이 조건은 다른 정상 지표보다 우선한다.
 
 관련 문서/코드 경로: `runtime-data/reports/broker-paper/latest-sync.json`, `runtime-data/reports/reconciliation/latest-paper-account-sync.json`, `runtime-data/reports/reconciliation/latest-paper-dual-account-match.json`
 
@@ -344,8 +365,10 @@ python3 scripts/check_kis_paper_account_lifecycle.py --write-report
 결과는 `orderability_ok`, `orderability_zero`, `account_not_orderable`, `auth_error`, `invalid_request`, `rate_limited`, `network_error`, `unknown_error`로 나눈다.
 보고서에는 exact 현금 대신 positive/zero/unavailable만 남기고 full CANO, app key/secret, token, raw response를 저장하지 않는다.
 
-2026-08-31/09-01 `broker_account_not_orderable`은 만료된 이전 paper 계좌에서 발생한 이력이다. 이전 계좌 무효 상태가 유력 root cause이며, 당시 support snapshot은 역사 증거로만 보존한다. 현재 계좌의 endpoint entitlement 문제로 이어서 해석하지 않는다.
+2026-08-31/09-01 `broker_account_not_orderable`은 만료된 이전 paper 계좌에서 발생한 이력이다. 2026-09-03 새 계좌의 같은 cash-order 경로에서 자연 submission 36건이 성공했으므로 이전 계좌 무효 상태가 주원인으로 사실상 확인됐다. 당시 support snapshot은 역사 증거로만 보존하고 entitlement case는 같은 오류가 새 계좌에서 재발할 때까지 닫는다.
 
-새 계좌에서는 기존 정책에서 자연 발생한 broker submission만 관찰한다. 성공하면 이전 account-orderability blocker를 종료한다. 같은 hard rejection이 재발할 때만 sanitized KIS error와 circuit/lineage를 확인하고 entitlement 조사를 다시 연다. 강제 cash order/cancel과 반복 orderability `--execute`는 하지 않는다.
+같은 hard rejection이 재발할 때만 sanitized KIS error와 circuit/lineage를 확인하고 entitlement 조사를 다시 연다. 강제 cash order/cancel과 반복 orderability `--execute`는 하지 않는다.
 
-2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 새 기준선 생성은 계좌 소유자의 별도 명시 승인이 필요하며, 승인 전 상태는 `baseline_review_required`, `0/10`이다.
+2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 현재 상태는 `baseline_review_required`, `0/10`이다. 2026-09-03 order-fill sync는 `EGW00201`로 7,200초 cooldown 중이고 local/new-broker mismatch `086520/247540/373220`이 남아 있어 자동 baseline·align·reset을 하지 않는다.
+
+baseline 검토 전 최소 조건은 cooldown 종료, 장외 order-fill sync 정확히 1회 성공, current account snapshot 정상, 36 submission의 fill/reject/pending 설명, local/broker position·cash 차이 설명, 계좌 소유자 명시 승인이다. 조건을 모두 충족해도 별도 작업에서 결과를 먼저 보고한 뒤 승인받아야 한다.

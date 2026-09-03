@@ -5,12 +5,12 @@
 ### 2026-09-03 현재 기준
 
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.
-- 2026-09-02 raw market/feature closed coverage는 `97.57%/97.54%`이며 serving decision ledger는 `3,804`행이고 complete lineage는 `100%`다.
-- WebSocket reconnect는 `28`, storm은 `0`이다. `forced_flat_time=15:20` 뒤 공통 market gap은 예상 종가 동시호가 구간으로 분리하고, 예상 밖 공통 gap만 수집 실패 근거로 쓴다.
+- 2026-09-03 raw market/orderbook은 `3,727/3,983` symbol-minute, closed feature coverage는 `95.31%`이며 serving decision ledger는 `3,717/3,717`, complete lineage `100%`다.
+- WebSocket reconnect는 `36`, storm은 `7`이고 market/orderbook 전 종목 공통 `15:01~15:08` 공백이 있었다. 올바른 운영 판정은 `CRITICAL/실패`이며 같은 process의 bounded backoff·재구독으로 15:09부터 수신이 복구됐다.
 - top challenger는 거래 `1,474건`, 3분류 정확도 `19.53%`, buy hit `20.96%`, 누적 진단 순수익 `-363.07%`로 승격 대상이 아니다.
 - buy-avoid는 절대 portfolio 손실 때문에 기각됐고 buy-rescue와 hold-rescue도 주문 정책에 반영할 후보가 아니다.
-- E7은 미래 거래일 3일, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다.
-- current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. auth/account/orderability read-only 확인은 통과했으며 자연 broker cash-order 성공은 아직 관찰되지 않았다.
+- E7은 미래 거래일 4일, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다.
+- current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. 자연 KIS cash-order submission 36건이 성공해 이전 계좌 무효 root cause와 account-orderability blocker 종료를 확인했다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`으로 fail-closed한다.
 - Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
 
@@ -69,6 +69,7 @@
 - KIS 브로커 모의계좌 잔고 조회
 - 로컬 가상 계좌와 브로커 모의계좌 정합성 점검
 - 로컬 가상 주문을 KIS 모의계좌로 함께 제출하는 브로커 모의계좌 미러링
+- 보통주 지정가를 KRX 공식 호가단위로 매수 하향·매도 상향 정규화하고 실제 request/evidence/submission 가격을 일치시키는 single-source helper. ETF/ETN은 명시 유형일 때만 별도 규칙을 사용한다.
 - 브로커 기준 표시자 기반 모의계좌 기준선 정렬
 - KIS 호출 제한 재시도와 안전 실패 처리
 - pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
@@ -157,6 +158,8 @@ python -m app --build-dashboard
 - 머신러닝 현황 탭의 `KIS live 데이터 품질` 카드는 `runtime-data/reports/data-quality/latest-kis-live-data-quality.json`을 읽어 최신 KIS 데이터의 feature/label 닫힘 상태를 보여준다.
 - 이 카드는 최신 거래일 기준 watchlist × 정규장 시작 이후 최신 raw minute 의 기대 symbol-minute 대비 시장 체결, 호가, 분봉, 특징 coverage 도 보여준다. market coverage 는 최신 raw minute 기준, 분봉/특징 coverage 는 아직 닫히지 않은 마지막 1분을 제외한 닫힌 분 기준으로 평가한다. coverage 가 `95%` 미만이면 `watch`, `80%` 미만이면 `needs_attention`으로 assessment 를 올린다. 장전 호가나 REST snapshot 이 포함되면 raw coverage 는 100%를 넘을 수 있다.
 - 같은 리포트는 raw market/orderbook의 watchlist 공통 누락 구간과 종목별 누락 분 수·범위를 별도 `raw_minute_gaps` 증거로 남긴다. WebSocket reconnect 객체와 공백 증거를 분리해 연결 이벤트와 실제 데이터 손실을 독립 판정한다.
+- `storm_count > 0` 또는 정규장 예상 밖 전 종목 공통 gap은 coverage·lineage와 무관하게 `CRITICAL/실패`로 판정한다. reconnect만 있고 storm 0·coverage 95% 이상·lineage 100%이면 기존 connection watch를 유지한다.
+- WebSocket listener는 연결 뒤 전체 subscription 재등록 완료와 첫 frame 수신을 별도 로그로 남겨 local recovery 단계별 증거를 제공한다.
 - `--recent-days 10` 집계는 전체 관측 거래일 수와 source 총계는 유지하되, 가장 비싼 symbol×minute 원천 그룹화는 최근 10거래일로 제한한다. 26GB 운영 DB 실측은 약 439초에서 126초로 줄었고 결과 행·coverage·gap 판정은 동일했다.
 - 과거 watch 사례는 feature/bar 비율과 시간대 공백을 함께 본다. 2026-06-05와 2026-06-09는 종가 동시호가 구간 공백 영향이 컸고, 2026-06-08은 raw market symbol-minute 가 약한 구간이 길었지만 orderbook 은 비교적 유지됐다. 따라서 같은 패턴이 재발하면 `watchdog` heartbeat, KIS WS frame, raw market/orderbook coverage 를 함께 비교한다.
 - 머신러닝 현황 탭의 `KIS-Cybos feature drift` 카드는 `runtime-data/reports/data-quality/latest-feature-source-drift.json`을 읽어 Cybos historical 후보를 KIS live 대리값으로 볼 때의 source drift 판단을 보여준다.

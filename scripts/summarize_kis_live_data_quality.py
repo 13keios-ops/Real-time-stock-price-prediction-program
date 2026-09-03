@@ -893,11 +893,22 @@ def _websocket_reconnect_summary(log_path: Path, trade_date: str) -> dict[str, A
     reasons: Counter[str] = Counter()
     attempts: list[int] = []
     storm_count = 0
+    connected_events: list[str] = []
+    subscription_restore_events: list[str] = []
+    first_frame_after_restore_events: list[str] = []
     with log_path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            if not line.startswith(trade_date) or marker not in line:
+            if not line.startswith(trade_date):
                 continue
             stripped = line.rstrip()
+            if "Connected to KIS WebSocket" in stripped:
+                connected_events.append(stripped)
+            if "KIS WebSocket subscriptions restored" in stripped:
+                subscription_restore_events.append(stripped)
+            if "KIS WebSocket first frame received after subscription restore" in stripped:
+                first_frame_after_restore_events.append(stripped)
+            if marker not in stripped:
+                continue
             events.append(stripped)
             attempt_match = re.search(r"attempt (\d+)/", stripped)
             if attempt_match:
@@ -914,6 +925,16 @@ def _websocket_reconnect_summary(log_path: Path, trade_date: str) -> dict[str, A
         "max_attempt": max(attempts) if attempts else 0,
         "first_event_at": events[0][:23] if events else None,
         "last_event_at": events[-1][:23] if events else None,
+        "connected_count": len(connected_events),
+        "last_connected_at": connected_events[-1][:23] if connected_events else None,
+        "subscription_restore_count": len(subscription_restore_events),
+        "last_subscription_restore_at": (
+            subscription_restore_events[-1][:23] if subscription_restore_events else None
+        ),
+        "first_frame_after_restore_count": len(first_frame_after_restore_events),
+        "last_first_frame_after_restore_at": (
+            first_frame_after_restore_events[-1][:23] if first_frame_after_restore_events else None
+        ),
         "reasons": dict(sorted(reasons.items())),
         "log_path": str(log_path),
     }
@@ -957,6 +978,8 @@ def _overall_assessment(
     if not recent_days:
         return {
             "status": "no_kis_live_data",
+            "severity": "CRITICAL",
+            "korean_prefix": "\uc2e4\ud328",
             "notes": ["No KIS live raw rows were found."],
         }
     latest = recent_days[-1]
@@ -974,18 +997,21 @@ def _overall_assessment(
     coverage_severity, coverage_notes = _coverage_assessment_notes(latest_intraday_coverage)
     notes.extend(coverage_notes)
     observability_severity = "ok"
+    critical_observability = False
     lineage_status = str((latest_decision_lineage or {}).get("status") or "not_checked")
     if lineage_status in {"table_missing", "no_rows", "lineage_incomplete"}:
         notes.append(f"Latest date serving decision ledger status is {lineage_status}.")
         observability_severity = "needs_attention"
     reconnect_status = str((latest_websocket_reconnects or {}).get("status") or "not_checked")
     reconnect_count = int((latest_websocket_reconnects or {}).get("count") or 0)
+    reconnect_storm_count = int((latest_websocket_reconnects or {}).get("storm_count") or 0)
     if reconnect_status == "log_missing":
         notes.append("Latest date KIS WebSocket reconnect log is missing.")
         observability_severity = "needs_attention"
-    elif reconnect_status == "storm_detected":
+    elif reconnect_status == "storm_detected" or reconnect_storm_count > 0:
         notes.append("Latest date KIS WebSocket reconnect storm was detected.")
         observability_severity = "needs_attention"
+        critical_observability = True
     elif reconnect_count > 0:
         notes.append(
             f"Latest date had {reconnect_count} KIS WebSocket reconnect event(s) without a recorded storm; "
@@ -1009,13 +1035,25 @@ def _overall_assessment(
                 f"market={market_ranges}, orderbook={orderbook_ranges}."
             )
             observability_severity = "needs_attention"
-    if coverage_severity == "needs_attention" or observability_severity == "needs_attention":
+            critical_observability = True
+    if critical_observability:
+        status = "critical"
+    elif coverage_severity == "needs_attention" or observability_severity == "needs_attention":
         status = "needs_attention"
     elif not notes:
         status = "ok"
     else:
         status = "watch"
-    return {"status": status, "notes": notes}
+    if status == "critical":
+        severity = "CRITICAL"
+        korean_prefix = "\uc2e4\ud328"
+    elif status in {"watch", "needs_attention"}:
+        severity = "ATTENTION"
+        korean_prefix = "\uc8fc\uc758"
+    else:
+        severity = "NORMAL"
+        korean_prefix = "\uc815\uc0c1"
+    return {"status": status, "severity": severity, "korean_prefix": korean_prefix, "notes": notes}
 
 
 def summarize(
@@ -1125,6 +1163,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- observed_dates: `{summary.get('trade_dates_observed')}`",
         f"- date_range: `{summary.get('first_trade_date')}`..`{summary.get('latest_trade_date')}`",
         f"- assessment: `{(summary.get('assessment') or {}).get('status')}`",
+        f"- severity: `{(summary.get('assessment') or {}).get('severity')}`",
+        f"- korean_prefix: `{(summary.get('assessment') or {}).get('korean_prefix')}`",
         "",
         "## Source Summary",
         "",
@@ -1185,6 +1225,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"- websocket_reconnect_count: `{reconnects.get('count')}`",
             f"- websocket_reconnect_storm_count: `{reconnects.get('storm_count')}`",
             f"- websocket_reconnect_reasons: `{reconnects.get('reasons')}`",
+            f"- websocket_connected_count: `{reconnects.get('connected_count')}`",
+            f"- websocket_last_connected_at: `{reconnects.get('last_connected_at')}`",
+            f"- websocket_subscription_restore_count: `{reconnects.get('subscription_restore_count')}`",
+            f"- websocket_last_subscription_restore_at: `{reconnects.get('last_subscription_restore_at')}`",
+            f"- websocket_first_frame_after_restore_count: `{reconnects.get('first_frame_after_restore_count')}`",
+            f"- websocket_last_first_frame_after_restore_at: `{reconnects.get('last_first_frame_after_restore_at')}`",
         ]
     )
     raw_gaps = observability.get("raw_minute_gaps") or {}

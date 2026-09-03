@@ -25,7 +25,9 @@
 - 현재 계좌 epoch: `paper-2026-09-03`, 활성 `2026-09-03`, 만료 `2026-12-03`
 - 갱신 경고: 30일 전 `2026-11-03`, 긴급 7일 전 `2026-11-26`
 - 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` orderability 통과
-- 자연 broker cash-order 성공: 아직 미관찰
+- 자연 broker cash-order: 2026-09-03 KIS submission 성공 36건; 이전 계좌 account-orderability blocker 종료
+- 실패: invalid tick 4건은 `broker_invalid_request/invalid_price_tick`, network timeout 1건은 `broker_network_error`
+- order-fill sync: `EGW00201`, 7,200초 cooldown으로 36 submission의 fill/reject/pending lineage 미완결
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않음
 - 현재 epoch: `0/10`, matched 0일, mismatch 0일, remaining 10일
 - 이전 계좌 epoch: `10/10`, matched 0일, mismatch 10일
@@ -37,6 +39,7 @@
 - 무거래일과 weekend/holiday는 분모를 늘리지 않는다.
 - 완료 조건: 현재 계좌 epoch 유효 거래일 10개가 모두 matched
 - 자동 align, `SyncInitialCash`, 강제 거래는 금지
+- current local/new-broker mismatch `086520/247540/373220`은 order-fill sync와 계좌 소유자 승인 전 정렬·삭제·reset 금지
 
 ### Phase 1a: KIS 모의투자 read-only
 
@@ -64,13 +67,13 @@
 
 ## 3. 데이터와 판단 원장
 
-- 최신 거래일: `2026-09-02`
-- raw market/orderbook symbol-minute: `3,815/4,060`
-- raw market session coverage: `97.57%`; feature closed coverage: `97.54%`
-- decision ledger: `3,804`행, complete lineage `3,804/3,804`, ratio `1.0`
-- WebSocket: reconnect `28`, storm `0`, 사유는 모두 `no close frame received or sent`
-- `15:20~15:29 KST` 공통 market gap은 forced-flat 뒤 예상 종가 동시호가 구간
-- 판정: 수집과 판단 계보는 정상 범위, 연결 안정성은 `watch`
+- 최신 거래일: `2026-09-03`
+- raw market/orderbook symbol-minute: `3,727/3,983`
+- feature closed coverage: `95.31%`
+- decision ledger: `3,717`행, complete lineage `3,717/3,717`, ratio `1.0`
+- WebSocket: reconnect `36`, storm `7`, 전 종목 공통 gap `15:01~15:08`
+- 공백 구간 decision/broker submission은 0건이며 같은 process의 bounded reconnect·재구독으로 복구
+- 판정: `CRITICAL/실패`; storm/common-gap이 coverage와 lineage 정상보다 우선
 
 ## 4. 모델과 수익성
 
@@ -79,7 +82,7 @@
 - buy-avoid threshold 0.40: 손실 완화 진단은 양수지만 절대 portfolio가 음수라 기각
 - hold-rescue threshold 0.40: 적용 37/eligible 161 lot, delta `-26,387원`
 - buy-rescue: current overlay는 진단 전용이며 Cybos proxy도 buy-rescue 주문 반영을 권하지 않는다.
-- E7은 미래 거래일 `3/10`, episode `0/100`, symbol `0/5`로 최소 표본 축적 중이다.
+- E7은 미래 거래일 `4/10`, episode `0/100`, symbol `0/5`로 최소 표본 축적 중이다.
 - 공식 evaluator/manifest는 일치하고 invalid mark는 0이다. 현행·2배 비용, random control 1,000회와 비중복 구간은 최소 표본 전까지 대기한다.
 - 위 조건을 통과하기 전에는 active model, gate, threshold 설정, 주문 정책을 바꾸지 않는다.
 
@@ -87,24 +90,24 @@
 
 ### P0
 
-현재 발견된 즉시 실전 위험 P0 결함은 없다. 실전 주문은 비활성이고 live runtime은 휴장 정지 상태다.
+2026-09-03 NOW-P0는 KRX invalid tick 전송과 storm/common-gap 심각도 누락이었다. 호가단위 정규화, failure reason, 재구독·첫 frame 증적, `CRITICAL/실패` 우선순위를 구현했다. 실전 주문은 비활성이며 다음 거래일 자연 paper 경로에서 재발 여부를 확인한다.
 
 ### P1
 
-1. 현재 paper 계좌와 호환되는 Phase 0 clean baseline 미승인, 유효 거래일 `0/10`
+1. order-fill cooldown으로 36 submission 상태와 local/new-broker mismatch 원인 미완결; Phase 0 baseline 검토 보류, `0/10`
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
 4. real WebSocket recovery evidence 없음
-5. reconnect 28회의 연결 안정성 추적 필요
+5. reconnect 36/storm 7의 다음 거래일 복구 증적과 공통 gap 재발 추적 필요
 
 ## 6. 다음 순서
 
-1. 계좌 소유자 승인 뒤 현재 paper 계좌 snapshot 기준 Phase 0 clean baseline을 생성한다.
-2. 다음 거래일부터 coverage 95% 이상, lineage 100%, storm 0과 reconnect 추이를 함께 확인한다.
-3. 호환 baseline 뒤 자연 broker submission이 있는 실제 유효일만 Phase 0에 누적한다.
+1. `EGW00201` cooldown 종료 뒤 장외 broker order-fill sync/reconciliation을 정확히 1회 실행해 36 submission과 mismatch를 설명한다.
+2. 결과 보고 뒤 계좌 소유자의 별도 승인으로만 current account baseline을 검토한다.
+3. 다음 거래일부터 tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
 4. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
 5. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
-6. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/WS recovery를 갱신한다.
+6. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
 
 ## 7. 동결 범위
 
@@ -114,7 +117,7 @@ Phase 0 current epoch 10거래일 정합과 E7 미래 검증 전에는 threshold
 
 ## 8. 운영자 작업
 
-현재 필요한 수동 결정은 새 paper 계좌 snapshot 기준 Phase 0 clean baseline 생성 승인 여부다.
+현재는 baseline 승인 단계가 아니다. order-fill sync/reconciliation 완결 결과를 먼저 확인한 뒤 baseline 승인 여부를 별도로 결정한다.
 무거래일을 Phase 0 유효일로 만들기 위한 강제 주문은 하지 않는다. market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
 
 ## 9. 종료 체크

@@ -555,7 +555,16 @@ class OnlinePipelineProcessor:
                         if broker_failure is not None
                         else "broker_unknown_error"
                     )
+                    broker_failure_reason_code = (
+                        broker_failure.reason_code
+                        if broker_failure is not None
+                        else None
+                    )
                     decision_reason = f"broker_paper_submission_failed:{broker_failure_category}"
+                    if broker_failure_reason_code:
+                        decision_reason = (
+                            f"{decision_reason}:{broker_failure_reason_code}"
+                        )
                     decision_order_status = order.status
                     self.writer.write_paper_order(order)
                     self.writer.write_order_event(
@@ -568,6 +577,7 @@ class OnlinePipelineProcessor:
                                 {
                                     "attempt_id": f"broker-paper-attempt-{order.order_id}",
                                     "failure_category": broker_failure_category,
+                                    "failure_reason_code": broker_failure_reason_code,
                                     "network_attempted": (
                                         broker_failure.network_attempted
                                         if broker_failure is not None
@@ -736,6 +746,11 @@ class OnlinePipelineProcessor:
                                     broker_failure.category
                                     if broker_failure is not None
                                     else "broker_unknown_error"
+                                ),
+                                "failure_reason_code": (
+                                    broker_failure.reason_code
+                                    if broker_failure is not None
+                                    else None
                                 ),
                                 "network_attempted": (
                                     broker_failure.network_attempted

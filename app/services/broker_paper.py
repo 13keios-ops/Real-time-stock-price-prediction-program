@@ -13,6 +13,7 @@ from typing import Any
 
 from app.brokers.kis_auth import KisApiError, KisTokenManager, get_kis_profile
 from app.brokers.kis_quote_rest import (
+    KRX_INSTRUMENT_COMMON_STOCK,
     ORDER_CASH_PATH,
     ORDER_CASH_TR_ID_BUY_PAPER,
     ORDER_CASH_TR_ID_SELL_PAPER,
@@ -20,6 +21,7 @@ from app.brokers.kis_quote_rest import (
     KisCashOrderResult,
     KisDailyOrderFillRecord,
     KisRestQuoteClient,
+    normalize_krx_limit_price,
 )
 from app.config.settings import AppSettings
 from app.storage.contracts import BrokerOrderSubmission, PaperOrder
@@ -58,6 +60,7 @@ class BrokerPaperFailure:
     message_code: str
     message: str
     network_attempted: bool
+    reason_code: str | None = None
     circuit_opened: bool = False
     retry_after_seconds: int | None = None
 
@@ -71,6 +74,7 @@ class BrokerPaperFailure:
             "message_code": self.message_code,
             "message": self.message,
             "network_attempted": self.network_attempted,
+            "reason_code": self.reason_code,
             "circuit_opened": self.circuit_opened,
             "retry_after_seconds": self.retry_after_seconds,
         }
@@ -127,8 +131,12 @@ def classify_broker_paper_failure(
     message_code, message = _extract_kis_error_fields(exc)
     lowered = message.lower()
     code = message_code.upper()
+    reason_code: str | None = None
     if BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE in message:
         category = "broker_account_not_orderable"
+    elif "\ud638\uac00\ub2e8\uc704 \uc624\ub958" in message:
+        category = "broker_invalid_request"
+        reason_code = "invalid_price_tick"
     elif (
         code == "EGW00201"
         or "\ucd08\ub2f9 \uac70\ub798\uac74\uc218\ub97c \ucd08\uacfc" in message
@@ -167,6 +175,7 @@ def classify_broker_paper_failure(
         message_code=message_code,
         message=message or exc.__class__.__name__,
         network_attempted=network_attempted,
+        reason_code=reason_code,
         circuit_opened=circuit_opened,
         retry_after_seconds=retry_after_seconds,
     )
@@ -194,7 +203,12 @@ class BrokerPaperMirror:
     def reset_account_hard_rejection_circuit(self) -> None:
         self._account_hard_rejection_until = None
 
-    def _request_evidence(self, order: PaperOrder) -> dict[str, object]:
+    def _request_evidence(
+        self,
+        order: PaperOrder,
+        *,
+        normalized_limit_price: int,
+    ) -> dict[str, object]:
         normalized_side = order.side.strip().lower()
         tr_id = ORDER_CASH_TR_ID_BUY_PAPER if normalized_side == "buy" else ORDER_CASH_TR_ID_SELL_PAPER
         return {
@@ -213,7 +227,7 @@ class BrokerPaperMirror:
                 "PDNO": order.symbol,
                 "ORD_DVSN": "00",
                 "ORD_QTY": str(int(order.qty)),
-                "ORD_UNPR": str(int(round(order.limit_price))),
+                "ORD_UNPR": str(normalized_limit_price),
                 "EXCG_ID_DVSN_CD": "KRX",
                 "SLL_TYPE": "",
                 "CNDT_PRIC": "",
@@ -227,7 +241,15 @@ class BrokerPaperMirror:
         decision_id: str | None = None,
     ) -> BrokerOrderSubmission:
         attempt_id = f"broker-paper-attempt-{order.order_id}"
-        request_evidence = self._request_evidence(order)
+        normalized_limit_price = normalize_krx_limit_price(
+            order.limit_price,
+            side=order.side,
+            instrument_type=KRX_INSTRUMENT_COMMON_STOCK,
+        )
+        request_evidence = self._request_evidence(
+            order,
+            normalized_limit_price=normalized_limit_price,
+        )
         now = time.monotonic()
         if self._account_hard_rejection_until is not None:
             if now < self._account_hard_rejection_until:
@@ -252,8 +274,9 @@ class BrokerPaperMirror:
                 symbol=order.symbol,
                 side=order.side,
                 qty=order.qty,
-                limit_price=order.limit_price,
+                limit_price=normalized_limit_price,
                 order_type="00",
+                instrument_type=KRX_INSTRUMENT_COMMON_STOCK,
             )
         except Exception as exc:
             failure = classify_broker_paper_failure(exc, network_attempted=True)
@@ -264,6 +287,7 @@ class BrokerPaperMirror:
                     message_code=failure.message_code,
                     message=failure.message,
                     network_attempted=True,
+                    reason_code=failure.reason_code,
                     circuit_opened=True,
                     retry_after_seconds=BROKER_ACCOUNT_HARD_REJECTION_COOLDOWN_SECONDS,
                 )
@@ -364,7 +388,7 @@ class BrokerPaperMirror:
             event_time=order.event_time,
             side=order.side,
             qty=order.qty,
-            limit_price=order.limit_price,
+            limit_price=result.limit_price,
             order_type=result.order_type,
             status="submitted",
             broker_order_no=result.broker_order_no,

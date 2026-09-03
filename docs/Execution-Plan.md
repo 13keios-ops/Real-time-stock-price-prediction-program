@@ -20,17 +20,19 @@
 
 ## 2. 현재 출발점
 
-### 2026-09-03 account lifecycle checkpoint
+### 2026-09-03 post-close incident checkpoint
 
-- 장 상태는 `overnight`, live runtime은 2026-09-02 장 마감 뒤 정상 정지다. watchdog, dashboard, startup launcher는 정상이다.
+- 장 상태는 `post-close`, live runtime은 2026-09-03 15:30 KST 정상 종료 후 정지했다. watchdog, dashboard, startup launcher는 정상이다.
 - trading mode는 `paper`, active h15는 `baseline-h15-v1`, 현재 통과한 수익 후보는 `0개`다.
-- 2026-09-02 raw market/feature closed coverage는 `97.57%/97.54%`, decision ledger 3,804행의 complete lineage는 100%다.
-- WebSocket reconnect 28회는 주의지만 storm 0이다. 종가 동시호가 예상 gap과 unexpected gap을 분리한다.
+- 2026-09-03 raw market/orderbook은 `3,727/3,983` symbol-minute, feature closed coverage는 `95.31%`, decision ledger `3,717/3,717`행의 complete lineage는 100%다.
+- WebSocket reconnect `36`, storm `7`과 정규장 예상 밖 전 종목 공통 `15:01~15:08` gap은 `CRITICAL/실패`다. 공백 동안 decision과 broker submission은 0건이고 같은 process의 bounded reconnect와 재구독으로 15:09부터 복구됐다.
 - 현재 paper account epoch는 `paper-2026-09-03`, 만료일은 `2026-12-03`이다. 30일/7일 전 갱신 경고를 운영 리포트와 dashboard에 연결한다.
-- 새 자격정보 token refresh, account snapshot, read-only orderability는 통과했다. 이전 account rejection은 만료 계좌에서 발생한 역사 증거다.
+- 새 자격정보 token refresh, account snapshot, read-only orderability는 통과했다. 자연 KIS cash-order submission 36건도 성공해 이전 account rejection의 주원인은 만료·무효 상태였던 이전 계좌로 사실상 확인됐다.
+- 2026-09-03 `005930` 지정가 4건은 KRX 일반주권 500원 호가단위를 지키지 않아 실패했다. broker 전송 전에 매수는 하향, 매도는 상향 정규화하고 request/evidence/submission 가격을 일치시키며 `broker_invalid_request/invalid_price_tick`으로 기록한다.
+- order-fill sync는 `EGW00201` 7,200초 cooldown이라 36 submission의 fill/reject/pending 상태와 local/new-broker mismatch `086520/247540/373220`은 아직 미완결이다. cooldown 중 재호출하거나 상태를 자동 정렬하지 않는다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이므로 Phase 0은 `baseline_review_required`, `0/10`이다. 계좌 소유자 승인 없이 새 baseline을 만들지 않는다.
 - top challenger와 buy-avoid/buy-rescue/hold-rescue 모두 절대 비용 후 수익성 기준을 통과하지 못했다.
-- E7은 미래 거래일 3일, official episode 0으로 표본 축적 중이다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest는 일치한다.
+- E7은 미래 거래일 4일, official episode 0으로 표본 축적 중이다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest는 일치한다.
 - 세 번의 고정 평가에서 개선이 없으면 threshold를 다시 찾지 않고 h60 또는 entry/exit 분리 가설로 이동한다.
 
 현재 상세값은 `docs/STATUS.md`, 활성 작업은 `docs/SPRINT_CURRENT.md`, 연구 기준은 `docs/Model-Research-PreRegistration.md`를 따른다.

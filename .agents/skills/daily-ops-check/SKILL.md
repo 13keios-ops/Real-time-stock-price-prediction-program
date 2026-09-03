@@ -107,6 +107,9 @@ python3 scripts/check_kis_paper_account_lifecycle.py
 - 갱신 준비 경고는 `2026-11-03`부터, 긴급 경고는 `2026-11-26`부터 표시한다. `2026-12-03`부터는 만료로 fail-closed 한다.
 - lifecycle report의 `phase0_baseline.compatible=false`이면 이전 계좌 epoch와 현재 계좌 epoch를 섞지 않는다. broker sync/reconciliation을 반복하지 않고 `baseline_review_required`로 보고한다.
 - 현재 확인된 2026-08-15 clean baseline은 이전 계좌 기준이며 새 계좌 활성일보다 오래됐다. 계좌 소유자가 현재 계좌 기준선 생성을 별도 승인하기 전에는 Phase 0 유효일 누적을 시작하지 않는다.
+- 2026-09-03 새 계좌의 자연 KIS cash-order submission 36건은 성공했지만, order-fill sync가 `EGW00201`로 7,200초 cooldown에 들어가 fill/reject/pending lineage가 아직 완결되지 않았다. 이 상태에서는 baseline을 생성하거나 local/broker 상태를 정렬하지 않는다.
+- baseline 재설정 검토 전에는 cooldown 종료, 장외 order-fill sync 1회 성공, current account snapshot 정상, 36 submission의 상태 설명, local/broker position·cash 차이 설명, 계좌 소유자 명시 승인이 모두 필요하다.
+- 현재 local/new-broker position mismatch 관찰 종목은 `086520/247540/373220`이며 자동 삭제·import·reset 대상이 아니다.
 - 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 broker sync/reconciliation을 중복 호출하지 않는다.
 - lifecycle과 baseline이 현재 계좌에 호환되고, 오늘 유효 기록이 없고, 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
 
@@ -162,7 +165,8 @@ E7 미래 데이터로 threshold 0.55, model, feature, signal/gate, allocator, p
 - 새 paper APP key/secret과 계좌는 `paper-2026-09-03` epoch로 분리한다.
 - 새 계좌의 auth-only token refresh와 account snapshot이 통과했다.
 - 새 계좌의 `VTTC8908R`, `ORD_DVSN=00` read-only orderability는 `orderability_ok`, `rt_cd=0`, 양수 value presence로 통과했고 주문/취소 호출은 0회였다.
-- 새 계좌의 실제 자연 발생 cash-order 성공 여부는 아직 확인되지 않았다.
+- 2026-09-03 새 계좌에서 동일 cash-order 경로의 자연 submission 36건이 성공했다. 이전 `broker_account_not_orderable`의 주원인은 만료·무효 상태였던 이전 계좌로 사실상 확인됐고, endpoint entitlement 지원 문의는 같은 오류가 새 계좌에서 재발할 때까지 닫아 둔다.
+- 같은 날 invalid tick 4건은 `broker_invalid_request`와 `invalid_price_tick`으로, network timeout 1건은 `broker_network_error`로 구분한다. 둘을 account hard rejection과 섞지 않는다.
 
 기본 lifecycle 확인은 네트워크 0회다.
 
@@ -222,10 +226,13 @@ E1/E5와 과거 Phase 0 recovery를 자동 재실행하지 않는다.
 
 ## 10. Status classification
 
+- 우선순위는 `CRITICAL > ATTENTION > NORMAL`이다. 하나라도 CRITICAL 조건이 있으면 양호한 coverage나 lineage가 이를 낮추지 못하며 첫 줄은 반드시 `실패`다.
 - `NORMAL`: runtime 상태가 장 상태와 맞고, coverage 95% 이상, lineage 100%, storm 0, 핵심 증거 identity가 일치한다.
 - reconnect > 0이어도 storm=0, coverage>=95%, lineage=100%이면 `collection ok / connection watch`로 분리한다.
 - `ATTENTION`: reconnect 관찰, stale/missing 운영 report, E7 `not_available_yet`, Phase 0 표본 부족/no submission, orderability 미확정처럼 즉시 데이터 무결성을 깨지 않는 후속 확인이다.
 - `CRITICAL`: lineage 불완전, storm, coverage 기준 미달, E7 identity/mark/result mixing invalid, reconciliation mismatch, 보호 모드 위반이다.
+- `storm_count > 0`은 coverage 95% 이상·lineage 100% 여부와 무관하게 항상 `CRITICAL`이다.
+- 정규장 중 예상 밖 전 종목 공통 market/orderbook gap도 항상 `CRITICAL`이다. `forced_flat_time` 뒤 명시된 종가 동시호가 예상 market gap만 이 규칙에서 제외한다.
 - E7 최소 표본 부족이나 수익성 숫자만으로 전략 변경을 권고하지 않는다.
 
 최종 한국어 접두어는 `NORMAL=정상`, `ATTENTION=주의`, `CRITICAL=실패`다.
