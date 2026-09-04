@@ -1,6 +1,7 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_rest import KisRestQuoteClient
 
 
@@ -25,11 +26,183 @@ def _payload(*, order_no: str, continuation: bool) -> dict:
 
 
 class KisOrderFillPaginationMetadataTests(unittest.TestCase):
-    def _client(self) -> KisRestQuoteClient:
+    def _client(self, *, mode: str = "paper") -> KisRestQuoteClient:
         profile = MagicMock()
-        profile.mode = "paper"
+        profile.mode = mode
         profile.is_configured = True
         return KisRestQuoteClient(profile=profile, token_manager=MagicMock())
+
+    def test_first_paper_page_does_not_sleep(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(
+            return_value=(_payload(order_no="100", continuation=False), {"tr_cont": ""})
+        )
+
+        with patch("time.sleep") as mocked_sleep:
+            rows = client.get_daily_order_fills(
+                start_date="20260614",
+                end_date="20260807",
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(client._request_response.call_count, 1)
+        self.assertEqual(client.last_daily_order_fill_query.get("http_requests_attempted"), 1)
+        mocked_sleep.assert_not_called()
+
+    def test_paper_continuation_waits_before_second_page(self) -> None:
+        client = self._client()
+        clock = [100.0]
+        events: list[object] = []
+        responses = iter(
+            [
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="101", continuation=False), {"tr_cont": ""}),
+            ]
+        )
+
+        def request_page(*args, **kwargs):
+            events.append("request")
+            return next(responses)
+
+        def sleep(seconds: float) -> None:
+            events.append(("sleep", seconds))
+            clock[0] += seconds
+
+        client._request_response = MagicMock(side_effect=request_page)
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            with patch("time.sleep", side_effect=sleep):
+                rows = client.get_daily_order_fills(
+                    start_date="20260614",
+                    end_date="20260807",
+                )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(events, ["request", ("sleep", 0.5), "request"])
+
+    def test_three_page_paper_query_paces_each_continuation(self) -> None:
+        client = self._client()
+        clock = [100.0]
+        events: list[object] = []
+        responses = iter(
+            [
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="101", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="102", continuation=False), {"tr_cont": ""}),
+            ]
+        )
+
+        def request_page(*args, **kwargs):
+            events.append("request")
+            return next(responses)
+
+        def sleep(seconds: float) -> None:
+            events.append(("sleep", seconds))
+            clock[0] += seconds
+
+        client._request_response = MagicMock(side_effect=request_page)
+        with patch("time.monotonic", side_effect=lambda: clock[0]):
+            with patch("time.sleep", side_effect=sleep):
+                rows = client.get_daily_order_fills(
+                    start_date="20260614",
+                    end_date="20260807",
+                )
+
+        self.assertEqual([row.broker_order_no for row in rows], ["100", "101", "102"])
+        self.assertEqual(
+            events,
+            ["request", ("sleep", 0.5), "request", ("sleep", 0.5), "request"],
+        )
+
+    def test_live_continuation_does_not_use_paper_pacing(self) -> None:
+        client = self._client(mode="live")
+        client._request_response = MagicMock(
+            side_effect=[
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="101", continuation=False), {"tr_cont": ""}),
+            ]
+        )
+
+        with patch("time.sleep") as mocked_sleep:
+            rows = client.get_daily_order_fills(
+                start_date="20260614",
+                end_date="20260807",
+            )
+
+        self.assertEqual(len(rows), 2)
+        mocked_sleep.assert_not_called()
+
+    def test_second_page_rate_limit_preserves_first_page_metadata(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(
+            side_effect=[
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                KisApiError("KIS REST quote error: EGW00201 rate limit"),
+            ]
+        )
+
+        with patch("time.monotonic", return_value=100.0):
+            with patch("time.sleep"):
+                with self.assertRaises(KisApiError):
+                    client.get_daily_order_fills(
+                        start_date="20260614",
+                        end_date="20260807",
+                    )
+
+        metadata = client.last_daily_order_fill_query
+        self.assertEqual(metadata.get("http_requests_attempted"), 2)
+        self.assertEqual(metadata["pages_fetched"], 1)
+        self.assertEqual(metadata.get("pages_fetched_before_error"), 1)
+        self.assertEqual(metadata.get("failed_page"), 2)
+        self.assertFalse(metadata["pagination_complete"])
+        self.assertTrue(metadata.get("pagination_interrupted_by_rate_limit"))
+        self.assertEqual(metadata["records_returned"], 1)
+        self.assertNotIn("100", str(metadata))
+
+    def test_first_page_rate_limit_records_failed_page_one(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(
+            side_effect=KisApiError("KIS REST quote error: EGW00201 rate limit")
+        )
+
+        with self.assertRaises(KisApiError):
+            client.get_daily_order_fills(
+                start_date="20260614",
+                end_date="20260807",
+            )
+
+        metadata = client.last_daily_order_fill_query
+        self.assertEqual(metadata.get("http_requests_attempted"), 1)
+        self.assertEqual(metadata["pages_fetched"], 0)
+        self.assertEqual(metadata.get("pages_fetched_before_error"), 0)
+        self.assertEqual(metadata.get("failed_page"), 1)
+        self.assertFalse(metadata["pagination_complete"])
+        self.assertTrue(metadata.get("pagination_interrupted_by_rate_limit"))
+
+    def test_successful_three_page_query_records_complete_metadata(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(
+            side_effect=[
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="101", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="102", continuation=False), {"tr_cont": ""}),
+            ]
+        )
+
+        with patch("time.monotonic", return_value=100.0):
+            with patch("time.sleep"):
+                rows = client.get_daily_order_fills(
+                    start_date="20260614",
+                    end_date="20260807",
+                )
+
+        self.assertEqual(len(rows), 3)
+        metadata = client.last_daily_order_fill_query
+        self.assertEqual(metadata.get("http_requests_attempted"), 3)
+        self.assertEqual(metadata["pages_fetched"], 3)
+        self.assertEqual(metadata["records_returned"], 3)
+        self.assertTrue(metadata["pagination_complete"])
+        self.assertIsNone(metadata.get("failed_page"))
+        self.assertFalse(metadata.get("pagination_interrupted_by_rate_limit"))
 
     def test_complete_pagination_is_reported_without_identifiers(self) -> None:
         client = self._client()
@@ -40,11 +213,12 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
             ]
         )
 
-        rows = client.get_daily_order_fills(
-            start_date="20260614",
-            end_date="20260807",
-            max_pages=10,
-        )
+        with patch("app.brokers.kis_quote_rest.time.sleep"):
+            rows = client.get_daily_order_fills(
+                start_date="20260614",
+                end_date="20260807",
+                max_pages=10,
+            )
 
         self.assertEqual(len(rows), 2)
         self.assertEqual(client.last_daily_order_fill_query["pages_fetched"], 2)

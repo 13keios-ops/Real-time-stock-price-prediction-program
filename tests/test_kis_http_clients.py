@@ -393,8 +393,13 @@ class KisHttpClientTests(unittest.TestCase):
         self.assertTrue(rows[0].cancel_yn)
         self.assertEqual(rows[0].exchange_id, "KRX")
 
+    @patch("app.brokers.kis_quote_rest.time.sleep")
     @patch("app.brokers.kis_quote_rest.urlopen")
-    def test_get_daily_order_fills_paginates_when_kis_continuation_header_present(self, mocked_urlopen) -> None:
+    def test_get_daily_order_fills_paginates_when_kis_continuation_header_present(
+        self,
+        mocked_urlopen,
+        mocked_sleep,
+    ) -> None:
         first_page = {
             "rt_cd": "0",
             "output1": [
@@ -473,6 +478,7 @@ class KisHttpClientTests(unittest.TestCase):
         rows = client.get_daily_order_fills(start_date="20260417", end_date="20260417")
 
         self.assertEqual(mocked_urlopen.call_count, 2)
+        self.assertEqual(mocked_sleep.call_count, 1)
         self.assertEqual([row.broker_order_no for row in rows], ["1234567890", "1234567892"])
         self.assertEqual(rows[1].side, "01")
         self.assertEqual(rows[1].filled_qty, 1)

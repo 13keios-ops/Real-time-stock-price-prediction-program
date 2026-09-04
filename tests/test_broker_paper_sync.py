@@ -134,7 +134,19 @@ class BrokerPaperSyncTests(unittest.TestCase):
                     raw_output={"odno": "9999999999"},
                 )
             )
-            with patch("app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills", return_value=broker_rows):
+            def fetch_rows(mirror, **kwargs):
+                mirror.client._last_daily_order_fill_query = {
+                    "http_requests_attempted": 1,
+                    "pages_fetched": 1,
+                    "records_returned": 2,
+                    "pagination_complete": True,
+                    "page_limit_reached": False,
+                    "failed_page": None,
+                    "pagination_interrupted_by_rate_limit": False,
+                }
+                return broker_rows
+
+            with patch.object(BrokerPaperMirror, "fetch_recent_order_fills", autospec=True, side_effect=fetch_rows):
                 result = sync_broker_paper_orders(project_root=root)
 
             sqlite_store = get_sqlite_store(settings)
@@ -149,6 +161,17 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(result.exact_matched_orders, 1)
         self.assertEqual(result.fallback_matched_orders, 0)
         self.assertEqual(result.ambiguous_fallback_key_count, 0)
+        self.assertEqual(result.order_fill_http_requests_attempted, 1)
+        self.assertEqual(result.order_fill_pages_fetched, 1)
+        self.assertIs(result.order_fill_pagination_complete, True)
+        self.assertIs(
+            result.order_fill_pagination_interrupted_by_rate_limit,
+            False,
+        )
+        report_payload = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+        report_markdown = result.report_markdown_path.read_text(encoding="utf-8")
+        self.assertEqual(report_payload["order_fill_http_requests_attempted"], 1)
+        self.assertIn("`order_fill_pages_fetched`: 1", report_markdown)
         self.assertIsNotNone(sqlite_store)
         latest_position = sqlite_store.fetch_latest_row("paper_positions", "updated_at")
         latest_order = sqlite_store.fetch_latest_row_by_column("paper_orders", "order_id", "paper-order-online-000001", "event_time")
@@ -269,9 +292,24 @@ class BrokerPaperSyncTests(unittest.TestCase):
                 )
             )
 
-            with patch(
-                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
-                side_effect=KisApiError("KIS REST quote error: EGW00201 rate limit"),
+            def raise_rate_limit(mirror, **kwargs):
+                mirror.client._last_daily_order_fill_query = {
+                    "http_requests_attempted": 2,
+                    "pages_fetched": 1,
+                    "records_returned": 15,
+                    "pagination_complete": False,
+                    "page_limit_reached": False,
+                    "pages_fetched_before_error": 1,
+                    "failed_page": 2,
+                    "pagination_interrupted_by_rate_limit": True,
+                }
+                raise KisApiError("KIS REST quote error: EGW00201 rate limit")
+
+            with patch.object(
+                BrokerPaperMirror,
+                "fetch_recent_order_fills",
+                autospec=True,
+                side_effect=raise_rate_limit,
             ):
                 result = sync_broker_paper_orders(project_root=root)
 
@@ -286,6 +324,22 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertTrue(result.cooldown_active)
         self.assertFalse(result.skipped_broker_call)
         self.assertEqual(result.retry_after_seconds, 2 * 60 * 60)
+        self.assertEqual(result.order_fill_http_requests_attempted, 2)
+        self.assertEqual(result.order_fill_pages_fetched, 1)
+        self.assertEqual(result.order_fill_pages_fetched_before_error, 1)
+        self.assertEqual(result.order_fill_failed_page, 2)
+        self.assertIs(result.order_fill_pagination_complete, False)
+        self.assertIs(
+            result.order_fill_pagination_interrupted_by_rate_limit,
+            True,
+        )
+        report_payload = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+        report_markdown = result.report_markdown_path.read_text(encoding="utf-8")
+        self.assertEqual(report_payload["order_fill_failed_page"], 2)
+        self.assertIn(
+            "`order_fill_pagination_interrupted_by_rate_limit`: True",
+            report_markdown,
+        )
         self.assertIsNotNone(latest_order)
         self.assertEqual(str(latest_order["status"]), "submitted")
 

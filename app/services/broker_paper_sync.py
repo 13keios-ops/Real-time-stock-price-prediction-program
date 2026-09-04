@@ -63,6 +63,12 @@ class BrokerPaperSyncResult:
     exact_matched_orders: int | None = None
     fallback_matched_orders: int | None = None
     ambiguous_fallback_key_count: int | None = None
+    order_fill_http_requests_attempted: int | None = None
+    order_fill_pages_fetched: int | None = None
+    order_fill_pages_fetched_before_error: int | None = None
+    order_fill_failed_page: int | None = None
+    order_fill_pagination_complete: bool | None = None
+    order_fill_pagination_interrupted_by_rate_limit: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -98,6 +104,12 @@ class BrokerPaperSyncResult:
             "exact_matched_orders",
             "fallback_matched_orders",
             "ambiguous_fallback_key_count",
+            "order_fill_http_requests_attempted",
+            "order_fill_pages_fetched",
+            "order_fill_pages_fetched_before_error",
+            "order_fill_failed_page",
+            "order_fill_pagination_complete",
+            "order_fill_pagination_interrupted_by_rate_limit",
         ):
             value = getattr(self, key)
             if value is not None:
@@ -224,6 +236,12 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         "exact_matched_orders",
         "fallback_matched_orders",
         "ambiguous_fallback_key_count",
+        "order_fill_http_requests_attempted",
+        "order_fill_pages_fetched",
+        "order_fill_pages_fetched_before_error",
+        "order_fill_failed_page",
+        "order_fill_pagination_complete",
+        "order_fill_pagination_interrupted_by_rate_limit",
     )
     diagnostic_lines = [
         f"- `{key}`: {payload.get(key)}"
@@ -464,6 +482,22 @@ class BrokerPaperExecutionSync:
             for row in sqlite_store.fetch_latest_broker_paper_status_snapshots_by_order()
         }
 
+        def order_fill_pagination_diagnostics() -> dict[str, Any]:
+            metadata = self.broker_mirror.client.last_daily_order_fill_query
+            field_map = {
+                "order_fill_http_requests_attempted": "http_requests_attempted",
+                "order_fill_pages_fetched": "pages_fetched",
+                "order_fill_pages_fetched_before_error": "pages_fetched_before_error",
+                "order_fill_failed_page": "failed_page",
+                "order_fill_pagination_complete": "pagination_complete",
+                "order_fill_pagination_interrupted_by_rate_limit": "pagination_interrupted_by_rate_limit",
+            }
+            return {
+                result_key: metadata[metadata_key]
+                for result_key, metadata_key in field_map.items()
+                if metadata_key in metadata and metadata[metadata_key] is not None
+            }
+
         def build_rate_limited_payload(
             *,
             error: str,
@@ -556,6 +590,7 @@ class BrokerPaperExecutionSync:
                     else None
                 ),
             )
+            payload.update(order_fill_pagination_diagnostics())
             _write_report(markdown_path, json_path, payload)
             return BrokerPaperSyncResult(
                 report_markdown_path=markdown_path,
@@ -803,6 +838,7 @@ class BrokerPaperExecutionSync:
             "final_order_count": final_order_count,
             "pending_symbols": sorted(symbol for symbol in pending_symbols if symbol),
         }
+        payload.update(order_fill_pagination_diagnostics())
         _write_report(markdown_path, json_path, payload)
         return BrokerPaperSyncResult(
             report_markdown_path=markdown_path,

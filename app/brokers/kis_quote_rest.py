@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from urllib.error import HTTPError, URLError
@@ -32,6 +33,7 @@ ORDER_RVSECNCL_TR_ID_PAPER = "VTTC0803U"
 ORDER_DAILY_CCLD_PATH = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
 ORDER_DAILY_CCLD_TR_ID_LIVE = "TTTC0081R"
 ORDER_DAILY_CCLD_TR_ID_PAPER = "VTTC0081R"
+ORDER_FILL_PAPER_PAGINATION_INTERVAL_SECONDS = 0.5
 ORDERABILITY_PATH = "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
 ORDERABILITY_TR_ID_LIVE = "TTTC8908R"
 ORDERABILITY_TR_ID_PAPER = "VTTC8908R"
@@ -785,42 +787,76 @@ class KisRestQuoteClient:
         tr_cont = ""
         tr_id = ORDER_DAILY_CCLD_TR_ID_LIVE if self.profile.mode == "live" else ORDER_DAILY_CCLD_TR_ID_PAPER
         records: list[KisDailyOrderFillRecord] = []
+        http_requests_attempted = 0
         pages_fetched = 0
         pagination_complete = False
         page_limit_reached = False
+        previous_request_started_at: float | None = None
         self._last_daily_order_fill_query = {
             "start_date": start_date,
             "end_date": end_date,
             "max_pages": max_pages,
+            "http_requests_attempted": 0,
             "pages_fetched": 0,
             "records_returned": 0,
             "pagination_complete": False,
             "page_limit_reached": False,
+            "failed_page": None,
+            "pagination_interrupted_by_rate_limit": False,
         }
 
         for page_index in range(max_pages):
-            payload, response_headers = self._request_response(
-                path=ORDER_DAILY_CCLD_PATH,
-                tr_id=tr_id,
-                query_params={
-                    "CANO": self.profile.account_no,
-                    "ACNT_PRDT_CD": self.profile.product_code,
-                    "INQR_STRT_DT": start_date,
-                    "INQR_END_DT": end_date,
-                    "SLL_BUY_DVSN_CD": side_filter,
-                    "INQR_DVSN": "00",
-                    "PDNO": symbol,
-                    "CCLD_DVSN": filled_filter,
-                    "ORD_GNO_BRNO": "",
-                    "ODNO": order_no,
-                    "INQR_DVSN_3": order_filter_3,
-                    "INQR_DVSN_1": order_filter_1,
-                    "CTX_AREA_FK100": ctx_area_fk100,
-                    "CTX_AREA_NK100": ctx_area_nk100,
-                    "EXCG_ID_DVSN_CD": exchange_code,
-                },
-                extra_headers={"tr_cont": tr_cont} if tr_cont else None,
-            )
+            if self.profile.mode == "paper" and previous_request_started_at is not None:
+                elapsed_seconds = time.monotonic() - previous_request_started_at
+                remaining_seconds = ORDER_FILL_PAPER_PAGINATION_INTERVAL_SECONDS - elapsed_seconds
+                if remaining_seconds > 0:
+                    time.sleep(remaining_seconds)
+            previous_request_started_at = time.monotonic()
+            http_requests_attempted += 1
+            self._last_daily_order_fill_query["http_requests_attempted"] = http_requests_attempted
+            try:
+                payload, response_headers = self._request_response(
+                    path=ORDER_DAILY_CCLD_PATH,
+                    tr_id=tr_id,
+                    query_params={
+                        "CANO": self.profile.account_no,
+                        "ACNT_PRDT_CD": self.profile.product_code,
+                        "INQR_STRT_DT": start_date,
+                        "INQR_END_DT": end_date,
+                        "SLL_BUY_DVSN_CD": side_filter,
+                        "INQR_DVSN": "00",
+                        "PDNO": symbol,
+                        "CCLD_DVSN": filled_filter,
+                        "ORD_GNO_BRNO": "",
+                        "ODNO": order_no,
+                        "INQR_DVSN_3": order_filter_3,
+                        "INQR_DVSN_1": order_filter_1,
+                        "CTX_AREA_FK100": ctx_area_fk100,
+                        "CTX_AREA_NK100": ctx_area_nk100,
+                        "EXCG_ID_DVSN_CD": exchange_code,
+                    },
+                    extra_headers={"tr_cont": tr_cont} if tr_cont else None,
+                )
+            except KisApiError as exc:
+                error_text = str(exc).lower()
+                self._last_daily_order_fill_query.update(
+                    {
+                        "pages_fetched": pages_fetched,
+                        "records_returned": len(records),
+                        "pagination_complete": False,
+                        "page_limit_reached": page_limit_reached,
+                        "pages_fetched_before_error": pages_fetched,
+                        "failed_page": page_index + 1,
+                        "pagination_interrupted_by_rate_limit": (
+                            "egw00201" in error_text
+                            or "rate limit" in error_text
+                            or "too many requests" in error_text
+                            or "초당 거래건수" in error_text
+                        ),
+                    }
+                )
+                raise
+
             pages_fetched += 1
             for row in list(payload.get("output1", []) or []):
                 records.append(
@@ -850,25 +886,33 @@ class KisRestQuoteClient:
                         raw_output=dict(row),
                     )
                 )
+            self._last_daily_order_fill_query.update(
+                {
+                    "pages_fetched": pages_fetched,
+                    "records_returned": len(records),
+                }
+            )
             ctx_area_fk100 = _as_text(payload, "ctx_area_fk100")
             ctx_area_nk100 = _as_text(payload, "ctx_area_nk100")
             next_tr_cont = response_headers.get("tr_cont", "").upper()
             if next_tr_cont in {"M", "F"} and (ctx_area_fk100 or ctx_area_nk100):
                 if page_index + 1 >= max_pages:
                     page_limit_reached = True
+                    self._last_daily_order_fill_query["page_limit_reached"] = True
                     break
                 tr_cont = "N"
                 continue
             pagination_complete = True
+            self._last_daily_order_fill_query["pagination_complete"] = True
             break
 
-        self._last_daily_order_fill_query = {
-            "start_date": start_date,
-            "end_date": end_date,
-            "max_pages": max_pages,
-            "pages_fetched": pages_fetched,
-            "records_returned": len(records),
-            "pagination_complete": pagination_complete,
-            "page_limit_reached": page_limit_reached,
-        }
+        self._last_daily_order_fill_query.update(
+            {
+                "http_requests_attempted": http_requests_attempted,
+                "pages_fetched": pages_fetched,
+                "records_returned": len(records),
+                "pagination_complete": pagination_complete,
+                "page_limit_reached": page_limit_reached,
+            }
+        )
         return records
