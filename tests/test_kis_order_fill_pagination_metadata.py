@@ -61,23 +61,35 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
         )
 
         def request_page(*args, **kwargs):
-            events.append("request")
-            return next(responses)
+            events.append("request_start")
+            clock[0] += 0.2
+            response = next(responses)
+            events.append("response_complete")
+            return response
 
         def sleep(seconds: float) -> None:
             events.append(("sleep", seconds))
             clock[0] += seconds
 
         client._request_response = MagicMock(side_effect=request_page)
-        with patch("time.monotonic", side_effect=lambda: clock[0]):
-            with patch("time.sleep", side_effect=sleep):
+        with patch("app.brokers.kis_quote_rest.time.monotonic", side_effect=lambda: clock[0]):
+            with patch("app.brokers.kis_quote_rest.time.sleep", side_effect=sleep):
                 rows = client.get_daily_order_fills(
                     start_date="20260614",
                     end_date="20260807",
                 )
 
         self.assertEqual(len(rows), 2)
-        self.assertEqual(events, ["request", ("sleep", 0.5), "request"])
+        self.assertEqual(
+            events,
+            [
+                "request_start",
+                "response_complete",
+                ("sleep", 0.5),
+                "request_start",
+                "response_complete",
+            ],
+        )
 
     def test_three_page_paper_query_paces_each_continuation(self) -> None:
         client = self._client()
@@ -92,16 +104,19 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
         )
 
         def request_page(*args, **kwargs):
-            events.append("request")
-            return next(responses)
+            events.append("request_start")
+            clock[0] += 0.2
+            response = next(responses)
+            events.append("response_complete")
+            return response
 
         def sleep(seconds: float) -> None:
             events.append(("sleep", seconds))
             clock[0] += seconds
 
         client._request_response = MagicMock(side_effect=request_page)
-        with patch("time.monotonic", side_effect=lambda: clock[0]):
-            with patch("time.sleep", side_effect=sleep):
+        with patch("app.brokers.kis_quote_rest.time.monotonic", side_effect=lambda: clock[0]):
+            with patch("app.brokers.kis_quote_rest.time.sleep", side_effect=sleep):
                 rows = client.get_daily_order_fills(
                     start_date="20260614",
                     end_date="20260807",
@@ -110,7 +125,16 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
         self.assertEqual([row.broker_order_no for row in rows], ["100", "101", "102"])
         self.assertEqual(
             events,
-            ["request", ("sleep", 0.5), "request", ("sleep", 0.5), "request"],
+            [
+                "request_start",
+                "response_complete",
+                ("sleep", 0.5),
+                "request_start",
+                "response_complete",
+                ("sleep", 0.5),
+                "request_start",
+                "response_complete",
+            ],
         )
 
     def test_live_continuation_does_not_use_paper_pacing(self) -> None:
@@ -175,6 +199,33 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
         self.assertEqual(metadata["pages_fetched"], 0)
         self.assertEqual(metadata.get("pages_fetched_before_error"), 0)
         self.assertEqual(metadata.get("failed_page"), 1)
+        self.assertFalse(metadata["pagination_complete"])
+        self.assertTrue(metadata.get("pagination_interrupted_by_rate_limit"))
+
+    def test_third_page_rate_limit_preserves_two_completed_pages(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(
+            side_effect=[
+                (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+                (_payload(order_no="101", continuation=True), {"tr_cont": "M"}),
+                KisApiError("KIS REST quote error: EGW00201 rate limit"),
+            ]
+        )
+
+        with patch("app.brokers.kis_quote_rest.time.monotonic", return_value=100.0):
+            with patch("app.brokers.kis_quote_rest.time.sleep"):
+                with self.assertRaises(KisApiError):
+                    client.get_daily_order_fills(
+                        start_date="20260614",
+                        end_date="20260807",
+                    )
+
+        metadata = client.last_daily_order_fill_query
+        self.assertEqual(metadata.get("http_requests_attempted"), 3)
+        self.assertEqual(metadata["pages_fetched"], 2)
+        self.assertEqual(metadata.get("pages_fetched_before_error"), 2)
+        self.assertEqual(metadata.get("failed_page"), 3)
+        self.assertEqual(metadata["records_returned"], 2)
         self.assertFalse(metadata["pagination_complete"])
         self.assertTrue(metadata.get("pagination_interrupted_by_rate_limit"))
 

@@ -791,7 +791,6 @@ class KisRestQuoteClient:
         pages_fetched = 0
         pagination_complete = False
         page_limit_reached = False
-        previous_request_started_at: float | None = None
         self._last_daily_order_fill_query = {
             "start_date": start_date,
             "end_date": end_date,
@@ -806,12 +805,6 @@ class KisRestQuoteClient:
         }
 
         for page_index in range(max_pages):
-            if self.profile.mode == "paper" and previous_request_started_at is not None:
-                elapsed_seconds = time.monotonic() - previous_request_started_at
-                remaining_seconds = ORDER_FILL_PAPER_PAGINATION_INTERVAL_SECONDS - elapsed_seconds
-                if remaining_seconds > 0:
-                    time.sleep(remaining_seconds)
-            previous_request_started_at = time.monotonic()
             http_requests_attempted += 1
             self._last_daily_order_fill_query["http_requests_attempted"] = http_requests_attempted
             try:
@@ -901,6 +894,8 @@ class KisRestQuoteClient:
                     self._last_daily_order_fill_query["page_limit_reached"] = True
                     break
                 tr_cont = "N"
+                if self.profile.mode == "paper":
+                    time.sleep(ORDER_FILL_PAPER_PAGINATION_INTERVAL_SECONDS)
                 continue
             pagination_complete = True
             self._last_daily_order_fill_query["pagination_complete"] = True
