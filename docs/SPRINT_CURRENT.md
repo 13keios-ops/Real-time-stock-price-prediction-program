@@ -35,12 +35,12 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-09-03 decision ledger: 3,717행, complete lineage 3,717행, ratio 1.0
+- 2026-09-04 decision ledger: 3,800행, complete lineage 3,800행, ratio 1.0
 - 2026-08-31/09-01 broker account rejection은 만료된 이전 paper 계좌에서 발생한 이력이다. 새 계좌에서 같은 경로의 자연 submission 36건이 성공해 이전 계좌 무효 root cause가 사실상 확인됐다.
 - 새 paper 계좌는 2026-09-03 활성, 2026-12-03 만료다. 30일/7일 전 갱신 경고를 적용한다.
-- 새 계좌 자연 cash-order는 성공 36건, invalid tick 4건, network timeout 1건이다. 2026-09-05 order-fill sync는 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결됐다. current account snapshot/reconciliation은 별도 후속이다.
-- 2026-09-03 data quality: market/orderbook `3,727/3,983` symbol-minute, feature `3,717`행/`95.31%`, reconnect `36`, storm `7`, unexpected common gap `15:01~15:08`, assessment `CRITICAL/실패`
-- 2026-09-03 E7 day 4: `valid_collecting`, future trading days `4`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
+- 새 계좌 자연 cash-order는 성공 36건, invalid tick 4건, network timeout 1건이다. 2026-09-04 current account snapshot/reconciliation은 정상 조회됐지만 이전 계좌 baseline과 미동기화 체결 때문에 mismatch 5건이었다. 2026-09-05 order-fill sync는 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결되고 `068270` 매도 2주를 반영했다.
+- 2026-09-04 data quality: market/orderbook `3,811/4,049` symbol-minute, feature `3,800`행/`97.44%`, reconnect `28`, storm `0`, unexpected common gap 없음, assessment `ATTENTION/주의`
+- 2026-09-04 E7 day 5: `valid_collecting`, future trading days `5`, 실행 가능 모집단 episode `3,119`, official policy episode/symbol `0/0`, invalid mark `0`, official status `collecting_future_sample`
 - 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
@@ -64,7 +64,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
 - [x] WebSocket 재구독/첫 프레임 복구 증적과 storm/common-gap 우선 `CRITICAL/실패` 판정 추가
 - [x] cooldown 종료 후 장외 order-fill sync 1회로 38 submission 상태 완결
-- [ ] current account snapshot/reconciliation 1회로 local/new-broker position·cash 차이 설명
+- [x] current account snapshot/reconciliation 1회와 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [ ] 결과 보고 뒤 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 검토
 - [ ] 현재 계좌 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
@@ -76,7 +76,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
-- [ ] fresh Phase 1b read-only readiness와 실제 WebSocket recovery evidence 확보
+- [ ] 2026-09-04 실제 WebSocket recovery evidence를 fresh Phase 1b readiness artifact에 연결
 
 ## E7 통과 기준
 

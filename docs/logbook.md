@@ -5,29 +5,29 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
-## 최근 운영 스냅샷 (2026-09-03)
+## 최근 운영 스냅샷 (2026-09-04)
 
-- 기준 시각: 2026-09-03 21:18 KST
-- 장 상태: post-close
-- live runtime: 2026-09-03 15:30 KST 정상 종료 후 정지
-- watchdog/dashboard: 실행·응답 정상, heartbeat fresh; startup launcher 정상
+- 기준 시각: 2026-09-05 16:36 KST
+- 장 상태: weekend; 최신 운영 거래일 `2026-09-04`는 post-close 완료
+- live runtime: 2026-09-04 15:30 KST 정상 종료 후 정지
+- weekend 기준 watchdog/dashboard는 stale·정지, `live_runtime_should_run=false`; startup launcher 정상
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
-- 2026-09-02 post-close ML은 `status=ok`, 18:12 KST `quick-live-train`; label refresh는 `status=ok`, 19:12 KST 완료했고 모델 승격은 없다.
+- 2026-09-04 post-close ML은 `status=ok`, 18:14 KST `quick-live-train`; label refresh는 `status=ok`, 19:13 KST 완료했고 모델 승격은 없다.
 - 현재 통과한 수익 후보: `0개`
 - 수익화 판정: `no_profitable_candidate`
 - 현재 paper account epoch는 `paper-2026-09-03`, 활성일 `2026-09-03`, 만료일 `2026-12-03`이다. 갱신 준비는 `2026-11-03`, 긴급 경고는 `2026-11-26`부터다.
 - 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` read-only orderability가 통과했다. 2026-09-03 자연 cash-order submission 36건이 성공해 이전 account rejection은 만료·무효 상태였던 이전 계좌가 주원인으로 사실상 확인됐다.
-- 지정가 4건은 KRX 일반주권 500원 호가단위 위반, 1건은 network timeout으로 분리했다. order-fill sync는 `EGW00201` 7,200초 cooldown이라 fill lineage와 local/new-broker mismatch는 아직 미완결이다.
+- 지정가 4건은 KRX 일반주권 500원 호가단위 위반, 1건은 network timeout으로 분리했다. 2026-09-05 order-fill sync는 3페이지/38행을 완결했고 `068270` 매도 체결 2주를 반영했다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`이고 새 기준선 승인 전에는 유효일을 세지 않는다.
 - Phase 0 prior epoch의 `10/10`, matched 0일, mismatch 10일과 네 종목 불일치 이력은 보존한다.
 - Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 반복 자동화 preflight는 네트워크·주문 호출 0회다.
-- runtime 원장: 2026-09-03 decision ledger `3,717/3,717`, complete lineage 100%, market/orderbook `3,727/3,983` symbol-minute, feature `3,717`행/closed coverage `95.31%`다.
-- WebSocket: reconnect 36, storm 7, 예상 밖 공통 gap `15:01~15:08`로 `CRITICAL/실패`다. 공백 동안 decision/broker submission은 0건이며 같은 process의 bounded reconnect·재구독으로 복구했다.
-- 수익성: top challenger는 3분류 정확도 `19.53%`, buy hit `20.96%`, 누적 진단 순수익 `-363.07%`, 거래 `1,474건`이다. buy-avoid는 절대 portfolio 손실, buy-rescue는 진단 전용, hold-rescue threshold 0.40은 `-26,387원`이어서 후보가 아니다.
+- runtime 원장: 2026-09-04 decision ledger `3,800/3,800`, complete lineage 100%, market/orderbook `3,811/4,049` symbol-minute, feature `3,800`행/closed coverage `97.44%`다.
+- WebSocket: reconnect 28, storm 0, 예상 밖 공통 gap 없음이다. 28회 모두 재구독 완료와 첫 프레임 복구가 확인돼 `ATTENTION/주의`다.
+- 수익성: top challenger는 3분류 정확도 `19.61%`, buy hit `18.35%`, 누적 진단 순수익 `-400.65%`, 거래 `1,477건`이다. buy-avoid는 절대 portfolio 손실, buy-rescue는 진단 전용, hold-rescue threshold 0.40은 `-26,887원`이어서 후보가 아니다.
 - 비용 구조: 현행 왕복 0.29%, 2배 민감도 0.58%. active model/gate/threshold/주문 정책은 동결한다.
 - E7 evaluator `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288...e0dd3fa`는 일치한다.
-- E7은 2026-09-03 기준 future trading days `4`, official policy episode/symbol `0/0`, invalid mark `0`, evidence health `valid_collecting`, 공식 상태 `collecting_future_sample`이다. 수익성 실패가 아니라 표본 축적 단계다.
+- E7은 2026-09-04 기준 future trading days `5`, 실행 가능 모집단 episode `3,119`, official policy episode/symbol `0/0`, invalid mark `0`, evidence health `valid_collecting`, 공식 상태 `collecting_future_sample`이다. 수익성 실패가 아니라 표본 축적 단계다.
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
@@ -46,7 +46,7 @@
 - [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
 - [x] WebSocket 재구독 완료·첫 프레임 복구 증적 추가
 - [x] 2026-09-05 장외 order-fill sync 1회로 38 submission 상태 완결
-- [ ] current account snapshot/reconciliation 1회로 local/new-broker position·cash 차이 설명
+- [x] current account snapshot/reconciliation과 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [ ] 결과 보고 뒤 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 검토
 - [ ] 현재 계좌 Phase 0 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
@@ -56,7 +56,7 @@
 - [x] E7 daily read-only artifact writer와 sample/drift/mark/idempotency 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간 판정
-- [ ] fresh Phase 1b readiness와 real WebSocket recovery evidence 확보
+- [ ] 2026-09-04 real WebSocket recovery evidence를 fresh Phase 1b readiness에 연결
 
 현재 상세 작업 범위는 `docs/SPRINT_CURRENT.md`를 따른다.
 
@@ -64,13 +64,21 @@
 
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
-- 전체 unittest: `627 tests OK` in 37.830s, 테스트 쓰기는 `.tmp-tests/` 격리
+- 전체 unittest: `627 tests OK` in 33.770s, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
-- 2026-09-03 저장 증거 재검산: market/orderbook `3,727/3,983` symbol-minute, feature closed coverage `95.31%`, decision lineage `3,717/3,717`·100%
-- 2026-09-03 WebSocket: reconnect 36, storm 7, 정규장 예상 밖 공통 gap `15:01~15:08`; 복구 전 공백의 decision과 broker submission은 0건
+- 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
+- 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
 - 새 paper 계좌 자연 cash-order submission 36건 성공 확인. 지정가 실패 4건은 KRX common-stock 호가단위 오류, 별도 1건은 network timeout
 - 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
 - Phase 0 current epoch: `baseline_review_required`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+
+## [2026-09-05] 로드맵 1단계 증거 정렬
+
+- 2026-09-04 current account snapshot/reconciliation이 이미 정상 조회됐음을 확인했다. latest 비교는 mismatch 5건과 cash gap `-4,382,557.78원`이었고, 이전 계좌 2026-08-15 baseline 포지션과 당시 미동기화 `068270` 매도 체결이 함께 원인이었다.
+- 2026-09-05 order-fill sync의 최신 status/fill을 DB read-only로 재검산해 `068270` 매도 2주가 exact-linked·filled·applied 상태임을 확인했다. 새 계좌 baseline 생성, account 재조회, 주문·취소는 실행하지 않았다.
+- 2026-09-04 E7은 evaluator/manifest 일치, 미래 거래일 5일, 실행 가능 모집단 episode 3,119, official episode 0이다. grouped episode 첫 판단의 entry score를 사용하는 사전등록 의미와 일치하므로 threshold나 evaluator를 변경하지 않는다.
+- 같은 날 WebSocket reconnect 28회는 storm 0이고 재구독·첫 프레임 복구가 모두 확인됐다. 실제 복구 증거는 확보됐지만 Phase 1b readiness 연결은 여전히 stale/synthetic이라 Phase 2 진입 증거로 쓰지 않는다.
+- 새 package, plugin, MCP, application code는 추가하지 않았다. 현재 단계는 기존 저장소 기능과 artifact로 충분해 Hypothesis·OpenTelemetry·vectorbt 도입은 원래 로드맵의 후속 조건까지 보류한다.
 
 ## [2026-09-05] 저장소 관리 규칙 마이그레이션
 

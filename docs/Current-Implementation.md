@@ -4,18 +4,18 @@
 
 ## 현재 요약
 
-### 2026-09-03 운영 스냅샷
+### 2026-09-04 운영 스냅샷
 
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.
-- 2026-09-03 raw market/orderbook은 `3,727/3,983` symbol-minute, closed feature coverage는 `95.31%`이며 serving decision ledger는 `3,717/3,717`, complete lineage `100%`다.
-- WebSocket reconnect는 `36`, storm은 `7`이고 market/orderbook 전 종목 공통 `15:01~15:08` 공백이 있었다. 올바른 운영 판정은 `CRITICAL/실패`이며 같은 process의 bounded backoff·재구독으로 15:09부터 수신이 복구됐다.
-- top challenger는 거래 `1,474건`, 3분류 정확도 `19.53%`, buy hit `20.96%`, 누적 진단 순수익 `-363.07%`로 승격 대상이 아니다.
+- 2026-09-04 raw market/orderbook은 `3,811/4,049` symbol-minute, closed feature coverage는 `97.44%`이며 serving decision ledger는 `3,800/3,800`, complete lineage `100%`다.
+- WebSocket reconnect는 `28`, storm은 `0`이고 예상 밖 전 종목 공통 공백은 없다. 28회 모두 재구독 완료와 복구 후 첫 프레임이 확인돼 올바른 운영 판정은 `ATTENTION/주의`다.
+- top challenger는 거래 `1,477건`, 3분류 정확도 `19.61%`, buy hit `18.35%`, 누적 진단 순수익 `-400.65%`로 승격 대상이 아니다.
 - buy-avoid는 절대 portfolio 손실 때문에 기각됐고 buy-rescue와 hold-rescue도 주문 정책에 반영할 후보가 아니다.
-- E7은 미래 거래일 4일, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다.
+- E7은 미래 거래일 5일, 실행 가능 모집단 episode 3,119, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다. official episode는 grouped episode의 첫 판단 시점 score로 정한다.
 - current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. 자연 KIS cash-order submission 36건이 성공해 이전 계좌 무효 root cause와 account-orderability blocker 종료를 확인했다.
-- 2026-09-05 order-fill 동기화는 paper 1.0초 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0이었다. 이 실행은 account snapshot/reconciliation을 수행하지 않았다.
+- 2026-09-04 current account snapshot/reconciliation은 정상 조회됐지만 mismatch 5건과 cash gap을 기록했다. 이전 계좌의 2026-08-15 baseline 포지션과 당시 미동기화 `068270` 매도 체결이 원인이며, 2026-09-05 order-fill 동기화는 3페이지/38행과 submission 38/38을 완결하고 해당 매도 2주를 반영했다. account snapshot/reconciliation 재호출과 자동 정렬은 하지 않았다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`으로 fail-closed한다.
-- Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
+- Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하다. 2026-09-04 실제 WebSocket recovery는 data-quality에 저장됐지만 fresh readiness artifact에 연결되기 전에는 Phase 2/3 증거로 사용하지 않는다.
 
 ### 2026-07-12 수익성 판정
 
