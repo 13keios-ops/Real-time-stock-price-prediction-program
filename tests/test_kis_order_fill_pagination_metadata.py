@@ -85,7 +85,7 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
             [
                 "request_start",
                 "response_complete",
-                ("sleep", 0.5),
+                ("sleep", 1.0),
                 "request_start",
                 "response_complete",
             ],
@@ -128,10 +128,10 @@ class KisOrderFillPaginationMetadataTests(unittest.TestCase):
             [
                 "request_start",
                 "response_complete",
-                ("sleep", 0.5),
+                ("sleep", 1.0),
                 "request_start",
                 "response_complete",
-                ("sleep", 0.5),
+                ("sleep", 1.0),
                 "request_start",
                 "response_complete",
             ],

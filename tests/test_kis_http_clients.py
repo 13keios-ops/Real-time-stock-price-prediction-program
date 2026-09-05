@@ -478,7 +478,7 @@ class KisHttpClientTests(unittest.TestCase):
         rows = client.get_daily_order_fills(start_date="20260417", end_date="20260417")
 
         self.assertEqual(mocked_urlopen.call_count, 2)
-        self.assertEqual(mocked_sleep.call_count, 1)
+        mocked_sleep.assert_called_once_with(1.0)
         self.assertEqual([row.broker_order_no for row in rows], ["1234567890", "1234567892"])
         self.assertEqual(rows[1].side, "01")
         self.assertEqual(rows[1].filled_qty, 1)
