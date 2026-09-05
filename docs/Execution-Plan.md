@@ -1,8 +1,8 @@
 # Execution Plan
 
 이 문서는 지금부터 어떤 순서로 작업할지, 각 단계에서 무엇을 어떻게 하고 왜 하는지를 정리한 실행 계획판이다.
-큰 방향은 `docs/Roadmap.md`가 담당하고, 현재 상태판은 `docs/Production-Transition-Progress.md`가 담당한다.
-이 문서는 매 작업에서 실제 다음 행동을 고르는 기준으로 쓴다.
+큰 방향은 `docs/Roadmap.md`, 현재 운영 상태는 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`가 담당한다.
+이 문서는 매 작업에서 실제 다음 행동을 고르는 기준으로 쓰며 날짜가 붙은 checkpoint는 이력으로 해석한다.
 
 ## 1. 기본 원칙
 

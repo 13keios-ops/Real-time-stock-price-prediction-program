@@ -1,117 +1,133 @@
-# 작업 지침
+# 저장소 작업 지침
 
-> 이 파일은 이 저장소에서 Codex가 따라야 할 로컬 실행 지침이다.
-> `D:/GitHub/ref_AGENTS.md`는 공통 설계 기준서일 뿐이며, 이 파일에는 현재 저장소에 실제로 존재하는 경로와 명령만 둔다.
+> 이 파일은 이 저장소에만 필요한 규칙을 둔다. 공통 Codex 작업 방식은 전역 지침을 따르며 여기서 반복하지 않는다.
 
 ## 1. 미션
 
-- 이 저장소는 국내 주식 실시간 데이터 수집, 특징 생성, 15분/60분 예측, 로컬 가상 모의운용, KIS 모의계좌 검증, 대시보드 리포트를 안정화하는 연구용 프로그램이다.
-- 현재 기본 운영은 실전 자동매매가 아니라 `paper` 기준 검증이다.
-- Codex의 우선순위는 실제 상태 확인, 안전한 변경, 검증 가능한 실행, 기준 문서 동기화다.
+- 국내 주식 실시간 데이터 수집, 특징 생성, 15분/60분 예측, 로컬 가상 모의운용, KIS 모의계좌 검증, 대시보드 리포트를 안정화한다.
+- 현재 기본 운영은 실전 자동매매가 아니라 `paper` 연구와 검증이다.
+- 실제 상태, 안전한 변경, 재현 가능한 검증, 기준 문서 동기화를 우선한다.
 
-## 2. 작업 시작 전 읽을 문서
+## 2. Read First
 
-비사소한 작업, 코드/문서 수정, 장시간 실행, 커밋, 푸시 전에는 아래 순서로 다시 읽는다.
+비사소한 작업이나 변경 전에는 다음만 먼저 읽는다.
 
 1. `AGENTS.md`
 2. `README.md`
 3. `docs/STATUS.md`
 4. `docs/SPRINT_CURRENT.md`
-5. `docs/logbook.md`
-6. 최신 `docs/logbook_archive/logbook_*.md` 1개
-7. `docs/Current-Implementation.md`
-8. `docs/Versioning.md`
-9. 작업 범위와 직접 관련된 `docs/*.md`
+5. 작업 범위와 직접 관련된 문서
 
-새 기능 위치나 레이어 경계가 관련되면 `README.md`의 `새 기능을 어디에 둘까` 섹션을 다시 확인한다.
-자격정보, 비공개 원격, 외부 미러, 백업 정책이 관련되면 형제 폴더 `../secrets/README.local.md`가 있을 때 함께 읽는다.
+다음 문서는 관련될 때만 읽는다.
 
-## 3. 문서 역할
+- 구현 범위/레이어: `docs/Current-Implementation.md`, `docs/Repository-Structure.md`
+- 작업 이력: `docs/logbook.md`와 필요한 최신 archive
+- 버전/배포: `docs/Versioning.md`
+- cowork: `WORKFLOW.md`, `COWORK_GUIDE.md`, 해당 `docs/cowork-reports/`
+- KIS/계좌/연결: `docs/KIS-Connection-Runbook.md`
+- 복구/NAS: `RECOVERY.md`
+- 자격정보/비공개 원격: 존재할 때 `../secrets/README.local.md`
 
-- `AGENTS.md`: Codex 로컬 작업 규칙
-- `README.md`: 프로젝트 개요, 저장소 구조, 주요 실행 방법
-- `docs/STATUS.md`: 짧은 현재 상태와 blocker
-- `docs/SPRINT_CURRENT.md`: 현재 작업 기간, 체크리스트, 동결 범위
-- `docs/Repository-Structure.md`: 실제 레이어, 문서 소유권, 구조 부채
-- `WORKFLOW.md`, `COWORK_GUIDE.md`: 현재 Codex/cowork 협업 절차
-- `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최신 검증 결과
-- `docs/Current-Implementation.md`: 실제 구현 범위와 운영 기준
-- `docs/Versioning.md`: `VERSION`, watcher, 자동 commit/push 기준
-- `docs/Production-Architecture.md`: 실제 자금 자동매매 전환 목표 구조와 안전 기준
-- `docs/Production-Implementation-Blueprint.md`: 실전 전환 구현 순서, 상태머신, schema 초안
-- `docs/Production-Transition-Progress.md`: 실전 전환 단계별 목표와 현재 진행상태
-- `docs/Execution-Plan.md`: 현재 상태 기준 다음 작업 순서, 방법, 이유를 정리한 실행 계획판
-- `docs/Model-Research-PreRegistration.md`: Cybos-KIS 격차, orderbook 피처 가설, h60 트랙 사전등록 기준
-- `docs/Portfolio-Replay-Evaluator.md`: replay v1/v2 시간 의미, minute MTM과 E7 evaluator identity/호환성 기준
-- `docs/Social-Signal-Shadow-Plan.md`: SNS/공개 영향력 이벤트를 Phase 1 shadow 로 관측·평가하는 기준
-- `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
-- `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
-- `docs/Codex-Operating-Feedback.md`: 사용자의 반복 지적을 작업 전후 체크리스트와 skill 후보로 정리한 보조 기준
-- `.agents/skills/daily-ops-check/SKILL.md`: 장전/장후 자동화 상태 확인과 조치 절차
-- `docs/cowork-reports/`: Codex와 Claude cowork 사이의 전달/리뷰/후속 보강 이력
-- `docs/archive/`: 현재 기준에서 퇴역한 운영 문서 원문
-- `docs/logbook_archive/`: 최근 기간 작업 요약
-- `RECOVERY.md`: GitHub + NAS 복구 기준
-- `runtime-data/`: 실행 로그, 리포트, 캐시, 모델 산출물
+장전/장후 운영 확인은 `.agents/skills/daily-ops-check/SKILL.md`, 전면 감사는 `.agents/skills/full-check/SKILL.md`를 먼저 따른다.
 
-현재 사실 기준은 기준 문서에만 남긴다.
-같은 내용을 여러 문서에 길게 반복하지 않는다.
+## 3. 기준 문서 역할
 
-## 4. 기본 작업 흐름
+- `README.md`: 프로젝트 개요, 구조, 주요 실행 방법
+- `docs/STATUS.md`: 현재 운영 상태와 blocker의 단일 기준
+- `docs/SPRINT_CURRENT.md`: 현재 작업 기간, 목표, 체크리스트, 동결 범위
+- `docs/logbook.md`: 중요한 변경, 원인, 검증 이력
+- `docs/Current-Implementation.md`: 구현 계약과 지원 범위
+- `docs/Repository-Structure.md`: 실제 레이어와 문서 지도
+- `docs/Production-Transition-Progress.md`: 실전 전환 Phase 상태
+- `docs/Execution-Plan.md`: 단계별 실행 순서
+- `docs/Model-Research-PreRegistration.md`, `docs/Portfolio-Replay-Evaluator.md`: 연구/평가 고정 기준
+- `docs/*Runbook.md`: 주제별 운영 절차
+- `docs/cowork-reports/`: 명시적으로 요청되거나 진행 중인 cowork 리뷰 이력
+- `docs/archive/`, `docs/logbook_archive/`: 과거 사실 보존
 
-1. 현재 상태를 대화 맥락이 아니라 파일, 로그, 상태 명령으로 확인한다.
-2. 작업 시작 전 장 진행 상태와 실행 중인 수집기를 먼저 확인한다. 기본 확인 명령은 `./scripts/get_live_runtime_status.sh`와 `./scripts/get_runtime_watchdog_status.sh`다.
-3. 같은 주제의 cowork ping-pong이 진행 중이면 `docs/cowork-reports/`에서 최신 `review_ver_*` 파일을 먼저 확인하고, 이미 반영한 리뷰인지 최신 `work_ver_*`와 비교한다.
-4. 변경 범위를 작게 잡고, 실제 저장소 구조와 맞지 않는 공통 문구는 넣지 않는다.
-5. 코드 변경이 있으면 관련 문서도 같은 작업 안에서 갱신한다.
-6. 검증 명령을 실제로 실행하고 결과를 확인한다.
-7. 산출물 경로, 삭제한 임시 자산, 다음 연결점이 있으면 `docs/logbook.md`에 남긴다.
-8. 변경 파일이 있으면 가능한 한 같은 턴에서 commit과 push까지 마친다.
-9. 사용자가 직접 해야 하는 작업은 Cybos Plus 로그인처럼 Codex가 물리적으로 처리할 수 없는 필수 작업만 안내하고, 그 외 구현·검증·문서화·커밋·푸시는 Codex가 자율적으로 처리한다.
-10. 사용자가 장전/장후 상태체크, daily ops, 운영상태 자동화 확인과 조치를 요청하면 `.agents/skills/daily-ops-check/SKILL.md`를 먼저 읽고 따른다.
+현재 수치는 `docs/STATUS.md` 한 곳만 소유한다. 다른 문서의 날짜가 붙은 수치는 기준선 또는 이력이며, 충돌하면 실제 코드·상태 파일을 확인해 `STATUS`를 갱신한다. 같은 사실을 여러 문서에 길게 복제하지 않는다.
 
-반복 지적 방지 체크:
+## 4. 작업 흐름
 
-- 사용자가 이미 승인한 같은 작업 범위의 commit/push는 반복해서 묻지 않고 진행한다. 도구 안전정책이 막으면 우회하지 않고 차단 사유와 남은 상태를 보고한다.
-- 판단 요청에는 가능한 한 권장안을 함께 제시한다. 사용자가 직접 결정해야 하는 항목은 이유와 기본 권장안을 같이 둔다.
-- 최종 답변은 최근 한 문장에만 좁히지 않고, 이번 큰 작업 흐름에서 확인한 상태, 조치, 검증, 남은 위험을 함께 요약한다.
-- 장후 운영 체크 답변에는 사용자가 별도로 묻지 않아도 장후 학습 완료 여부, label refresh 완료 여부, active 모델 유지/승격 없음 여부, top challenger 핵심 수치 3개와 표본 수를 포함한다.
-- 장후 운영 체크 답변에는 `buy-avoid`, `buy-rescue`, `hold-rescue` 관측 결과도 함께 포함한다. 세 항목은 계속 같이 보되, 현재 주문 반영 권한은 없고 `buy-avoid`는 주 관측 후보, `buy-rescue`와 `hold-rescue`는 보조 진단 지표로 구분한다.
-- 장후 운영 체크 답변에는 `latest-paper-account-history.json`의 10거래일 누적 상태, 유효일 수, 정합/불일치 일수, 최근 차이 종목도 포함한다. 표본 부족보다 실제 불일치를 우선 보고한다.
-- 운영자는 Codex나 Claude cowork가 아니라 계좌 소유자 또는 실전 운용 승인권자를 뜻한다.
-- 비밀값 입력이 필요한 interactive helper는 Codex가 직접 창을 열고 `LIVE`/`PAPER` 프롬프트가 요청 범위와 맞는지 먼저 확인한다. 사용자는 비밀값 입력만 담당하며, PowerShell에서 WSL helper를 열 때는 `bash -lc` 문자열에 인수를 섞지 않고 script와 인수를 `--exec` 뒤에 각각 직접 전달한다.
-- 반복 누락이 다시 나오면 `docs/Codex-Operating-Feedback.md`에 체크 항목 또는 skill 후보로 반영한다.
-- cowork 전달용 `work_ver_*` 리포트에는 단순 결과만 쓰지 않고 Codex의 비판적 의견, 다음 진행 방향, 계속 진행/보류 기준, 다음 cowork 리뷰가 필요한 시점을 함께 적는다.
+1. 대화 기억이 아니라 파일, 로그, 상태 명령으로 현재 상태를 확인한다.
+2. 작업 전 `./scripts/get_live_runtime_status.sh`와 `./scripts/get_runtime_watchdog_status.sh`를 확인한다.
+3. 기존 helper, 데이터 계약, 테스트를 재사용하고 변경 범위를 작게 잡는다.
+4. 코드 변경은 관련 기준 문서와 같은 작업에서 맞춘다.
+5. 실제 검증 결과와 남은 위험을 `docs/logbook.md`에 기록할 가치가 있을 때만 남긴다.
+6. 변경이 있으면 `docs/Versioning.md`의 규칙에 따라 같은 작업에서 commit/push까지 마친다.
+7. NAS 백업은 사용자가 해당 작업에서 명시적으로 지시한 경우에만 실행한다.
 
-장중 수집 보호:
+cowork 절차와 `review_ver_*`/`work_ver_*` 산출물은 사용자가 cowork 리뷰를 요청했거나 같은 주제의 리뷰가 실제 진행 중일 때만 사용한다. 일반 작업에 새 리뷰 문서를 만들지 않는다.
 
-- `get_live_runtime_status` 또는 `get_runtime_watchdog_status`에서 `regular-session`, 실제 장전 워밍업 구간인 `pre-open`, `live_runtime_should_run=true`, live runtime 실행 중 상태가 확인되면 장중 수집 보호 모드로 본다. `overnight`는 장전 워밍업 전 야간 대기 상태이며, live runtime 실행 중 또는 `live_runtime_should_run=true`가 아니면 장중 수집 보호 모드로 보지 않는다.
-- 장중 수집 보호 모드에서는 사용자 명시 승인 없이 루트 코드 파일 변경, 전체 테스트, `python -m app ...`, dashboard/runtime 재생성, `runtime-data/dev.db` 접근 가능성이 있는 명령을 실행하지 않는다.
-- 장중에도 가능한 작업은 읽기 전용 상태 확인, 문서/리포트 정리, `git diff --check`, `bash -n`, 그리고 `.tmp-tests/` 아래로 완전히 격리된 좁은 단위 테스트로 제한한다.
-- 코드 구현이 필요하면 격리 작업공간이나 별도 worktree에서 초안을 준비하고, 장 종료 후 또는 사용자 승인 후 루트 저장소에 적용한다.
+## 5. 장중 수집 보호
 
-답변은 쉬운 한국어를 먼저 쓴다.
-영어 개발 용어와 약어는 필요할 때만 쓰고, 처음에는 풀어서 설명한다.
-사용자에게는 존댓말을 기본으로 사용한다.
-최종 답변 전에는 `현재 작업 모드`, `답변 접두어`, `활성 체크리스트 갱신 여부`, `기준 문서 반영 여부`를 한 줄 체크포인트로 확인한다.
+다음 중 하나면 장중 수집 보호 모드다.
 
-## 5. 저장소 구조와 배치 기준
+- 상태가 `regular-session` 또는 실제 워밍업 `pre-open`
+- `live_runtime_should_run=true`
+- live runtime이 실행 중
 
-- `app/brokers/`: KIS 인증, REST 조회, WebSocket 연결
+`overnight`이며 runtime이 정지했고 `live_runtime_should_run=false`이면 보호 모드가 아니다.
+
+보호 모드에서는 사용자 명시 승인 없이 다음을 하지 않는다.
+
+- 루트 코드 변경
+- 전체 테스트 또는 `python -m app ...`
+- dashboard/runtime 재생성이나 재시작
+- `runtime-data/dev.db`에 접근할 수 있는 명령
+
+허용 범위는 읽기 전용 상태 확인, 문서/리포트 정리, `git diff --check`, `bash -n`, `.tmp-tests/`에 완전히 격리된 좁은 테스트다. 구현은 별도 worktree에서 준비하거나 장 종료 뒤 적용한다.
+
+## 6. 코드와 저장 위치
+
+주요 책임 경계는 다음과 같다.
+
+- `app/brokers/`: KIS 인증, REST, WebSocket
 - `app/collectors/`: 외부 응답을 내부 이벤트로 변환
-- `app/features/`, `app/labels/`: 분봉, 특징, 라벨 생성
-- `app/models/`, `app/services/research.py`: 모델 학습, 평가, 백테스트
-- `app/services/streaming.py`: 실시간 예측, 재생, 온라인 처리 흐름
-- `app/paper_trading/`, `app/portfolio/`: 모의주문, 포지션, 포트폴리오
-- `app/risk/`: 리스크 게이트
-- `app/services/reporting.py`: 실행 리포트 생성
-- `config/`: 설정, watchlist, autopush 설정
-- `scripts/`: 반복 실행 bash 스크립트
-- `tests/`: `unittest` 기반 검증
+- `app/features/`, `app/labels/`: 분봉, 특징, 라벨
+- `app/models/`, `app/services/research.py`: 모델과 연구
+- `app/services/streaming.py`: 실시간 처리
+- `app/paper_trading/`, `app/portfolio/`, `app/reconciliation/`: paper 주문·포트폴리오·정합
+- `app/risk/`: 주문 전 위험 통제
+- `app/storage/`: SQLite/JSONL 계약
+- `scripts/`: 반복 실행 wrapper
+- `tests/`: 회귀 검증
 
-기본 의존 방향은 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting` 으로 유지한다.
+기본 의존 방향은 `brokers/collectors -> features/labels -> models/services -> paper_trading/portfolio/risk -> reporting`이다.
 
-## 6. 주요 명령
+새 산출물은 D드라이브만 사용한다.
+
+- 누적 runtime 산출물: `runtime-data/`
+- 임시 테스트: `.tmp-tests/`
+- 모델: `runtime-data/ml/`
+- 리포트: `runtime-data/reports/`
+- 대용량 외부 데이터/연구 snapshot: `/mnt/d/CodexData/Real-time-stock-price-prediction-program/`
+
+root `results/`와 C드라이브 기본 임시 경로는 사용하지 않는다.
+
+## 7. 운영 안전
+
+- 기본 거래 모드는 `paper`, 실전 주문은 기본 비활성이다.
+- 실전 주문/취소, 주문 flag, `app/risk/`, `config/`, Phase 기준, 계좌 정렬, clean baseline은 사용자 명시 범위 없이 바꾸거나 실행하지 않는다.
+- `ENABLE_BROKER_PAPER_MIRRORING=true`이면 로컬 paper 주문이 KIS 모의계좌에 제출될 수 있음을 항상 고려한다.
+- KIS key/secret/token/계좌 식별자는 git 추적 파일, 로그, 리뷰에 기록하지 않는다.
+- 루트 `.env`는 추적하지 않고 권한 `0600`을 유지한다.
+- 장외·휴장일에는 live runtime을 임의로 시작하지 않는다. 휴장일은 `config/market_calendar.toml`을 따른다.
+- 실제 브로커 체결 시각의 포트폴리오 snapshot과 과거 epoch 증거는 삭제·재작성하지 않는다.
+- KIS REST 페이징, rate limit, WebSocket 복구, 계좌 정합 절차는 `docs/KIS-Connection-Runbook.md`를 따른다.
+
+ML 실험은 사전등록과 스프린트 동결 범위 안에서만 자율 수행한다. 데이터 소스, 스프린트 목표, `app/risk/`, 운영 스크립트 구조, 승격 결정이 바뀌면 운영자 판단을 받는다.
+
+## 8. 주요 검증 명령
+
+상태:
+
+```bash
+./scripts/get_live_runtime_status.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/get_dashboard_status.sh
+./scripts/get_runtime_startup_launcher_status.sh
+```
 
 전체 테스트:
 
@@ -119,203 +135,43 @@
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-합성 데이터 전체 흐름:
+구조/CLI:
 
 ```bash
-python -m app --run-synthetic-dev-cycle --symbol 005930 --minutes 90 --horizon-min 15
-./scripts/run_full_synthetic_cycle.sh
+python scripts/audit_repository_structure.py
+python -m app --help
 ```
 
-리포트와 대시보드:
+이 저장소에는 별도 lint 명령이 없다. 실행하지 않은 lint를 통과했다고 보고하지 않는다.
 
-```bash
-python -m app --build-runtime-report
-python -m app --build-dashboard
-./scripts/run_dashboard.sh
-./scripts/start_dashboard_background.sh
-./scripts/get_dashboard_status.sh
-./scripts/stop_dashboard.sh
-```
+검증 범위:
 
-모델 검증:
+- 문서만 변경: `git diff --check`
+- 구조/문서 역할 변경: repository structure audit
+- Python 또는 동작 변경: 관련 테스트와 전체 `unittest`
+- dashboard 변경: `tests.test_dashboard`와 필요 시 build
+- broker paper sync 변경: `tests.test_broker_paper_sync tests.test_paper_reconciliation`
+- KIS WebSocket 변경: `tests.test_kis_ws_parser tests.test_kis_ws_verification`
+- bash 변경: `bash -n`
 
-```bash
-python -m app --train-lightgbm --horizon-min 15
-python -m app --run-backtest --horizon-min 15
-python -m app --run-walk-forward --horizon-min 15 --walk-forward-min-train-rows 30 --walk-forward-test-rows 10 --walk-forward-step-rows 10
-python -m app --run-challengers --horizon-min 15
-./scripts/run_ml_shadow_cycle.sh
-./scripts/run_post_close_ml_maintenance.sh
-./scripts/rebuild_actual_ml_state.sh
-```
+## 9. 버전과 자동화
 
-KIS와 모의계좌:
+- `VERSION`은 배포 준비 신호이며 작업 마지막에만 변경한다.
+- `autopush.json`의 기준 브랜치는 `main`, 원격은 `origin`이다.
+- 자동화 산출물은 `runtime-data/reports/codex/` 아래에만 둔다.
+- 운영 자동화는 root 코드, DB schema, runtime, 실전 flag를 자동 변경하지 않는다.
+- 자동화의 KIS 네트워크 실행과 Phase 전환 조건은 daily ops skill과 관련 runbook을 따른다.
 
-```bash
-python -m app --verify-kis-ws --symbols 005930 --max-frames 5 --max-reconnects 0
-./scripts/verify_kis_ws.sh
-./scripts/refresh_kis_account.sh
-./scripts/reconcile_paper_accounts.sh
-./scripts/verify_paper_dual_account_match.sh -AsJson
-./scripts/verify_paper_dual_account_match.sh -SyncInitialCash -AlignToBroker -AsJson
-```
+## 10. 완료 확인
 
-실시간 수집기와 감시기:
-
-```bash
-./scripts/start_live_runtime_background.sh
-./scripts/get_live_runtime_status.sh
-./scripts/stop_live_runtime.sh
-./scripts/start_runtime_watchdog_background.sh
-./scripts/get_runtime_watchdog_status.sh
-./scripts/stop_runtime_watchdog.sh
-```
-
-복구와 자동 시작:
-
-```bash
-./scripts/check_local_setup.sh
-./scripts/restore_kis_env_interactive.sh
-./scripts/restore_kis_env_interactive.sh --trading-mode live --include-account-fields --read-only-preparation
-./scripts/run_phase1b_readonly_observation.sh
-./scripts/run_phase1b_readonly_observation.sh --execute
-./scripts/run_phase1b_readiness_cycle.sh
-./scripts/run_phase1b_readiness_cycle.sh --execute --refresh-dashboard
-./scripts/connect_kis_paper_account_interactive.sh
-./scripts/start_runtime_autoboot.sh
-./scripts/install_runtime_startup_launcher.sh
-./scripts/get_runtime_startup_launcher_status.sh
-./scripts/remove_runtime_startup_launcher.sh
-```
-
-버전 갱신:
-
-```bash
-./scripts/bump_version.sh -Version 0.2.1
-```
-
-## 7. 운영 안전 규칙
-
-- 기본 거래 모드는 `paper`다.
-- 실전 주문은 기본 비활성화 상태로 둔다.
-- KIS 앱 키, 앱 시크릿, 계좌번호, 토큰, 원격 비공개 정보는 git 추적 파일에 쓰지 않는다.
-- 저장소 루트 `.env`는 로컬 실행용이며 커밋하지 않는다.
-- 저장소 루트 `.env`는 소유자 전용 권한 `0600`을 유지한다. 자격정보 복구 helper도 입력 전과 저장 후 이 권한을 강제하며 권한을 완화하지 않는다.
-- 모의투자 계좌 화면에 상품코드가 없으면 `KIS_PRODUCT_CODE_PAPER`는 빈 값으로 둘 수 있다.
-- `ENABLE_BROKER_PAPER_MIRRORING=true` 일 때 로컬 가상 주문이 KIS 모의계좌에도 제출될 수 있다.
-- 로컬 가상 계좌와 KIS 모의계좌 비교는 `총자산 - 주식평가액` 으로 계산한 브로커 유효현금을 기준으로 본다.
-- 장외와 설정된 휴장일에는 실시간 수집기를 무리하게 재기동하지 않는다. 실행 감시기는 정규장 시작 60분 전부터 장전 준비로 켜되, `config/market_calendar.toml`의 `holidays` 날짜는 휴장으로 본다.
-- 대시보드 전체 스냅샷 재생성은 기본 10분 간격으로 제한해 CPU 사용을 줄인다.
-- 삭제나 정리 작업은 반드시 대상 경로가 저장소 내부인지 확인하고, 실제 브로커 체결 시각의 포트폴리오 스냅샷은 실제 운용 데이터로 보존한다.
-
-## 7-1. ML 실험 자율 범위
-
-ML 실험에 한해 Codex는 운영자 승인 없이 아래 범위 안에서 스스로 판단하고 실행한다.
-
-자율 허용:
-
-- 피처 조합 선택 및 변경
-- 실험 방법 설계 (학습 파라미터, split 방식 등)
-- 하이퍼파라미터 조정
-- 실험 결과 해석 및 다음 실험 스스로 설계
-- 중간 실패 시 대안 방법으로 전환
-- 실험 결과가 좋지 않을 때 원인 분석 및 재실험
-
-운영자 보고 필요 (자율 범위 밖):
-
-- 3회 연속 실험에서 개선 없을 때
-- 완료 조건 충족 시 (승격 승인 요청)
-- 데이터 소스 추가/변경 필요 시
-- 스프린트 목표 자체를 바꿔야 할 때
-- app/risk/ 관련 변경이 필요할 때
-- 운영 스크립트(scripts/) 구조 변경 시
-
-보고 형식:
-🔴 운영자 판단 필요 또는
-🟢 완료 조건 충족 형식으로 출력 후 대기.
-
-## 8. 산출물 규칙
-
-- 작업 중 Codex가 경로를 지정할 수 있는 모든 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 D드라이브에만 저장한다. 캐시도 산출물로 취급하며, 새 작업에서 C드라이브나 OS 기본 임시 폴더를 저장 위치로 쓰지 않는다.
-- 현재 Ubuntu WSL2 배포판은 `D:\WSL\Ubuntu` 아래에 둔다. 따라서 WSL 저장소 내부의 `runtime-data/`, `.tmp-tests/`, 모델 산출물도 물리적으로 D드라이브에 위치하는 것을 기준으로 한다.
-- 이 저장소 작업에서 새 데이터 수집, 다운로드, 캐시, 스냅샷, 장기 보관, 대용량 임시 파일은 D드라이브만 사용한다. 도구가 내부적으로 강제하는 숨은 캐시도 경로를 지정할 수 있으면 `D:\CodexData\Real-time-stock-price-prediction-program\` 또는 WSL 저장소 내부 경로로 돌린다.
-- 누적 실행 산출물은 `runtime-data/` 아래에 둔다.
-- 새로 내려받거나 수집하는 대용량 외부 데이터는 WSL 저장소나 기존 `D:\GitHub\Real-time-stock-price-prediction-program` 폴더가 아니라 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래에 보관한다. WSL에서는 `/mnt/d/CodexData/Real-time-stock-price-prediction-program/` 로 접근한다.
-- Windows 전용 수집 스크립트가 임시 DB나 중간 파일을 만들 때도 기본값은 `D:\CodexData\Real-time-stock-price-prediction-program\` 아래로 둔다. `C:\Temp`는 이 저장소 기본 경로로 사용하지 않는다.
-- root `results/`는 만들지 않는다.
-- 임시 테스트 산출물은 `.tmp-tests/` 아래에 둘 수 있고, 검증 뒤 삭제 가능하다.
-- 모델 산출물은 `runtime-data/ml/` 아래에 둔다.
-- 대시보드와 실행 리포트는 `runtime-data/reports/` 아래에 둔다.
-- Codex 운영 자동화 report는 `runtime-data/reports/codex/ops/` 아래에 둔다. Codex 장중 incident patch 초안은 `.tmp-tests/codex-ops/` 아래에만 두고, 이 경로는 자동 cleanup 대상에서 제외한다.
-- `scripts/run_codex_ops_job.sh --job-type premarket-readiness`는 dry-run 전용 readiness report wrapper다. 이 wrapper는 Codex CLI를 호출하지 않고 상태 파일을 읽어 JSON report만 생성한다.
-- `scripts/run_live_readiness_dry_run.sh`는 실제 장애를 만들지 않는 fixture 기반 readiness wrapper다. fixture가 없는 항목은 `not_verified`로 남기고 Phase readiness를 통과시키지 않는다. 현재 fixture check key는 `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `system_clock`, `kill_switch`, `database`, `disk_space`, `dashboard`, `storage_migration_state`다. 기본은 JSON only이며, SQLite 저장은 `--record --database-path <repo 내부 경로>`를 명시한 경우에만 시도한다. `database` check는 premarket report에서 SQLite read-only smoke(`SELECT 1`, `sqlite_master`, `schema_version`, `journal_mode`)로 확인하고, `storage_migration_state`는 schema 적용 상태와 분리해서 본다. `token_refresh` check는 `scripts/probe_kis_token_refresh.sh`가 token 원문 없이 생성한 sanitized JSON을 사용한다. `account_snapshot` check는 `scripts/probe_kis_account_snapshot.sh`가 계좌번호 없이 생성한 sanitized JSON을 사용한다. `scripts/compare_kis_account_snapshot_checks.sh`는 서로 다른 경로에 저장한 paper/live account check에서 whitelisted shape와 row count만 오프라인 비교하며 계좌번호, 잔액, token, raw response를 출력하지 않는다. `ws_recovery` check는 `scripts/probe_kis_ws_recovery.sh`가 실제 WebSocket 네트워크를 열지 않는 synthetic fault injection 결과를 만든 경우에만 통과 후보가 된다. 실제 KIS WebSocket 복구 관측은 Phase 1 read-only 진입 뒤 별도로 수집한다. `market_status` check는 `scripts/probe_market_status_snapshot.sh`가 repo 내부 수동 snapshot에서 생성한 sanitized JSON을 사용한다. KIS/거래소 자동 원천은 아직 연결하지 않는다. `system_clock` check는 fixture/dry-run 결과 또는 `scripts/probe_kis_clock_reference.sh`가 read-only 현재가 조회 1회로 생성한 sanitized check JSON을 `--system-clock-check-path`로 넘긴 경우에만 통과 후보가 된다. `scripts/build_live_readiness_fixture_snapshot.sh`는 premarket report, token refresh check, account snapshot check, synthetic WS recovery check, market status check, system clock check, kill switch 상태 파일을 읽어 로컬로 증명 가능한 항목만 fixture로 묶고, market status check 파일이 없으면 자동으로 통과시키지 않는다.
-- `scripts/run_phase1b_readonly_observation.sh`는 기본 실행에서 KIS 네트워크를 사용하지 않고 `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, paper/live 자격정보 존재 여부, 주문 메서드 미노출만 확인한다. `--execute`를 명시한 경우에만 live token refresh 1회, paper/live account snapshot 각 최대 1페이지, live current-price 기반 system clock 1회를 순서대로 실행하며 앞 단계 실패 시 뒤 호출을 중단하고, `pre-open`/`regular-session`에서는 네트워크 시작 전에 차단한다. 자동화는 계좌 소유자 또는 실전 운용 승인권자의 해당 작업 승인 없이 `--execute`를 붙이지 않는다. 산출물은 `runtime-data/reports/live-readiness/phase1b/`에 raw response, 계좌 식별자, 자격정보 값 없이 저장한다.
-- `scripts/run_live_readiness_dry_run.sh --phase phase1b_live_readonly --phase1b-observation-path <sanitized 관측 JSON>`은 Phase 1b 관측의 token/account/system clock을 paper fixture보다 우선 적용한다. 관측이 누락되거나 차단되면 paper 성공값으로 fallback하지 않는다. 관측 파일의 precomputed override를 신뢰하지 않고 실행 여부와 sanitized artifact에서 다시 계산한다. Phase 1b read-only 프로필은 `market_status`와 `kill_switch`만 비차단으로 두고 WebSocket recovery, database, disk, dashboard, storage migration을 포함한 나머지 check를 필수로 유지한다. 전용 결과는 `runtime-data/reports/live-readiness/phase1b/latest-readiness.json`에 저장하고 dashboard에 별도로 표시한다.
-- `scripts/run_phase1b_readiness_cycle.sh`는 장외에서 local premarket check, synthetic WS recovery, Phase 1b preflight/관측, fixture snapshot, 전용 readiness를 한 순서로 실행한다. 기본은 외부 KIS 네트워크 0회이며 `--execute`가 있어야 bounded live read-only 관측을 요청한다. `pre-open`/`regular-session`은 어떤 step도 실행하기 전에 차단하고, preflight·실행 미시작·실제 실행 readiness 파일을 분리해 유효 관측 증거를 덮지 않는다. `--refresh-dashboard`는 `--execute`와 함께만 허용한다.
-- `token_refresh`, `ws_recovery`, `account_snapshot`, `market_status`, `system_clock`의 timestamped readiness 증거는 `app/services/live_phase_readiness.py`에서 key별 freshness 기준 초과 시 `stale_evidence`로 차단한다. 현재 기준은 `system_clock/ws_recovery=30분`, `account_snapshot/market_status=1시간`, `token_refresh=4시간`이다. Phase 2/3 readiness와 live submit guard는 synthetic `ws_recovery`를 실전 제출 증거로 인정하지 않고, `app/services/ws_recovery_evidence.py`의 real evidence type이 없으면 broker 호출 전에 차단한다. Dashboard live readiness 카드는 `ws_recovery` evidence type, 실제 증거 여부, freshness, stable frame, reconnect storm 여부를 read-only로 표시한다. HTTP `Date` 기반 `system_clock` skew는 초 단위 header 한계 때문에 밀리초 정밀도가 아니라 대략 1초 이내 여부를 보는 증거다. `scripts/probe_kis_clock_reference.sh --compare-paper-live`는 주문 메서드 없는 read-only quote로 paper/live HTTP `Date` reference를 비교하는 sanitized 진단 JSON을 만든다.
-- `account_snapshot` check는 `position_row_count`, `summary_row_count`, `cash_balance`, `stock_evaluation_amount`, `total_asset_amount` shape와 값 타입이 모두 맞아야 통과 후보가 된다. 누락되거나 타입이 바뀌면 계좌번호/raw response 없이 shape drift로 차단한다.
-- git으로 추적할 가치는 작고 재현에 필요한 문서, 설정 예시, 메타데이터에 한정한다.
-
-## 9. 검증 기준
-
-- 문서만 바꿨으면 최소 `git diff --check`를 실행한다.
-- 저장소 구조나 현재 Markdown 역할을 바꿨으면 `python scripts/audit_repository_structure.py`를 함께 실행한다.
-- Python 코드, 앱 동작, 스크립트 동작이 바뀌면 `python -m unittest discover -s tests -p "test_*.py"`를 우선 실행한다.
-- 대시보드 관련 변경은 `python -m unittest tests.test_dashboard`와 `python -m app --build-dashboard`를 함께 고려한다.
-- 브로커 모의계좌 동기화 변경은 `python -m unittest tests.test_broker_paper_sync tests.test_paper_reconciliation`을 함께 고려한다.
-- KIS WebSocket 변경은 `python -m unittest tests.test_kis_ws_parser tests.test_kis_ws_verification`을 함께 고려한다.
-- bash 스크립트 변경은 최소 파싱 검사를 수행한다.
-- 네트워크나 장 시간에 따라 실패할 수 있는 KIS 실시간 검증은 장 상태를 함께 기록한다.
-
-## 10. 감시기와 자동화
-
-- 이 저장소는 저장소 루트 `VERSION` 파일을 배포 준비 신호로 사용한다.
-- 감시기 설정은 `autopush.json` 이고, 현재 기준 브랜치는 `main` 이다.
-- 감시기 상태와 로그는 `runtime-data/autopush/` 아래에 있다.
-- 버전은 작업 마지막에 바꾸고, 감시기 또는 수동 commit/push 흐름과 충돌하지 않게 한다.
-- 매시간 저장소 점검 산출물은 `runtime-data/reports/codex/automation/` 아래에만 남기고 git 추적 파일을 직접 수정하지 않는다.
-- Codex 운영 job 산출물은 `runtime-data/reports/codex/ops/` 아래에 남긴다. 장중 운영 job은 `app/services/codex_ops.py`의 manifest/권한 모델을 통과해야 하며, root 코드 적용, 운영 DB schema apply, runtime restart, 실전 주문 관련 flag 변경은 자동 실행하지 않는다. 현재 구현된 wrapper는 `scripts/run_codex_ops_job.sh --job-type premarket-readiness` dry-run report 생성, `scripts/run_live_readiness_dry_run.sh` fixture 기반 10개 check readiness report 생성, `scripts/probe_kis_clock_reference.sh` read-only KIS quote 기반 system_clock check 및 `--compare-paper-live` paper/live reference 비교 생성, `scripts/probe_kis_token_refresh.sh` KIS auth-only token_refresh check 생성, `scripts/probe_kis_account_snapshot.sh` KIS read-only account_snapshot check 생성, `scripts/probe_kis_ws_recovery.sh` synthetic WS recovery check 생성, `scripts/probe_market_status_snapshot.sh` repo-local manual market_status check 생성, `scripts/build_live_readiness_fixture_snapshot.sh` 로컬 증적 fixture snapshot 생성까지다. readiness DB 기록은 기본값이 아니며 `--record`와 repo 내부 `--database-path`가 함께 있어야 한다. `scripts/set_live_kill_switch.sh`는 기본 dry-run/status이고, 실제 kill switch ON/OFF 파일 기록은 `--apply`가 있을 때만 수행한다. OFF 해제는 `--disable --apply --confirm-disable` 조합을 요구한다.
-- 2026-07-20 장후 사전등록 E1/E5 라운드는 `scripts/run_preregistered_e1_e5_round.sh --execute` 한 명령으로만 실행한다. 이 wrapper는 `2026-07-20 15:30 KST` 이전과 장중을 fail-closed로 차단하고, 고정 날짜 구간의 D드라이브 연구 snapshot을 read-only로 읽는다. 결과로 threshold/EV, 주문 정책, active model/gate를 자동 변경하지 않는다.
-- Phase 2/3 live submit caller는 `LiveOrderGuard.assert_can_submit()` 또는 `LiveOrderManager.submit_intent()`에 실제 WS 복구 관측 evidence type을 넘겨야 한다. 넘기지 않거나 synthetic 값이면 `ws_recovery_real_evidence_required`로 차단한다.
-
-## 11. 완료 기준
-
-- 변경 내용이 현재 저장소 구조와 맞는지 확인한다.
-- 없는 경로, 없는 명령, 공통 기준서의 예시 문구를 남기지 않는다.
-- 필요한 검증을 실제로 실행한다.
-- 관련 기준 문서와 `docs/logbook.md`를 갱신한다.
-- 작업 트리에 의도하지 않은 변경이 없는지 확인한다.
-- 불필요한 백그라운드 프로세스를 남기지 않는다.
-- 최종 답변 전에는 종료 전 self-review 를 수행하고, 필요하면 답변 전에 바로 조치한다.
-  - 누락한 작업이 없는지: 사용자 요청, 최신 cowork review, `docs/Production-Transition-Progress.md`, `docs/logbook.md`의 남은 항목을 이번 실제 조치와 대조한다. 누락이 있으면 가능한 범위에서 먼저 처리하고, 지금 처리할 수 없으면 이유와 다음 조치를 명시한다.
-  - 잘못 진행한 부분이 없는지: 금지 파일(`app/risk/`, `config/`, `VERSION`, `ALLOW_LIVE_ORDERS`), 장중 보호 모드, D드라이브 산출물 규칙, 의도하지 않은 파일 변경, 남은 백그라운드 프로세스를 다시 확인한다. 잘못된 부분은 Codex가 만든 변경에 한해 바로 수정하고, 사용자 변경은 되돌리지 않는다.
-  - 결과를 잘못 판단한 부분이 없는지: 테스트 통과/실패, runtime 상태, dashboard 상태, KIS/모의계좌 정합성, 모델 성능 해석을 실제 출력과 다시 대조한다. 직접 확인하지 못한 결론은 단정하지 않고 `확인 필요`로 남긴다.
-  - 코드 오류점검이 필요한지: 코드나 스크립트를 바꿨거나 코드 영향이 있는 문서/설계 변경이면 import, syntax, 호출 경로, 예외 처리, 기존 테스트와 새 테스트 필요성을 확인한다. 필요한 검증을 못 했으면 못 한 이유를 명시한다.
-  - 그 외 필요하다고 판단되는 부분을 리뷰했는지: 작업 범위와 맞닿은 dashboard, 자동화, 데이터 오염, KIS/모의계좌, 보안/비밀값, 저장 경로, cowork 전달물, 사용자 운영 흐름을 빠르게 훑고 추가 조치가 필요하면 처리하거나 다음 권장안으로 남긴다.
+- 사용자 요구, 스프린트 동결 범위, 장중 보호 상태를 다시 대조한다.
+- 테스트 출력과 runtime/KIS 판단을 실제 증거와 대조한다.
+- 의도하지 않은 변경, 비밀값, 백그라운드 프로세스를 확인한다.
+- 현재 사실은 `STATUS`, 구현 변경은 관련 기준 문서, 중요한 이력은 `logbook`에 필요한 만큼만 반영한다.
+- 새 문서·추상화·복제 규칙은 기존 문서로 해결되지 않을 때만 추가한다.
 
 <!-- NAS_BACKUP_START -->
-## NAS 백업 운영
+## NAS 백업
 
-- 이 저장소의 NAS 백업은 두 종류로 구분한다.
-- 재난 복구용 NAS 전체 백업은 이전 저장소 유실 사고 대응을 위한 이중 보관이며, 접근 권한이 제한된 NAS 안에서 전체 작업 트리와 로컬 복구 자산을 보존할 수 있다. 이 백업은 cowork 전달, 감사 증적 공유, 실전 전환 readiness 통과 증거로 직접 쓰지 않는다.
-- 실전 전환 검증용 sanitized recovery export는 root `.env*`, KIS 토큰 캐시, runtime 로그, private key 계열 파일을 포함하지 않는다. `tests/test_wsl_ops.py`와 저장소 export wrapper가 잠그는 포함/제외 정책은 이 sanitized export 기준이다.
-- 기본 보관 정책은 최신 3개 보관과 주 1회 정기 백업 명령 제공이다.
-- 현재 NAS 공유 루트 기준은 \\192.168.0.2\backup 이다.
-- 정책이 바뀌면 RECOVERY.md, README.md, AGENTS.md, scripts/run_weekly_nas_backup.sh, scripts/run_forced_nas_backup.sh, scripts/run_weekly_nas_backup.ps1, scripts/run_forced_nas_backup.ps1을 함께 맞춘다.
-- 2026-05-28 사용자 변경 기준: NAS 백업은 용량과 소요 시간이 크므로 Codex가 자율 실행하지 않는다. 주간/강제 NAS 백업 모두 사용자가 해당 작업에서 명시적으로 지시했을 때만 실행한다.
-- 코드/운영 자동화 변경, 장후 마감 조치, Phase readiness 증거 생성, release/복구 직전 같은 중요 체크포인트여도 Codex가 forced NAS backup을 자동 실행하지 않는다. 필요하면 "NAS 백업 실행" 같은 명시 지시를 받은 뒤에만 실행한다.
-- 실전 주문 flag 변경, 비밀값 본문 기록, root `.env*`를 cowork/검증 산출물로 공유하는 행위는 계속 금지한다.
-
-주간 백업:
-
-```bash
-./scripts/run_weekly_nas_backup.sh --backup-share-root /mnt/backup
-```
-
-강제 백업:
-
-```bash
-./scripts/run_forced_nas_backup.sh --backup-share-root /mnt/backup --backup-reason "before-release"
-```
+상세 정책과 명령은 `RECOVERY.md`가 소유한다. 주간/강제 NAS 백업 모두 사용자가 해당 작업에서 명시적으로 지시한 경우에만 실행하며, 자격정보와 token cache는 sanitized export에 포함하지 않는다.
 <!-- NAS_BACKUP_END -->
-

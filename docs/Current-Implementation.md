@@ -1,8 +1,10 @@
 # 현재 구현 상태
 
+이 문서는 구현 계약과 지원 범위를 설명한다. 날짜가 붙은 운영 수치는 이력이며 최신 상태와 blocker는 `docs/STATUS.md`만 기준으로 한다.
+
 ## 현재 요약
 
-### 2026-09-03 현재 기준
+### 2026-09-03 운영 스냅샷
 
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.
 - 2026-09-03 raw market/orderbook은 `3,727/3,983` symbol-minute, closed feature coverage는 `95.31%`이며 serving decision ledger는 `3,717/3,717`, complete lineage `100%`다.
@@ -11,6 +13,7 @@
 - buy-avoid는 절대 portfolio 손실 때문에 기각됐고 buy-rescue와 hold-rescue도 주문 정책에 반영할 후보가 아니다.
 - E7은 미래 거래일 4일, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다.
 - current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. 자연 KIS cash-order submission 36건이 성공해 이전 계좌 무효 root cause와 account-orderability blocker 종료를 확인했다.
+- 2026-09-05 order-fill 동기화는 paper 1.0초 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0이었다. 이 실행은 account snapshot/reconciliation을 수행하지 않았다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`으로 fail-closed한다.
 - Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하므로 현재 Phase 2/3 증거로 사용하지 않는다.
 
@@ -498,7 +501,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 따라서 대시보드와 reconciliation 은 `total_asset_amount - stock_evaluation_amount` 로 계산한 브로커 유효현금을 기준으로 비교하고, 원시 현금 차이는 `raw_cash_gap` 으로 따로 남긴다.
 브로커 기준 paper baseline alignment 도 보유 종목 유무와 관계없이 같은 유효현금 기준으로 로컬 `cash_balance`를 만든다.
 
-KIS 주문/체결 조회는 수동·장후 배치·장중 종료 동기화 모두 HTTP 1회만 시도하고, `EGW00201` rate-limit 뒤 같은 호출 안에서 재시도하지 않는다.
+KIS 주문/체결 조회는 수동·장후 배치·장중 종료에서 논리 동기화를 1회만 시도한다. 연속조회가 있으면 페이지별 HTTP 요청은 필요할 수 있으며, paper profile은 각 응답 처리 완료 뒤 최소 1.0초를 기다려 다음 페이지를 호출한다. `EGW00201` 뒤에는 같은 호출 안에서 재시도하지 않는다.
 제한이 발생하면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남기고, 2시간 안의 후속 실행은 같은 endpoint 를 호출하지 않은 채 `skipped_broker_call=true`로 끝낸다.
 실시간 수집기도 `rate_limited` 결과에 120분 process pause를 적용한다. timeout, gateway routing error 같은 일반 예외는 5분부터 시작해 10/20/40/60분으로 늘어나는 지수 백오프를 적용하고, 정상 sync 뒤 실패 횟수를 초기화한다.
@@ -526,7 +529,7 @@ broker paper sync는 KIS 주문/체결 행과 로컬 broker 제출 원장의 연
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:
 변경 전에는 장후 batch가 한 실행에서 최대 5회(10/30/60/120초 대기), 기본 helper가 최대 4회, 장중 종료 force sync가 기본 재시도를 사용할 수 있었다.
-변경 후에는 모든 운영 order-fill 조회가 한 번의 HTTP 시도만 수행하고, 최초 `EGW00201`부터 2시간 cooldown과 남은 초를 리포트에 기록한다.
+변경 후에는 모든 운영 order-fill 경로가 논리 동기화를 한 번만 수행한다. 연속조회 페이지는 paper profile에서 응답 완료 기준 최소 1.0초 간격으로 호출하고, 최초 `EGW00201`부터 2시간 cooldown과 남은 초를 리포트에 기록한다.
 영향 범위는 `app/services/broker_paper.py`, `app/services/broker_paper_sync.py`, `app/services/streaming.py`와 관련 테스트에 한정된다.
 회귀 위험은 제한이 빨리 풀려도 체결 감사 복구가 최대 2시간 늦어지는 경우다. 안전 측으로 pending 상태를 보존하고, 계좌 정렬이나 초기 현금 동기화로 원인을 덮지 않는다.
 

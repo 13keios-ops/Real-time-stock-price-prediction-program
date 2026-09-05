@@ -1,6 +1,6 @@
 # Production Transition Progress
 
-이 문서는 실전 전환 단계와 blocker만 빠르게 확인하는 현재 진행판이다.
+이 문서는 실전 전환 단계와 blocker만 빠르게 확인하는 진행판이다. 최신 운영 수치와 incident는 `docs/STATUS.md`만 기준으로 한다.
 과거 상세 스냅샷은 `docs/archive/Production-Transition-Progress-through-20260712.md`에 보존한다.
 
 ## 1. 현재 결론
@@ -27,19 +27,19 @@
 - 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` orderability 통과
 - 자연 broker cash-order: 2026-09-03 KIS submission 성공 36건; 이전 계좌 account-orderability blocker 종료
 - 실패: invalid tick 4건은 `broker_invalid_request/invalid_price_tick`, network timeout 1건은 `broker_network_error`
-- order-fill sync: `EGW00201`, 7,200초 cooldown으로 36 submission의 fill/reject/pending lineage 미완결
+- order-fill sync: 2026-09-05 장외 1회에서 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않음
 - 현재 epoch: `0/10`, matched 0일, mismatch 0일, remaining 10일
 - 이전 계좌 epoch: `10/10`, matched 0일, mismatch 10일
 - 이전 full-period sanitized activity: 22페이지/329행/20거래일, pagination complete
 - 이전 계좌 root cause: `external_or_unlinked_broker_activity`; 이후 account rejection은 계좌 만료가 유력 root cause
-- 해소 상태: `current_account_baseline_approval_required`
+- 해소 상태: `current_account_reconciliation_required`
 - 계좌 hard rejection circuit과 failure lineage는 유지하며 local paper/E7 원장은 계속 쌓는다.
 - 유효일 조건: 현재 계좌와 호환되는 baseline 뒤 post-close, broker snapshot available, 실제 mirrored submission 존재
 - 무거래일과 weekend/holiday는 분모를 늘리지 않는다.
 - 완료 조건: 현재 계좌 epoch 유효 거래일 10개가 모두 matched
 - 자동 align, `SyncInitialCash`, 강제 거래는 금지
-- current local/new-broker mismatch `086520/247540/373220`은 order-fill sync와 계좌 소유자 승인 전 정렬·삭제·reset 금지
+- current local/new-broker position·cash 차이는 별도 account snapshot/reconciliation과 계좌 소유자 승인 전 정렬·삭제·reset 금지
 
 ### Phase 1a: KIS 모의투자 read-only
 
@@ -65,28 +65,11 @@
 - 상태: 미시작
 - 조건: Phase 2 최소 20~60거래일 운영 안정성 증거
 
-## 3. 데이터와 판단 원장
+## 3. 데이터·모델 증거 gate
 
-- 최신 거래일: `2026-09-03`
-- raw market/orderbook symbol-minute: `3,727/3,983`
-- feature closed coverage: `95.31%`
-- decision ledger: `3,717`행, complete lineage `3,717/3,717`, ratio `1.0`
-- WebSocket: reconnect `36`, storm `7`, 전 종목 공통 gap `15:01~15:08`
-- 공백 구간 decision/broker submission은 0건이며 같은 process의 bounded reconnect·재구독으로 복구
-- 판정: `CRITICAL/실패`; storm/common-gap이 coverage와 lineage 정상보다 우선
+최신 수집, lineage, WebSocket incident, 모델·E7 수치는 `docs/STATUS.md`가 소유한다. Phase 전환에는 완전한 lineage, 유효한 공식 evaluator/manifest, 최소 미래 표본, 비용 후 양수 수익 후보가 모두 필요하다. 이 조건을 통과하기 전에는 active model, gate, threshold, 주문 정책을 바꾸지 않는다.
 
-## 4. 모델과 수익성
-
-- active h15: `baseline-h15-v1`
-- top challenger: 3분류 정확도 `19.53%`, buy hit `20.96%`, 거래 `1,474건`, 누적 진단 순수익 `-363.07%`
-- buy-avoid threshold 0.40: 손실 완화 진단은 양수지만 절대 portfolio가 음수라 기각
-- hold-rescue threshold 0.40: 적용 37/eligible 161 lot, delta `-26,387원`
-- buy-rescue: current overlay는 진단 전용이며 Cybos proxy도 buy-rescue 주문 반영을 권하지 않는다.
-- E7은 미래 거래일 `4/10`, episode `0/100`, symbol `0/5`로 최소 표본 축적 중이다.
-- 공식 evaluator/manifest는 일치하고 invalid mark는 0이다. 현행·2배 비용, random control 1,000회와 비중복 구간은 최소 표본 전까지 대기한다.
-- 위 조건을 통과하기 전에는 active model, gate, threshold 설정, 주문 정책을 바꾸지 않는다.
-
-## 5. 현재 P0/P1
+## 4. 현재 P0/P1
 
 ### P0
 
@@ -94,33 +77,33 @@
 
 ### P1
 
-1. order-fill cooldown으로 36 submission 상태와 local/new-broker mismatch 원인 미완결; Phase 0 baseline 검토 보류, `0/10`
+1. current account snapshot/reconciliation이 남아 local/new-broker position·cash 차이와 Phase 0 baseline 검토 보류, `0/10`
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
 4. real WebSocket recovery evidence 없음
 5. reconnect 36/storm 7의 다음 거래일 복구 증적과 공통 gap 재발 추적 필요
 
-## 6. 다음 순서
+## 5. 다음 순서
 
-1. `EGW00201` cooldown 종료 뒤 장외 broker order-fill sync/reconciliation을 정확히 1회 실행해 36 submission과 mismatch를 설명한다.
+1. current account snapshot과 reconciliation을 장외에서 1회 수행해 local/new-broker position·cash 차이를 설명한다.
 2. 결과 보고 뒤 계좌 소유자의 별도 승인으로만 current account baseline을 검토한다.
 3. 다음 거래일부터 tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
 4. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
 5. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
 6. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
 
-## 7. 동결 범위
+## 6. 동결 범위
 
 Phase 0 current epoch 10거래일 정합과 E7 미래 검증 전에는 threshold/EV, 종목별·h60 주문 정책, active model/gate, rescue/avoid 주문 반영, 실전 주문/취소를 바꾸지 않는다.
 
 운영 장애, 데이터 누락, lineage 저장 오류, 관측 리포트 수정은 동결 대상이 아니다.
 
-## 8. 운영자 작업
+## 7. 운영자 작업
 
-현재는 baseline 승인 단계가 아니다. order-fill sync/reconciliation 완결 결과를 먼저 확인한 뒤 baseline 승인 여부를 별도로 결정한다.
+현재는 baseline 승인 단계가 아니다. current account snapshot/reconciliation 결과를 먼저 확인한 뒤 baseline 승인 여부를 별도로 결정한다.
 무거래일을 Phase 0 유효일로 만들기 위한 강제 주문은 하지 않는다. market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
 
-## 9. 종료 체크
+## 8. 종료 체크
 
 - 실제 상태 파일을 확인했는가
 - 현재 수익 후보 유무를 명시했는가

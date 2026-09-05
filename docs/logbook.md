@@ -2,10 +2,10 @@
 
 ## 역할
 
-이 파일은 현재 상태, 활성 체크리스트, 최신 검증만 유지한다.
+이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
-## 현재 스냅샷
+## 최근 운영 스냅샷 (2026-09-03)
 
 - 기준 시각: 2026-09-03 21:18 KST
 - 장 상태: post-close
@@ -31,7 +31,7 @@
 
 상세 현재값은 `docs/STATUS.md`, Phase 상태는 `docs/Production-Transition-Progress.md`를 기준으로 한다.
 
-## 활성 체크리스트
+## 최근 작업 체크포인트 (이력)
 
 - [x] 2026-08-28 raw→feature→decision ledger와 complete lineage 100% 확인
 - [x] 종가 동시호가 예상 gap과 unexpected common gap 분리
@@ -45,7 +45,8 @@
 - [x] 다음 정상 거래의 자연 broker submission 36건 성공 확인
 - [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
 - [x] WebSocket 재구독 완료·첫 프레임 복구 증적 추가
-- [ ] cooldown 종료 뒤 장외 order-fill sync/reconciliation 1회로 36 submission 상태 확인
+- [x] 2026-09-05 장외 order-fill sync 1회로 38 submission 상태 완결
+- [ ] current account snapshot/reconciliation 1회로 local/new-broker position·cash 차이 설명
 - [ ] 결과 보고 뒤 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 검토
 - [ ] 현재 계좌 Phase 0 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
@@ -63,13 +64,22 @@
 
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
-- 전체 unittest: `619 tests OK` in 36.208s, 테스트 쓰기는 `.tmp-tests/` 격리
+- 전체 unittest: `627 tests OK` in 37.830s, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 2026-09-03 저장 증거 재검산: market/orderbook `3,727/3,983` symbol-minute, feature closed coverage `95.31%`, decision lineage `3,717/3,717`·100%
 - 2026-09-03 WebSocket: reconnect 36, storm 7, 정규장 예상 밖 공통 gap `15:01~15:08`; 복구 전 공백의 decision과 broker submission은 0건
 - 새 paper 계좌 자연 cash-order submission 36건 성공 확인. 지정가 실패 4건은 KRX common-stock 호가단위 오류, 별도 1건은 network timeout
-- order-fill sync는 `EGW00201` 7,200초 cooldown으로 중단했으며 이번 개선 작업의 KIS network/order/cancel/token/account 호출은 0회
+- 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
 - Phase 0 current epoch: `baseline_review_required`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+
+## [2026-09-05] 저장소 관리 규칙 마이그레이션
+
+- `MIGRATE_EXISTING_REPO_v1.txt`와 `ref_AGENTS_v4.md`를 기준으로 기존 구조와 이력을 보존한 채 관리 문서를 정리했다.
+- root `AGENTS.md`를 저장소 고유 미션, 장중 보호, 거래·비밀값 안전, D드라이브 산출물, 실제 검증 명령 중심으로 줄였다. 필수 Read First는 5개로 제한하고 cowork, KIS, 복구, 구현 문서는 관련될 때만 읽도록 바꿨다.
+- 현재 운영 수치의 단일 기준은 `docs/STATUS.md`, 스프린트 범위는 `docs/SPRINT_CURRENT.md`, 구현 계약은 `docs/Current-Implementation.md`, 변경 이력은 `docs/logbook.md`로 명확히 나눴다. 기존 문서와 역사 기록은 삭제하거나 이름을 바꾸지 않았다.
+- KIS order-fill의 `논리 동기화 1회`와 `연속조회 페이지별 HTTP 요청`을 구분하고, paper 응답 완료 기준 최소 1.0초 간격과 `EGW00201` 2시간 cooldown을 README·구현 문서·runbook에 맞췄다.
+- 2026-09-05 실환경 order-fill 결과는 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용이다. account snapshot/reconciliation과 baseline 생성은 수행하지 않았다.
+- 검증은 전체 unittest 627건, repository audit errors 0/warnings 2, `python -m app --help`, 문서 경로 확인, `git diff --check`를 통과했다. application code, 전략, 설정, DB, runtime-data, `VERSION`, 주문·취소, NAS 백업은 변경하지 않았다.
 
 ## [2026-09-04] 2026-09-03 장후 호가단위·WebSocket P0 개선
 

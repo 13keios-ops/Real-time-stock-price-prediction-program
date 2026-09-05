@@ -52,7 +52,7 @@
 기본 판단:
 
 - `EGW00201`이 뜨면 같은 KIS 일별 주문/체결 조회 endpoint를 즉시 반복 호출하지 않는다.
-- 기본 helper, 장후 batch, 장중 종료 force sync 모두 한 실행에서 HTTP 1회만 시도하며 in-call retry는 하지 않는다.
+- 기본 helper, 장후 batch, 장중 종료 force sync는 논리 동기화를 한 번만 수행한다. 연속조회가 있으면 페이지별 HTTP 요청은 필요할 수 있으며, paper profile은 각 응답 처리 완료 뒤 최소 1.0초를 기다려 다음 페이지를 호출한다. `EGW00201` 뒤에는 in-call retry를 하지 않는다.
 - 이 저장소의 기본 cooldown은 2시간이다. 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남긴다.
 - cooldown 중에는 broker paper sync가 KIS order-fill 조회를 건너뛰고 `skipped_broker_call=true`, 남은 `retry_after_seconds`를 리포트에 남긴다.
 - 실시간 수집기의 process pause도 `rate_limited` 결과에는 120분을 적용한다.
@@ -73,7 +73,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 변경 전 | 장후 batch는 한 실행에서 최대 5회, 기본 helper는 최대 4회까지 같은 order-fill endpoint를 재시도할 수 있었다. |
-| 변경 후 | 모든 운영 경로를 HTTP 1회로 제한하고, 최초 `EGW00201`부터 service/runtime 2시간 cooldown을 함께 적용한다. 일반 장중 실패는 최대 60분 지수 백오프로 수집 경로를 보호한다. |
+| 변경 후 | 모든 운영 경로는 논리 동기화 1회만 수행한다. paper 연속조회 페이지는 응답 완료 기준 최소 1.0초 간격으로 호출하고, 최초 `EGW00201`부터 service/runtime 2시간 cooldown을 적용한다. 일반 장중 실패는 최대 60분 지수 백오프로 수집 경로를 보호한다. |
 | 영향 범위 | `app/services/broker_paper.py`, `app/services/broker_paper_sync.py`, `app/services/streaming.py`, 관련 테스트와 장후 reconciliation 절차. |
 | 회귀 위험 | 체결 복구가 최대 2시간 늦어질 수 있다. 대신 rate limit 연쇄와 잘못된 자동 align 위험을 줄인다. |
 
@@ -369,6 +369,6 @@ python3 scripts/check_kis_paper_account_lifecycle.py --write-report
 
 같은 hard rejection이 재발할 때만 sanitized KIS error와 circuit/lineage를 확인하고 entitlement 조사를 다시 연다. 강제 cash order/cancel과 반복 orderability `--execute`는 하지 않는다.
 
-2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 현재 상태는 `baseline_review_required`, `0/10`이다. 2026-09-03 order-fill sync는 `EGW00201`로 7,200초 cooldown 중이고 local/new-broker mismatch `086520/247540/373220`이 남아 있어 자동 baseline·align·reset을 하지 않는다.
+2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 현재 상태는 `baseline_review_required`, `0/10`이다. 2026-09-05 장외 order-fill sync는 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0이었다. 자동 baseline·align·reset은 수행하지 않았다.
 
-baseline 검토 전 최소 조건은 cooldown 종료, 장외 order-fill sync 정확히 1회 성공, current account snapshot 정상, 36 submission의 fill/reject/pending 설명, local/broker position·cash 차이 설명, 계좌 소유자 명시 승인이다. 조건을 모두 충족해도 별도 작업에서 결과를 먼저 보고한 뒤 승인받아야 한다.
+baseline 검토 전 남은 최소 조건은 current account snapshot과 reconciliation 1회로 local/broker position·cash 차이를 설명하고, 결과를 먼저 보고한 뒤 계좌 소유자의 명시 승인을 받는 것이다.

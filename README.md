@@ -34,7 +34,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/SPRINT_CURRENT.md`: 현재 작업 기간과 동결 범위
 - `docs/Repository-Structure.md`: 실제 레이어, 문서 역할, 구조 부채
 - `WORKFLOW.md`, `COWORK_GUIDE.md`: 현재 Codex/cowork 협업 절차
-- `docs/logbook.md`: 현재 상태, 활성 체크리스트, 최근 기록
+- `docs/logbook.md`: 중요한 변경, 원인, 검증 이력
 - `docs/Current-Implementation.md`: 실제 구현 범위와 실행 방법
 - `docs/Versioning.md`: `VERSION` 기반 버전 관리와 watcher 기준
 - `docs/Production-Architecture.md`: 실제 자금 자동매매 전환을 위한 목표 구조와 안전 기준
@@ -53,7 +53,11 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/archive/`, `docs/logbook_archive/`: 퇴역 원문과 기간별 작업 요약
 - `docs/*.md`: 주제별 상세 설계와 참고 문서
 
+현재 운영 수치는 `docs/STATUS.md` 한 곳이 소유한다. 다른 문서의 날짜가 붙은 수치는 기준선 또는 이력이다.
+
 ## 현재 구현 상태
+
+이 절은 지원 기능을 설명한다. 최신 운영 수치와 blocker는 `docs/STATUS.md`를 확인한다.
 
 현재 저장소는 아래 기능까지 구현되어 있다.
 
@@ -154,7 +158,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - paper 계좌번호만 8자리일 때 상품코드 `01` 기본 처리
 - `.env`의 `여기에_상품코드` 같은 placeholder 값 자동 무시
 - KIS REST rate-limit backoff 재시도
-- 브로커 모의계좌 주문/체결 조회도 KIS `EGW00201` rate-limit 에 대해 재시도하고, 계속 막히면 기존 제출 주문을 pending 으로 유지한 채 `rate_limited` 리포트를 남긴다.
+- 브로커 모의계좌 주문/체결 조회는 논리 동기화 1회 안에서 연속조회 페이지를 처리한다. paper profile은 응답 처리 완료 뒤 최소 1.0초 간격을 두며, `EGW00201`이면 같은 호출에서 재시도하지 않고 pending과 `rate_limited` 증거를 보존한다.
 - runtime autoboot 와 Monday runtime 스크립트는 이제 내부 `python -m app ...` 실행이 실패하면 즉시 오류로 처리한다.
 - paper-account reconciliation 기록은 live runtime 이 DB를 쓰는 중에도 더 오래 재시도하도록 보강했다.
 - 매시간 저장소 전체 점검 자동화와 상태 이어받기 구조
@@ -485,7 +489,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 ```
 
 현재 기본 전략 설정은 `true` 이고, 대시보드에는 현재 켜짐 여부와 브로커 제출 주문 수가 함께 표시된다.
-실시간 수집 중 브로커 체결 조회가 KIS rate-limit 에 걸리면 즉시 재시도하지 않고 5분 cooldown 으로 빠진다. 수동 동기화 명령은 기존처럼 짧게 재시도한다.
+실시간 수집 중 브로커 체결 조회가 KIS rate-limit에 걸리면 같은 endpoint를 즉시 재시도하지 않고 2시간 cooldown으로 빠진다. 논리 동기화 한 번에 연속조회가 필요하면 paper profile은 각 응답 완료 뒤 최소 1.0초를 기다려 다음 페이지를 호출한다.
 
 로컬 대시보드 background 시작 / 상태 / 중지:
 
@@ -699,21 +703,7 @@ Codex 운영 보조 job 산출물은 `runtime-data/reports/codex/ops/` 아래에
 
 ## 기준 문서와 참고 문서
 
-이 저장소는 문서를 아래처럼 구분한다.
-
-- 기준 문서
-  - `AGENTS.md`
-  - `README.md`
-  - `docs/logbook.md`
-  - `docs/Versioning.md`
-  - `docs/Current-Implementation.md`
-- 참고 문서
-  - `docs/Architecture.md`
-  - `docs/Implementation-Blueprint.md`
-  - `docs/KIS-Integration-Plan.md`
-  - 그 외 주제별 상세 설계 문서
-
-현재 사실 기준은 기준 문서에 남기고, 상세 설계와 배경 설명은 참고 문서에 둔다.
+문서 소유권은 위 `핵심 문서` 목록과 `docs/Repository-Structure.md`를 따른다. 현재 운영 상태는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`, 구현 계약은 `docs/Current-Implementation.md`, 변경 이력은 `docs/logbook.md`가 소유한다. README와 구현 문서의 날짜가 붙은 스냅샷은 현재 상태의 대체물이 아니다. 그 밖의 주제별 문서는 설계와 운영 배경을 보존한다.
 
 <!-- NAS_BACKUP_START -->
 ## NAS Backup

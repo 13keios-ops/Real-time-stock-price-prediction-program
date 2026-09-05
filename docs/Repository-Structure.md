@@ -55,9 +55,9 @@ docs/logbook_archive/ 최근 작업 요약 아카이브
 
 - `AGENTS.md`: Codex 작업 규칙
 - `README.md`: 프로젝트 개요와 주요 명령
-- `docs/STATUS.md`: 짧은 현재 상태
+- `docs/STATUS.md`: 현재 운영 상태와 blocker의 단일 기준
 - `docs/SPRINT_CURRENT.md`: 현재 작업 기간과 동결 범위
-- `docs/logbook.md`: 활성 체크리스트와 최근 검증
+- `docs/logbook.md`: 중요한 변경, 원인, 검증 이력
 - `docs/Current-Implementation.md`: 실제 구현 범위
 - `docs/Production-Transition-Progress.md`: Phase와 blocker
 - `docs/Execution-Plan.md`: 전체 단계별 방법과 이유
@@ -71,7 +71,7 @@ docs/logbook_archive/ 최근 작업 요약 아카이브
 - `docs/logbook_archive/`: 최근 기간 요약
 - 그 외 `docs/*.md`: 주제별 설계와 runbook
 
-같은 현재 수치를 여러 문서에 길게 반복하지 않는다. 현재값은 `STATUS`, Phase는 `Production-Transition-Progress`, 작업은 `SPRINT_CURRENT`, 세부 구현은 `Current-Implementation`이 소유한다.
+같은 현재 수치를 여러 문서에 길게 반복하지 않는다. 현재값은 `STATUS`, Phase는 `Production-Transition-Progress`, 작업은 `SPRINT_CURRENT`, 세부 구현은 `Current-Implementation`이 소유한다. 다른 문서의 날짜가 붙은 수치는 기준선 또는 이력으로 해석한다.
 
 ## 2026-07-13 구조 감사
 

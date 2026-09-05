@@ -2,12 +2,13 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-03 21:18 KST
-- 장 상태: post-close
-- live runtime: 2026-09-03 15:30 KST 정상 종료 후 정지
-- runtime watchdog: 실행 중, heartbeat fresh, 오류 없음
-- dashboard: server/API 정상, `http://127.0.0.1:8765`
+- 확인 시각: 2026-09-05 16:36 KST
+- 장 상태: weekend
+- live runtime: 2026-09-04 15:30 KST 정상 종료 후 정지, `paper`
+- runtime watchdog: stale, process 정지, `live_runtime_should_run=false`
+- dashboard: stale, server/API 정지
 - Windows startup launcher: 설치 및 정상
+- 아래 시장·ML·E7 수치는 2026-09-03 장후 스냅샷이며, KIS order-fill 상태만 2026-09-05 후속 확인을 반영한다.
 
 ## 프로젝트 목표 정합성
 
@@ -51,7 +52,7 @@
 - 새 계좌에서 2026-09-03 자연 KIS cash-order submission 36건이 성공했다. 이전 `broker_account_not_orderable`은 만료·무효 상태였던 이전 계좌가 주원인으로 사실상 확인됐고 endpoint entitlement case는 같은 오류가 새 계좌에서 재발할 때까지 닫는다.
 - 같은 날 invalid tick 4건과 network timeout 1건을 분리했다. invalid tick은 KRX 일반주권 500원 단위 위반이며 `broker_invalid_request/invalid_price_tick`으로 교정한다.
 - 2026-08-15 clean baseline은 이전 계좌 기준이라 새 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, 현재 유효일 `0/10`이며 계좌 소유자가 새 기준선 생성을 별도 승인하기 전에는 누적을 시작하지 않는다.
-- order-fill sync는 `EGW00201`, 7,200초 cooldown이며 36 submission의 fill 상태가 미완결이다. local/new-broker mismatch `086520/247540/373220`은 자동 정렬·삭제·reset하지 않는다.
+- 2026-09-05 장외 order-fill sync는 paper 1.0초 페이지 간격으로 3페이지/38행을 완결했다. submission 38/38 exact-linked, open 0/final 38/pending 0이고 체결 event 1건·2주를 적용했다. 이 one-off는 account snapshot/reconciliation을 수행하지 않았으며 자동 정렬·삭제·reset도 하지 않았다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
@@ -75,7 +76,7 @@
 
 ## 현재 blocker와 다음 순서
 
-1. `EGW00201` cooldown 종료 후 장외에서 broker order-fill sync/reconciliation을 정확히 1회 수행해 36 submission의 fill/reject/pending 상태와 local/new-broker 차이를 설명한다.
+1. 새 paper 계좌 account snapshot과 reconciliation을 장외에서 1회 수행해 local/broker position·cash 차이를 설명한다.
 2. 그 결과를 보고한 뒤에만 새 paper 계좌 snapshot 기준 Phase 0 clean baseline 승인 여부를 별도 검토한다.
 3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
 4. 다음 거래일에는 tick rejection 재발 여부와 WebSocket subscription/first-frame 복구 증적을 관찰한다.
