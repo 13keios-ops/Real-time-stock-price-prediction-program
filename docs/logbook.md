@@ -19,7 +19,7 @@
 - 현재 paper account epoch는 `paper-2026-09-03`, 활성일 `2026-09-03`, 만료일 `2026-12-03`이다. 갱신 준비는 `2026-11-03`, 긴급 경고는 `2026-11-26`부터다.
 - 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` read-only orderability가 통과했다. 2026-09-03 자연 cash-order submission 36건이 성공해 이전 account rejection은 만료·무효 상태였던 이전 계좌가 주원인으로 사실상 확인됐다.
 - 지정가 4건은 KRX 일반주권 500원 호가단위 위반, 1건은 network timeout으로 분리했다. 2026-09-05 order-fill sync는 3페이지/38행을 완결했고 `068270` 매도 체결 2주를 반영했다.
-- 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`이고 새 기준선 승인 전에는 유효일을 세지 않는다.
+- 2026-09-06 승인 marker-only clean baseline은 현재 계좌와 호환된다. 직후 reconciliation은 mismatch/effective cash/total asset gap `0`, Phase 0은 `no_history`, `0/10`이며 휴장일은 유효일로 세지 않는다.
 - Phase 0 prior epoch의 `10/10`, matched 0일, mismatch 10일과 네 종목 불일치 이력은 보존한다.
 - Phase 1b: bounded read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale. 반복 자동화 preflight는 네트워크·주문 호출 0회다.
 - runtime 원장: 2026-09-04 decision ledger `3,800/3,800`, complete lineage 100%, market/orderbook `3,811/4,049` symbol-minute, feature `3,800`행/closed coverage `97.44%`다.
@@ -47,7 +47,7 @@
 - [x] WebSocket 재구독 완료·첫 프레임 복구 증적 추가
 - [x] 2026-09-05 장외 order-fill sync 1회로 38 submission 상태 완결
 - [x] current account snapshot/reconciliation과 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
-- [ ] 결과 보고 뒤 계좌 소유자 승인으로 현재 계좌용 Phase 0 clean baseline 검토
+- [x] 계좌 소유자 승인으로 현재 계좌용 Phase 0 marker-only clean baseline 생성 및 gap 0 검증
 - [ ] 현재 계좌 Phase 0 유효 거래일 10개 모두 matched 확인
 - [x] hold-rescue canonical 15분/2.0%/15:20 기준 통일과 no-op threshold 선택 차단
 - [x] buy-avoid/hold-rescue 절대 손익 음수 판정 유지
@@ -70,7 +70,15 @@
 - 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
 - 새 paper 계좌 자연 cash-order submission 36건 성공 확인. 지정가 실패 4건은 KRX common-stock 호가단위 오류, 별도 1건은 network timeout
 - 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
-- Phase 0 current epoch: `baseline_review_required`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+- Phase 0 current epoch: compatible clean baseline, `no_history`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+
+## [2026-09-06] 현재 paper 계좌 Phase 0 clean baseline
+
+- 휴장일·live runtime 정지·`live_runtime_should_run=false`와 current epoch `paper-2026-09-03`을 확인한 뒤, 계좌 소유자 승인 범위로 `python3 -m app --align-local-paper-to-broker`를 정확히 1회 실행했다.
+- KIS paper account snapshot 기준 marker-only baseline은 `aligned_to_broker_marker`, position 2종목이며 immutable JSON backup을 보존했다. `SyncInitialCash`, order-fill 재조회, 주문·취소, 실전 계좌 호출은 실행하지 않았다.
+- 직후 account reconciliation 1회는 `aligned_waiting_first_submission`, position mismatch `0`, effective cash gap `0원`, total asset gap `0원`, raw cash gap `-1,850원`이다. current view는 `005930` 1주와 `035420` 2주다.
+- lifecycle은 baseline `compatible`, blocking reason 없음이다. Phase 0 history는 `no_history`, `0/10`, remaining 10이며 휴장일인 2026-09-06은 분모에 포함하지 않는다.
+- 실행 전 alignment/reconciliation/history 회귀 테스트 14건이 통과했다. 기존 원장과 이전 계좌 epoch의 10일 mismatch 이력은 삭제하거나 재작성하지 않았다.
 
 ## [2026-09-05] 로드맵 1단계 증거 정렬
 

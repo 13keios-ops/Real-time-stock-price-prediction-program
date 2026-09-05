@@ -106,11 +106,10 @@ python3 scripts/check_kis_paper_account_lifecycle.py
 - 현재 paper account epoch는 `paper-2026-09-03`, 활성일은 `2026-09-03`, 만료일은 `2026-12-03`이다.
 - 갱신 준비 경고는 `2026-11-03`부터, 긴급 경고는 `2026-11-26`부터 표시한다. `2026-12-03`부터는 만료로 fail-closed 한다.
 - lifecycle report의 `phase0_baseline.compatible=false`이면 이전 계좌 epoch와 현재 계좌 epoch를 섞지 않는다. broker sync/reconciliation을 반복하지 않고 `baseline_review_required`로 보고한다.
-- 현재 확인된 2026-08-15 clean baseline은 이전 계좌 기준이며 새 계좌 활성일보다 오래됐다. 계좌 소유자가 현재 계좌 기준선 생성을 별도 승인하기 전에는 Phase 0 유효일 누적을 시작하지 않는다.
+- 현재 clean baseline은 계좌 소유자 승인으로 2026-09-06 생성했으며 `paper-2026-09-03` epoch와 호환된다. 같은 baseline을 자동 재생성하지 않는다.
 - 2026-09-03 새 계좌의 자연 KIS cash-order submission 36건은 성공했고, 2026-09-05 order-fill sync가 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결됐다. `068270` 매도 체결 1건·2주도 로컬에 적용됐다.
-- 2026-09-04 current account snapshot/reconciliation은 정상 조회됐지만 이전 계좌 baseline 포지션과 당시 미동기화 `068270` 체결 때문에 mismatch 5건이었다. 2026-09-05 sync 뒤 account snapshot/reconciliation은 재호출하지 않았다.
-- baseline 재설정의 기술적 선행 확인은 끝났지만, 현재 계좌 snapshot 기준 clean baseline 생성은 계좌 소유자의 별도 명시 승인 전에는 실행하지 않는다.
-- latest reconciliation의 mismatch 관찰 종목은 `005930/068270/086520/247540/373220`이다. 이 중 `068270`은 후속 sync로 매도 2주가 반영됐으며, 나머지도 자동 삭제·import·reset 대상이 아니다.
+- 2026-09-04 이전 baseline 비교 mismatch 5건과 2026-09-05 후속 체결 동기화는 과거 진단으로 보존한다.
+- 2026-09-06 baseline 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`이다. 현재 epoch는 `no_history`, 유효일 `0/10`이며 휴장일 baseline 생성일은 분모에 넣지 않는다.
 - 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 broker sync/reconciliation을 중복 호출하지 않는다.
 - lifecycle과 baseline이 현재 계좌에 호환되고, 오늘 유효 기록이 없고, 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
 

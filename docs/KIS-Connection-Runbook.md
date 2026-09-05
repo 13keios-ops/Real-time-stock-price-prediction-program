@@ -369,6 +369,6 @@ python3 scripts/check_kis_paper_account_lifecycle.py --write-report
 
 같은 hard rejection이 재발할 때만 sanitized KIS error와 circuit/lineage를 확인하고 entitlement 조사를 다시 연다. 강제 cash order/cancel과 반복 orderability `--execute`는 하지 않는다.
 
-2026-08-15 Phase 0 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. 현재 상태는 `baseline_review_required`, `0/10`이다. 2026-09-05 장외 order-fill sync는 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0이었다. 자동 baseline·align·reset은 수행하지 않았다.
+2026-09-05 장외 order-fill sync는 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0이었다. 이어 2026-09-06 계좌 소유자 승인으로 current KIS paper snapshot 기준 marker-only clean baseline을 정확히 1회 생성했다. 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`이며 immutable backup과 이전 계좌 원장은 보존했다. `SyncInitialCash`, 주문·취소, order-fill 재조회는 실행하지 않았다.
 
-baseline 검토 전 남은 최소 조건은 current account snapshot과 reconciliation 1회로 local/broker position·cash 차이를 설명하고, 결과를 먼저 보고한 뒤 계좌 소유자의 명시 승인을 받는 것이다.
+현재 Phase 0은 baseline `compatible`, `no_history`, `0/10`이다. 휴장일 baseline 생성일은 분모에 넣지 않고, 기준선 뒤 정상 거래일 중 post-close·broker snapshot 성공·실제 mirrored submission 존재를 만족한 날만 누적한다. 같은 baseline을 자동 재생성하거나 강제 거래로 유효일을 만들지 않는다.

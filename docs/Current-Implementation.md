@@ -14,7 +14,7 @@
 - E7은 미래 거래일 5일, 실행 가능 모집단 episode 3,119, official episode 0으로 표본 축적 중이다. evaluator와 manifest는 일치하며 threshold `0.55`를 변경하지 않는다. official episode는 grouped episode의 첫 판단 시점 score로 정한다.
 - current paper account epoch는 `paper-2026-09-03`이고 2026-12-03 만료다. 자연 KIS cash-order submission 36건이 성공해 이전 계좌 무효 root cause와 account-orderability blocker 종료를 확인했다.
 - 2026-09-04 current account snapshot/reconciliation은 정상 조회됐지만 mismatch 5건과 cash gap을 기록했다. 이전 계좌의 2026-08-15 baseline 포지션과 당시 미동기화 `068270` 매도 체결이 원인이며, 2026-09-05 order-fill 동기화는 3페이지/38행과 submission 38/38을 완결하고 해당 매도 2주를 반영했다. account snapshot/reconciliation 재호출과 자동 정렬은 하지 않았다.
-- 2026-08-15 clean baseline은 이전 계좌 기준이라 현재 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, `0/10`으로 fail-closed한다.
+- 2026-09-06 계좌 소유자 승인으로 current KIS paper snapshot 기준 marker-only clean baseline을 생성했다. current epoch와 호환되고 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`, Phase 0 `no_history`, `0/10`이다. 휴장일 baseline 생성일은 유효일로 세지 않는다.
 - Phase 1b 과거 read-only 관측 통과는 연결 이력일 뿐이며 latest readiness가 stale하다. 2026-09-04 실제 WebSocket recovery는 data-quality에 저장됐지만 fresh readiness artifact에 연결되기 전에는 Phase 2/3 증거로 사용하지 않는다.
 
 ### 2026-07-12 수익성 판정

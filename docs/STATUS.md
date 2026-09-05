@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-05 16:36 KST
+- 확인 시각: 2026-09-06 07:11 KST
 - 장 상태: weekend
 - live runtime: 2026-09-04 15:30 KST 정상 종료 후 정지, `paper`
 - runtime watchdog: stale, process 정지, `live_runtime_should_run=false`
@@ -51,10 +51,11 @@
 - 새 APP 자격정보의 auth-only token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` read-only orderability가 모두 통과했다. 실제 주문·취소는 실행하지 않았다.
 - 새 계좌에서 2026-09-03 자연 KIS cash-order submission 36건이 성공했다. 이전 `broker_account_not_orderable`은 만료·무효 상태였던 이전 계좌가 주원인으로 사실상 확인됐고 endpoint entitlement case는 같은 오류가 새 계좌에서 재발할 때까지 닫는다.
 - 같은 날 invalid tick 4건과 network timeout 1건을 분리했다. invalid tick은 KRX 일반주권 500원 단위 위반이며 `broker_invalid_request/invalid_price_tick`으로 교정한다.
-- 2026-08-15 clean baseline은 이전 계좌 기준이라 새 계좌와 호환되지 않는다. Phase 0은 `baseline_review_required`, 현재 유효일 `0/10`이며 계좌 소유자가 새 기준선 생성을 별도 승인하기 전에는 누적을 시작하지 않는다.
-- 2026-09-04 current account snapshot/reconciliation은 정상 조회됐지만 `needs_review`였다. broker는 `005930` 1주·`035420` 2주, 당시 local 비교는 5개 mismatch와 cash gap `-4,382,557.78원`을 기록했다. 원인은 이전 계좌의 2026-08-15 baseline 포지션이 현재 view에 남아 있고 당시 `068270` 매도 체결이 아직 동기화되지 않은 상태가 함께 반영된 것이다.
+- 2026-09-06 계좌 소유자 승인으로 현재 KIS paper snapshot 기준 marker-only clean baseline을 생성했다. baseline은 current epoch와 `compatible`이고 immutable backup을 보존했다. `SyncInitialCash`, 주문·취소, order-fill 재조회는 실행하지 않았다.
+- 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch `0`, effective cash gap `0원`, total asset gap `0원`이다. current view는 `005930` 1주·`035420` 2주, 유효현금 `9,319,451원`, 총자산 `10,001,951원`이며 raw cash gap `-1,850원`은 KIS 현금 표시 정의 차이로 분리한다.
 - 2026-09-05 장외 order-fill sync는 paper 1.0초 페이지 간격으로 3페이지/38행을 완결했다. submission 38/38 exact-linked, open 0/final 38/pending 0이고 `068270` 매도 체결 1건·2주를 적용했다. 이 one-off는 account snapshot/reconciliation을 다시 호출하지 않았으며 자동 정렬·삭제·reset도 하지 않았다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
+- 현재 epoch는 `no_history`, 유효일 `0/10`, remaining `10`이다. 휴장일인 2026-09-06 baseline 생성일은 분모에 넣지 않고 기준선 뒤 첫 정상 거래일부터 누적한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다.
@@ -75,11 +76,12 @@
 11. KRX 지정가 호가단위를 single-source로 정규화하고 실제 request/evidence/submission 가격을 일치시켰다.
 12. WebSocket 재구독 완료·첫 프레임 복구 로그와 storm/common-gap 우선 `CRITICAL/실패` 판정을 추가했다.
 13. 2026-09-04 current account reconciliation과 2026-09-05 order-fill 완결을 교차 검증해 새 계좌 정합 blocker가 API 미완결이 아니라 이전 계좌 baseline 호환성임을 확인했다.
+14. 2026-09-06 승인 marker-only clean baseline을 생성하고 직후 reconciliation에서 position/effective cash/total asset gap 0을 확인했다.
 
 ## 현재 blocker와 다음 순서
 
-1. 새 paper 계좌 snapshot/reconciliation과 order-fill 완결 결과는 확보했다. 이전 계좌 baseline을 자동 재사용하거나 무시하지 않고 현재 계좌 기준선 생성 여부를 계좌 소유자 승인 대상으로 유지한다.
-2. 승인 전에는 account 조회·reconciliation을 반복하지 않고 Phase 0을 `baseline_review_required`, `0/10`으로 유지한다.
+1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
+2. 다음 정상 거래일부터 post-close·broker snapshot 성공·실제 mirrored submission 존재 조건을 만족한 유효일 10개를 모두 matched로 확인한다.
 3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
 4. 다음 거래일에는 tick rejection 재발 여부와 WebSocket subscription/first-frame 복구 증적을 관찰한다.
 5. B2 cumulative→delta partial-fill economics와 B3 SQLite transaction atomicity는 별도 작업으로 진행한다.
