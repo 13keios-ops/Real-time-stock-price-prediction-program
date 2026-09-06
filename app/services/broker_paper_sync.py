@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime
 import json
@@ -757,104 +758,116 @@ class BrokerPaperExecutionSync:
 
             delta_fill_qty = max(filled_qty - previous_applied_fill_qty, 0)
             next_applied_fill_qty = previous_applied_fill_qty
+            previous_status = str(previous_snapshot.get("status") or "")
+            status_changed = previous_status != status or delta_fill_qty > 0
+            portfolio_before = deepcopy(self.portfolio_book) if delta_fill_qty > 0 else None
+            try:
+                with sqlite_store.transaction():
+                    sqlite_store.update_paper_order_status(local_order_id, status)
 
-            sqlite_store.update_paper_order_status(local_order_id, status)
+                    if delta_fill_qty > 0:
+                        fill_time = synced_at
+                        previous_fill_qty, previous_fill_notional = sqlite_store.fetch_paper_fill_totals(local_order_id)
+                        fill_price = _derive_delta_fill_price(
+                            cumulative_filled_qty=filled_qty,
+                            cumulative_avg_fill_price=avg_fill_price,
+                            cumulative_filled_amount=(
+                                float(broker_row.filled_amount or 0.0)
+                                if broker_row is not None
+                                else 0.0
+                            ),
+                            delta_fill_qty=delta_fill_qty,
+                            previous_fill_qty=previous_fill_qty,
+                            previous_fill_notional=previous_fill_notional,
+                        ) or float(paper_order.get("limit_price", 0.0) or 0.0)
+                        commission = fill_price * delta_fill_qty * self.engine.commission_rate
+                        tax = calculate_domestic_stock_fill_tax(
+                            side=side,
+                            gross_notional=fill_price * delta_fill_qty,
+                            sell_tax_rate=self.engine.tax_rate,
+                        )
+                        fill = Fill(
+                            fill_id=self._next_id("fill-broker-sync"),
+                            order_id=local_order_id,
+                            event_time=fill_time,
+                            fill_price=fill_price,
+                            fill_qty=delta_fill_qty,
+                            commission=commission,
+                            tax=tax,
+                        )
+                        fill_event = OrderEvent(
+                            order_event_id=self._next_id("order-event-broker-sync"),
+                            order_id=local_order_id,
+                            event_time=fill_time,
+                            event_type="broker_fill_sync",
+                            detail=(
+                                f"filled_qty={delta_fill_qty};delta_fill_price={fill_price:.2f};"
+                                f"broker_cumulative_avg_fill_price={avg_fill_price:.2f};"
+                                f"broker_order_no={submission.get('broker_order_no')}"
+                            ),
+                        )
+                        self.writer.write_fill(fill)
+                        self.writer.write_order_event(fill_event)
+                        symbol = str(submission.get("symbol") or paper_order.get("symbol") or "")
+                        if side == "buy":
+                            self.portfolio_book.apply_buy_fill(symbol=symbol, fill=fill, fill_price=fill_price)
+                        else:
+                            self.portfolio_book.close_position(symbol=symbol, fill=fill, fill_price=fill_price)
+                        self.writer.write_paper_position(
+                            self.portfolio_book.to_position_record(symbol, updated_at=fill.event_time)
+                        )
+                        self.writer.write_portfolio_snapshot(
+                            self.portfolio_book.to_portfolio_snapshot(
+                                snapshot_id=self._next_id("portfolio-broker-sync"),
+                                event_time=fill.event_time,
+                            )
+                        )
+                        next_applied_fill_qty = filled_qty
+
+                    if status_changed:
+                        status_event = OrderEvent(
+                            order_event_id=self._next_id("order-event-broker-status"),
+                            order_id=local_order_id,
+                            event_time=synced_at,
+                            event_type="broker_status_sync",
+                            detail=f"status={status};filled_qty={filled_qty};remaining_qty={remaining_qty};matched={matched}",
+                        )
+                        self.writer.write_order_event(status_event)
+
+                    snapshot = BrokerOrderStatusSnapshot(
+                        sync_id=self._next_id("broker-sync"),
+                        local_order_id=local_order_id,
+                        broker_mode=str(submission.get("broker_mode") or "paper"),
+                        symbol=str(submission.get("symbol") or paper_order.get("symbol") or ""),
+                        synced_at=synced_at,
+                        order_date=(broker_row.order_date if broker_row is not None else order_date_key),
+                        side=side,
+                        order_qty=order_qty,
+                        filled_qty=filled_qty,
+                        remaining_qty=remaining_qty,
+                        avg_fill_price=avg_fill_price,
+                        status=status,
+                        broker_order_no=str(submission.get("broker_order_no") or ""),
+                        broker_branch_no=str(submission.get("broker_branch_no") or ""),
+                        reject_qty=reject_qty,
+                        cancel_confirm_qty=cancel_confirm_qty,
+                        cancel_yn=cancel_yn,
+                        matched=matched,
+                        applied_fill_qty=next_applied_fill_qty,
+                        detail=(broker_row.raw_output if broker_row is not None else {"status": "pending_lookup"}),
+                    )
+                    if _broker_status_snapshot_changed(previous_snapshot, snapshot):
+                        self.writer.write_broker_order_status_snapshot(snapshot)
+            except BaseException:
+                if portfolio_before is not None:
+                    self.portfolio_book = portfolio_before
+                raise
 
             if delta_fill_qty > 0:
-                fill_time = synced_at
-                previous_fill_qty, previous_fill_notional = sqlite_store.fetch_paper_fill_totals(local_order_id)
-                fill_price = _derive_delta_fill_price(
-                    cumulative_filled_qty=filled_qty,
-                    cumulative_avg_fill_price=avg_fill_price,
-                    cumulative_filled_amount=(
-                        float(broker_row.filled_amount or 0.0)
-                        if broker_row is not None
-                        else 0.0
-                    ),
-                    delta_fill_qty=delta_fill_qty,
-                    previous_fill_qty=previous_fill_qty,
-                    previous_fill_notional=previous_fill_notional,
-                ) or float(paper_order.get("limit_price", 0.0) or 0.0)
-                commission = fill_price * delta_fill_qty * self.engine.commission_rate
-                tax = calculate_domestic_stock_fill_tax(
-                    side=side,
-                    gross_notional=fill_price * delta_fill_qty,
-                    sell_tax_rate=self.engine.tax_rate,
-                )
-                fill = Fill(
-                    fill_id=self._next_id("fill-broker-sync"),
-                    order_id=local_order_id,
-                    event_time=fill_time,
-                    fill_price=fill_price,
-                    fill_qty=delta_fill_qty,
-                    commission=commission,
-                    tax=tax,
-                )
-                fill_event = OrderEvent(
-                    order_event_id=self._next_id("order-event-broker-sync"),
-                    order_id=local_order_id,
-                    event_time=fill_time,
-                    event_type="broker_fill_sync",
-                    detail=(
-                        f"filled_qty={delta_fill_qty};delta_fill_price={fill_price:.2f};"
-                        f"broker_cumulative_avg_fill_price={avg_fill_price:.2f};"
-                        f"broker_order_no={submission.get('broker_order_no')}"
-                    ),
-                )
-                self.writer.write_fill(fill)
-                self.writer.write_order_event(fill_event)
-                symbol = str(submission.get("symbol") or paper_order.get("symbol") or "")
-                if side == "buy":
-                    self.portfolio_book.apply_buy_fill(symbol=symbol, fill=fill, fill_price=fill_price)
-                else:
-                    self.portfolio_book.close_position(symbol=symbol, fill=fill, fill_price=fill_price)
-                self.writer.write_paper_position(self.portfolio_book.to_position_record(symbol, updated_at=fill.event_time))
-                self.writer.write_portfolio_snapshot(
-                    self.portfolio_book.to_portfolio_snapshot(
-                        snapshot_id=self._next_id("portfolio-broker-sync"),
-                        event_time=fill.event_time,
-                    )
-                )
-                next_applied_fill_qty = filled_qty
                 applied_fill_events += 1
                 applied_fill_qty += delta_fill_qty
-
-            previous_status = str(previous_snapshot.get("status") or "")
-            if previous_status != status or delta_fill_qty > 0:
+            if status_changed:
                 updated_orders += 1
-                status_event = OrderEvent(
-                    order_event_id=self._next_id("order-event-broker-status"),
-                    order_id=local_order_id,
-                    event_time=synced_at,
-                    event_type="broker_status_sync",
-                    detail=f"status={status};filled_qty={filled_qty};remaining_qty={remaining_qty};matched={matched}",
-                )
-                self.writer.write_order_event(status_event)
-
-            snapshot = BrokerOrderStatusSnapshot(
-                sync_id=self._next_id("broker-sync"),
-                local_order_id=local_order_id,
-                broker_mode=str(submission.get("broker_mode") or "paper"),
-                symbol=str(submission.get("symbol") or paper_order.get("symbol") or ""),
-                synced_at=synced_at,
-                order_date=(broker_row.order_date if broker_row is not None else order_date_key),
-                side=side,
-                order_qty=order_qty,
-                filled_qty=filled_qty,
-                remaining_qty=remaining_qty,
-                avg_fill_price=avg_fill_price,
-                status=status,
-                broker_order_no=str(submission.get("broker_order_no") or ""),
-                broker_branch_no=str(submission.get("broker_branch_no") or ""),
-                reject_qty=reject_qty,
-                cancel_confirm_qty=cancel_confirm_qty,
-                cancel_yn=cancel_yn,
-                matched=matched,
-                applied_fill_qty=next_applied_fill_qty,
-                detail=(broker_row.raw_output if broker_row is not None else {"status": "pending_lookup"}),
-            )
-            if _broker_status_snapshot_changed(previous_snapshot, snapshot):
-                self.writer.write_broker_order_status_snapshot(snapshot)
             latest_status_by_order[local_order_id] = snapshot.to_record()
 
         payload = {

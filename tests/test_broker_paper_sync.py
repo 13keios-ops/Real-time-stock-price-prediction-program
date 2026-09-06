@@ -282,6 +282,100 @@ class BrokerPaperSyncTests(unittest.TestCase):
             7 * 70010.0,
         )
 
+    def test_sync_rolls_back_fill_accounting_when_position_write_fails(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        sync_time = datetime.fromisoformat("2026-04-17T10:20:00+09:00")
+        broker_row = KisDailyOrderFillRecord(
+            mode="paper",
+            order_date="20260417",
+            broker_branch_no="00111",
+            broker_order_no="1234567890",
+            original_order_no="",
+            symbol="005930",
+            symbol_name="삼성전자",
+            side="02",
+            side_name="매수",
+            order_type_code="00",
+            order_type_name="지정가",
+            order_time="101500",
+            order_qty=3,
+            order_price=70000.0,
+            filled_qty=3,
+            remaining_qty=0,
+            avg_fill_price=70100.0,
+            filled_amount=210300.0,
+            cancel_confirm_qty=0,
+            reject_qty=0,
+            cancel_yn=False,
+            exchange_id="KRX",
+            raw_output={"odno": "1234567890"},
+        )
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=3,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+            service = BrokerPaperExecutionSync(settings, writer=writer)
+            initial_cash = service.portfolio_book.cash_balance
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=sync_time):
+                with patch.object(
+                    service.broker_mirror,
+                    "fetch_recent_order_fills",
+                    return_value=[broker_row],
+                ):
+                    with patch.object(
+                        writer,
+                        "write_paper_position",
+                        side_effect=RuntimeError("forced position write failure"),
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "forced position write failure"):
+                            service.sync_recent_orders()
+
+            sqlite_store = get_sqlite_store(settings)
+            order = sqlite_store.fetch_latest_row_by_column(
+                "paper_orders",
+                "order_id",
+                "paper-order-online-000001",
+                "event_time",
+            )
+
+        self.assertEqual(str(order["status"]), "submitted")
+        self.assertEqual(sqlite_store.count_rows("paper_fills"), 0)
+        self.assertEqual(sqlite_store.count_rows("paper_order_events"), 0)
+        self.assertEqual(sqlite_store.count_rows("paper_positions"), 0)
+        self.assertEqual(sqlite_store.count_rows("paper_portfolio_snapshots"), 0)
+        self.assertEqual(sqlite_store.count_rows("broker_paper_order_status_snapshots"), 0)
+        self.assertEqual(service.portfolio_book.cash_balance, initial_cash)
+        self.assertEqual(service.portfolio_book.open_position_count(), 0)
+
     def test_sync_does_not_append_unchanged_broker_status_snapshot(self) -> None:
         root, env = self._prepare_runtime()
         event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")

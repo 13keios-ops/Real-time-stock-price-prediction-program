@@ -72,6 +72,7 @@
 - KIS 브로커 모의계좌 잔고 조회
 - 로컬 가상 계좌와 브로커 모의계좌 정합성 점검
 - 로컬 가상 주문을 KIS 모의계좌로 함께 제출하는 브로커 모의계좌 미러링
+- broker paper 체결 동기화는 local order 하나의 상태·체결·이벤트·포지션·portfolio/broker snapshot을 SQLite 단일 transaction으로 반영하며 중간 실패 시 메모리 portfolio도 원복한다. SQLite가 정본이고 JSONL은 별도 append-only 보조본이므로 두 저장소 사이의 분산 transaction은 제공하지 않는다.
 - 보통주 지정가를 KRX 공식 호가단위로 매수 하향·매도 상향 정규화하고 실제 request/evidence/submission 가격을 일치시키는 single-source helper. ETF/ETN은 명시 유형일 때만 별도 규칙을 사용한다.
 - 브로커 기준 표시자 기반 모의계좌 기준선 정렬
 - KIS 호출 제한 재시도와 안전 실패 처리

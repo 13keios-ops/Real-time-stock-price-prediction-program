@@ -64,7 +64,8 @@
 
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
-- 전체 unittest: `627 tests OK` in 33.770s, 테스트 쓰기는 `.tmp-tests/` 격리
+- broker paper sync/SQLite/runtime writer/reconciliation/alignment targeted unittest: `37 tests OK`
+- 전체 unittest: `629 tests OK` in 35.173s, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
 - 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
@@ -78,6 +79,14 @@
 - 같은 local order의 기존 `paper_fills` 수량·체결대금을 읽고, KIS 누적 체결대금과의 차이를 delta 수량으로 나눠 새 fill 가격·수수료·세금을 계산하도록 수정했다. 원장 수량이 snapshot과 다르면 누적 평균가로 fallback하며 B3 transaction atomicity 범위는 건드리지 않았다.
 - 4주 평균 70,000원 뒤 누적 7주 평균 70,010원인 재현에서 두 번째 3주를 70,023.33원으로 기록하고 전체 체결대금이 KIS 누적값과 일치함을 검증했다.
 - broker paper/reconciliation/alignment 관련 22건과 전체 628건이 통과했다. E7 evaluator/manifest/threshold, active model, signal/gate/allocator, Phase 0 baseline, runtime DB는 변경하지 않았다.
+
+## [2026-09-06] broker paper SQLite accounting 원자화
+
+- 기존 broker paper sync는 주문 상태, 체결, 이벤트, 포지션, portfolio/broker snapshot을 각각 commit해 중간 저장 실패 시 부분 반영될 수 있었다.
+- `SQLiteRuntimeStore.transaction()`을 추가하고 local order 한 건의 관련 SQLite 쓰기를 단일 transaction으로 묶었다. 같은 문맥의 read/write helper는 같은 연결을 사용하며, 중간 실패 시 DB rollback과 `PaperPortfolioBook` 복원을 함께 수행한다.
+- 포지션 저장 실패 주입 시 주문 상태가 `submitted`로 유지되고 체결·이벤트·포지션·snapshot이 0건이며 현금과 보유 상태도 원복되는 회귀 테스트를 추가했다.
+- SQLite가 정본이다. JSONL은 append-only 보조본이라 SQLite와의 분산 transaction은 제공하지 않으며, 실패 재시도 시 보조본에 orphan append가 남을 수 있다는 기존 저장 구조의 한계는 유지한다.
+- 관련 37건과 전체 629건이 통과했다. E7 evaluator/manifest/threshold, active model, signal/gate/allocator, Phase 0 baseline, runtime DB는 변경하지 않았다.
 
 ## [2026-09-06] 현재 paper 계좌 Phase 0 clean baseline
 

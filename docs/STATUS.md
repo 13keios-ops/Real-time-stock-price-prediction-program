@@ -78,6 +78,7 @@
 13. 2026-09-04 current account reconciliation과 2026-09-05 order-fill 완결을 교차 검증해 새 계좌 정합 blocker가 API 미완결이 아니라 이전 계좌 baseline 호환성임을 확인했다.
 14. 2026-09-06 승인 marker-only clean baseline을 생성하고 직후 reconciliation에서 position/effective cash/total asset gap 0을 확인했다.
 15. broker paper 부분체결은 KIS 누적 체결대금에서 이미 기록한 local fill 대금을 빼 delta 체결가를 계산하도록 수정했다. E7/Phase 0 기준과 과거 원장은 변경하지 않았다.
+16. broker paper sync의 주문 상태·체결·이벤트·포지션·portfolio/broker snapshot SQLite 쓰기를 local order 단위 단일 transaction으로 묶었다. 중간 실패 시 DB와 메모리 portfolio를 함께 원복한다.
 
 ## 현재 blocker와 다음 순서
 
@@ -85,7 +86,7 @@
 2. 다음 정상 거래일부터 post-close·broker snapshot 성공·실제 mirrored submission 존재 조건을 만족한 유효일 10개를 모두 matched로 확인한다.
 3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
 4. 다음 거래일에는 tick rejection 재발 여부와 WebSocket subscription/first-frame 복구 증적을 관찰한다.
-5. B2 cumulative→delta partial-fill economics는 완료했다. 다음 장외 구현은 B3 SQLite order/fill/position transaction atomicity다.
+5. B2 cumulative→delta partial-fill economics와 B3 SQLite accounting atomicity는 완료했다. 다음 구현은 별도 범위 확인 뒤 fresh Phase 1b evidence linkage와 Phase 2 live-canary 안전 항목 순서로 진행한다.
 
 ## 기준 문서
 

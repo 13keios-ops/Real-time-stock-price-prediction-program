@@ -6,10 +6,11 @@ import json
 import logging
 import sqlite3
 import time
-from collections.abc import Iterable
-from contextlib import closing, suppress
+from collections.abc import Iterable, Iterator
+from contextlib import closing, contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
+from threading import local
 from typing import Any
 
 from app.storage.contracts import (
@@ -91,6 +92,7 @@ class SQLiteRuntimeStore:
         self.busy_timeout_ms = max(int(busy_timeout_ms), 1_000)
         self.read_retry_delays = tuple(read_retry_delays)
         self.write_retry_delays = tuple(write_retry_delays)
+        self._transaction_state = local()
         self.sqlite_journal_mode: str | None = None
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         if initialize_schema:
@@ -101,6 +103,47 @@ class SQLiteRuntimeStore:
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms}")
         return connection
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        if getattr(self._transaction_state, "connection", None) is not None:
+            raise RuntimeError("nested SQLite transactions are not supported")
+
+        connection: sqlite3.Connection | None = None
+        last_error: sqlite3.OperationalError | None = None
+        for attempt, delay_seconds in enumerate(self.write_retry_delays):
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            candidate = self._connect()
+            try:
+                candidate.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                candidate.close()
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                if attempt == len(self.write_retry_delays) - 1:
+                    raise
+                continue
+            connection = candidate
+            break
+
+        if connection is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("SQLite transaction could not be started")
+
+        self._transaction_state.connection = connection
+        try:
+            yield
+            connection.commit()
+        except BaseException:
+            with suppress(sqlite3.Error):
+                connection.rollback()
+            raise
+        finally:
+            self._transaction_state.connection = None
+            connection.close()
 
     def _initialize_schema(self) -> None:
         statements = [
@@ -755,6 +798,10 @@ class SQLiteRuntimeStore:
         *,
         single: bool = False,
     ) -> sqlite3.Row | list[sqlite3.Row] | None:
+        transaction_connection = getattr(self._transaction_state, "connection", None)
+        if transaction_connection is not None:
+            cursor = transaction_connection.execute(query, params)
+            return cursor.fetchone() if single else list(cursor)
         last_error: sqlite3.OperationalError | None = None
         for attempt, delay_seconds in enumerate(self.read_retry_delays):
             if delay_seconds > 0:
@@ -774,6 +821,10 @@ class SQLiteRuntimeStore:
         return None
 
     def _run_write_query(self, query: str, params: tuple[Any, ...] = ()) -> None:
+        transaction_connection = getattr(self._transaction_state, "connection", None)
+        if transaction_connection is not None:
+            transaction_connection.execute(query, params)
+            return
         last_error: sqlite3.OperationalError | None = None
         for attempt, delay_seconds in enumerate(self.write_retry_delays):
             if delay_seconds > 0:
@@ -793,6 +844,10 @@ class SQLiteRuntimeStore:
             raise last_error
 
     def _run_write_query_rowcount(self, query: str, params: tuple[Any, ...] = ()) -> int:
+        transaction_connection = getattr(self._transaction_state, "connection", None)
+        if transaction_connection is not None:
+            cursor = transaction_connection.execute(query, params)
+            return int(cursor.rowcount or 0)
         last_error: sqlite3.OperationalError | None = None
         for attempt, delay_seconds in enumerate(self.write_retry_delays):
             if delay_seconds > 0:
@@ -2152,6 +2207,10 @@ class SQLiteRuntimeStore:
 
     def _run_write_many(self, query: str, params_list: list[tuple[Any, ...]]) -> None:
         if not params_list:
+            return
+        transaction_connection = getattr(self._transaction_state, "connection", None)
+        if transaction_connection is not None:
+            transaction_connection.executemany(query, params_list)
             return
         last_error: sqlite3.OperationalError | None = None
         for attempt, delay_seconds in enumerate(self.write_retry_delays):
