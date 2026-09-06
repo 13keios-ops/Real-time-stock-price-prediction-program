@@ -70,6 +70,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] live manager의 `limit` 주문을 KIS `ORD_DVSN=00` 계약으로 변환하고 local idempotency key를 broker request에서 분리
 - [x] live cancel에 local order 미체결 잔량을 KIS `order_qty`로 전달
 - [x] live submit의 market-data freshness 판정과 필수검사 flag를 guard까지 전달
+- [x] restart inflight live order를 완결된 broker history와 exact identity로만 복구하고 불확실하면 `UNKNOWN` 유지
 - [x] current account snapshot/reconciliation 1회와 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [x] 계좌 소유자 승인으로 현재 계좌용 Phase 0 marker-only clean baseline 생성 및 gap 0 검증
 - [ ] 현재 계좌 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인

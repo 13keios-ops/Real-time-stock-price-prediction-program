@@ -59,8 +59,8 @@
 
 - 상태: 미시작
 - blocker: Phase 0, 검증된 양수 수익 후보, fresh Phase 1b readiness, real WS recovery, fresh market status, 유효 kill switch OFF
-- 준비 완료: manager→KIS 지정가 submit 계약, cancel 잔량 계약, market-data freshness guard 전달
-- 남은 안전 작업: restart 뒤 `UNKNOWN` 주문의 broker-authoritative reconciliation
+- 준비 완료: manager→KIS 지정가 submit 계약, cancel 잔량 계약, market-data freshness guard 전달, restart `UNKNOWN` broker-authoritative reconciliation
+- Phase 2 runtime 조립 조건: startup에서 검증된 단일 recovery 엔트리포인트 호출
 
 ### Phase 3: 다종목 일일 한도
 
@@ -83,7 +83,7 @@
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
 4. 실제 WebSocket recovery evidence는 있으나 fresh Phase 1b readiness 연결 미완성
-5. restart 뒤 `UNKNOWN` live order의 broker-authoritative reconciliation 미완성
+5. Phase 2 runtime startup에 broker-authoritative recovery 호출 연결 필요
 
 ## 5. 다음 순서
 
@@ -92,7 +92,7 @@
 3. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
 4. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
 5. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
-6. Phase 2 전 restart `UNKNOWN` 주문의 broker-authoritative reconciliation을 완결한다.
+6. Phase 2 runtime startup이 검증된 broker-authoritative recovery 엔트리포인트를 호출하도록 연결한다.
 
 ## 6. 동결 범위
 

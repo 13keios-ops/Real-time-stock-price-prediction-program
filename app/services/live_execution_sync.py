@@ -14,13 +14,17 @@ from datetime import datetime
 from typing import Any
 
 from app.brokers.kis_response_redaction import redact_kis_payload
-from app.services.live_order_manager import ALLOWED_TRANSITIONS, LiveOrderTransitionError
+from app.services.live_order_manager import ALLOWED_TRANSITIONS, LiveOrderManager, LiveOrderTransitionError
 from app.storage.contracts import LiveFill, LiveOrderEvent
 from app.storage.runtime_writer import RuntimeWriter
 
 
 LIVE_FINAL_ORDER_STATUSES = {"filled", "cancelled", "cancelled_partial", "expired", "rejected"}
 LIVE_INFLIGHT_ORDER_STATUSES = {"accepted", "open", "partially_filled", "unknown", "stuck", "cancel_requested"}
+
+
+class LiveRecoveryIncompleteError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +99,15 @@ class LiveFillConsistencySummary:
         return self.mismatch_count == 0
 
 
+@dataclass(frozen=True, slots=True)
+class LiveRecoveryReconciliationResult:
+    status: str
+    queried_order_count: int
+    broker_record_count: int
+    reconciled_order_ids: tuple[str, ...]
+    unresolved: tuple[tuple[str, str], ...]
+
+
 def snapshot_from_kis_daily_order_fill(record: Any, *, matched: bool = True) -> LiveBrokerOrderSnapshot:
     raw_output = _as_dict(_field(record, "raw_output", {}))
     expired = _flag(raw_output, "expired", "expire_yn", "ord_expired", "order_expired")
@@ -164,6 +177,89 @@ class LiveExecutionSync:
             raise ValueError("LiveExecutionSync requires a SQLiteRuntimeStore")
         self.writer = writer
         self.store = writer.sqlite_store
+
+    def recover_open_orders_from_broker(
+        self,
+        *,
+        trading_day: str,
+        broker: Any,
+        synced_at: datetime,
+        settlement_day: str,
+        max_pages: int = 10,
+    ) -> LiveRecoveryReconciliationResult:
+        if str(getattr(getattr(broker, "profile", None), "mode", "")).lower() != "live":
+            raise ValueError("live order recovery requires a live profile broker")
+        LiveOrderManager(self.writer).recover_open_orders(trading_day=trading_day, recovered_at=synced_at)
+        unknown_rows = self.store.fetch_open_live_orders(trading_day, statuses=("unknown",))
+        if not unknown_rows:
+            return LiveRecoveryReconciliationResult(
+                status="no_unknown_orders",
+                queried_order_count=0,
+                broker_record_count=0,
+                reconciled_order_ids=(),
+                unresolved=(),
+            )
+
+        query_day = trading_day.replace("-", "")
+        if len(query_day) != 8 or not query_day.isdigit():
+            raise ValueError("trading_day must use YYYY-MM-DD")
+        records = broker.get_daily_order_fills(
+            start_date=query_day,
+            end_date=query_day,
+            max_pages=max(int(max_pages), 1),
+        )
+        if broker.last_daily_order_fill_query.get("pagination_complete") is not True:
+            raise LiveRecoveryIncompleteError("live broker order history pagination is incomplete")
+
+        records_by_key: dict[tuple[str, str], list[Any]] = {}
+        for record in records:
+            key = _broker_order_key(record)
+            if all(key):
+                records_by_key.setdefault(key, []).append(record)
+
+        local_key_counts: dict[tuple[str, str], int] = {}
+        for row in unknown_rows:
+            key = (str(row["broker_branch_no"] or ""), str(row["broker_order_no"] or ""))
+            if all(key):
+                local_key_counts[key] = local_key_counts.get(key, 0) + 1
+
+        reconciled: list[str] = []
+        unresolved: list[tuple[str, str]] = []
+        for row in unknown_rows:
+            order_id = str(row["order_id"])
+            key = (str(row["broker_branch_no"] or ""), str(row["broker_order_no"] or ""))
+            if not all(key):
+                unresolved.append((order_id, "broker_identity_missing"))
+                continue
+            if local_key_counts[key] != 1:
+                unresolved.append((order_id, "local_broker_identity_ambiguous"))
+                continue
+            matches = records_by_key.get(key, [])
+            if not matches:
+                unresolved.append((order_id, "broker_order_not_found"))
+                continue
+            if len(matches) != 1:
+                unresolved.append((order_id, "broker_order_match_ambiguous"))
+                continue
+            record = matches[0]
+            if not _record_matches_live_order(record, row, query_day):
+                unresolved.append((order_id, "broker_identity_mismatch"))
+                continue
+            self.apply_order_snapshot_and_fill_delta(
+                order_id=order_id,
+                snapshot=snapshot_from_kis_daily_order_fill(record),
+                synced_at=synced_at,
+                settlement_day=settlement_day,
+            )
+            reconciled.append(order_id)
+
+        return LiveRecoveryReconciliationResult(
+            status="attention_required" if unresolved else "reconciled",
+            queried_order_count=len(unknown_rows),
+            broker_record_count=len(records),
+            reconciled_order_ids=tuple(reconciled),
+            unresolved=tuple(unresolved),
+        )
 
     def apply_order_snapshot(
         self,
@@ -411,6 +507,22 @@ def _field(record: Any, name: str, default: Any) -> Any:
     if isinstance(record, dict):
         return record.get(name, default)
     return getattr(record, name, default)
+
+
+def _broker_order_key(record: Any) -> tuple[str, str]:
+    return (
+        str(_field(record, "broker_branch_no", "") or ""),
+        str(_field(record, "broker_order_no", "") or ""),
+    )
+
+
+def _record_matches_live_order(record: Any, row: Any, query_day: str) -> bool:
+    return (
+        str(_field(record, "order_date", "") or "").replace("-", "") == query_day
+        and str(_field(record, "symbol", "") or "") == str(row["symbol"])
+        and _to_side_text(str(_field(record, "side", "") or "")) == str(row["side"])
+        and int(_field(record, "order_qty", 0) or 0) == int(row["qty"] or 0)
+    )
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

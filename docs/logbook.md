@@ -65,7 +65,7 @@
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
 - broker paper sync/SQLite/runtime writer/reconciliation/alignment targeted unittest: `37 tests OK`
-- 전체 unittest: `631 tests OK` in 32.826s, 테스트 쓰기는 `.tmp-tests/` 격리
+- 전체 unittest: `637 tests OK` in 33.998s, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
 - 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
@@ -79,6 +79,12 @@
 - `KisLiveOrderAdapter`가 `limit`을 `ORD_DVSN=00`으로 변환하고 local idempotency key를 원시 request에서 제외한다. cancel은 manager가 저장한 미체결 잔량을 KIS `order_qty`로 전달하며 local reason은 broker에 보내지 않는다.
 - submit에 market-data freshness 판정과 필수검사 flag를 추가해 기존 `LiveOrderGuard`가 stale/missing 증거를 실제 broker 호출 전에 차단하도록 연결했다.
 - adapter/manager/guard/execution sync/client isolation 관련 57건과 전체 631건이 통과했다. 실전 주문·취소, E7 threshold/model/manifest, signal/gate/allocator, `app/risk/`, `config/`, Phase 0 baseline, runtime DB는 변경하지 않았다.
+
+## [2026-09-06] restart live order broker-authoritative recovery
+
+- `LiveExecutionSync.recover_open_orders_from_broker()`가 restart inflight 주문을 먼저 `UNKNOWN`으로 표시하고, live profile의 해당 거래일 KIS order-fill history를 한 번 조회해 완결 응답만 적용하도록 구현했다.
+- broker branch/order number와 date/symbol/side/qty가 정확히 일치하는 단일 행만 기존 status/fill delta sync에 전달한다. pagination 불완전, history 누락, identity 불일치, 중복은 terminal 상태를 추정하지 않고 `UNKNOWN`과 명시적 unresolved reason을 유지한다.
+- focused live execution/manager/adapter 48건과 전체 637건이 통과했다. 실제 KIS 네트워크와 실전 주문·취소는 0회이며, Phase 2 runtime startup 연결은 해당 단계의 조립 작업으로 남긴다.
 
 ## [2026-09-06] broker paper 부분체결 delta 가격 교정
 

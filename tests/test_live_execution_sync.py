@@ -1,7 +1,7 @@
 import json
 import unittest
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from app.services.live_kill_switch import LiveKillSwitch
 from app.services.live_order_manager import BrokerSubmitResult, LiveOrderIntentRequest, LiveOrderManager
 from app.services.live_execution_sync import (
     LiveExecutionSync,
+    LiveRecoveryIncompleteError,
     build_live_order_sync_decision,
     derive_live_order_status,
     snapshot_from_kis_daily_order_fill,
@@ -36,6 +37,23 @@ class FakeSubmitBroker:
             broker_branch_no="01",
             raw_response={"rt_cd": "0"},
         )
+
+
+@dataclass(slots=True)
+class FakeProfile:
+    mode: str = "live"
+
+
+class FakeOrderHistoryBroker:
+    def __init__(self, records, *, pagination_complete: bool = True, mode: str = "live") -> None:
+        self.records = list(records)
+        self.profile = FakeProfile(mode=mode)
+        self.last_daily_order_fill_query = {"pagination_complete": pagination_complete}
+        self.calls = []
+
+    def get_daily_order_fills(self, **kwargs):
+        self.calls.append(kwargs)
+        return list(self.records)
 
 
 class LiveExecutionSyncTests(unittest.TestCase):
@@ -146,6 +164,38 @@ class LiveExecutionSyncTests(unittest.TestCase):
             created_at=self._now(),
             order_policy={"type": "phase2_limit_only", "max_order_notional": 1_000_000, "max_order_qty": 10},
         )
+
+    def _submitted_order(self, writer: RuntimeWriter):
+        manager = LiveOrderManager(writer)
+        intent = manager.create_intent(self._request())
+        manager.submit_intent(
+            order_id=intent.order_id,
+            settings=FakeSettings(),
+            profile_mode="live",
+            kill_switch_state=self._kill_switch_state(writer),
+            market_status_decision=self._market_decision(),
+            phase_approved=True,
+            broker=FakeSubmitBroker(),
+            submitted_at=self._now(),
+            ws_recovery_evidence_type="real_kis_ws_observed",
+        )
+        return intent
+
+    def _unknown_order(self, writer: RuntimeWriter):
+        intent = self._submitted_order(writer)
+        manager = LiveOrderManager(writer)
+        manager.store.update_live_order_transition(
+            order_id=intent.order_id,
+            status="unknown",
+            broker_order_no="broker-1",
+            broker_branch_no="01",
+            reject_reason=None,
+            cancel_reason=None,
+            submitted_at=self._now(),
+            last_synced_at=self._now(),
+            detail_json={"order_policy": {}, "blocking_reasons": [], "raw_broker_response": {}},
+        )
+        return intent
 
     def test_snapshot_from_kis_daily_order_fill_matches_redacted_runtime_fixture(self) -> None:
         snapshot = snapshot_from_kis_daily_order_fill(self._redacted_runtime_fixture_record())
@@ -491,6 +541,136 @@ class LiveExecutionSyncTests(unittest.TestCase):
 
         self.assertEqual(decision.status, "unknown")
         self.assertEqual(writer.sqlite_store.fetch_live_order(intent.order_id)["status"], "unknown")
+
+    def test_reconcile_unknown_order_from_complete_broker_history(self) -> None:
+        writer = self._writer()
+        intent = self._submitted_order(writer)
+        broker = FakeOrderHistoryBroker([
+            self._record(filled_qty=10, remaining_qty=0, avg_fill_price=70010.0)
+        ])
+
+        result = LiveExecutionSync(writer).recover_open_orders_from_broker(
+            trading_day="2026-05-18",
+            broker=broker,
+            synced_at=self._now() + timedelta(minutes=1),
+            settlement_day="2026-05-20",
+        )
+
+        self.assertEqual(result.status, "reconciled")
+        self.assertEqual(result.reconciled_order_ids, (intent.order_id,))
+        self.assertEqual(result.unresolved, ())
+        self.assertEqual(writer.sqlite_store.fetch_live_order(intent.order_id)["status"], "filled")
+        self.assertEqual(writer.sqlite_store.sum_live_fill_qty(intent.order_id), 10)
+        event_types = [row["event_type"] for row in writer.sqlite_store.fetch_all_rows("live_order_events", "event_time")]
+        self.assertIn("restart_recovery_unknown", event_types)
+        self.assertEqual(len(broker.calls), 1)
+        self.assertEqual(broker.calls[0]["start_date"], "20260518")
+        self.assertEqual(broker.calls[0]["end_date"], "20260518")
+
+    def test_reconcile_unknown_order_requires_complete_pagination_before_mutation(self) -> None:
+        writer = self._writer()
+        intent = self._submitted_order(writer)
+        broker = FakeOrderHistoryBroker([self._record(filled_qty=10, remaining_qty=0)], pagination_complete=False)
+
+        with self.assertRaises(LiveRecoveryIncompleteError):
+            LiveExecutionSync(writer).recover_open_orders_from_broker(
+                trading_day="2026-05-18",
+                broker=broker,
+                synced_at=self._now() + timedelta(minutes=1),
+                settlement_day="2026-05-20",
+            )
+
+        row = writer.sqlite_store.fetch_live_order(intent.order_id)
+        self.assertEqual(row["status"], "unknown")
+        self.assertEqual(row["filled_qty"], 0)
+        self.assertEqual(writer.sqlite_store.count_rows("live_fills"), 0)
+
+    def test_reconcile_unknown_order_keeps_identity_mismatch_unknown(self) -> None:
+        writer = self._writer()
+        intent = self._unknown_order(writer)
+        broker = FakeOrderHistoryBroker([self._record(symbol="000660")])
+
+        result = LiveExecutionSync(writer).recover_open_orders_from_broker(
+            trading_day="2026-05-18",
+            broker=broker,
+            synced_at=self._now() + timedelta(minutes=1),
+            settlement_day="2026-05-20",
+        )
+
+        self.assertEqual(result.status, "attention_required")
+        self.assertEqual(result.reconciled_order_ids, ())
+        self.assertEqual(result.unresolved, ((intent.order_id, "broker_identity_mismatch"),))
+        self.assertEqual(writer.sqlite_store.fetch_live_order(intent.order_id)["status"], "unknown")
+        self.assertEqual(writer.sqlite_store.count_rows("live_fills"), 0)
+
+    def test_reconcile_unknown_order_does_not_infer_state_when_order_is_absent(self) -> None:
+        writer = self._writer()
+        intent = self._unknown_order(writer)
+
+        result = LiveExecutionSync(writer).recover_open_orders_from_broker(
+            trading_day="2026-05-18",
+            broker=FakeOrderHistoryBroker([]),
+            synced_at=self._now() + timedelta(minutes=1),
+            settlement_day="2026-05-20",
+        )
+
+        self.assertEqual(result.status, "attention_required")
+        self.assertEqual(result.unresolved, ((intent.order_id, "broker_order_not_found"),))
+        self.assertEqual(writer.sqlite_store.fetch_live_order(intent.order_id)["status"], "unknown")
+        self.assertEqual(writer.sqlite_store.count_rows("live_fills"), 0)
+
+    def test_reconcile_unknown_orders_rejects_duplicate_local_broker_identity(self) -> None:
+        writer = self._writer()
+        first = self._unknown_order(writer)
+        manager = LiveOrderManager(writer)
+        second = manager.create_intent(replace(
+            self._request(),
+            order_id="order-sync-2",
+            prediction_id="prediction-2",
+            signal_id="signal-2",
+            target_id="target-2",
+        ))
+        manager.store.update_live_order_transition(
+            order_id=second.order_id,
+            status="unknown",
+            broker_order_no="broker-1",
+            broker_branch_no="01",
+            reject_reason=None,
+            cancel_reason=None,
+            submitted_at=self._now(),
+            last_synced_at=self._now(),
+            detail_json={"order_policy": {}, "blocking_reasons": [], "raw_broker_response": {}},
+        )
+
+        result = LiveExecutionSync(writer).recover_open_orders_from_broker(
+            trading_day="2026-05-18",
+            broker=FakeOrderHistoryBroker([self._record(filled_qty=10, remaining_qty=0)]),
+            synced_at=self._now() + timedelta(minutes=1),
+            settlement_day="2026-05-20",
+        )
+
+        self.assertEqual(
+            result.unresolved,
+            (
+                (first.order_id, "local_broker_identity_ambiguous"),
+                (second.order_id, "local_broker_identity_ambiguous"),
+            ),
+        )
+        self.assertEqual(writer.sqlite_store.count_rows("live_fills"), 0)
+
+    def test_reconcile_unknown_order_rejects_non_live_broker_before_query(self) -> None:
+        writer = self._writer()
+        broker = FakeOrderHistoryBroker([], mode="paper")
+
+        with self.assertRaisesRegex(ValueError, "live profile"):
+            LiveExecutionSync(writer).recover_open_orders_from_broker(
+                trading_day="2026-05-18",
+                broker=broker,
+                synced_at=self._now(),
+                settlement_day="2026-05-20",
+            )
+
+        self.assertEqual(broker.calls, [])
 
 
 if __name__ == "__main__":

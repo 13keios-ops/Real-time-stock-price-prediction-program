@@ -80,6 +80,7 @@
 15. broker paper 부분체결은 KIS 누적 체결대금에서 이미 기록한 local fill 대금을 빼 delta 체결가를 계산하도록 수정했다. E7/Phase 0 기준과 과거 원장은 변경하지 않았다.
 16. broker paper sync의 주문 상태·체결·이벤트·포지션·portfolio/broker snapshot SQLite 쓰기를 local order 단위 단일 transaction으로 묶었다. 중간 실패 시 DB와 메모리 portfolio를 함께 원복한다.
 17. Phase 2용 live 주문 계약을 교정했다. manager의 `limit`을 KIS `ORD_DVSN=00`으로 변환하고, cancel에 미체결 잔량을 전달하며, market-data freshness 판정을 submit guard까지 연결했다. 실전 주문은 실행하지 않았다.
+18. restart live order recovery는 inflight 주문을 `UNKNOWN`으로 전환한 뒤 live 계좌의 해당 거래일 order-fill history가 완결되고 broker identity가 정확히 일치할 때만 상태·누적 fill delta를 복구한다. 누락·중복·불일치·불완전 pagination은 추정 없이 `UNKNOWN`을 유지한다.
 
 ## 현재 blocker와 다음 순서
 
@@ -87,7 +88,7 @@
 2. 다음 정상 거래일부터 post-close·broker snapshot 성공·실제 mirrored submission 존재 조건을 만족한 유효일 10개를 모두 matched로 확인한다.
 3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
 4. 다음 거래일에는 tick rejection 재발 여부와 WebSocket subscription/first-frame 복구 증적을 관찰한다.
-5. B2/B3와 live-canary C1~C3 주문 계약·freshness 전달은 완료했다. 다음 구현은 restart 뒤 `UNKNOWN` 주문의 broker-authoritative 복구(C4)와 fresh Phase 1b evidence linkage다.
+5. B2/B3와 live-canary C1~C4 service 안전 계약은 완료했다. 다음 구현은 fresh Phase 1b evidence linkage이며, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
 
 ## 기준 문서
 
