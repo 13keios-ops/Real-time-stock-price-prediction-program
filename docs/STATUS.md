@@ -2,7 +2,7 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-06 12:34 KST
+- 확인 시각: 2026-09-06 13:11 KST
 - 장 상태: weekend
 - live runtime: 2026-09-04 15:30 KST 정상 종료 후 정지, `paper`
 - runtime watchdog: stale, process 정지, `live_runtime_should_run=false`
@@ -58,8 +58,8 @@
 - 현재 epoch는 `no_history`, 유효일 `0/10`, remaining `10`이다. 휴장일인 2026-09-06 baseline 생성일은 분모에 넣지 않고 기준선 뒤 첫 정상 거래일부터 누적한다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
-- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다.
-- Phase 2/3: 미시작. 2026-09-04 실제 WebSocket 재구독·첫 프레임 복구 증거는 확보했지만 Phase 1b readiness artifact는 stale/synthetic이므로 fresh real-evidence linkage, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
+- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. readiness cycle은 이제 data-quality의 실제 reconnect·재구독·첫 프레임·후속 raw frame lineage를 우선 연결하지만 2026-09-04 증거는 현재 30분 freshness를 초과해 `ws_recovery_evidence_stale`로 차단된다.
+- Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
 
 ## FULL CHECK 조치
 
@@ -81,6 +81,7 @@
 16. broker paper sync의 주문 상태·체결·이벤트·포지션·portfolio/broker snapshot SQLite 쓰기를 local order 단위 단일 transaction으로 묶었다. 중간 실패 시 DB와 메모리 portfolio를 함께 원복한다.
 17. Phase 2용 live 주문 계약을 교정했다. manager의 `limit`을 KIS `ORD_DVSN=00`으로 변환하고, cancel에 미체결 잔량을 전달하며, market-data freshness 판정을 submit guard까지 연결했다. 실전 주문은 실행하지 않았다.
 18. restart live order recovery는 inflight 주문을 `UNKNOWN`으로 전환한 뒤 live 계좌의 해당 거래일 order-fill history가 완결되고 broker identity가 정확히 일치할 때만 상태·누적 fill delta를 복구한다. 누락·중복·불일치·불완전 pagination은 추정 없이 `UNKNOWN`을 유지한다.
+19. Phase 1b readiness cycle이 최신 data-quality의 실제 KIS WebSocket recovery를 strict lineage와 30분 freshness로 검증해 우선 사용하도록 연결했다. 연결기 자체는 네트워크를 호출하지 않으며 오래된 2026-09-04 증거는 통과시키지 않는다.
 
 ## 현재 blocker와 다음 순서
 
@@ -88,7 +89,7 @@
 2. 다음 정상 거래일부터 post-close·broker snapshot 성공·실제 mirrored submission 존재 조건을 만족한 유효일 10개를 모두 matched로 확인한다.
 3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
 4. 다음 거래일에는 tick rejection 재발 여부와 WebSocket subscription/first-frame 복구 증적을 관찰한다.
-5. B2/B3와 live-canary C1~C4 service 안전 계약은 완료했다. 다음 구현은 fresh Phase 1b evidence linkage이며, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
+5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
 
 ## 기준 문서
 

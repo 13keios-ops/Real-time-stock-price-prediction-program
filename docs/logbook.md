@@ -56,7 +56,8 @@
 - [x] E7 daily read-only artifact writer와 sample/drift/mark/idempotency 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 portfolio replay, random control 1,000회, 2배 비용, 비중복 두 구간 판정
-- [ ] 2026-09-04 real WebSocket recovery evidence를 fresh Phase 1b readiness에 연결
+- [x] data-quality real WebSocket recovery를 Phase 1b readiness cycle에 strict lineage/freshness로 연결
+- [ ] 다음 실제 세션의 30분 이내 증거로 fresh Phase 1b readiness 생성
 
 현재 상세 작업 범위는 `docs/SPRINT_CURRENT.md`를 따른다.
 
@@ -65,7 +66,7 @@
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
 - broker paper sync/SQLite/runtime writer/reconciliation/alignment targeted unittest: `37 tests OK`
-- 전체 unittest: `637 tests OK` in 33.998s, 테스트 쓰기는 `.tmp-tests/` 격리
+- 전체 unittest: `641 tests OK`, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
 - 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
@@ -85,6 +86,13 @@
 - `LiveExecutionSync.recover_open_orders_from_broker()`가 restart inflight 주문을 먼저 `UNKNOWN`으로 표시하고, live profile의 해당 거래일 KIS order-fill history를 한 번 조회해 완결 응답만 적용하도록 구현했다.
 - broker branch/order number와 date/symbol/side/qty가 정확히 일치하는 단일 행만 기존 status/fill delta sync에 전달한다. pagination 불완전, history 누락, identity 불일치, 중복은 terminal 상태를 추정하지 않고 `UNKNOWN`과 명시적 unresolved reason을 유지한다.
 - focused live execution/manager/adapter 48건과 전체 637건이 통과했다. 실제 KIS 네트워크와 실전 주문·취소는 0회이며, Phase 2 runtime startup 연결은 해당 단계의 조립 작업으로 남긴다.
+
+## [2026-09-06] Phase 1b real WebSocket recovery evidence 연결
+
+- 기존 readiness cycle이 data-quality의 실제 복구 증거가 있어도 synthetic probe를 새로 써 운영 증거를 연결하지 못하던 경로를 수정했다.
+- 최신 거래일 reconnect가 있으면 storm 0, connection `N+1`, 재구독 `N/N`, 복구 후 첫 프레임 `N/N`, 같은 거래일, 예상 밖 공통 gap 없음, 복구 뒤 raw frame을 모두 확인한다. 30분을 넘긴 증거는 `ws_recovery_evidence_stale`로 차단하고 synthetic으로 덮지 않는다.
+- 연결기는 네트워크를 호출하지 않아 `network_called=false`를 유지한다. 2026-09-04 실제 증거는 lineage가 완전하지만 현재 stale이며 새 실제 세션의 fresh Phase 1b artifact가 남았다.
+- 관련 WebSocket/readiness/data-quality 52건과 전체 641건이 통과했다. KIS 네트워크, 주문·취소, runtime-data 갱신은 실행하지 않았다.
 
 ## [2026-09-06] broker paper 부분체결 delta 가격 교정
 

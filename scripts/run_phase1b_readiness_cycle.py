@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.config.settings import load_settings
+from app.services.ws_recovery_evidence import build_ws_recovery_check_from_data_quality
 from app.utils.time import get_market_session_status, now_local
 
 
@@ -83,6 +84,7 @@ def run_phase1b_readiness_cycle(
         / "latest-premarket-readiness.json"
     )
     ws_path = root / "runtime-data" / "reports" / "live-readiness" / "ws-recovery-check.json"
+    data_quality_path = root / "runtime-data" / "reports" / "data-quality" / "latest-kis-live-data-quality.json"
     fixture_path = root / "runtime-data" / "reports" / "live-readiness" / "local-fixture-snapshot.json"
     steps: list[dict[str, Any]] = []
     try:
@@ -102,12 +104,20 @@ def run_phase1b_readiness_cycle(
         _require_output_file(premarket_path, "premarket_readiness")
         steps.append(_step_summary("premarket_readiness", premarket))
 
-        ws_recovery = _run_json_step(
-            "ws_recovery",
-            ["bash", str(scripts / "probe_kis_ws_recovery.sh"), "--output-path", str(ws_path)],
-            root=root,
-            runner=runner,
+        ws_recovery = build_ws_recovery_check_from_data_quality(
+            _load_json_object(data_quality_path),
+            evaluated_at=datetime.fromisoformat(generated_at),
+            source_report_path=str(data_quality_path.relative_to(root)),
         )
+        if ws_recovery is None:
+            ws_recovery = _run_json_step(
+                "ws_recovery",
+                ["bash", str(scripts / "probe_kis_ws_recovery.sh"), "--output-path", str(ws_path)],
+                root=root,
+                runner=runner,
+            )
+        else:
+            _write_json_atomic(ws_path, ws_recovery)
         _require_output_file(ws_path, "ws_recovery")
         steps.append(_step_summary("ws_recovery", ws_recovery))
 
@@ -329,6 +339,16 @@ def _resolve_inside_repo(value: Path, root: Path, label: str) -> Path:
 def _require_output_file(path: Path, step: str) -> None:
     if not path.is_file():
         raise CycleStepError(step, "expected_output_file_missing")
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:

@@ -48,7 +48,7 @@
 
 ### Phase 1b: 실전계좌 bounded read-only
 
-- 상태: 과거 제한 관측 1회 통과, 현재 evidence stale
+- 상태: 과거 제한 관측 1회 통과, 현재 evidence stale. data-quality real WS 연결기는 완료됐고 새 실제 세션의 fresh artifact가 필요하다.
 - 과거 범위: live token 1회, paper/live account 각 1페이지, live clock quote 1회
 - `TRADING_MODE=paper`, `ALLOW_LIVE_ORDERS=false`, 주문 메서드 미노출 유지
 - latest readiness 생성 시각: 2026-07-11, 현재 승격 근거로 사용 불가
@@ -82,7 +82,7 @@
 1. current account clean baseline 뒤 Phase 0 유효 거래일 축적 대기, `0/10`
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
-4. 실제 WebSocket recovery evidence는 있으나 fresh Phase 1b readiness 연결 미완성
+4. 실제 WebSocket recovery 연결기는 완료됐으나 2026-09-04 증거는 30분 freshness 초과, 새 세션 artifact 필요
 5. Phase 2 runtime startup에 broker-authoritative recovery 호출 연결 필요
 
 ## 5. 다음 순서
@@ -91,7 +91,7 @@
 2. tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
 3. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
 4. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
-5. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
+5. 모델 수익성과 Phase 0이 모두 통과한 뒤 새 실제 세션의 30분 이내 증거로 Phase 1b/readiness를 갱신한다.
 6. Phase 2 runtime startup이 검증된 broker-authoritative recovery 엔트리포인트를 호출하도록 연결한다.
 
 ## 6. 동결 범위

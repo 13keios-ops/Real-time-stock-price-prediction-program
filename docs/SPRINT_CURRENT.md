@@ -83,7 +83,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
-- [ ] 2026-09-04 실제 WebSocket recovery evidence를 fresh Phase 1b readiness artifact에 연결
+- [x] data-quality의 실제 WebSocket recovery를 strict lineage/freshness로 Phase 1b readiness cycle에 연결
+- [ ] 다음 실제 세션의 30분 이내 증거로 fresh Phase 1b readiness artifact 생성
 
 ## E7 통과 기준
 

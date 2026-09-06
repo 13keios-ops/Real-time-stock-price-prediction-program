@@ -20,6 +20,7 @@ from app.services.system_clock import (
 )
 from app.services.ws_recovery_evidence import (
     REAL_WS_RECOVERY_EVIDENCE_TYPES,
+    WS_RECOVERY_MAX_AGE_SECONDS,
     is_real_ws_recovery_evidence_type,
 )
 from app.storage.contracts import LivePhaseApproval, LiveReadinessRun
@@ -52,7 +53,7 @@ READINESS_OK_STATUSES = {"ok", "passed", "healthy", "ready"}
 DEFAULT_READINESS_EVIDENCE_MAX_AGE_SECONDS = 3600.0
 READINESS_EVIDENCE_MAX_AGE_SECONDS = {
     "token_refresh": 14400.0,
-    "ws_recovery": 1800.0,
+    "ws_recovery": WS_RECOVERY_MAX_AGE_SECONDS,
     "account_snapshot": 3600.0,
     "market_status": 3600.0,
     "system_clock": 1800.0,

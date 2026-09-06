@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -131,6 +132,75 @@ class Phase1bReadinessCycleTests(unittest.TestCase):
         self.assertIn("--execute", [part for call in runner.calls for part in call])
         self.assertEqual(runner.calls[-1][-2:], ["app", "--build-dashboard"])
         self.assertEqual(len(runner.calls), 6)
+
+    def test_cycle_prefers_real_ws_recovery_from_local_data_quality(self) -> None:
+        root = self._work_dir()
+        now = datetime.now().astimezone()
+        observed_at = now - timedelta(minutes=1)
+        trade_date = observed_at.date().isoformat()
+        data_quality_path = (
+            root
+            / "runtime-data"
+            / "reports"
+            / "data-quality"
+            / "latest-kis-live-data-quality.json"
+        )
+        _FakeRunner._write(
+            data_quality_path,
+            {
+                "latest_trade_date": trade_date,
+                "latest_intraday_coverage": {
+                    "status": "ok",
+                    "trade_date": trade_date,
+                    "latest_raw_minute": observed_at.isoformat(),
+                },
+                "latest_session_observability": {
+                    "websocket_reconnects": {
+                        "status": "observed_no_storm",
+                        "trade_date": trade_date,
+                        "count": 1,
+                        "storm_count": 0,
+                        "connected_count": 2,
+                        "subscription_restore_count": 1,
+                        "first_frame_after_restore_count": 1,
+                        "last_first_frame_after_restore_at": (
+                            observed_at - timedelta(minutes=1)
+                        ).isoformat(),
+                        "reasons": {"timeout": 1},
+                    },
+                    "raw_minute_gaps": {
+                        "trade_date": trade_date,
+                        "unexpected_common_gaps_detected": False,
+                    },
+                },
+            },
+        )
+        runner = _FakeRunner(root, readiness_passed=False)
+        output_path = (
+            root
+            / "runtime-data"
+            / "reports"
+            / "live-readiness"
+            / "phase1b"
+            / "cycle.json"
+        )
+
+        run_phase1b_readiness_cycle(
+            project_root=root,
+            output_path=output_path,
+            execute=False,
+            refresh_dashboard=False,
+            session_status="weekend",
+            runner=runner,
+        )
+
+        command_names = [Path(call[1]).name for call in runner.calls if call[0] == "bash"]
+        self.assertNotIn("probe_kis_ws_recovery.sh", command_names)
+        ws_path = root / "runtime-data" / "reports" / "live-readiness" / "ws-recovery-check.json"
+        ws_check = json.loads(ws_path.read_text(encoding="utf-8"))
+        self.assertTrue(ws_check["passed"])
+        self.assertEqual(ws_check["details"]["evidence_type"], "real_kis_ws_recovery")
+        self.assertEqual(len(runner.calls), 4)
 
     def test_protected_session_blocks_before_any_step_or_network_call(self) -> None:
         root = self._work_dir()
