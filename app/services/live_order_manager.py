@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from app.brokers.kis_response_redaction import redact_kis_payload
 from app.services.live_kill_switch import LiveKillSwitchState
 from app.services.live_order_guard import LiveOrderGuard, LiveOrderGuardError
+from app.services.market_data_freshness import MarketDataFreshnessDecision
 from app.services.market_status import MarketStatusDecision
 from app.services.system_clock import ClockSkewDecision
 from app.storage.contracts import LiveOrder, LiveOrderEvent
@@ -139,6 +140,7 @@ class LiveCancelBroker(Protocol):
         *,
         broker_order_no: str,
         broker_branch_no: str,
+        order_qty: int,
         reason: str,
     ) -> BrokerCancelResult | dict[str, Any]:
         ...
@@ -259,6 +261,8 @@ class LiveOrderManager:
         submitted_at: datetime,
         clock_skew_decision: ClockSkewDecision | None = None,
         require_clock_skew_check: bool = False,
+        market_data_freshness_decision: MarketDataFreshnessDecision | None = None,
+        require_market_data_freshness_check: bool = False,
         ws_recovery_evidence_type: str | None = None,
         require_real_ws_recovery_evidence: bool | None = None,
     ) -> LiveOrderManagerResult:
@@ -274,6 +278,8 @@ class LiveOrderManager:
                 order_type=str(row["order_type"]),
                 clock_skew_decision=clock_skew_decision,
                 require_clock_skew_check=require_clock_skew_check,
+                market_data_freshness_decision=market_data_freshness_decision,
+                require_market_data_freshness_check=require_market_data_freshness_check,
                 ws_recovery_evidence_type=ws_recovery_evidence_type,
                 require_real_ws_recovery_evidence=require_real_ws_recovery_evidence,
             )
@@ -401,6 +407,7 @@ class LiveOrderManager:
             raw_result = broker.cancel_order(
                 broker_order_no=str(pending["broker_order_no"]),
                 broker_branch_no=str(pending["broker_branch_no"]),
+                order_qty=int(pending["remaining_qty"]),
                 reason=reason,
             )
         except Exception as exc:

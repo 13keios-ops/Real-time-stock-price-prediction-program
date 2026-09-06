@@ -78,7 +78,7 @@
 - KIS 호출 제한 재시도와 안전 실패 처리
 - pykrx 일봉 기반 장기 과거 데이터 backfill 과 기존 SQLite 구조 적재
 - Cybos 실제 15분봉 기반 bar-only LightGBM 연구 실험 경로
-- 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper
+- 실전 전환 준비용 read-only client, live order guard, KIS live order guarded adapter, system clock skew helper. manager의 도메인 `limit`은 adapter에서 KIS `ORD_DVSN=00`으로 변환하며 local idempotency key는 broker request에 보내지 않는다. cancel은 local 미체결 잔량을 KIS `order_qty`로 전달하고 local reason은 감사 문맥에만 남긴다. submit에 전달된 market-data freshness 판정과 필수검사 flag는 guard에서 broker 호출 전에 fail-closed로 검사한다.
 - 현재가·호가·과거분봉·계좌 조회와 CLI 조회 경로의 read-only factory 고정, sanitized paper/live account shape 비교 wrapper
 - Phase 1b live 자격정보 준비 시 paper 모드를 보존하고 `ALLOW_LIVE_ORDERS=false`를 강제하는 interactive helper 옵션
 - KIS interactive env restore는 자격정보 입력 전과 저장 후 `.env` 권한을 모두 `0600`으로 강제한다. `.env`는 git ignore 상태이며 자격정보 값은 리포트와 로그에 포함하지 않는다.

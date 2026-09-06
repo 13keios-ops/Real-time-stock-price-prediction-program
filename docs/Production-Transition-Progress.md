@@ -59,6 +59,8 @@
 
 - 상태: 미시작
 - blocker: Phase 0, 검증된 양수 수익 후보, fresh Phase 1b readiness, real WS recovery, fresh market status, 유효 kill switch OFF
+- 준비 완료: manager→KIS 지정가 submit 계약, cancel 잔량 계약, market-data freshness guard 전달
+- 남은 안전 작업: restart 뒤 `UNKNOWN` 주문의 broker-authoritative reconciliation
 
 ### Phase 3: 다종목 일일 한도
 
@@ -77,20 +79,20 @@
 
 ### P1
 
-1. current account snapshot/reconciliation이 남아 local/new-broker position·cash 차이와 Phase 0 baseline 검토 보류, `0/10`
+1. current account clean baseline 뒤 Phase 0 유효 거래일 축적 대기, `0/10`
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
-4. real WebSocket recovery evidence 없음
-5. reconnect 36/storm 7의 다음 거래일 복구 증적과 공통 gap 재발 추적 필요
+4. 실제 WebSocket recovery evidence는 있으나 fresh Phase 1b readiness 연결 미완성
+5. restart 뒤 `UNKNOWN` live order의 broker-authoritative reconciliation 미완성
 
 ## 5. 다음 순서
 
-1. current account snapshot과 reconciliation을 장외에서 1회 수행해 local/new-broker position·cash 차이를 설명한다.
-2. 결과 보고 뒤 계좌 소유자의 별도 승인으로만 current account baseline을 검토한다.
-3. 다음 거래일부터 tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
-4. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
-5. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
-6. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
+1. 다음 정상 거래일부터 current account Phase 0 유효일을 강제 거래 없이 축적한다.
+2. tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
+3. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
+4. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.
+5. 모델 수익성과 Phase 0이 모두 통과한 뒤 fresh Phase 1b/readiness/real WS recovery를 갱신한다.
+6. Phase 2 전 restart `UNKNOWN` 주문의 broker-authoritative reconciliation을 완결한다.
 
 ## 6. 동결 범위
 
@@ -100,7 +102,7 @@ Phase 0 current epoch 10거래일 정합과 E7 미래 검증 전에는 threshold
 
 ## 7. 운영자 작업
 
-현재는 baseline 승인 단계가 아니다. current account snapshot/reconciliation 결과를 먼저 확인한 뒤 baseline 승인 여부를 별도로 결정한다.
+current account baseline은 완료됐다. 같은 baseline을 반복 생성하지 않는다.
 무거래일을 Phase 0 유효일로 만들기 위한 강제 주문은 하지 않는다. market status, kill switch OFF, NAS 백업은 해당 단계에서만 별도 요청한다.
 
 ## 8. 종료 체크

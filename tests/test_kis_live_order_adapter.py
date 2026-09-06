@@ -1,8 +1,9 @@
 import unittest
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, create_autospec
 
 from app.brokers.kis_live_order import KisLiveOrderAdapter, KisLiveOrderAdapterError
+from app.brokers.kis_quote_rest import KisRestQuoteClient
 
 
 @dataclass(slots=True)
@@ -12,8 +13,8 @@ class FakeSettings:
 
 
 class KisLiveOrderAdapterTests(unittest.TestCase):
-    def test_submit_rechecks_live_enable_flags_before_delegation(self) -> None:
-        delegate = MagicMock()
+    def test_submit_translates_manager_request_to_kis_client_contract(self) -> None:
+        delegate = create_autospec(KisRestQuoteClient, instance=True)
         delegate.submit_cash_order.return_value = {"accepted": True}
         adapter = KisLiveOrderAdapter(delegate, settings=FakeSettings())
 
@@ -31,9 +32,8 @@ class KisLiveOrderAdapterTests(unittest.TestCase):
             symbol="005930",
             side="buy",
             qty=1,
-            order_type="limit",
+            order_type="00",
             limit_price=70000.0,
-            idempotency_key="idem-1",
         )
 
     def test_submit_blocks_when_allow_live_orders_is_false(self) -> None:
@@ -50,7 +50,7 @@ class KisLiveOrderAdapterTests(unittest.TestCase):
         adapter = KisLiveOrderAdapter(delegate, settings=FakeSettings(), profile_mode="paper")
 
         with self.assertRaises(KisLiveOrderAdapterError):
-            adapter.cancel_order(broker_order_no="order-1", broker_branch_no="01", reason="test")
+            adapter.cancel_order(broker_order_no="order-1", broker_branch_no="01", order_qty=1, reason="test")
 
         delegate.cancel_order.assert_not_called()
 
@@ -59,23 +59,33 @@ class KisLiveOrderAdapterTests(unittest.TestCase):
         delegate.cancel_order.return_value = {"accepted": True}
         adapter = KisLiveOrderAdapter(delegate, settings=FakeSettings(allow_live_orders=False))
 
-        result = adapter.cancel_order(broker_order_no="order-1", broker_branch_no="01", reason="protective_cancel")
+        result = adapter.cancel_order(
+            broker_order_no="order-1",
+            broker_branch_no="01",
+            order_qty=1,
+            reason="protective_cancel",
+        )
 
         self.assertEqual(result, {"accepted": True})
         delegate.cancel_order.assert_called_once()
 
     def test_cancel_delegates_when_flags_are_enabled(self) -> None:
-        delegate = MagicMock()
+        delegate = create_autospec(KisRestQuoteClient, instance=True)
         delegate.cancel_order.return_value = {"accepted": True}
         adapter = KisLiveOrderAdapter(delegate, settings=FakeSettings())
 
-        result = adapter.cancel_order(broker_order_no="order-1", broker_branch_no="01", reason="test")
+        result = adapter.cancel_order(
+            broker_order_no="order-1",
+            broker_branch_no="01",
+            order_qty=1,
+            reason="test",
+        )
 
         self.assertEqual(result, {"accepted": True})
         delegate.cancel_order.assert_called_once_with(
             broker_order_no="order-1",
             broker_branch_no="01",
-            reason="test",
+            order_qty=1,
         )
 
     def test_describe_marks_adapter_as_guarded(self) -> None:

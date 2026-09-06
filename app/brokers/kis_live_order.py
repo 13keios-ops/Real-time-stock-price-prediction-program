@@ -39,13 +39,14 @@ class KisLiveOrderAdapter:
         idempotency_key: str = "",
     ) -> Any:
         self._assert_submit_enabled()
+        if order_type.strip().lower() != "limit":
+            raise KisLiveOrderAdapterError("KIS live order adapter only supports limit orders")
         return self._client.submit_cash_order(
             symbol=symbol,
             side=side,
             qty=qty,
-            order_type=order_type,
+            order_type="00",
             limit_price=limit_price,
-            idempotency_key=idempotency_key,
         )
 
     def cancel_order(
@@ -53,13 +54,14 @@ class KisLiveOrderAdapter:
         *,
         broker_order_no: str,
         broker_branch_no: str = "",
+        order_qty: int,
         reason: str = "",
     ) -> Any:
         self._assert_live_profile()
         return self._client.cancel_order(
             broker_order_no=broker_order_no,
             broker_branch_no=broker_branch_no,
-            reason=reason,
+            order_qty=order_qty,
         )
 
     def _assert_submit_enabled(self) -> None:

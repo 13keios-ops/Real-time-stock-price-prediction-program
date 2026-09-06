@@ -12,6 +12,7 @@ from app.services.live_order_manager import (
     LiveOrderIntentRequest,
     LiveOrderManager,
 )
+from app.services.market_data_freshness import evaluate_market_data_freshness
 from app.services.market_status import evaluate_market_status
 from app.services.system_clock import evaluate_clock_skew_from_http_date_header
 from app.storage.contracts import MarketStatusSnapshot
@@ -357,6 +358,58 @@ class LiveOrderManagerTests(unittest.TestCase):
         self.assertEqual(broker.calls, [])
         self.assertIn("system_clock_skew_exceeded", detail["blocking_reasons"])
 
+    def test_submit_blocks_supplied_stale_market_data_before_broker_call(self) -> None:
+        manager = self._manager()
+        intent = manager.create_intent(self._request(order_id="order-submit-market-data-stale"))
+        broker = FakeSubmitBroker(BrokerSubmitResult(accepted=True, status="submitted", broker_order_no="broker-1"))
+        now = self._now()
+        freshness_decision = evaluate_market_data_freshness(
+            now=now,
+            latest_trade_at=now - timedelta(seconds=5),
+            latest_orderbook_at=now - timedelta(seconds=5),
+            latest_bar_at=now - timedelta(seconds=60),
+            latest_prediction_at=now - timedelta(seconds=121),
+        )
+
+        result = manager.submit_intent(
+            order_id=intent.order_id,
+            settings=FakeSettings(),
+            profile_mode="live",
+            kill_switch_state=self._kill_switch_state(manager),
+            market_status_decision=self._market_decision(),
+            phase_approved=True,
+            broker=broker,
+            submitted_at=now,
+            market_data_freshness_decision=freshness_decision,
+            ws_recovery_evidence_type=self._real_ws_evidence_type(),
+        )
+
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(broker.calls, [])
+        self.assertIn("prediction_stale", result.blocking_reasons)
+
+    def test_submit_can_require_market_data_freshness_before_broker_call(self) -> None:
+        manager = self._manager()
+        intent = manager.create_intent(self._request(order_id="order-submit-market-data-missing"))
+        broker = FakeSubmitBroker(BrokerSubmitResult(accepted=True, status="submitted", broker_order_no="broker-1"))
+
+        result = manager.submit_intent(
+            order_id=intent.order_id,
+            settings=FakeSettings(),
+            profile_mode="live",
+            kill_switch_state=self._kill_switch_state(manager),
+            market_status_decision=self._market_decision(),
+            phase_approved=True,
+            broker=broker,
+            submitted_at=self._now(),
+            require_market_data_freshness_check=True,
+            ws_recovery_evidence_type=self._real_ws_evidence_type(),
+        )
+
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(broker.calls, [])
+        self.assertIn("market_data_freshness_check_missing", result.blocking_reasons)
+
     def test_phase2_blocks_second_parent_order_for_same_trading_day(self) -> None:
         manager = self._manager()
 
@@ -579,18 +632,28 @@ class LiveOrderManagerTests(unittest.TestCase):
             ws_recovery_evidence_type=self._real_ws_evidence_type(),
         )
 
+        broker = FakeCancelBroker(BrokerCancelResult(accepted=True, raw_response={"rt_cd": "0"}))
         result = manager.request_cancel(
             order_id=intent.order_id,
             settings=FakeSettings(),
             profile_mode="live",
             kill_switch_state=self._kill_switch_state(manager, enabled=True),
-            broker=FakeCancelBroker(BrokerCancelResult(accepted=True, raw_response={"rt_cd": "0"})),
+            broker=broker,
             requested_at=self._now(),
             reason="unit_test_cancel",
         )
 
         self.assertEqual(result.status, "cancel_requested")
         self.assertEqual(manager.store.fetch_live_order(intent.order_id)["status"], "cancel_requested")
+        self.assertEqual(
+            broker.calls,
+            [{
+                "broker_order_no": "broker-2",
+                "broker_branch_no": "01",
+                "order_qty": 1,
+                "reason": "unit_test_cancel",
+            }],
+        )
 
     def test_recover_open_orders_marks_inflight_orders_unknown(self) -> None:
         manager = self._manager()

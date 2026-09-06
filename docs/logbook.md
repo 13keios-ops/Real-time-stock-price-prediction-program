@@ -65,13 +65,20 @@
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
 - broker paper sync/SQLite/runtime writer/reconciliation/alignment targeted unittest: `37 tests OK`
-- 전체 unittest: `629 tests OK` in 35.173s, 테스트 쓰기는 `.tmp-tests/` 격리
+- 전체 unittest: `631 tests OK` in 32.826s, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
 - 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
 - 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
 - 새 paper 계좌 자연 cash-order submission 36건 성공 확인. 지정가 실패 4건은 KRX common-stock 호가단위 오류, 별도 1건은 network timeout
 - 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
 - Phase 0 current epoch: compatible clean baseline, `no_history`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+
+## [2026-09-06] Phase 2 live 주문 계약과 freshness 전달 교정
+
+- `LiveOrderManager`의 도메인 주문 계약과 `KisRestQuoteClient`의 원시 KIS 계약 불일치로 지정가 submit/cancel이 broker 호출 전에 `TypeError`가 될 수 있던 원인을 수정했다.
+- `KisLiveOrderAdapter`가 `limit`을 `ORD_DVSN=00`으로 변환하고 local idempotency key를 원시 request에서 제외한다. cancel은 manager가 저장한 미체결 잔량을 KIS `order_qty`로 전달하며 local reason은 broker에 보내지 않는다.
+- submit에 market-data freshness 판정과 필수검사 flag를 추가해 기존 `LiveOrderGuard`가 stale/missing 증거를 실제 broker 호출 전에 차단하도록 연결했다.
+- adapter/manager/guard/execution sync/client isolation 관련 57건과 전체 631건이 통과했다. 실전 주문·취소, E7 threshold/model/manifest, signal/gate/allocator, `app/risk/`, `config/`, Phase 0 baseline, runtime DB는 변경하지 않았다.
 
 ## [2026-09-06] broker paper 부분체결 delta 가격 교정
 
