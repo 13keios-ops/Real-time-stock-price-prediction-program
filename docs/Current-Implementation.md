@@ -502,6 +502,7 @@ $env:ENABLE_BROKER_PAPER_MIRRORING="true"
 브로커 기준 paper baseline alignment 도 보유 종목 유무와 관계없이 같은 유효현금 기준으로 로컬 `cash_balance`를 만든다.
 
 KIS 주문/체결 조회는 수동·장후 배치·장중 종료에서 논리 동기화를 1회만 시도한다. 연속조회가 있으면 페이지별 HTTP 요청은 필요할 수 있으며, paper profile은 각 응답 처리 완료 뒤 최소 1.0초를 기다려 다음 페이지를 호출한다. `EGW00201` 뒤에는 같은 호출 안에서 재시도하지 않는다.
+KIS의 체결수량·평균체결가·체결금액은 주문별 누적값이다. broker paper sync는 누적수량에서 이미 적용한 수량을 빼고, 누적 체결대금에서 같은 local order의 기존 `paper_fills` 체결대금을 빼 delta 체결가를 계산한다. 원장 수량이 snapshot과 불일치하면 가격을 임의 역산하지 않고 KIS 누적 평균가로 fallback하며, 수량 불일치와 transaction atomicity는 별도 검증 대상으로 둔다.
 제한이 발생하면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남기고, 2시간 안의 후속 실행은 같은 endpoint 를 호출하지 않은 채 `skipped_broker_call=true`로 끝낸다.
 실시간 수집기도 `rate_limited` 결과에 120분 process pause를 적용한다. timeout, gateway routing error 같은 일반 예외는 5분부터 시작해 10/20/40/60분으로 늘어나는 지수 백오프를 적용하고, 정상 sync 뒤 실패 횟수를 초기화한다.

@@ -65,6 +65,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
 - [x] WebSocket 재구독/첫 프레임 복구 증적과 storm/common-gap 우선 `CRITICAL/실패` 판정 추가
 - [x] cooldown 종료 후 장외 order-fill sync 1회로 38 submission 상태 완결
+- [x] broker paper 누적 체결 평균가를 local fill 대금 기준 delta 체결가로 변환
 - [x] current account snapshot/reconciliation 1회와 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [x] 계좌 소유자 승인으로 현재 계좌용 Phase 0 marker-only clean baseline 생성 및 gap 0 검증
 - [ ] 현재 계좌 Phase 0 epoch의 유효 거래일 10개를 모두 matched로 확인

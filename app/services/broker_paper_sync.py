@@ -207,6 +207,29 @@ def _derive_broker_status(
     return "submitted"
 
 
+def _derive_delta_fill_price(
+    *,
+    cumulative_filled_qty: int,
+    cumulative_avg_fill_price: float,
+    cumulative_filled_amount: float,
+    delta_fill_qty: int,
+    previous_fill_qty: int,
+    previous_fill_notional: float,
+) -> float:
+    if delta_fill_qty <= 0:
+        return 0.0
+    expected_previous_qty = max(cumulative_filled_qty - delta_fill_qty, 0)
+    if previous_fill_qty != expected_previous_qty:
+        return max(cumulative_avg_fill_price, 0.0)
+    cumulative_notional = max(cumulative_filled_amount, 0.0)
+    if cumulative_notional <= 0:
+        cumulative_notional = max(cumulative_filled_qty * cumulative_avg_fill_price, 0.0)
+    delta_notional = cumulative_notional - max(previous_fill_notional, 0.0)
+    if delta_notional <= 0 and cumulative_avg_fill_price > 0:
+        return cumulative_avg_fill_price
+    return max(delta_notional / delta_fill_qty, 0.0)
+
+
 def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any]) -> None:
     pending_symbols = payload.get("pending_symbols") or []
     lines = [
@@ -739,7 +762,19 @@ class BrokerPaperExecutionSync:
 
             if delta_fill_qty > 0:
                 fill_time = synced_at
-                fill_price = avg_fill_price or float(paper_order.get("limit_price", 0.0) or 0.0)
+                previous_fill_qty, previous_fill_notional = sqlite_store.fetch_paper_fill_totals(local_order_id)
+                fill_price = _derive_delta_fill_price(
+                    cumulative_filled_qty=filled_qty,
+                    cumulative_avg_fill_price=avg_fill_price,
+                    cumulative_filled_amount=(
+                        float(broker_row.filled_amount or 0.0)
+                        if broker_row is not None
+                        else 0.0
+                    ),
+                    delta_fill_qty=delta_fill_qty,
+                    previous_fill_qty=previous_fill_qty,
+                    previous_fill_notional=previous_fill_notional,
+                ) or float(paper_order.get("limit_price", 0.0) or 0.0)
                 commission = fill_price * delta_fill_qty * self.engine.commission_rate
                 tax = calculate_domestic_stock_fill_tax(
                     side=side,
@@ -760,7 +795,11 @@ class BrokerPaperExecutionSync:
                     order_id=local_order_id,
                     event_time=fill_time,
                     event_type="broker_fill_sync",
-                    detail=f"filled_qty={delta_fill_qty};avg_fill_price={fill_price:.2f};broker_order_no={submission.get('broker_order_no')}",
+                    detail=(
+                        f"filled_qty={delta_fill_qty};delta_fill_price={fill_price:.2f};"
+                        f"broker_cumulative_avg_fill_price={avg_fill_price:.2f};"
+                        f"broker_order_no={submission.get('broker_order_no')}"
+                    ),
                 )
                 self.writer.write_fill(fill)
                 self.writer.write_order_event(fill_event)

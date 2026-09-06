@@ -72,6 +72,13 @@
 - 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
 - Phase 0 current epoch: compatible clean baseline, `no_history`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
 
+## [2026-09-06] broker paper 부분체결 delta 가격 교정
+
+- KIS order-fill의 `filled_qty`, `avg_fill_price`, `filled_amount`가 누적값인데 기존 paper sync가 수량만 delta로 줄이고 누적 평균가를 새 체결가로 재사용하던 오류를 확인했다.
+- 같은 local order의 기존 `paper_fills` 수량·체결대금을 읽고, KIS 누적 체결대금과의 차이를 delta 수량으로 나눠 새 fill 가격·수수료·세금을 계산하도록 수정했다. 원장 수량이 snapshot과 다르면 누적 평균가로 fallback하며 B3 transaction atomicity 범위는 건드리지 않았다.
+- 4주 평균 70,000원 뒤 누적 7주 평균 70,010원인 재현에서 두 번째 3주를 70,023.33원으로 기록하고 전체 체결대금이 KIS 누적값과 일치함을 검증했다.
+- broker paper/reconciliation/alignment 관련 22건과 전체 628건이 통과했다. E7 evaluator/manifest/threshold, active model, signal/gate/allocator, Phase 0 baseline, runtime DB는 변경하지 않았다.
+
 ## [2026-09-06] 현재 paper 계좌 Phase 0 clean baseline
 
 - 휴장일·live runtime 정지·`live_runtime_should_run=false`와 current epoch `paper-2026-09-03`을 확인한 뒤, 계좌 소유자 승인 범위로 `python3 -m app --align-local-paper-to-broker`를 정확히 1회 실행했다.

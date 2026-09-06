@@ -184,6 +184,104 @@ class BrokerPaperSyncTests(unittest.TestCase):
         self.assertEqual(str(latest_order["status"]), "filled")
         self.assertEqual(sqlite_store.count_rows("broker_paper_order_status_snapshots"), 1)
 
+    def test_sync_derives_delta_fill_price_from_cumulative_average(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        first_sync_time = datetime.fromisoformat("2026-04-17T10:20:00+09:00")
+        second_sync_time = datetime.fromisoformat("2026-04-17T10:21:00+09:00")
+        first_row = KisDailyOrderFillRecord(
+            mode="paper",
+            order_date="20260417",
+            broker_branch_no="00111",
+            broker_order_no="1234567890",
+            original_order_no="",
+            symbol="005930",
+            symbol_name="삼성전자",
+            side="02",
+            side_name="매수",
+            order_type_code="00",
+            order_type_name="지정가",
+            order_time="101500",
+            order_qty=10,
+            order_price=70000.0,
+            filled_qty=4,
+            remaining_qty=6,
+            avg_fill_price=70000.0,
+            filled_amount=280000.0,
+            cancel_confirm_qty=0,
+            reject_qty=0,
+            cancel_yn=False,
+            exchange_id="KRX",
+            raw_output={"odno": "1234567890"},
+        )
+        second_row = replace(
+            first_row,
+            filled_qty=7,
+            remaining_qty=3,
+            avg_fill_price=70010.0,
+            filled_amount=490070.0,
+        )
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-online-000001",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=10,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-paper-order-online-000001",
+                    local_order_id="paper-order-online-000001",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=10,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={"message": "ok"},
+                )
+            )
+
+            with patch("app.services.broker_paper_sync.now_local", return_value=first_sync_time):
+                with patch(
+                    "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                    return_value=[first_row],
+                ):
+                    first = sync_broker_paper_orders(project_root=root)
+            with patch("app.services.broker_paper_sync.now_local", return_value=second_sync_time):
+                with patch(
+                    "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                    return_value=[second_row],
+                ):
+                    second = sync_broker_paper_orders(project_root=root)
+
+            sqlite_store = get_sqlite_store(settings)
+            fills = sqlite_store.fetch_all_rows("paper_fills", "event_time")
+
+        self.assertTrue(first.ok)
+        self.assertTrue(second.ok)
+        self.assertEqual([int(row["fill_qty"]) for row in fills], [4, 3])
+        self.assertAlmostEqual(float(fills[0]["fill_price"]), 70000.0)
+        self.assertAlmostEqual(
+            float(fills[1]["fill_price"]),
+            (7 * 70010.0 - 4 * 70000.0) / 3,
+        )
+        self.assertAlmostEqual(
+            sum(float(row["fill_price"]) * int(row["fill_qty"]) for row in fills),
+            7 * 70010.0,
+        )
+
     def test_sync_does_not_append_unchanged_broker_status_snapshot(self) -> None:
         root, env = self._prepare_runtime()
         event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")

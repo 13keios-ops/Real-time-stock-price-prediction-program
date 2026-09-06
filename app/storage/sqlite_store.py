@@ -1145,6 +1145,23 @@ class SQLiteRuntimeStore:
             (fill.fill_id, fill.order_id, self._dt(fill.event_time), fill.fill_price, fill.fill_qty, fill.commission, fill.tax),
         )
 
+    def fetch_paper_fill_totals(self, order_id: str) -> tuple[int, float]:
+        row = self._run_safe_read_query(
+            """
+            SELECT
+                COALESCE(SUM(fill_qty), 0) AS total_qty,
+                COALESCE(SUM(fill_qty * fill_price), 0.0) AS total_notional
+            FROM paper_fills
+            WHERE order_id = ?
+            """,
+            (order_id,),
+            single=True,
+            missing_tables=("paper_fills",),
+        )
+        if not isinstance(row, sqlite3.Row):
+            return 0, 0.0
+        return int(row["total_qty"] or 0), float(row["total_notional"] or 0.0)
+
     def upsert_paper_position(self, position: PaperPosition) -> None:
         self._run_write_query(
             """
