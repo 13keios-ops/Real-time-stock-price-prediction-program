@@ -66,13 +66,20 @@
 - KRX 호가단위·broker mirror·WebSocket·data-quality targeted unittest: `55 tests OK`
 - demo pipeline root runtime 격리 회귀 테스트: `3 tests OK`
 - broker paper sync/SQLite/runtime writer/reconciliation/alignment targeted unittest: `37 tests OK`
-- 전체 unittest: `641 tests OK`, 테스트 쓰기는 `.tmp-tests/` 격리
+- WebSocket 수신 비차단 회귀와 관련 parser/verification/client targeted unittest: `35 tests OK`
+- 전체 unittest: `642 tests OK`, 테스트 쓰기는 `.tmp-tests/` 격리
 - repository structure audit: errors 0/warnings 2. 기존 대형 모듈 `app/services/dashboard.py`, `app/services/research.py`
-- 2026-09-04 저장 증거 재검산: market/orderbook `3,811/4,049` symbol-minute, feature closed coverage `97.44%`, decision lineage `3,800/3,800`·100%
-- 2026-09-04 WebSocket: reconnect 28, storm 0, 정규장 예상 밖 공통 gap 없음, 재구독 완료와 복구 후 첫 프레임 각각 28건
-- 새 paper 계좌 자연 cash-order submission 36건 성공 확인. 지정가 실패 4건은 KRX common-stock 호가단위 오류, 별도 1건은 network timeout
-- 2026-09-05 order-fill sync는 1.0초 paper 페이지 간격으로 3페이지/38행을 완결했고 submission 38/38 exact-linked, open 0/final 38/pending 0, 체결 event 1건·2주 적용을 확인
-- Phase 0 current epoch: compatible clean baseline, `no_history`, 유효일 `0/10`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+- 2026-09-07 저장 증거 재검산: market/orderbook `3,796/4,049` symbol-minute, feature closed coverage `97.08%`, decision lineage `3,786/3,786`·100%
+- 2026-09-07 WebSocket: reconnect 32, storm 0, 재구독·첫 프레임 32/32지만 `13:03 KST` 전 종목 공통 gap 때문에 `CRITICAL/실패`
+- 2026-09-07 order-fill sync는 9페이지/124행, submission 124/124 exact-linked, final 123/open 1이며 pending `005930`
+- Phase 0 current epoch: compatible clean baseline, `aligned`, matched `1/10`, mismatch `0`, remaining `9`; 이전 계좌 epoch의 10/10 mismatch 이력은 보존
+
+## [2026-09-07] broker sync의 WebSocket 수신 차단 제거
+
+- 원시 DB와 runtime 로그를 교차 확인해 전 종목 market/orderbook이 약 `13:02:08`부터 `13:04:18`까지 함께 끊긴 실제 수집 손실을 확인했다. 이 구간에 분봉 확정 경로의 동기 KIS order-fill 조회가 `urlopen` read timeout까지 WebSocket async consumer를 점유했다.
+- `run_kis_ws_listener`는 수신·파싱을 계속하고 stdlib queue의 단일 worker만 기존 `OnlinePipelineProcessor`를 순서대로 실행하도록 분리했다. 전략, model, E7, Phase 0, gate, allocator, 주문·포트폴리오 처리 순서는 변경하지 않았다.
+- 과거 구현에서 실패하는 비차단 회귀 테스트를 추가했다. 관련 35건과 전체 642건, repository audit errors 0/warnings 2를 통과했으며 실제 KIS 네트워크·주문·취소와 runtime-data 쓰기는 수행하지 않았다. 실제 운영 효과는 다음 정상 세션 공통 gap으로 확인한다.
+- `005930` 매수 2주 지정가 주문은 124/124 exact-linked 원장의 유일한 open 주문이며, 제출 뒤 시장 최저가가 지정가에 닿았어도 호가 우선순위상 체결을 보장하지 않는다. 강제 취소·상태 덮어쓰기 없이 다음 정상 sync에서 broker 최종 상태를 확인한다.
 
 ## [2026-09-06] Phase 2 live 주문 계약과 freshness 전달 교정
 

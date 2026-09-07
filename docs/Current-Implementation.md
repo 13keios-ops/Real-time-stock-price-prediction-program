@@ -508,7 +508,8 @@ KIS의 체결수량·평균체결가·체결금액은 주문별 누적값이다.
 제한이 발생하면 실행기를 죽이지 않고 `rate_limited` 리포트를 남기며 기존 제출 주문 종목을 대기 상태로 유지한다.
 최초 제한 리포트부터 `cooldown_active=true`, `retry_after_seconds=7200`을 남기고, 2시간 안의 후속 실행은 같은 endpoint 를 호출하지 않은 채 `skipped_broker_call=true`로 끝낸다.
 실시간 수집기도 `rate_limited` 결과에 120분 process pause를 적용한다. timeout, gateway routing error 같은 일반 예외는 5분부터 시작해 10/20/40/60분으로 늘어나는 지수 백오프를 적용하고, 정상 sync 뒤 실패 횟수를 초기화한다.
-broker sync는 분봉 확정 경로 안의 동기 호출이므로 장애 시 반복 호출을 줄여 WebSocket frame 처리 여유를 보호한다. 회귀 위험은 체결 상태 반영이 늦어지는 것이며 pending 상태와 강제 종료 sync를 유지해 주문 상태를 임의 확정하지 않는다.
+`run_kis_ws_listener`는 수신·파싱한 pipe frame을 stdlib queue에 넣고, 단일 worker가 기존 `OnlinePipelineProcessor`를 순서대로 실행한다. 따라서 processor 내부의 동기 broker sync가 느려져도 WebSocket 수신은 계속되며 주문·포트폴리오 처리 순서는 바뀌지 않는다.
+rate-limit과 일반 실패 cooldown, pending 보존, 종료 시 queue drain 뒤 flush 계약은 유지한다. 2026-09-07 `13:03 KST` 전 종목 공통 공백의 원인 수정이며 다음 실제 세션에서 재발 여부를 확인한다.
 
 브로커 order-fill 조회가 정상 응답했는데 특정 주문이 최신 KIS lookback 에서 사라지면, paper sync 는 이전 status snapshot 과 이미 적용한 체결 수량을 우선 보존한다.
 이전 적용 체결 수량이 주문 수량 이상이면 `filled`로 유지하고, 잔량이 남은 과거 주문일 row 는 다음 거래일에 새 체결로 이어질 수 없으므로 `expired` 또는 `expired_partial` final 상태로 해석한다.

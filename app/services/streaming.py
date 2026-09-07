@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
+from queue import Queue
 
 from app.brokers.kis_auth import KisTokenManager, get_active_kis_profile
 from app.brokers.kis_quote_ws import (
@@ -54,6 +55,7 @@ LOGGER = logging.getLogger(__name__)
 BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES = 120
 BROKER_SYNC_FAILURE_COOLDOWN_BASE_MINUTES = 5
 BROKER_SYNC_FAILURE_COOLDOWN_MAX_MINUTES = 60
+_PIPELINE_QUEUE_STOP = object()
 
 
 @dataclass(slots=True)
@@ -891,6 +893,24 @@ def build_sample_ws_frames(symbol: str = "005930") -> list[str]:
     return frames
 
 
+def _consume_kis_ws_frames(
+    processor: OnlinePipelineProcessor,
+    frame_queue: Queue[object],
+) -> OnlinePipelineResult:
+    while True:
+        parsed = frame_queue.get()
+        if parsed is _PIPELINE_QUEUE_STOP:
+            return processor.flush()
+        if not isinstance(parsed, dict):
+            continue
+        tr_id = parsed.get("tr_id")
+        for record in parsed.get("records", []):
+            if tr_id == DOMESTIC_TRADE_TR_ID:
+                processor.process_trade_record(record)
+            elif tr_id == DOMESTIC_ORDERBOOK_TR_ID:
+                processor.process_orderbook_record(record)
+
+
 async def run_kis_ws_listener(
     project_root: Path,
     symbols: list[str] | None = None,
@@ -915,25 +935,30 @@ async def run_kis_ws_listener(
     frames_received = 0
     control_frames = 0
 
-    async for frame in ws_client.listen(
-        symbols=resolved_symbols,
-        include_trade=include_trade,
-        include_orderbook=include_orderbook,
-        max_frames=max_frames,
-        max_reconnects=max_reconnects,
-    ):
-        frames_received += 1
-        parsed = parse_kis_ws_frame(frame)
-        tr_id = parsed.get("tr_id")
-        if parsed.get("frame_type") != "pipe-delimited" or not tr_id:
-            control_frames += 1
-            continue
-        for record in parsed.get("records", []):
-            if tr_id == DOMESTIC_TRADE_TR_ID:
-                processor.process_trade_record(record)
-            elif tr_id == DOMESTIC_ORDERBOOK_TR_ID:
-                processor.process_orderbook_record(record)
-    result = processor.flush()
+    frame_queue: Queue[object] = Queue()
+    worker = asyncio.create_task(asyncio.to_thread(_consume_kis_ws_frames, processor, frame_queue))
+
+    try:
+        async for frame in ws_client.listen(
+            symbols=resolved_symbols,
+            include_trade=include_trade,
+            include_orderbook=include_orderbook,
+            max_frames=max_frames,
+            max_reconnects=max_reconnects,
+        ):
+            if worker.done():
+                await worker
+            frames_received += 1
+            parsed = parse_kis_ws_frame(frame)
+            tr_id = parsed.get("tr_id")
+            if parsed.get("frame_type") != "pipe-delimited" or not tr_id:
+                control_frames += 1
+                continue
+            frame_queue.put_nowait(parsed)
+    finally:
+        frame_queue.put(_PIPELINE_QUEUE_STOP)
+
+    result = await worker
     result.frames_received = frames_received
     result.control_frames = control_frames
     return result

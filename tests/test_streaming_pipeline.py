@@ -1,5 +1,7 @@
+import asyncio
 import os
 import json
+import threading
 from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
@@ -12,11 +14,72 @@ from app.config.settings import load_settings
 from app.services.broker_paper import BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE
 from app.services.broker_paper_sync import BrokerPaperSyncResult
 from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, Prediction
-from app.services.streaming import OnlinePipelineProcessor, build_sample_ws_frames, replay_ws_frames
+from app.services.streaming import (
+    OnlinePipelineProcessor,
+    OnlinePipelineResult,
+    build_sample_ws_frames,
+    replay_ws_frames,
+    run_kis_ws_listener,
+)
 from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class StreamingPipelineTests(unittest.TestCase):
+    def test_listener_keeps_reading_frames_while_pipeline_work_blocks(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source_advanced = threading.Event()
+
+        class FakeWebSocketClient:
+            async def listen(self, **kwargs):
+                frames = build_sample_ws_frames("005930")
+                yield frames[0]
+                source_advanced.set()
+                yield frames[1]
+
+        class BlockingProcessor:
+            def __init__(self) -> None:
+                self.source_advanced_before_return = False
+
+            def process_orderbook_record(self, record) -> None:
+                self.source_advanced_before_return = source_advanced.wait(timeout=0.5)
+
+            def process_trade_record(self, record) -> None:
+                return None
+
+            def flush(self) -> OnlinePipelineResult:
+                return OnlinePipelineResult(
+                    frames_received=0,
+                    control_frames=0,
+                    raw_trade_events=2,
+                    raw_orderbook_events=1,
+                    minute_bars_written=0,
+                    predictions_written=0,
+                    signals_written=0,
+                    orders_written=0,
+                    runtime_root=root / ".tmp-tests" / "streaming-listener-worker",
+                )
+
+        processor = BlockingProcessor()
+        with (
+            patch("app.services.streaming.load_settings", return_value=object()),
+            patch("app.services.streaming.configure_logging"),
+            patch("app.services.streaming.get_active_kis_profile", return_value=object()),
+            patch("app.services.streaming.KisTokenManager", return_value=object()),
+            patch("app.services.streaming.KisWebSocketQuoteClient", return_value=FakeWebSocketClient()),
+            patch("app.services.streaming.OnlinePipelineProcessor", return_value=processor),
+        ):
+            result = asyncio.run(
+                run_kis_ws_listener(
+                    project_root=root,
+                    symbols=["005930"],
+                    max_frames=2,
+                    max_reconnects=0,
+                )
+            )
+
+        self.assertTrue(processor.source_advanced_before_return)
+        self.assertEqual(result.frames_received, 2)
+
     def test_replay_sample_ws_frames_builds_online_outputs(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "streaming" / str(uuid.uuid4())
