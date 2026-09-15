@@ -2,18 +2,18 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-07 22:16 KST
-- 장 상태: post-close
-- live runtime: 2026-09-07 15:31 KST 정상 종료 후 정지, `paper`
+- 확인 시각: 2026-09-16 05:41 KST
+- 장 상태: overnight
+- live runtime: 정지, `paper`; raw state의 이전 PID는 stale
 - runtime watchdog: 실행 중, heartbeat 정상, `live_runtime_should_run=false`
 - dashboard: 실행 중, server/API 정상
 - Windows startup launcher: 설치 및 정상
-- 시장·ML·E7·KIS order-fill·Phase 0은 2026-09-07 장후 스냅샷을 반영한다.
+- 시장·ML·E7·Phase 0은 2026-09-15 장후 스냅샷을 반영한다.
 
 ## 프로젝트 목표 정합성
 
 - 현재 운영 목표는 실전 자동매매가 아니라 `paper` 기준으로 `수집 -> 특징 -> 예측 -> 판단 -> 모의주문/체결 -> KIS 모의계좌 정합 -> 비용 후 포트폴리오 검증`을 증거로 연결하는 것이다.
-- 2026-09-07 decision ledger와 model artifact lineage는 완전하지만 전 종목 market/orderbook에 `13:03 KST` 공통 공백이 있어 운영 심각도는 `CRITICAL/실패`다. 동기 broker sync가 WebSocket 소비를 막은 원인을 수정했으며 active model과 주문 정책은 변경하지 않았다.
+- 2026-09-15 수집 중 시각 범위 ValueError와 listener 반복 종료가 확인됐고 market/orderbook coverage는 `1.99%/6.01%`, bars/features/decision rows는 `0`이었다. 잘못된 시각 레코드의 종료 경로를 재현해 격리했으며 다음 실제 세션 검증 전까지 운영 심각도는 `CRITICAL/실패`다.
 - 현재 통과한 수익 후보는 `0개`이고 수익화 판정은 `no_profitable_candidate`다. 시스템은 개발 목표에는 대체로 맞지만 실전 수익화 준비는 아직 통과하지 못했다.
 
 ## 운용과 수집
@@ -23,27 +23,27 @@
 - active h15: `baseline-h15-v1`
 - challenger 조치: `keep_active`
 - 모델 승격: 없음
-- 최신 KIS 거래일: `2026-09-07`
-- raw market/orderbook symbol-minute: `3,796/4,049`; feature closed `3,786`행, coverage `97.08%`
-- serving decision ledger: `3,786`행, complete lineage `3,786/3,786`, ratio `100%`
-- WebSocket: reconnect `32`, storm `0`; 재구독 완료 `32/32`, 복구 후 첫 프레임 `32/32`이 같은 process에서 확인됐다.
-- 예상 종가 동시호가 market 공백 외에 전 종목 market/orderbook `13:03 KST` 공통 공백이 있다. DB 원시 행은 약 `13:02:08`에 끊겨 `13:04:18`부터 재개됐다.
-- 최신 data-quality 판정은 `CRITICAL/실패`다. coverage와 decision lineage는 정상이지만 예상 밖 공통 공백은 별도 수집 실패로 우선한다.
-- 운영 SQLite는 약 `27.203 GiB`, journal mode `wal`이다. 대형 DB 전체 집계와 snapshot은 장외·D드라이브 기준을 유지한다.
+- 최신 KIS 거래일: `2026-09-15`
+- raw market/orderbook symbol-minute: `78/235` of expected `3,910`; minute bar/feature closed `0/0`, coverage `0%`
+- serving decision ledger: `0`행(`no_rows`)
+- WebSocket: reconnect `22`, storm `0`; 별도로 listener timestamp ValueError가 누적 `55`회 확인됐다.
+- 최신 data-quality 판정은 `CRITICAL/실패`다. `STCK_CNTG_HOUR/BSOP_HOUR` 변환에서 시각 범위 검증 누락이 listener 종료로 이어지는 경로를 재현했다. 당시 실패한 원문 프레임은 확보하지 못해 원본 수신값 이상과 필드 파싱 이상 중 어느 쪽인지는 미확정이다.
+- 시각 파서는 5자리 값을 leading-zero로 정규화하고 유효하지 않은 HHMMSS 레코드만 경고 후 건너뛴다. 다음 실제 세션 coverage와 decision lineage가 정상이어야 복구 완료로 판정한다.
+- 운영 SQLite는 약 `29.062 GiB`, journal mode `wal`이다. 대형 DB 전체 집계와 snapshot은 장외·D드라이브 기준을 유지한다.
 
 ## 학습과 수익성
 
-- 2026-09-07 장후 ML: `status=ok`, `quick-live-train`, 16:36 KST 완료
-- 2026-09-07 label refresh: `status=ok`, 17:01 KST 완료
-- top challenger `linear_score_builtin`: 3분류 정확도 `19.60%`, buy/trade hit `18.09%`, 누적 진단 순수익 `-393.09%`, 거래 `1,443건`이다. active `baseline-h15-v1` 유지, 승격은 없다.
+- 2026-09-15 장후 ML: `status=ok`, `quick-live-train`, 17:24 KST 완료
+- 2026-09-15 label refresh: `status=ok`, 17:50 KST 완료
+- top challenger `linear_score_builtin`: 3분류 정확도 `17.60%`, buy/trade hit `13.50%`, 누적 진단 순수익 `-443.21%`, 거래 `1,696건`이다. active `baseline-h15-v1` 유지, 승격은 없다.
 - buy-avoid: `2026-07-13 09:15~2026-09-04 15:00`, joined `56,601`행. threshold `0.40`의 overlapping-row 진단 delta는 양수지만 절대 portfolio 수익은 계속 음수여서 `rejected_no_absolute_portfolio_profit`이다.
-- buy-rescue: decision ledger `143,105`행 중 eligible `72,730`행이며 `diagnostic_only_no_order_policy_change`다. Cybos proxy도 `buy_avoid_candidate_only`로 buy-rescue 주문 반영을 권하지 않는다.
-- hold-rescue: eligible `175 lot`; threshold `0.40` 적용 `38 lot`, delta `-26,887원`으로 `diagnostic_only_no_hold_rescue_candidate`다.
+- buy-rescue(2026-09-07 확인 이력): decision ledger `143,105`행 중 eligible `72,730`행이며 `diagnostic_only_no_order_policy_change`다. Cybos proxy도 `buy_avoid_candidate_only`로 buy-rescue 주문 반영을 권하지 않는다.
+- hold-rescue(2026-09-07 확인 이력): eligible `175 lot`; threshold `0.40` 적용 `38 lot`, delta `-26,887원`으로 `diagnostic_only_no_hold_rescue_candidate`다.
 - meta-policy: primary candidate 없음. rescue/avoid는 관측 전용으로 유지한다.
 - 현행 비용 모델은 `krx-common-stock-2026-v1`, 왕복 `0.29%`, 2배 민감도 `0.58%`다.
 - E7 buy-rescue 미래 검증은 threshold `0.55`, `2026-08-31 09:15 KST` 이후 구간, 최소 10거래일/100 episode/5종목, portfolio replay, random control 1,000회, 비중복 2구간을 사전등록했다. 주문 정책에는 반영하지 않는다.
 - 기존 `portfolio-replay-v1-entry-mark`는 보존했다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`는 일치한다.
-- E7은 2026-09-07 기준 미래 거래일 `6일`, 실행 가능 모집단 episode `3,679`, official policy episode/symbol `0/0`, mark observation `0`, missing/stale/invalid mark 모두 `0`이다. evaluator/manifest는 일치하고 evidence health는 `valid_collecting`, 공식 상태는 최소 표본 축적 대기다. threshold는 episode 첫 판단의 entry score에 적용되므로 이후 분의 일시적 `0.55` 상향을 새 episode로 재해석하지 않는다.
+- E7은 2026-09-15 기준 미래 거래일 `11일`, 실행 가능 모집단 episode `6,182`, official policy episode/symbol `0/0`, mark observation `0`, missing/stale/invalid mark 모두 `0`이다. evaluator/manifest는 일치하고 evidence health는 `valid_collecting`이다. 거래일 기준만 충족했고 episode/종목 기준은 미충족이라 공식 수익성 평가는 시작하지 않는다.
 
 ## Phase 0과 readiness
 
@@ -55,10 +55,10 @@
 - 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch `0`, effective cash gap `0원`, total asset gap `0원`이다. current view는 `005930` 1주·`035420` 2주, 유효현금 `9,319,451원`, 총자산 `10,001,951원`이며 raw cash gap `-1,850원`은 KIS 현금 표시 정의 차이로 분리한다.
 - 2026-09-07 장후 order-fill sync는 9페이지/124행을 완결했다. submission 124/124 exact-linked, final 123/open 1이며 pending `005930` 2주 지정가 주문은 실제 broker-authoritative 미체결 상태로 보존한다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
-- 현재 epoch는 `aligned`, 유효일 `1/10`, matched `1`, mismatch `0`, remaining `9`다. 2026-09-07 cash gap `-615.81원`, total asset gap `-1,215.81원`은 허용 오차 안에서 match 판정을 받았다.
+- 현재 epoch는 유효 거래일 `7일`, matched `1`, mismatch `6`, consecutive matched `0`이다. 2026-09-08 이후 `373220`이 local 1주/broker 0주로 불일치하며 계좌 snapshot과 bounded 주문·체결 원장도 서로 충돌한다. 자동 정렬 없이 원천 증거 재확인이 필요하다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
-- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 2026-09-07 data-quality는 예상 밖 공통 공백이 있고 30분 freshness도 초과했으므로 새 실제 세션의 정상 증거 없이는 readiness를 통과하지 않는다.
+- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 2026-09-15 data-quality는 수집 실패이고 30분 freshness도 초과했으므로 새 실제 세션의 정상 증거 없이는 readiness를 통과하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
 
 ## FULL CHECK 조치
@@ -83,13 +83,14 @@
 18. restart live order recovery는 inflight 주문을 `UNKNOWN`으로 전환한 뒤 live 계좌의 해당 거래일 order-fill history가 완결되고 broker identity가 정확히 일치할 때만 상태·누적 fill delta를 복구한다. 누락·중복·불일치·불완전 pagination은 추정 없이 `UNKNOWN`을 유지한다.
 19. Phase 1b readiness cycle이 최신 data-quality의 실제 KIS WebSocket recovery를 strict lineage와 30분 freshness로 검증해 우선 사용하도록 연결했다. 연결기 자체는 네트워크를 호출하지 않으며 오래된 2026-09-04 증거는 통과시키지 않는다.
 20. WebSocket 수신을 stdlib queue와 단일 worker로 기존 직렬 processor에서 분리해 느린 broker REST sync가 socket frame 소비를 막지 않도록 했다. 2026-09-07 공백 원인은 교정했으며 다음 실제 세션 데이터로 효과를 확인한다.
+21. KIS WebSocket 시각을 신뢰 경계에서 검증하고 잘못된 레코드만 격리했다. 유효한 5자리 시각은 leading-zero로 보정하며 listener 전체 종료를 막는 회귀 테스트를 추가했다.
 
 ## 현재 blocker와 다음 순서
 
 1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
-2. 현재 epoch의 남은 유효 거래일 9개를 post-close·broker snapshot 성공·실제 mirrored submission 존재 조건으로 모두 matched 확인한다.
-3. E7 immutable daily artifact는 기준을 바꾸지 않고 최소 10거래일·100 episode·5종목까지 축적한다.
-4. 다음 거래일에는 예상 밖 공통 공백 재발 여부를 확인하고, `005930` broker open order의 최종 상태를 정상 sync로 관찰한다. 강제 취소·원장 덮어쓰기는 하지 않는다.
+2. `373220` local 1주/broker 0주 차이를 KIS 계좌 snapshot과 완결 주문·체결 원장으로 재확인한다. 현재 consecutive matched가 0이므로 "3일만 더 관찰"하면 Phase 0이 통과하는 상태가 아니다.
+3. E7은 threshold/model/manifest를 바꾸지 않고 official episode와 종목 표본을 축적한다.
+4. 다음 거래일에는 timestamp skip 경고 수, runtime 재시작 여부, market/orderbook coverage, bars/features와 decision lineage를 함께 확인한다.
 5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
 
 ## 기준 문서

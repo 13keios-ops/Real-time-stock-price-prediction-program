@@ -5,6 +5,14 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-15] KIS WebSocket timestamp 장애 격리
+
+- 2026-09-15 market/orderbook coverage는 `1.99%/6.01%`, minute bar/feature/decision은 모두 0이었다. runtime 로그에는 `second must be in 0..59` 또는 `hour must be in 0..23` 종료가 누적 55회 확인됐다.
+- KIS HHMMSS를 검증하지 않고 `datetime.replace`에 전달하면 listener가 종료되는 경로를 재현했다. 짧은 시각을 오른쪽 0으로 채우던 처리도 잘못됐다. 당시 실패 원문 프레임은 없어 원본 수신값 이상과 필드 파싱 이상은 아직 구분하지 못했다.
+- 공통 parser에서 5자리 시각을 leading-zero로 보정하고 유효하지 않은 시각은 전용 예외로 분리했다. live/replay 공통 dispatcher는 이 예외의 해당 레코드만 경고 후 건너뛰며 다른 ValueError는 숨기지 않는다.
+- 관련 WebSocket/streaming 테스트 32건과 전체 unittest 643건, repository structure audit errors 0을 통과했다. 2026-09-16 재개 후 테스트를 시/분/초 범위, 비숫자/초과 길이, 체결/호가 양 경로, 정상 후속 처리와 다른 ValueError 전파까지 보강하고 관련 32건을 다시 통과했다.
+- 당일 손실 데이터는 복원하지 않았고 다음 실제 세션에서 runtime 재시작, timestamp skip, coverage와 decision lineage를 확인한다. Phase 0 `373220` 불일치는 자동 정렬하지 않았다.
+
 ## 최근 운영 스냅샷 (2026-09-04)
 
 - 기준 시각: 2026-09-05 16:36 KST

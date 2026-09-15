@@ -31,17 +31,17 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 수익화 판정: `no_profitable_candidate`
 - 자동 승격: 없음
 - Phase 0 과거 계좌 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
-- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 2026-09-06 승인 clean baseline은 호환되며 2026-09-07 첫 유효일이 matched여서 `1/10`, remaining `9`
+- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 유효 거래일 `7`, matched `1`, mismatch `6`, consecutive matched `0`; `373220` 원천 불일치 해소 뒤 새 정합 관측이 필요
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
-- 2026-09-07 decision ledger: 3,786행, complete lineage 3,786행, ratio 1.0
+- 2026-09-15 decision ledger: `0`행; listener의 시각 범위 ValueError와 반복 종료 확인, 당일 판단 계보 미생성
 - 2026-08-31/09-01 broker account rejection은 만료된 이전 paper 계좌에서 발생한 이력이다. 새 계좌에서 같은 경로의 자연 submission 36건이 성공해 이전 계좌 무효 root cause가 사실상 확인됐다.
 - 새 paper 계좌는 2026-09-03 활성, 2026-12-03 만료다. 30일/7일 전 갱신 경고를 적용한다.
 - 새 계좌 자연 cash-order는 정상 동작한다. 2026-09-07 order-fill sync는 9페이지/124행, submission 124/124 exact-linked, final 123/open 1이며 `005930` 2주 지정가 미체결 주문을 broker 상태 그대로 보존한다.
-- 2026-09-06 승인 marker-only clean baseline은 current epoch compatible이다. 2026-09-07 reconciliation은 mismatch `0`, cash gap `-615.81원`, total asset gap `-1,215.81원`, `aligned`이며 첫 유효일로 집계됐다.
-- 2026-09-07 data quality: market/orderbook `3,796/4,049` symbol-minute, feature `3,786`행/`97.08%`, reconnect `32`, storm `0`, unexpected common gap `13:03 KST`, assessment `CRITICAL/실패`
-- 2026-09-07 E7 day 6: `valid_collecting`, future trading days `6`, 실행 가능 모집단 episode `3,679`, official policy episode/symbol `0/0`, invalid mark `0`, 최소 표본 축적 대기
+- 2026-09-06 승인 marker-only clean baseline은 current epoch compatible이지만 2026-09-08 이후 `373220` local 1주/broker 0주 불일치가 유지된다.
+- 2026-09-15 data quality: market/orderbook `78/235` of expected `3,910`, bars/features/decision `0`, reconnect `22`, storm `0`, assessment `CRITICAL/실패`
+- 2026-09-15 E7: `valid_collecting`, future trading days `11`, 실행 가능 모집단 episode `6,182`, official policy episode/symbol `0/0`, invalid mark `0`; evaluator/manifest 일치
 - 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
@@ -65,6 +65,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] KRX common-stock 지정가 호가단위 정규화와 `invalid_price_tick` taxonomy 추가
 - [x] WebSocket 재구독/첫 프레임 복구 증적과 storm/common-gap 우선 `CRITICAL/실패` 판정 추가
 - [x] WebSocket 수신과 기존 직렬 pipeline processor를 stdlib queue와 단일 worker로 분리해 느린 broker REST sync의 frame 수신 차단 제거
+- [x] malformed KIS WebSocket HHMMSS를 신뢰 경계에서 격리해 단일 레코드가 listener를 종료하지 않도록 수정
 - [x] cooldown 종료 후 장외 order-fill sync 1회로 38 submission 상태 완결
 - [x] broker paper 누적 체결 평균가를 local fill 대금 기준 delta 체결가로 변환
 - [x] broker paper order/fill/position accounting을 local order 단위 SQLite transaction과 메모리 rollback으로 원자화
@@ -74,14 +75,14 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] restart inflight live order를 완결된 broker history와 exact identity로만 복구하고 불확실하면 `UNKNOWN` 유지
 - [x] current account snapshot/reconciliation 1회와 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [x] 계좌 소유자 승인으로 현재 계좌용 Phase 0 marker-only clean baseline 생성 및 gap 0 검증
-- [ ] 현재 계좌 Phase 0 epoch의 남은 유효 거래일 9개를 모두 matched로 확인
+- [ ] `373220` local/broker 원천 불일치를 해소한 뒤 최근 10개 유효 거래일을 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단
 - [x] buy-avoid의 절대 portfolio 손실을 근거로 기각 유지
 - [x] E7 LightGBM buy-rescue 미래 검증을 threshold 0.55와 고정 기준으로 사전등록
 - [x] 기존 replay v1 보존, minute MTM v2와 immutable E7 manifest/compatibility guard 검증
 - [x] E7 current-day post-close read-only daily artifact writer와 sample/drift/mark/idempotency 검증
-- [ ] 2026-08-31 이후 E7 최소 10거래일/100 episode/5종목 확보
+- [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정
 - [x] data-quality의 실제 WebSocket recovery를 strict lineage/freshness로 Phase 1b readiness cycle에 연결

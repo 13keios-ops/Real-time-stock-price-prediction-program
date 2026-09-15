@@ -10,6 +10,10 @@ from app.storage.contracts import MarketTickEvent, OrderbookSnapshot
 from app.utils.time import get_timezone
 
 
+class InvalidKisWebSocketTimestampError(ValueError):
+    pass
+
+
 def build_sample_ticks(symbol: str, timezone_name: str = "Asia/Seoul") -> list[MarketTickEvent]:
     tz = get_timezone(timezone_name)
     base_time = datetime(2026, 4, 11, 9, 20, tzinfo=tz)
@@ -112,7 +116,11 @@ def event_time_from_kis_ws_record(
     if not time_text:
         return fallback
 
-    padded_time = time_text.ljust(6, "0")[:6]
+    padded_time = time_text.zfill(6)
+    if len(padded_time) != 6 or not padded_time.isdigit():
+        raise InvalidKisWebSocketTimestampError(
+            f"invalid KIS WebSocket timestamp symbol={record.get('MKSC_SHRN_ISCD', '')} date={date_text} time={time_text}"
+        )
     if date_text and len(date_text) == 8 and date_text.isdigit():
         year = int(date_text[0:4])
         month = int(date_text[4:6])
@@ -125,4 +133,17 @@ def event_time_from_kis_ws_record(
     hour = int(padded_time[0:2])
     minute = int(padded_time[2:4])
     second = int(padded_time[4:6])
-    return fallback.replace(year=year, month=month, day=day, hour=hour, minute=minute, second=second, microsecond=0)
+    try:
+        return fallback.replace(
+            year=year,
+            month=month,
+            day=day,
+            hour=hour,
+            minute=minute,
+            second=second,
+            microsecond=0,
+        )
+    except ValueError as exc:
+        raise InvalidKisWebSocketTimestampError(
+            f"invalid KIS WebSocket timestamp symbol={record.get('MKSC_SHRN_ISCD', '')} date={date_text} time={time_text}"
+        ) from exc

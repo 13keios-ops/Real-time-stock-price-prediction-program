@@ -23,8 +23,12 @@ from app.brokers.kis_quote_ws import (
     KisWebSocketQuoteClient,
     parse_kis_ws_frame,
 )
-from app.collectors.market_data import market_tick_from_kis_ws_record, orderbook_from_kis_ws_record
-from app.collectors.market_data import event_time_from_kis_ws_record
+from app.collectors.market_data import (
+    InvalidKisWebSocketTimestampError,
+    event_time_from_kis_ws_record,
+    market_tick_from_kis_ws_record,
+    orderbook_from_kis_ws_record,
+)
 from app.config.settings import AppSettings, load_settings
 from app.features.minute_bars import aggregate_ticks_to_minute_bar, build_feature_snapshot
 from app.models.loader import load_latest_lightgbm_shadow_model, load_prediction_model
@@ -805,6 +809,20 @@ class OnlinePipelineProcessor:
         )
 
 
+def _process_kis_ws_record(
+    processor: OnlinePipelineProcessor,
+    tr_id: str | None,
+    record: dict[str, str],
+) -> None:
+    try:
+        if tr_id == DOMESTIC_TRADE_TR_ID:
+            processor.process_trade_record(record)
+        elif tr_id == DOMESTIC_ORDERBOOK_TR_ID:
+            processor.process_orderbook_record(record)
+    except InvalidKisWebSocketTimestampError as exc:
+        LOGGER.warning("Skipping KIS WebSocket record tr_id=%s: %s", tr_id, exc)
+
+
 def replay_ws_frames(project_root: Path, frames: list[str], max_hold_minutes: int = 20) -> OnlinePipelineResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -825,10 +843,7 @@ def replay_ws_frames(project_root: Path, frames: list[str], max_hold_minutes: in
             control_frames += 1
             continue
         for record in parsed.get("records", []):
-            if tr_id == DOMESTIC_TRADE_TR_ID:
-                processor.process_trade_record(record)
-            elif tr_id == DOMESTIC_ORDERBOOK_TR_ID:
-                processor.process_orderbook_record(record)
+            _process_kis_ws_record(processor, tr_id, record)
     result = processor.flush()
     result.frames_received = frames_received
     result.control_frames = control_frames
@@ -905,10 +920,7 @@ def _consume_kis_ws_frames(
             continue
         tr_id = parsed.get("tr_id")
         for record in parsed.get("records", []):
-            if tr_id == DOMESTIC_TRADE_TR_ID:
-                processor.process_trade_record(record)
-            elif tr_id == DOMESTIC_ORDERBOOK_TR_ID:
-                processor.process_orderbook_record(record)
+            _process_kis_ws_record(processor, tr_id, record)
 
 
 async def run_kis_ws_listener(

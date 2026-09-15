@@ -10,6 +10,8 @@ import uuid
 from unittest.mock import patch
 
 from app.brokers.kis_auth import KisApiError
+from app.brokers.kis_quote_ws import DOMESTIC_ORDERBOOK_TR_ID, DOMESTIC_TRADE_TR_ID
+from app.collectors.market_data import event_time_from_kis_ws_record
 from app.config.settings import load_settings
 from app.services.broker_paper import BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE
 from app.services.broker_paper_sync import BrokerPaperSyncResult
@@ -17,6 +19,7 @@ from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, Predi
 from app.services.streaming import (
     OnlinePipelineProcessor,
     OnlinePipelineResult,
+    _process_kis_ws_record,
     build_sample_ws_frames,
     replay_ws_frames,
     run_kis_ws_listener,
@@ -25,6 +28,39 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class StreamingPipelineTests(unittest.TestCase):
+    def test_stream_handler_skips_invalid_kis_timestamp_and_keeps_processing(self) -> None:
+        class RecordingProcessor:
+            def __init__(self) -> None:
+                self.event_times: list[datetime] = []
+
+            def process_trade_record(self, record) -> None:
+                self.event_times.append(
+                    event_time_from_kis_ws_record(
+                        record,
+                        fallback=datetime(2026, 9, 15, 9, 15),
+                    )
+                )
+
+            def process_orderbook_record(self, record) -> None:
+                self.process_trade_record(record)
+
+        for tr_id, field in (
+            (DOMESTIC_TRADE_TR_ID, "STCK_CNTG_HOUR"),
+            (DOMESTIC_ORDERBOOK_TR_ID, "BSOP_HOUR"),
+        ):
+            for invalid in ("240000", "096000", "091560", "bad", "0915000"):
+                with self.subTest(tr_id=tr_id, invalid=invalid):
+                    processor = RecordingProcessor()
+                    with self.assertLogs("app.services.streaming", level="WARNING"):
+                        _process_kis_ws_record(processor, tr_id, {field: invalid})
+                    _process_kis_ws_record(processor, tr_id, {field: "91500"})
+                    self.assertEqual(len(processor.event_times), 1)
+                    self.assertEqual(processor.event_times[0].strftime("%H%M%S"), "091500")
+
+        with patch.object(processor, "process_trade_record", side_effect=ValueError("storage failure")):
+            with self.assertRaisesRegex(ValueError, "storage failure"):
+                _process_kis_ws_record(processor, DOMESTIC_TRADE_TR_ID, {"STCK_CNTG_HOUR": "091500"})
+
     def test_listener_keeps_reading_frames_while_pipeline_work_blocks(self) -> None:
         root = Path(__file__).resolve().parents[1]
         source_advanced = threading.Event()

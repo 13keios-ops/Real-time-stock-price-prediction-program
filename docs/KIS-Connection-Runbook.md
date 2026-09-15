@@ -292,6 +292,8 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 - 해당 공백에는 raw market/orderbook, feature/decision, broker submission이 모두 0건이었다. 15:09 복구 뒤 판단도 entry window 종료로 signal-blocked되어 stale/missing data 기반 신규 주문 증거는 없다.
 - listener는 연결 로그와 별도로 `subscriptions restored`와 `first frame received after subscription restore`를 남긴다. 다음 장애부터 연결 수립, 전체 재구독, 실제 데이터 복구를 분리해서 확인한다.
 - `storm_count > 0` 또는 정규장 예상 밖 전 종목 공통 gap은 coverage와 lineage가 양호해도 운영 `CRITICAL/실패`다.
+- KIS 체결/호가 시각은 HHMMSS 신뢰 경계에서 검증한다. 5자리 숫자는 leading-zero로 정규화하고 범위를 벗어난 값은 해당 레코드만 경고 후 건너뛴다.
+- timestamp 경고가 발생하면 listener 재시작 여부와 당일 raw/bar/feature/decision coverage를 함께 확인하며, 잘못된 값을 임의의 시장 시각으로 보정하지 않는다.
 
 운영 확인:
 
