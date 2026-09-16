@@ -442,6 +442,14 @@ class KisWebSocketQuoteClient:
                                 f"{self.frame_timeout_seconds}s after subscription."
                             )
                             raise KisApiError(message) from exc
+                        if frame.startswith("{"):
+                            try:
+                                is_pingpong = json.loads(frame).get("header", {}).get("tr_id") == "PINGPONG"
+                            except (AttributeError, json.JSONDecodeError):
+                                is_pingpong = False
+                            if is_pingpong:
+                                await connection.pong(frame)
+                                continue
                         frames_seen += 1
                         if first_frame_after_subscription:
                             if restoring_subscriptions:

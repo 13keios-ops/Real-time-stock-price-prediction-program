@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -259,6 +260,59 @@ class KisWebSocketReconnectRetryTests(unittest.TestCase):
         self.assertFalse(
             any("subscriptions restored" in message for message in messages)
         )
+
+    def test_listener_replies_to_kis_pingpong_without_yielding_it(self) -> None:
+        pingpong = json.dumps({"header": {"tr_id": "PINGPONG"}})
+        market_frame = "0|H0STCNT0|001|005930^090000^70000"
+
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.frames = iter([pingpong, market_frame])
+                self.pongs: list[str] = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+            async def send(self, message: str) -> None:
+                return None
+
+            async def recv(self) -> str:
+                return next(self.frames)
+
+            async def pong(self, payload: str) -> None:
+                self.pongs.append(payload)
+
+        connection = FakeConnection()
+
+        class FakeWebSockets:
+            @staticmethod
+            def connect(*args, **kwargs):
+                return connection
+
+        client = self._client()
+
+        async def collect() -> list[str]:
+            return [
+                frame
+                async for frame in client.listen(
+                    ["005930"],
+                    include_orderbook=False,
+                    max_frames=1,
+                    max_reconnects=0,
+                )
+            ]
+
+        with (
+            patch.object(KisWebSocketQuoteClient, "issue_approval_key", return_value="approval-key"),
+            patch("app.brokers.kis_quote_ws.websockets", FakeWebSockets),
+        ):
+            frames = asyncio.run(collect())
+
+        self.assertEqual(frames, [market_frame])
+        self.assertEqual(connection.pongs, [pingpong])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,13 @@
 - Windows startup launcher: 설치 및 정상
 - 시장·ML·E7·Phase 0은 2026-09-15 장후 스냅샷을 반영한다.
 
+## 2026-09-16 긴급 수집 상태
+
+- 최신 장후 data-quality는 raw market/orderbook 410/448, closed bar/feature/serving decision lineage 46/46/46, WebSocket reconnect 74, storm 49로 CRITICAL/실패다.
+- 원인 후보 중 하나로 확인된 KIS JSON PINGPONG 무응답을 보완했다. 제어 프레임은 즉시 pong으로 응답하고 시장 데이터·stable-frame 집계에서 제외한다.
+- 이 수정은 수집 transport 계약만 다루며 E7 threshold/model/manifest, signal/gate/allocator, 주문·Phase 0 baseline은 변경하지 않았다.
+- 다음 실제 세션에서 reconnect storm, common gap, coverage, closed feature와 decision lineage가 정상이어야 복구 완료로 판정한다.
+
 ## 프로젝트 목표 정합성
 
 - 현재 운영 목표는 실전 자동매매가 아니라 `paper` 기준으로 `수집 -> 특징 -> 예측 -> 판단 -> 모의주문/체결 -> KIS 모의계좌 정합 -> 비용 후 포트폴리오 검증`을 증거로 연결하는 것이다.

@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-16] KIS WebSocket heartbeat 계약 보완
+
+- 장후 data-quality는 raw market/orderbook 410/448, closed bar/feature/decision lineage 46/46/46, reconnect 74, storm 49로 실패였다.
+- 공통 listener가 KIS JSON PINGPONG 제어 프레임을 시장 프레임처럼 반환하면서 WebSocket pong을 보내지 않는 경로를 확인했다. KIS 공식 open-trading-api의 현재 WebSocket 구현도 해당 frame에 pong을 응답한다.
+- listener는 이제 PINGPONG에 즉시 pong을 보내고, control frame을 시장 데이터·stable-frame·max-frame 집계에서 제외한다. 회귀 테스트는 기존 코드에서 실패한 뒤 수정 후 관련 33건을 통과했다.
+- 이 변경은 KIS transport에 한정하며 strategy/E7/Phase 0/order policy 및 runtime-data를 변경하지 않았다. 다음 실제 세션의 reconnect storm과 coverage로 효과를 검증한다.
+
 ## [2026-09-15] KIS WebSocket timestamp 장애 격리
 
 - 2026-09-15 market/orderbook coverage는 `1.99%/6.01%`, minute bar/feature/decision은 모두 0이었다. runtime 로그에는 `second must be in 0..59` 또는 `hour must be in 0..23` 종료가 누적 55회 확인됐다.

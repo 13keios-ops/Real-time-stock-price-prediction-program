@@ -66,6 +66,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] WebSocket 재구독/첫 프레임 복구 증적과 storm/common-gap 우선 `CRITICAL/실패` 판정 추가
 - [x] WebSocket 수신과 기존 직렬 pipeline processor를 stdlib queue와 단일 worker로 분리해 느린 broker REST sync의 frame 수신 차단 제거
 - [x] malformed KIS WebSocket HHMMSS를 신뢰 경계에서 격리해 단일 레코드가 listener를 종료하지 않도록 수정
+- [x] KIS JSON PINGPONG을 WebSocket pong으로 응답하고 시장 데이터·reconnect 안정화 지표에서 제외
 - [x] cooldown 종료 후 장외 order-fill sync 1회로 38 submission 상태 완결
 - [x] broker paper 누적 체결 평균가를 local fill 대금 기준 delta 체결가로 변환
 - [x] broker paper order/fill/position accounting을 local order 단위 SQLite transaction과 메모리 rollback으로 원자화
