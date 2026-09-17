@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-17] KIS WebSocket 다건 체결 frame 정렬 보완
+
+- 장후 data-quality는 raw market/orderbook `543/572` of expected `3,910`, closed bar/feature/decision `94/94/94`, reconnect `3`, storm `0`, lineage `100%`였지만 coverage 부족으로 `CRITICAL/실패`다.
+- runtime 로그의 `H0STCNT0` invalid timestamp `1,195`건에서 trailing 값이 다음 row symbol/time으로 이동한 패턴을 확인했다. 실제 다건 payload는 문서상 46개 필드 뒤 provider trailing field를 포함할 수 있다.
+- parser는 advertised record count와 token 수가 정확히 나뉠 때 actual row width로 경계를 계산하고 문서상 prefix만 저장한다. 회귀 테스트는 수정 전 두 번째 row symbol이 trailing 값 `2`가 되는 실패를 재현했고, 수정 후 관련 30건과 전체 unittest 645건을 통과했다.
+- runtime 재시작, 주문, E7 기준, 전략, Phase 0 baseline과 과거 raw 데이터는 변경하지 않았다. 다음 실제 거래일 coverage와 timestamp 경고로만 복구 여부를 판정한다.
+
 ## [2026-09-16] KIS WebSocket heartbeat 계약 보완
 
 - 장후 data-quality는 raw market/orderbook 410/448, closed bar/feature/decision lineage 46/46/46, reconnect 74, storm 49로 실패였다.

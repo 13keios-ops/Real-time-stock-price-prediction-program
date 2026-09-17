@@ -543,6 +543,11 @@ def _build_records(tokens: list[str], columns: list[str], record_count: int) -> 
     if not columns:
         return [{"value": token} for token in tokens if token]
     chunk_size = len(columns)
+    if record_count > 0 and len(tokens) % record_count == 0:
+        payload_width = len(tokens) // record_count
+        if payload_width >= chunk_size:
+            # KIS can append provider fields after the documented column prefix.
+            chunk_size = payload_width
     records: list[dict[str, str]] = []
     for index in range(record_count):
         start = index * chunk_size

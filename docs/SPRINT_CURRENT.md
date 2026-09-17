@@ -41,6 +41,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 새 계좌 자연 cash-order는 정상 동작한다. 2026-09-07 order-fill sync는 9페이지/124행, submission 124/124 exact-linked, final 123/open 1이며 `005930` 2주 지정가 미체결 주문을 broker 상태 그대로 보존한다.
 - 2026-09-06 승인 marker-only clean baseline은 current epoch compatible이지만 2026-09-08 이후 `373220` local 1주/broker 0주 불일치가 유지된다.
 - 2026-09-15 data quality: market/orderbook `78/235` of expected `3,910`, bars/features/decision `0`, reconnect `22`, storm `0`, assessment `CRITICAL/실패`
+- 2026-09-17 data quality: market/orderbook `543/572` of expected `3,910`, bars/features/decision `94/94/94`, reconnect `3`, storm `0`, lineage `100%`, assessment `CRITICAL/실패`
+- 2026-09-17 `H0STCNT0` 다건 frame은 문서상 46개 필드 뒤 trailing field가 있어 row 경계가 밀렸다. actual payload width로 경계를 계산하고 문서상 prefix만 저장하도록 보완했으며 다음 실제 세션 검증이 남았다.
 - 2026-09-15 E7: `valid_collecting`, future trading days `11`, 실행 가능 모집단 episode `6,182`, official policy episode/symbol `0/0`, invalid mark `0`; evaluator/manifest 일치
 - 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
@@ -67,6 +69,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] WebSocket 수신과 기존 직렬 pipeline processor를 stdlib queue와 단일 worker로 분리해 느린 broker REST sync의 frame 수신 차단 제거
 - [x] malformed KIS WebSocket HHMMSS를 신뢰 경계에서 격리해 단일 레코드가 listener를 종료하지 않도록 수정
 - [x] KIS JSON PINGPONG을 WebSocket pong으로 응답하고 시장 데이터·reconnect 안정화 지표에서 제외
+- [x] KIS `H0STCNT0` 다건 frame의 actual row width를 사용해 provider trailing field가 다음 row를 오염시키지 않도록 정렬
 - [x] cooldown 종료 후 장외 order-fill sync 1회로 38 submission 상태 완결
 - [x] broker paper 누적 체결 평균가를 local fill 대금 기준 delta 체결가로 변환
 - [x] broker paper order/fill/position accounting을 local order 단위 SQLite transaction과 메모리 rollback으로 원자화

@@ -29,6 +29,31 @@ class KisWebSocketParserTests(unittest.TestCase):
         self.assertEqual(parsed["records"][0]["MKSC_SHRN_ISCD"], "005930")
         self.assertEqual(parsed["records"][0]["STCK_PRPR"], "70200")
 
+    def test_parse_trade_batch_keeps_rows_aligned_with_provider_trailing_fields(self) -> None:
+        index = {name: position for position, name in enumerate(DOMESTIC_TRADE_COLUMNS)}
+
+        def build_row(symbol: str, event_time: str, price: str, trailing: str) -> list[str]:
+            values = [""] * len(DOMESTIC_TRADE_COLUMNS)
+            values[index["MKSC_SHRN_ISCD"]] = symbol
+            values[index["STCK_CNTG_HOUR"]] = event_time
+            values[index["STCK_PRPR"]] = price
+            values[index["CNTG_VOL"]] = "10"
+            return [*values, trailing]
+
+        payload = "^".join(
+            [
+                *build_row("005930", "091500", "70200", "2"),
+                *build_row("000660", "091501", "180000", "1"),
+            ]
+        )
+
+        parsed = parse_kis_ws_frame(f"0|{DOMESTIC_TRADE_TR_ID}|2|{payload}")
+
+        self.assertEqual(parsed["records"][0]["MKSC_SHRN_ISCD"], "005930")
+        self.assertEqual(parsed["records"][1]["MKSC_SHRN_ISCD"], "000660")
+        self.assertEqual(parsed["records"][1]["STCK_CNTG_HOUR"], "091501")
+        self.assertEqual(parsed["records"][1]["STCK_PRPR"], "180000")
+
     def test_parse_orderbook_frame_and_convert(self) -> None:
         values = [""] * len(DOMESTIC_ORDERBOOK_COLUMNS)
         index = {name: position for position, name in enumerate(DOMESTIC_ORDERBOOK_COLUMNS)}
