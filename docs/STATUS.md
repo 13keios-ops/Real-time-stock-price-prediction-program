@@ -2,21 +2,20 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-17 22:16 KST
+- 확인 시각: 2026-09-18 20:52 KST
 - 장 상태: post-close
 - live runtime: 정지, `paper`; 15:30 KST 정상 종료
 - runtime watchdog: 실행 중, heartbeat 정상, `live_runtime_should_run=false`
 - dashboard: 실행 중, server/API 정상
 - Windows startup launcher: 설치 및 정상
-- 수집 상태는 2026-09-17 장후 스냅샷을 반영한다.
+- 수집 상태는 2026-09-18 장후 스냅샷을 반영한다.
 
-## 2026-09-17 수집 상태 (복구 검증 중)
+## 2026-09-18 수집 상태 (parser 복구 확인, WebSocket storm 조사 중)
 
-- 최신 장후 data-quality는 raw market/orderbook `543/572` of expected `3,910`, closed bar/feature/serving decision `94/94/94`, WebSocket reconnect `3`, storm `0`이다. lineage는 `94/94 (100%)`지만 공통 수집 결손으로 `CRITICAL/실패`다.
-- KIS JSON PINGPONG pong 보완 뒤 reconnect storm은 해소됐지만, `H0STCNT0` 다건 체결 frame의 문서상 46개 필드 뒤 provider trailing field가 다음 row 시작으로 잘못 해석됐다. runtime 로그의 invalid timestamp `1,195`건이 이 정렬 오류를 뒷받침한다.
-- parser는 advertised record count와 실제 token 수가 일치할 때 actual row width로 다음 row 경계를 이동하고, 문서상 prefix만 저장해 trailing field를 무시한다. 다건 frame 회귀 테스트를 추가했다.
-- 이 수정은 수집 transport 계약만 다루며 E7 threshold/model/manifest, signal/gate/allocator, 주문·Phase 0 baseline은 변경하지 않았다.
-- 다음 실제 세션에서 invalid timestamp 경고, common gap, coverage, closed feature와 decision lineage가 정상이어야 복구 완료로 판정한다.
+- 최신 장후 data-quality는 raw market/orderbook `3,812/4,064` symbol-minute, closed bar/feature `3,802/3,802`, serving decision `3,802/3,802 (100%)`이다. raw/closed feature coverage는 `97.49%/97.49%`이고 예상 종가 동시호가(`15:20~15:29`) 밖 공통 gap은 없다.
+- `H0STCNT0` 다건 frame의 actual row width 보완은 실제 세션에서 수집·특징·판단 lineage 완결로 검증됐다. 과거 raw 데이터는 재작성하지 않았다.
+- WebSocket은 정각 `no close frame received or sent` 7건과 15:00 read timeout 2건으로 reconnect `9`, storm `1`을 기록했다. 15:01:21 KST 재구독 뒤 첫 프레임은 복구됐지만, storm 우선 정책상 최종 판정은 `CRITICAL/실패`다.
+- 수신 queue 분리는 broker REST sync가 socket frame 소비를 막지 않게 한다. 정각 disconnect의 upstream/KIS/네트워크 원천은 저장 증거만으로 확정하지 않으며 retry 정책이나 전략은 변경하지 않는다.
 
 ## 프로젝트 목표 정합성
 
@@ -32,11 +31,11 @@
 - active h15: `baseline-h15-v1`
 - challenger 조치: `keep_active`
 - 모델 승격: 없음
-- 최신 KIS 거래일: `2026-09-17`
-- raw market/orderbook symbol-minute: `543/572` of expected `3,910`; minute bar/feature closed `94/94`, coverage `2.41%`
-- serving decision ledger: `94`행, complete lineage `94/94 (100%)`
-- WebSocket: reconnect `3`, storm `0`; `H0STCNT0` invalid timestamp 경고 `1,195`건은 다건 frame의 trailing field 정렬 오류로 확인됐다.
-- 최신 data-quality 판정은 `CRITICAL/실패`다. parser가 actual row width를 사용하도록 보완했으며, 과거 raw 데이터를 재작성하지 않는다. 다음 실제 세션 coverage와 decision lineage가 정상이어야 복구 완료로 판정한다.
+- 최신 KIS 거래일: `2026-09-18`
+- raw market/orderbook symbol-minute: `3,812/4,064` of expected `3,910`; minute bar/feature closed `3,802/3,802`, coverage `97.49%`
+- serving decision ledger: `3,802`행, complete lineage `3,802/3,802 (100%)`
+- WebSocket: reconnect `9`, storm `1`; 재구독과 첫 프레임 복구는 확인됐지만 15:00에 3회 연속 reconnect가 발생했다.
+- 최신 data-quality 판정은 storm 우선 `CRITICAL/실패`다. 수집/판단 원장은 보존됐으며 다음 정상 세션에서 storm 재발 여부를 확인한다.
 - 시각 파서는 5자리 값을 leading-zero로 정규화하고 유효하지 않은 HHMMSS 레코드만 경고 후 건너뛴다.
 - 운영 SQLite는 약 `29.062 GiB`, journal mode `wal`이다. 대형 DB 전체 집계와 snapshot은 장외·D드라이브 기준을 유지한다.
 
@@ -52,7 +51,7 @@
 - 현행 비용 모델은 `krx-common-stock-2026-v1`, 왕복 `0.29%`, 2배 민감도 `0.58%`다.
 - E7 buy-rescue 미래 검증은 threshold `0.55`, `2026-08-31 09:15 KST` 이후 구간, 최소 10거래일/100 episode/5종목, portfolio replay, random control 1,000회, 비중복 2구간을 사전등록했다. 주문 정책에는 반영하지 않는다.
 - 기존 `portfolio-replay-v1-entry-mark`는 보존했다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`는 일치한다.
-- E7은 2026-09-15 기준 미래 거래일 `11일`, 실행 가능 모집단 episode `6,182`, official policy episode/symbol `0/0`, mark observation `0`, missing/stale/invalid mark 모두 `0`이다. evaluator/manifest는 일치하고 evidence health는 `valid_collecting`이다. 거래일 기준만 충족했고 episode/종목 기준은 미충족이라 공식 수익성 평가는 시작하지 않는다.
+- E7은 2026-09-18 기준 미래 거래일 `14일`, 실행 가능 모집단 episode `6,729`, official policy episode/symbol `0/0`, mark observation `0`, missing/stale/invalid mark 모두 `0`이다. evaluator/manifest는 일치하고 evidence health는 `valid_collecting`이다. 거래일 기준만 충족했고 episode/종목 기준은 미충족이라 공식 수익성 평가는 시작하지 않는다.
 
 ## Phase 0과 readiness
 
@@ -64,10 +63,11 @@
 - 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch `0`, effective cash gap `0원`, total asset gap `0원`이다. current view는 `005930` 1주·`035420` 2주, 유효현금 `9,319,451원`, 총자산 `10,001,951원`이며 raw cash gap `-1,850원`은 KIS 현금 표시 정의 차이로 분리한다.
 - 2026-09-07 장후 order-fill sync는 9페이지/124행을 완결했다. submission 124/124 exact-linked, final 123/open 1이며 pending `005930` 2주 지정가 주문은 실제 broker-authoritative 미체결 상태로 보존한다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
-- 현재 epoch는 유효 거래일 `7일`, matched `1`, mismatch `6`, consecutive matched `0`이다. 2026-09-08 이후 `373220`이 local 1주/broker 0주로 불일치하며 계좌 snapshot과 bounded 주문·체결 원장도 서로 충돌한다. 자동 정렬 없이 원천 증거 재확인이 필요하다.
+- 현재 epoch는 유효 거래일 `10일`, matched `1`, mismatch `9`, consecutive matched `0`이다. 2026-09-08 이후 `373220`이 local 1주/broker 0주로 불일치하며 계좌 snapshot과 bounded 주문·체결 원장도 서로 충돌한다. 자동 정렬 없이 current-epoch 원천 증거 재확인이 필요하다.
+- 2026-09-18 broker sync는 submission `323`, final `322`, current-day open `1`(`035420`)이다. 이 주문은 마지막 KIS status snapshot에서 잔량 3주였고 같은 날에는 보수적으로 `open`으로 유지한다. 다음 거래일 동기화에서 KIS 행이 없으면 `expired`로 전환하므로 자동 취소하지 않는다.
 - full-period sanitized account activity는 22페이지/329행, pagination 완결이며 320행 local-linked와 9행 broker-only로 이전 divergence 원인을 확정했다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
-- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 2026-09-17 data-quality도 수집 실패이고 30분 freshness도 초과했으므로 새 실제 세션의 정상 증거 없이는 readiness를 통과하지 않는다.
+- Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 2026-09-18 수집 lineage는 회복됐지만 storm 1건이므로 새 실제 세션의 정상 증거 없이는 readiness를 통과하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
 
 ## FULL CHECK 조치
@@ -98,9 +98,9 @@
 ## 현재 blocker와 다음 순서
 
 1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
-2. `373220` local 1주/broker 0주 차이를 KIS 계좌 snapshot과 완결 주문·체결 원장으로 재확인한다. 현재 consecutive matched가 0이므로 "3일만 더 관찰"하면 Phase 0이 통과하는 상태가 아니다.
+2. `373220` local 1주/broker 0주 차이를 current-epoch KIS 계좌 snapshot과 충분한 범위의 주문·체결 원장으로 재확인한다. 현재 consecutive matched가 0이므로 "3일만 더 관찰"하면 Phase 0이 통과하는 상태가 아니다.
 3. E7은 threshold/model/manifest를 바꾸지 않고 official episode와 종목 표본을 축적한다.
-4. 다음 거래일에는 `H0STCNT0` timestamp skip 경고 수, runtime 재시작 여부, market/orderbook coverage, bars/features와 decision lineage를 함께 확인한다.
+4. 다음 거래일에는 15:00 WebSocket storm 재발, 재구독/첫 프레임 회복, 예상 밖 공통 gap, market/orderbook coverage, bars/features와 decision lineage를 함께 확인한다.
 5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
 
 ## 기준 문서

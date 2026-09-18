@@ -31,7 +31,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 수익화 판정: `no_profitable_candidate`
 - 자동 승격: 없음
 - Phase 0 과거 계좌 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
-- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 유효 거래일 `7`, matched `1`, mismatch `6`, consecutive matched `0`; `373220` 원천 불일치 해소 뒤 새 정합 관측이 필요
+- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 유효 거래일 `10`, matched `1`, mismatch `9`, consecutive matched `0`; `373220` 원천 불일치 해소 뒤 새 정합 관측이 필요
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
@@ -43,7 +43,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 2026-09-15 data quality: market/orderbook `78/235` of expected `3,910`, bars/features/decision `0`, reconnect `22`, storm `0`, assessment `CRITICAL/실패`
 - 2026-09-17 data quality: market/orderbook `543/572` of expected `3,910`, bars/features/decision `94/94/94`, reconnect `3`, storm `0`, lineage `100%`, assessment `CRITICAL/실패`
 - 2026-09-17 `H0STCNT0` 다건 frame은 문서상 46개 필드 뒤 trailing field가 있어 row 경계가 밀렸다. actual payload width로 경계를 계산하고 문서상 prefix만 저장하도록 보완했으며 다음 실제 세션 검증이 남았다.
-- 2026-09-15 E7: `valid_collecting`, future trading days `11`, 실행 가능 모집단 episode `6,182`, official policy episode/symbol `0/0`, invalid mark `0`; evaluator/manifest 일치
+- 2026-09-18 data quality: market/orderbook `3,812/4,064`, bars/features/decision `3,802/3,802/3,802`, lineage `100%`로 parser 복구가 확인됐다. 다만 15:00 WebSocket reconnect `9`, storm `1`로 최종 판정은 `CRITICAL/실패`다.
+- 2026-09-18 E7: `valid_collecting`, future trading days `14`, 실행 가능 모집단 episode `6,729`, official policy episode/symbol `0/0`, invalid mark `0`; evaluator/manifest 일치
 - 이전 계좌 KIS support snapshot은 역사 증거로만 보존하며 현재 계좌 결론에는 사용하지 않는다.
 - E7 탐색 기준선과 threshold 0.55는 동결하며 future evidence와 섞지 않는다.
 
