@@ -243,6 +243,8 @@ python scripts/summarize_cybos_kis_transfer_review.py --horizon-min 15
 python scripts/summarize_meta_policy_shadow.py --horizon-min 15
 python scripts/summarize_social_signal_shadow.py --horizon-min 15
 python scripts/summarize_investor_flow_shadow.py --horizon-min 15
+python scripts/summarize_dart_disclosure_shadow.py --horizon-min 15
+python scripts/summarize_short_sale_shadow.py --horizon-min 15
 python scripts/summarize_cybos_buy_avoid_proxy.py --trade-cost-pct 0.13
 python -m app --set-active-builtin --builtin-model baseline --horizon-min 15
 ./scripts/create_research_db_snapshot.sh

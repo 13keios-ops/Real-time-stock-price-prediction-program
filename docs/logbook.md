@@ -5,11 +5,15 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
-## [2026-09-19] 외국인·기관 EOD 수급 shadow 시작
+## [2026-09-19] 공식 EOD·공시 shadow 확장
 
 - KRX finalized EOD 수급을 입력하는 source-neutral JSONL 계약과 read-only h15/h60 사후평가를 추가했다. `available_at` 이후 첫 label만 선택해 당일 정보가 과거 판단으로 새지 않게 한다.
 - 입력이 없을 때는 `no_observations_file`로 안전 종료하며, KRX/KIS/SNS 네트워크 호출, DB 변경, 주문, E7 evaluator/manifest, 모델·signal·gate·allocator 변경은 없다.
 - 새 report와 회귀 테스트는 두 투자자 그룹 동행 buy/sell 및 availability 경계 전 label 제외를 검증한다. 실제 KRX export가 들어오기 전에는 성과 해석을 하지 않는다.
+- OpenDART published disclosure와 KRX finalized EOD short-sale shadow entrypoint를 추가했다. 둘 다 운영자 공식 export JSONL만 읽고, SQLite feature label은 valid input 뒤에 read-only로만 조회한다.
+- DART event는 unique ID, published state, 사전 기록한 event type/direction, `available_at` 이후 첫 label을 요구한다. duplicate·미공개·시각 오류는 fail-closed로 제외한다.
+- KRX short-sale entry는 거래량·거래대금 정합성을 검증하고 short-volume ratio와 optional net-short-position delta를 기술통계로만 기록한다. 초기에는 매수·매도 방향을 가정하지 않는다.
+- 두 경로 모두 E7 evaluator/manifest, active model, threshold, feature, signal, gate, allocator, paper/live order, `app/risk/`, `config/`를 변경하지 않았다. 현재 input 파일이 없어 성과 결론은 없다.
 
 ## [2026-09-17] KIS WebSocket 다건 체결 frame 정렬 보완
 

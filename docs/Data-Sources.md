@@ -14,7 +14,9 @@
 ## 현재 구현 상태
 
 - 실제 코드 연결은 KIS 중심이다.
-- 뉴스, 공시, 반응 데이터 파이프라인은 아직 설계 단계 성격이 더 크다.
+- 뉴스와 반응 데이터의 자동 수집은 아직 설계 단계 성격이 더 크다.
+- OpenDART published disclosure와 KRX finalized short-sale은 외부 API 호출 없이 운영자 공식 export JSONL을 읽는 shadow 평가 경로가 준비됐다.
+- 해당 shadow 경로는 serving feature나 주문 정책이 아니며, OpenDART 자동 수집은 별도 user-issued key와 명시 승인 전까지 시작하지 않는다.
 
 ## 원칙
 
