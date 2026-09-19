@@ -44,6 +44,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - `docs/Model-Research-PreRegistration.md`: Cybos-KIS 격차, orderbook 피처 가설, h60 트랙 사전등록 기준
 - `docs/Portfolio-Replay-Evaluator.md`: portfolio replay v1/v2 시간 의미, MTM, E7 evaluator manifest와 호환성 기준
 - `docs/Social-Signal-Shadow-Plan.md`: SNS/공개 영향력 이벤트를 Phase 1 shadow 로 관측·평가하는 기준
+- `docs/Investor-Flow-Shadow-Plan.md`: 외국인·기관 EOD 수급을 E7과 분리해 관측·평가하는 기준
 - `docs/Manual-Market-Status-Runbook.md`: 자동 원천 전 repo-local 수동 market status snapshot 운영 절차
 - `docs/KIS-Connection-Runbook.md`: KIS REST rate limit, WebSocket reconnect, 모의계좌 정합성 장애 대응 절차
 - `docs/Codex-Operating-Feedback.md`: 반복 지적 방지 체크리스트와 저장소 전용 skill 후보 관리
@@ -78,6 +79,7 @@ quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feat
 - LightGBM 하락/회피 신호의 baseline 매수 회피 / 조기청산 shadow 비교 리포트
 - 모델 공통 meta-policy shadow 후보 요약 리포트
 - SNS/공개 영향력 이벤트 shadow 평가 계획과 read-only 사후평가 리포트
+- 외국인·기관 finalized EOD 수급 shadow 관측과 no-look-ahead 사후평가 리포트
 - paper/KIS mismatch trace 리포트와 gate walk-forward 극단 fold 요약/장세 분석 리포트
 - online replay 기반 paper trading 상태 기록
 - 기존 entry-mark replay를 보존한 minute MTM portfolio replay v2와 immutable E7 evaluator manifest

@@ -87,6 +87,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] E7 LightGBM buy-rescue 미래 검증을 threshold 0.55와 고정 기준으로 사전등록
 - [x] 기존 replay v1 보존, minute MTM v2와 immutable E7 manifest/compatibility guard 검증
 - [x] E7 current-day post-close read-only daily artifact writer와 sample/drift/mark/idempotency 검증
+- [x] 외국인·기관 finalized EOD 수급을 E7과 분리한 shadow 계약과 no-look-ahead report 추가
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정

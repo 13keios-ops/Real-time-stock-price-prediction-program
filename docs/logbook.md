@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-19] 외국인·기관 EOD 수급 shadow 시작
+
+- KRX finalized EOD 수급을 입력하는 source-neutral JSONL 계약과 read-only h15/h60 사후평가를 추가했다. `available_at` 이후 첫 label만 선택해 당일 정보가 과거 판단으로 새지 않게 한다.
+- 입력이 없을 때는 `no_observations_file`로 안전 종료하며, KRX/KIS/SNS 네트워크 호출, DB 변경, 주문, E7 evaluator/manifest, 모델·signal·gate·allocator 변경은 없다.
+- 새 report와 회귀 테스트는 두 투자자 그룹 동행 buy/sell 및 availability 경계 전 label 제외를 검증한다. 실제 KRX export가 들어오기 전에는 성과 해석을 하지 않는다.
+
 ## [2026-09-17] KIS WebSocket 다건 체결 frame 정렬 보완
 
 - 장후 data-quality는 raw market/orderbook `543/572` of expected `3,910`, closed bar/feature/decision `94/94/94`, reconnect `3`, storm `0`, lineage `100%`였지만 coverage 부족으로 `CRITICAL/실패`다.
