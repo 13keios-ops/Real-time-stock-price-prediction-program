@@ -100,6 +100,8 @@
 3. 위 세 값이 모두 0이고 로컬 수량과 KIS order-fill 순수량도 같지만 계좌 수량만 다르면 `kis_account_snapshot_vs_order_fill_ledger_divergence`를 유지한다.
 4. 어떤 경우에도 이 진단만으로 `AlignToBroker`나 `SyncInitialCash`를 자동 실행하지 않는다.
 
+KIS 제출 API가 timeout/network 오류로 끝나면 로컬 응답 부재는 KIS 미접수를 증명하지 않는다. 새 주문은 `submission_unknown`으로 보존하고 같은 종목 재제출을 막는다. `latest-sync.json`의 `unknown_local_submission_count`와 `pending_symbols`를 확인하며, 확정 거절과 rate limit은 별도로 취급한다. 수치상 포지션·현금이 같아도 미확정 주문이 남으면 reconciliation은 `needs_review`다. 과거 버전의 `broker_network_error`/`rejected`도 브로커 접수 가능성이 있으므로 같은 종목·방향·수량·가격·날짜의 완결된 KIS 체결을 대조한다. broker order ID가 유실됐다면 직접 identity 연결을 주장하지 말고 유일 후보/중복 위험/실제 수수료/과거 snapshot 보존을 검토한 별도 승인 교정으로 분리한다. 정기 동기화가 unlinked 행을 자동으로 local fill로 바꾸지는 않는다.
+
 장후 자동화는 먼저 `latest-paper-account-history.json`에서 오늘 유효 기록 존재 여부를 확인한다. 이미 있으면 같은 endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 기록이 없을 때만 통합 recheck를 한 번 실행한다. 주말/휴장일 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에만 남고 10거래일 분모에는 들어가지 않는다.
 
 ### 3.1.2. Phase 0 전체 기간 계좌 활동 probe

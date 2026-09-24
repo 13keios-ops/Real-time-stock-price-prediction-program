@@ -39,6 +39,7 @@ from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
 from app.risk.gates import SpreadRiskGate, TradingWindowGate
 from app.services.broker_paper import (
+    BrokerPaperFailure,
     BrokerPaperMirror,
     BrokerPaperSubmissionError,
     classify_broker_paper_failure,
@@ -60,6 +61,14 @@ BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES = 120
 BROKER_SYNC_FAILURE_COOLDOWN_BASE_MINUTES = 5
 BROKER_SYNC_FAILURE_COOLDOWN_MAX_MINUTES = 60
 _PIPELINE_QUEUE_STOP = object()
+
+
+def _broker_submission_outcome_unknown(failure: BrokerPaperFailure | None) -> bool:
+    return bool(
+        failure is not None
+        and failure.network_attempted
+        and failure.category in {"broker_network_error", "broker_unknown_error"}
+    )
 
 
 @dataclass(slots=True)
@@ -227,7 +236,7 @@ class OnlinePipelineProcessor:
         sqlite_store = self.writer.sqlite_store
         if sqlite_store is None:
             return
-        unresolved_statuses = {"created", "acknowledged", "submitted", "pending_lookup", "open", "partially_filled"}
+        unresolved_statuses = {"created", "acknowledged", "submitted", "submission_unknown", "pending_lookup", "open", "partially_filled"}
         order_rows = filter_rows_after_alignment(
             [dict(row) for row in sqlite_store.fetch_all_rows("paper_orders", "event_time")],
             runtime_data_dir=self.settings.runtime_data_dir,
@@ -236,6 +245,28 @@ class OnlinePipelineProcessor:
         for payload in order_rows:
             if str(payload.get("status") or "") not in unresolved_statuses:
                 continue
+            symbol = str(payload.get("symbol") or "")
+            if not symbol:
+                continue
+            self.pending_order_symbols.add(symbol)
+            if str(payload.get("side") or "").lower() == "buy":
+                self.pending_buy_symbols.add(symbol)
+
+    def _restore_unknown_submission_state(self) -> None:
+        sqlite_store = self.writer.sqlite_store
+        if sqlite_store is None:
+            return
+        order_rows = filter_rows_after_alignment(
+            [
+                dict(row)
+                for row in sqlite_store.fetch_rows_by_column(
+                    "paper_orders", "status", "submission_unknown", "event_time"
+                )
+            ],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        for payload in order_rows:
             symbol = str(payload.get("symbol") or "")
             if not symbol:
                 continue
@@ -356,6 +387,7 @@ class OnlinePipelineProcessor:
             for symbol in result.pending_symbols
             if symbol not in self.portfolio_book.positions or self.portfolio_book.positions[symbol].qty <= 0
         }
+        self._restore_unknown_submission_state()
         self._last_broker_sync_minute = sync_minute
         if result.status == "rate_limited":
             self._broker_sync_pause_until = sync_minute + timedelta(minutes=BROKER_SYNC_RATE_LIMIT_COOLDOWN_MINUTES)
@@ -554,8 +586,12 @@ class OnlinePipelineProcessor:
                         )
                     )
                 else:
-                    order.status = "rejected"
-                    decision_stage = "order_rejected"
+                    outcome_unknown = _broker_submission_outcome_unknown(broker_failure)
+                    order.status = "submission_unknown" if outcome_unknown else "rejected"
+                    decision_stage = "order_submission_unknown" if outcome_unknown else "order_rejected"
+                    if outcome_unknown:
+                        self.pending_order_symbols.add(state.symbol)
+                        self.pending_buy_symbols.add(state.symbol)
                     broker_failure_category = (
                         broker_failure.category
                         if broker_failure is not None
@@ -566,7 +602,11 @@ class OnlinePipelineProcessor:
                         if broker_failure is not None
                         else None
                     )
-                    decision_reason = f"broker_paper_submission_failed:{broker_failure_category}"
+                    decision_reason = (
+                        f"broker_paper_submission_outcome_unknown:{broker_failure_category}"
+                        if outcome_unknown
+                        else f"broker_paper_submission_failed:{broker_failure_category}"
+                    )
                     if broker_failure_reason_code:
                         decision_reason = (
                             f"{decision_reason}:{broker_failure_reason_code}"
@@ -578,7 +618,7 @@ class OnlinePipelineProcessor:
                             order_event_id=self._next_scoped_id("order-event"),
                             order_id=order.order_id,
                             event_time=order.event_time,
-                            event_type="rejected",
+                            event_type=("submission_unknown" if outcome_unknown else "rejected"),
                             detail=json.dumps(
                                 {
                                     "attempt_id": f"broker-paper-attempt-{order.order_id}",
@@ -736,15 +776,19 @@ class OnlinePipelineProcessor:
                 self.pending_order_symbols.add(symbol)
                 self.writer.write_paper_order(order)
             else:
-                order.status = "rejected"
-                self.close_retry_blocked_symbols.add(symbol)
+                outcome_unknown = _broker_submission_outcome_unknown(broker_failure)
+                order.status = "submission_unknown" if outcome_unknown else "rejected"
+                if outcome_unknown:
+                    self.pending_order_symbols.add(symbol)
+                else:
+                    self.close_retry_blocked_symbols.add(symbol)
                 self.writer.write_paper_order(order)
                 self.writer.write_order_event(
                     OrderEvent(
                         order_event_id=self._next_scoped_id("order-event-close"),
                         order_id=order.order_id,
                         event_time=event_time,
-                        event_type="rejected",
+                        event_type=("submission_unknown" if outcome_unknown else "rejected"),
                         detail=json.dumps(
                             {
                                 "attempt_id": f"broker-paper-attempt-{order.order_id}",

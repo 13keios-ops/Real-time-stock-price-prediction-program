@@ -116,6 +116,9 @@ def load_local_paper_account_state(settings: AppSettings) -> dict[str, Any]:
         "snapshot_adjusted_from_fills": bool(latest_snapshot_dict.get("adjusted_from_fills", False)),
         "positions": open_positions,
         "orders_total": len(order_rows),
+        "unknown_local_submission_count": sum(
+            str(row.get("status") or "") == "submission_unknown" for row in order_rows
+        ),
         "fills_total": len(fill_rows),
         "broker_order_submissions": len(broker_submission_rows),
         "latest_broker_submission_time": broker_submission_rows[-1]["event_time"] if broker_submission_rows else None,
@@ -214,6 +217,7 @@ def build_paper_account_reconciliation_payload(
     )
     total_asset_gap = (float(local_total) - float(broker_total)) if local_total is not None and broker_total is not None else None
     positions_match = len(mismatch_rows) == 0
+    unknown_local_submission_count = int(local_account_state.get("unknown_local_submission_count") or 0)
     balance_match = cash_gap is not None and abs(cash_gap) < 10_000.0
     total_asset_match = total_asset_gap is not None and abs(total_asset_gap) < 10_000.0
 
@@ -223,6 +227,9 @@ def build_paper_account_reconciliation_payload(
     elif not order_mirroring_enabled:
         status = "mirroring_disabled"
         note = "브로커 모의주문 미러링이 꺼져 있어 로컬 가상 장부와 브로커 모의계좌가 자동으로 같아지지 않습니다."
+    elif unknown_local_submission_count > 0:
+        status = "needs_review"
+        note = "브로커 제출 결과가 미확정인 로컬 주문이 있어 수치상 잔고가 같아도 정합 완료로 판정할 수 없습니다."
     elif positions_match and balance_match and total_asset_match and mirrored_order_count == 0:
         status = "aligned_waiting_first_submission"
         note = "브로커 기준 정렬이 완료됐고, 아직 브로커로 제출된 첫 주문은 없습니다."
@@ -240,6 +247,7 @@ def build_paper_account_reconciliation_payload(
         "status": status,
         "note": note,
         "mismatch_count": len(mismatch_rows),
+        "unknown_local_submission_count": unknown_local_submission_count,
         "positions_match": positions_match,
         "balance_match": balance_match,
         "total_asset_match": total_asset_match,

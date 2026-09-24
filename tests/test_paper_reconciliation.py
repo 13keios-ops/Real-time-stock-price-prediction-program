@@ -136,6 +136,33 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertNotEqual(history_recording["status"], "recording_failed")
         self.assertTrue(Path(history_recording["summary_json_path"]).is_file())
 
+    def test_matching_balances_do_not_align_with_unknown_local_submission(self) -> None:
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_local_state(root)
+            settings = load_settings(project_root=root)
+            RuntimeWriter.from_settings(settings).write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-unknown-1",
+                    symbol="373220",
+                    event_time=datetime.fromisoformat("2026-04-17T09:31:00+09:00"),
+                    side="buy",
+                    qty=1,
+                    limit_price=349500.0,
+                    status="submission_unknown",
+                )
+            )
+            with patch(
+                "app.services.paper_reconciliation.refresh_kis_account_report",
+                return_value=self._mock_report(broker_qty=3),
+            ):
+                result = reconcile_paper_accounts(project_root=root)
+
+        self.assertEqual(result.mismatch_count, 0)
+        self.assertTrue(result.comparison["positions_match"])
+        self.assertEqual(result.comparison["unknown_local_submission_count"], 1)
+        self.assertEqual(result.status, "needs_review")
+
     def test_reconcile_paper_accounts_reports_qty_mismatch(self) -> None:
         root, env = self._prepare_runtime()
         with patch.dict(os.environ, env, clear=False):

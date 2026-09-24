@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-24] Phase 0 broker paper 제출 타임아웃 보호
+
+- 9/8 `373220` 매도 1주는 KIS에서 체결됐지만 로컬은 API timeout을 최종 `rejected`로 처리하고 submission/fill을 남기지 않아 current epoch 수량 불일치를 만들었다. KIS 주문 ID가 응답 유실로 직접 연결되지 않은 점은 그대로 표시한다.
+- 새 network/unknown 응답 주문은 `submission_unknown`으로 보존하고 매수·매도 동일 종목 재제출을 재시작과 정기 sync 뒤에도 보류한다. 확정 계좌·rate limit·요청 오류는 기존 거절 분류를 유지한다. sync report는 `unknown_local_submission_count`와 pending 종목을 노출하고, reconciliation은 미확정 제출이 있으면 수치상 잔고가 같아도 `needs_review`로 둔다.
+- 9/8 과거 주문, fill, portfolio snapshot, Phase 0 baseline 및 E7 조건은 변경하지 않았다. 과거 장부 복구는 브로커 identity/중복 여부·실제 수수료·스냅샷 시점 확인 후 별도 승인 작업이다. KIS 네트워크 조회와 주문·취소는 이번 구현에서 0회다.
+- 새 timeout buy/sell, restart/sync 보류, 미확정 리포트, 잔고 일치 시 matched 보류를 테스트했다. focused 46건과 추가 Phase 0 2건, 전체 unittest 668건 통과. structure audit 오류 0/경고 3건(활성 logbook 크기 및 기존 대형 모듈 2개), diff check 통과.
+
 ## [2026-09-24] FULL CHECK: Phase 0 증거 범위와 현재 상태 교정
 
 - 8/14 이전 계좌의 completed full-period activity가 9/6 baseline 이후 실제 mismatch 판정을 덮는 결함을 재현했다. alignment/snapshot scope 검증과 historical-only 표시를 추가하고, 현재 attempt보다 과거 completed를 우선하던 선택을 교정했다.

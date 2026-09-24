@@ -81,7 +81,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] restart inflight live order를 완결된 broker history와 exact identity로만 복구하고 불확실하면 `UNKNOWN` 유지
 - [x] current account snapshot/reconciliation 1회와 후속 order-fill sync로 local/new-broker position·cash 차이의 기준선 세대 원인 설명
 - [x] 계좌 소유자 승인으로 현재 계좌용 Phase 0 marker-only clean baseline 생성 및 gap 0 검증
-- [ ] broker paper submit timeout을 unknown outcome으로 보존하고 브로커 조회로만 확정하는 계약을 검증; 9/8 `373220` 미연결 체결과 로컬 rejected attempt의 안전한 연결·과거 장부 교정은 별도 승인 후 수행
+- [x] 새 broker paper submit timeout/network 불명 응답을 `submission_unknown`으로 보존하고 중복 제출 차단·sync 리포트·Phase 0 matched 보류를 검증
+- [ ] 9/8 `373220` 미연결 체결과 로컬 rejected attempt의 안전한 연결·과거 장부 교정은 별도 승인 후 수행
 - [ ] `373220` local/broker 원천 불일치를 해소한 뒤 최근 10개 유효 거래일을 모두 matched로 확인
 - [x] E1 후보 0/3, E5 second interval 미재현으로 기존 가설 기각
 - [x] hold-rescue 기본값을 15분/2.0%/15:20으로 통일하고 no-op threshold 선택 차단

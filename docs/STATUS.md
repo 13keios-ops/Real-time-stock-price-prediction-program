@@ -73,6 +73,7 @@
 - 현행 Phase 0 유효일 코드는 당일 신규 주문 수가 아니라 current-baseline 누적 mirrored submission 이력과 post-close snapshot을 사용한다. 따라서 신규 제출 0건인 보유 관측일도 유효일이 될 수 있다. baseline 이후 제출 이력이 전혀 없는 날·weekend/holiday는 제외하며 이번 감사에서 분모 규칙을 바꾸지 않았다.
 - 9/24 bounded 3일 조회는 반환 0행이다. 별도 승인으로 current baseline `9/6`부터 최신 계좌 snapshot `9/24`까지 KIS 주문·체결을 장외에 정확히 1회 조회했다. 24페이지/351행에서 `pagination_complete=true`; 로컬 submission 349건과 연결되고 2행은 연결되지 않았다. 중복 exact key 0, 모호한 fallback key 3건이다. 전체기간 체결 재구성 수량은 KIS snapshot의 5종목과 모두 일치하지만 로컬 장부는 `373220` 1주가 남는다. 후속 read-only KIS 표본 조회에서 미연결 2행을 특정했다: 9/8 `373220` 매도 1주 체결 1주(349,500원), `005930` 매도 2주 체결 0주. 같은 날 로컬 `373220` 매도 1주(349,500원)는 KIS 요청 타임아웃 후 `broker_network_error`/`rejected`로 기록되어 submission·fill 연결이 없다. 종목·방향·수량·가격이 일치하고 다른 미연결 체결이 없어, 응답을 잃은 주문이 브로커에서는 접수·체결된 것이 수량 차이의 강한 원인 증거다. 응답이 없어 브로커 주문 ID의 직접 연결은 미확정이며 자동 정렬 근거로 쓰지 않는다.
 - 22페이지/329행 full-period activity는 `2026-08-14`의 이전 계좌 증거로 현재 계좌 판단에 쓰지 않는다. 현재 계좌 보고서의 `external_or_unlinked_broker_activity`와 trace의 `cause_identified_clean_baseline_still_required`는 개별 미연결 행을 조회하기 전의 포괄적·낡은 분류다. 위의 9/8 timeout/체결 증거가 더 구체적이며, 이 상태 문자열을 자동 baseline 재생성 허가로 해석하지 않는다.
+- 9/24 미래 주문 보호 코드: 새 broker paper submit의 network/unknown 응답은 `submission_unknown`과 보류 종목으로 남겨 중복 제출을 막고, sync report는 미확정 로컬 제출 수를 따로 기록한다. 미확정 주문이 있으면 수치상 계좌 일치에도 reconciliation을 `needs_review`로 둔다. 기존 9/8 rejected 주문·포트폴리오·과거 snapshot은 변경하지 않았으며 현재 Phase 0 matched 0/10도 그대로다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
@@ -106,7 +107,7 @@
 ## 현재 blocker와 다음 순서
 
 1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
-2. `373220` 차이는 9/8 KIS 매도 1주 체결과 같은 종목·수량·가격의 로컬 timeout/rejected 주문 사이의 미확정 제출 결과가 가장 강한 원인이다. `005930` 미연결 매도 2주는 미체결이어서 수량 차이를 만들지 않았다. KIS 응답/주문 ID가 유실된 상태이므로 exact identity로 연결됐다고 주장하거나 자동 정렬·baseline 재생성을 하지 않는다. 먼저 broker submit timeout을 최종 거절이 아닌 unknown outcome으로 보존하고, 기존 계좌 이력과 로컬 attempt를 안전하게 연결하는 복구 계약을 설계·검증한다. 과거 9/8 장부 교정은 중복 적용·당시 snapshot 보존을 검토한 별도 승인 작업으로 분리한다. 이후 동일 시점 잔고·현금·총자산을 재검증하고 새 정합 유효 거래일 10일을 확인해야 하므로 "3일만 더 관찰"해서 통과하는 상태가 아니다.
+2. `373220` 차이는 9/8 KIS 매도 1주 체결과 같은 종목·수량·가격의 로컬 timeout/rejected 주문 사이의 미확정 제출 결과가 가장 강한 원인이다. `005930` 미연결 매도 2주는 미체결이어서 수량 차이를 만들지 않았다. KIS 응답/주문 ID가 유실된 상태이므로 exact identity로 연결됐다고 주장하거나 자동 정렬·baseline 재생성을 하지 않는다. 새 broker submit timeout의 unknown outcome 보존은 구현·검증했지만 기존 계좌 이력과 로컬 attempt의 안전한 연결 및 과거 장부 복구는 아직 남았다. 과거 9/8 장부 교정은 중복 적용·실제 수수료·당시 snapshot 보존을 검토한 별도 승인 작업으로 분리한다. 이후 동일 시점 잔고·현금·총자산을 재검증하고 새 정합 유효 거래일 10일을 확인해야 하므로 "3일만 더 관찰"해서 통과하는 상태가 아니다.
 3. E7은 threshold/model/manifest를 바꾸지 않고 official episode와 종목 표본을 축적한다.
 4. 다음 거래일에는 정각 reconnect와 storm 재발, 재구독/첫 프레임 회복, 예상 밖 공통 gap, coverage와 lineage를 함께 확인한다.
 5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.

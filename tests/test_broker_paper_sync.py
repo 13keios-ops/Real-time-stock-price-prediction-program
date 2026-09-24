@@ -38,6 +38,90 @@ class BrokerPaperSyncTests(unittest.TestCase):
         }
         return root, env
 
+    def test_sync_reports_unacknowledged_local_submission_without_network_call(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-unknown-1",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=1,
+                    limit_price=70000.0,
+                    status="submission_unknown",
+                )
+            )
+            with patch(
+                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills"
+            ) as fetch:
+                result = sync_broker_paper_orders(project_root=root)
+            report = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+        fetch.assert_not_called()
+        self.assertEqual(result.status, "submission_outcome_unknown")
+        self.assertEqual(result.total_submissions, 0)
+        self.assertEqual(result.unknown_local_submission_count, 1)
+        self.assertEqual(result.pending_symbols, ["005930"])
+        self.assertEqual(report["unknown_local_submission_count"], 1)
+
+    def test_sync_preserves_unknown_local_submission_with_known_broker_orders(self) -> None:
+        root, env = self._prepare_runtime()
+        event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            writer = RuntimeWriter.from_settings(settings)
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-known-1",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=1,
+                    limit_price=70000.0,
+                    status="submitted",
+                )
+            )
+            writer.write_broker_order_submission(
+                BrokerOrderSubmission(
+                    submission_id="broker-paper-known-1",
+                    local_order_id="paper-order-known-1",
+                    broker_mode="paper",
+                    symbol="005930",
+                    event_time=event_time,
+                    side="buy",
+                    qty=1,
+                    limit_price=70000.0,
+                    order_type="00",
+                    status="submitted",
+                    broker_order_no="1234567890",
+                    broker_branch_no="00111",
+                    detail={},
+                )
+            )
+            writer.write_paper_order(
+                PaperOrder(
+                    order_id="paper-order-unknown-2",
+                    symbol="373220",
+                    event_time=event_time,
+                    side="sell",
+                    qty=1,
+                    limit_price=349500.0,
+                    status="submission_unknown",
+                )
+            )
+            with patch(
+                "app.services.broker_paper_sync.BrokerPaperMirror.fetch_recent_order_fills",
+                return_value=[],
+            ):
+                result = sync_broker_paper_orders(project_root=root)
+        self.assertEqual(result.total_submissions, 1)
+        self.assertEqual(result.unknown_local_submission_count, 1)
+        self.assertIn("373220", result.pending_symbols)
+        self.assertEqual(result.applied_fill_qty, 0)
+
     def test_order_fill_fetch_does_not_retry_rate_limit_by_default(self) -> None:
         mirror = object.__new__(BrokerPaperMirror)
         mirror.settings = SimpleNamespace(timezone="Asia/Seoul")

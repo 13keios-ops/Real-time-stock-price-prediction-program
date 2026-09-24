@@ -591,7 +591,7 @@ class StreamingPipelineTests(unittest.TestCase):
         submit_local_order.assert_not_called()
 
 
-    def test_failed_broker_close_blocks_same_position_from_retrying_each_minute(self) -> None:
+    def test_timed_out_broker_close_stays_unknown_after_sync_and_restart(self) -> None:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "streaming-close-retry-block" / str(uuid.uuid4())
         runtime_root.mkdir(parents=True, exist_ok=True)
@@ -620,21 +620,108 @@ class StreamingPipelineTests(unittest.TestCase):
             processor.portfolio_book.apply_buy_fill("005930", fill=fill, fill_price=70000.0)
             with patch(
                 "app.services.streaming.BrokerPaperMirror.submit_local_order",
-                side_effect=RuntimeError("broker request did not return an acknowledgement"),
+                side_effect=TimeoutError("broker request timed out"),
             ) as submit:
                 first = processor._maybe_close_position(
                     "005930", mark_price=70100.0, event_time=opened_at + timedelta(minutes=5)
                 )
-                processor.close_retry_blocked_symbols.clear()
-                processor._restore_close_retry_block_state()
+                saved_order = get_sqlite_store(settings).fetch_latest_row("paper_orders", "event_time")
+                self.assertEqual(saved_order["status"], "submission_unknown")
+                self.assertIn("005930", processor.pending_order_symbols)
+                empty_sync = BrokerPaperSyncResult(
+                    ok=True,
+                    synced_at="2026-04-13T10:06:00+09:00",
+                    status="no_submissions",
+                    total_submissions=0,
+                    matched_orders=0,
+                    updated_orders=0,
+                    applied_fill_events=0,
+                    applied_fill_qty=0,
+                    open_order_count=0,
+                    final_order_count=0,
+                    pending_symbols=[],
+                    report_markdown_path=runtime_root / "sync.md",
+                    report_json_path=runtime_root / "sync.json",
+                )
+                with patch.object(processor.broker_paper_sync, "sync_recent_orders", return_value=empty_sync):
+                    processor._run_broker_sync(bar_time=opened_at + timedelta(minutes=6))
+                self.assertIn("005930", processor.pending_order_symbols)
+                processor.pending_order_symbols.clear()
+                processor._restore_pending_order_state()
                 second = processor._maybe_close_position(
                     "005930", mark_price=70100.0, event_time=opened_at + timedelta(minutes=6)
                 )
 
         self.assertEqual(first, "recently_closed")
-        self.assertEqual(second, "broker_close_retry_blocked")
+        self.assertEqual(second, "broker_order_pending")
         self.assertEqual(submit.call_count, 1)
 
+
+    def test_timed_out_broker_buy_stays_unknown_without_duplicate_submission(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-buy-submission-unknown" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{runtime_root / 'test.db'}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "true",
+            "KIS_APP_KEY_PAPER": "paper-key",
+            "KIS_APP_SECRET_PAPER": "paper-secret",
+            "KIS_ACCOUNT_NO_PAPER": "12345678",
+            "KIS_PRODUCT_CODE_PAPER": "01",
+        }
+        empty_sync = BrokerPaperSyncResult(
+            ok=True,
+            synced_at="2026-04-13T10:16:00+09:00",
+            status="no_submissions",
+            total_submissions=0,
+            matched_orders=0,
+            updated_orders=0,
+            applied_fill_events=0,
+            applied_fill_qty=0,
+            open_order_count=0,
+            final_order_count=0,
+            pending_symbols=[],
+            report_markdown_path=runtime_root / "sync.md",
+            report_json_path=runtime_root / "sync.json",
+        )
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            with patch(
+                "app.services.broker_paper.KisRestQuoteClient.submit_cash_order",
+                side_effect=TimeoutError("broker submit timed out"),
+            ) as submit:
+                with patch(
+                    "app.services.streaming.BrokerPaperExecutionSync.sync_recent_orders",
+                    return_value=empty_sync,
+                ):
+                    result = replay_ws_frames(project_root=root, frames=build_sample_ws_frames("005930"))
+                    restarted = OnlinePipelineProcessor(settings)
+                    self.assertIn("005930", restarted.pending_order_symbols)
+                    restarted._run_broker_sync(
+                        bar_time=datetime.fromisoformat("2026-04-13T10:17:00+09:00")
+                    )
+                    self.assertIn("005930", restarted.pending_order_symbols)
+            sqlite_store = get_sqlite_store(settings)
+            orders = sqlite_store.fetch_all_rows("paper_orders", "event_time")
+            decisions = sqlite_store.fetch_all_rows("serving_decision_ledger", "event_time")
+            fills = sqlite_store.fetch_all_rows("paper_fills", "event_time")
+            submissions = sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")
+            risk_rows = [
+                row for row in sqlite_store.fetch_all_rows("ops_risk_events", "event_time")
+                if row["gate"] == "broker_paper_mirroring"
+            ]
+        self.assertEqual(submit.call_count, 1)
+        self.assertGreaterEqual(result.predictions_written, 4)
+        self.assertGreaterEqual(len(decisions), 2)
+        self.assertEqual(fills, [])
+        self.assertEqual(submissions, [])
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["status"], "submission_unknown")
+        self.assertTrue(any(row["decision_stage"] == "order_submission_unknown" for row in decisions))
+        self.assertEqual(len(risk_rows), 1)
+        self.assertEqual(json.loads(risk_rows[0]["detail"])["failure"]["category"], "broker_network_error")
+        self.assertNotIn("paper-secret", str(risk_rows[0]["detail"]))
 
     def test_account_hard_rejection_blocks_repeated_network_but_keeps_local_lineage(self) -> None:
         root = Path(__file__).resolve().parents[1]

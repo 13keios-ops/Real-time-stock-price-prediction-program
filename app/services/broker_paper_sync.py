@@ -61,6 +61,7 @@ class BrokerPaperSyncResult:
     broker_rows_returned: int | None = None
     broker_rows_linked_to_submissions: int | None = None
     broker_rows_unlinked_to_submissions: int | None = None
+    unknown_local_submission_count: int | None = None
     exact_matched_orders: int | None = None
     fallback_matched_orders: int | None = None
     ambiguous_fallback_key_count: int | None = None
@@ -102,6 +103,7 @@ class BrokerPaperSyncResult:
             "broker_rows_returned",
             "broker_rows_linked_to_submissions",
             "broker_rows_unlinked_to_submissions",
+            "unknown_local_submission_count",
             "exact_matched_orders",
             "fallback_matched_orders",
             "ambiguous_fallback_key_count",
@@ -257,6 +259,7 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         "broker_rows_returned",
         "broker_rows_linked_to_submissions",
         "broker_rows_unlinked_to_submissions",
+        "unknown_local_submission_count",
         "exact_matched_orders",
         "fallback_matched_orders",
         "ambiguous_fallback_key_count",
@@ -471,6 +474,18 @@ class BrokerPaperExecutionSync:
                 **payload,
             )
 
+        unknown_local_rows = filter_rows_after_alignment(
+            [
+                dict(row)
+                for row in sqlite_store.fetch_rows_by_column(
+                    "paper_orders", "status", "submission_unknown", "event_time"
+                )
+            ],
+            runtime_data_dir=self.settings.runtime_data_dir,
+            time_fields=("event_time",),
+        )
+        unknown_symbols = {str(row.get("symbol") or "") for row in unknown_local_rows}
+        unknown_symbols.discard("")
         submission_rows = filter_rows_after_alignment(
             [dict(row) for row in sqlite_store.fetch_all_rows("broker_paper_order_submissions", "event_time")],
             runtime_data_dir=self.settings.runtime_data_dir,
@@ -480,15 +495,16 @@ class BrokerPaperExecutionSync:
             payload = {
                 "ok": True,
                 "synced_at": synced_at.isoformat(),
-                "status": "no_submissions",
+                "status": "submission_outcome_unknown" if unknown_local_rows else "no_submissions",
                 "total_submissions": 0,
+                "unknown_local_submission_count": len(unknown_local_rows),
                 "matched_orders": 0,
                 "updated_orders": 0,
                 "applied_fill_events": 0,
                 "applied_fill_qty": 0,
                 "open_order_count": 0,
                 "final_order_count": 0,
-                "pending_symbols": [],
+                "pending_symbols": sorted(unknown_symbols),
             }
             _write_report(markdown_path, json_path, payload)
             return BrokerPaperSyncResult(
@@ -551,6 +567,7 @@ class BrokerPaperExecutionSync:
                     continue
                 open_order_count += 1
                 pending_symbols.add(str(submission.get("symbol") or paper_order.get("symbol") or ""))
+            pending_symbols.update(unknown_symbols)
             pending_symbols.discard("")
             payload: dict[str, Any] = {
                 "ok": False,
@@ -559,6 +576,7 @@ class BrokerPaperExecutionSync:
                 "error": error,
                 "rate_limited_at": rate_limited_at,
                 "total_submissions": len(submission_rows),
+                "unknown_local_submission_count": len(unknown_local_rows),
                 "matched_orders": 0,
                 "updated_orders": 0,
                 "applied_fill_events": 0,
@@ -875,6 +893,7 @@ class BrokerPaperExecutionSync:
             "synced_at": synced_at.isoformat(),
             "status": "ok",
             "total_submissions": len(submission_rows),
+            "unknown_local_submission_count": len(unknown_local_rows),
             "matched_orders": matched_orders,
             "order_fill_lookback_days": lookback_days,
             "broker_rows_returned": len(broker_rows),
@@ -888,7 +907,7 @@ class BrokerPaperExecutionSync:
             "applied_fill_qty": applied_fill_qty,
             "open_order_count": open_order_count,
             "final_order_count": final_order_count,
-            "pending_symbols": sorted(symbol for symbol in pending_symbols if symbol),
+            "pending_symbols": sorted((pending_symbols | unknown_symbols) - {""}),
         }
         payload.update(order_fill_pagination_diagnostics())
         _write_report(markdown_path, json_path, payload)
