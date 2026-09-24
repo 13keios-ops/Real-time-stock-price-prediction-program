@@ -127,6 +127,9 @@ python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
 - weekend/holiday, no-submission day, 차단된 시도는 10거래일 분모를 늘리지 않는다.
 - 성공 submission 0건은 자동으로 버그가 아니며 강제 거래로 채우지 않는다.
 - 불일치가 있으면 표본 부족보다 먼저 보고한다.
+- 불일치가 새로 발생하거나 지속되면 단순 gap 반복 대신 기존 sanitized sync/trace, `broker_paper_order_submissions`, `paper_orders`/`paper_order_events`, `ops_risk_events`의 attempt/local order/decision ID와 broker 조회 완결성으로 원인을 분류한다. `broker_network_error` 이후 로컬 `rejected`라도 KIS 접수 여부는 미확정이다. 미연결 KIS 주문·체결이 있으면 종목·방향·수량·가격·시각을 대조해 `confirmed`, `strongly_suspected`, `unresolved`와 근거 부족 항목을 보고한다. 응답 유실 시 broker order ID 직접 연결을 추정으로 승격하지 않는다.
+- 장후 자동화는 기존 증거만으로 원인을 판단한다. 추가 KIS 조회, 같은 endpoint 재시도, DB 교정, timeout 주문 재제출은 자동으로 하지 않는다. 차이가 수량인지 평가 시각/가격·현금인지 분리하고 동일 시점 snapshot이 아니면 총자산 gap을 독립 원인으로 단정하지 않는다.
+- 이미 `docs/STATUS.md`에 원인이 특정된 불일치가 지속되면 최신 수량·sync 증거와 대조해 동일 원인 지속인지 보고한다. 새로운 종목·수량 gap 또는 근거 변화는 기존 사건으로 덮지 말고 별도 조사 필요로 표시한다.
 - auto align, `SyncInitialCash`, `AlignToBroker`, clean baseline 재생성, 강제 주문/취소를 자동 수행하지 않는다.
 - full-period activity `--execute`는 계좌 소유자가 해당 작업에서 명시 승인한 장외 1회에만 허용한다.
 - 현재/과거 epoch와 상세 정합 정책은 `docs/KIS-Connection-Runbook.md`를 따른다.
