@@ -2,13 +2,13 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-24 13:37 KST, FULL CHECK
+- 확인 시각: 2026-09-24 21:44 KST, Phase 0 전체기간 주문·체결 확인
 - 장 상태: holiday
 - live runtime: 정지, `paper`; 휴장 중 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat 정상, `live_runtime_should_run=false`
 - dashboard: 실행 중, server/API 정상
 - Windows startup launcher: 설치 및 정상
-- 수집·학습·E7은 2026-09-23 장후, 계좌 비교는 2026-09-24 08:20 KST 스냅샷을 반영한다.
+- 수집·학습·E7은 2026-09-23 장후, 계좌 비교는 2026-09-24 16:40 KST 스냅샷을 반영한다.
 
 ## 최신 수집 상태 (수집 정상 / 연결 주의)
 
@@ -68,11 +68,11 @@
 - baseline 직후의 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap 0은 9/6 역사 스냅샷이며 현재 정합 상태가 아니다.
 - 2026-09-07 장후 order-fill sync는 9페이지/124행을 완결했다. submission 124/124 exact-linked, final 123/open 1이며 pending `005930` 2주 지정가 주문은 실제 broker-authoritative 미체결 상태로 보존한다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
-- 현재 epoch의 최근 유효 10거래일(9/10~9/23)은 matched `0`, mismatch `10`, consecutive matched `0`이다. `373220` local 1주/broker 0주가 지속된다. 9/24 snapshot의 effective cash gap은 `-350,593.78원`, total asset gap은 `-31,093.78원`이며 자동 정렬하지 않는다.
+- 현재 epoch의 최근 유효 10거래일(9/10~9/23)은 matched `0`, mismatch `10`, consecutive matched `0`이다. 이는 거래 0건이 아니라 로컬·KIS 계좌의 수량·잔고·총자산이 모두 일치한 날이 0일이라는 뜻이다. `373220` local 1주/broker 0주가 지속된다. 9/24 snapshot의 effective cash gap은 `-350,593.78원`, total asset gap은 `-31,093.78원`이며 자동 정렬하지 않는다.
 - 현재 누적 broker submissions는 `349`; 9/23 신규 local order와 broker submission은 모두 0건이다. decision은 signal 차단 2,251 / allocator zero 366 / position·pending 제약 1,181건이며 제출 단계에 이르지 않았다. 최근 자연 주문인 9/21 `247540` 6주는 decision→prediction/signal/target→local order→broker submission→9/21 14:48:59 fill로 연결된다.
 - 현행 Phase 0 유효일 코드는 당일 신규 주문 수가 아니라 current-baseline 누적 mirrored submission 이력과 post-close snapshot을 사용한다. 따라서 신규 제출 0건인 보유 관측일도 유효일이 될 수 있다. baseline 이후 제출 이력이 전혀 없는 날·weekend/holiday는 제외하며 이번 감사에서 분모 규칙을 바꾸지 않았다.
-- 9/24 bounded 3일 조회는 반환 0행이다. `373220` 보관 체결 snapshot은 9/8~9/11 자료로 전체 계좌 원장이 아니다. 현재 기준선부터 최신 계좌 snapshot까지 덮는 별도 승인 full-period 증거가 필요하다.
-- 22페이지/329행 full-period activity는 `2026-08-14`의 이전 계좌 증거다. 현재 trace는 alignment/snapshot scope 불일치로 이를 적용하지 않으며 `blocked_requires_full_account_history_or_clean_baseline`을 유지한다. 이 상태명은 새 baseline 자동 생성 허가가 아니다.
+- 9/24 bounded 3일 조회는 반환 0행이다. 별도 승인으로 current baseline `9/6`부터 최신 계좌 snapshot `9/24`까지 KIS 주문·체결을 장외에 정확히 1회 조회했다. 24페이지/351행에서 `pagination_complete=true`; 로컬 submission 349건과 연결되고 2행은 연결되지 않았다. 중복 exact key 0, 모호한 fallback key 3건이다. 전체기간 체결 재구성 수량은 KIS snapshot의 5종목과 모두 일치하지만 로컬 장부는 `373220` 1주가 남는다. `373220`의 로컬 및 보관 미러 체결 순수량은 +1주, 전체기간 KIS 체결과 계좌 수량은 0주여서 미반영 KIS 활동의 순효과 -1주를 확인했다. 다만 현재 sanitized 보고서에는 미연결 2행의 종목·방향이 없어 특정 주문의 원인까지 단정하지 않는다.
+- 22페이지/329행 full-period activity는 `2026-08-14`의 이전 계좌 증거로 현재 계좌 판단에 쓰지 않는다. 현재 계좌 보고서의 root cause 범위는 `external_or_unlinked_broker_activity`이고 trace는 `cause_identified_clean_baseline_still_required`다. 이는 자동 baseline 재생성 허가가 아니다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
@@ -106,7 +106,7 @@
 ## 현재 blocker와 다음 순서
 
 1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
-2. `373220` local 1주/broker 0주 차이를 current-epoch KIS 계좌 snapshot과 충분한 범위의 주문·체결 원장으로 재확인한다. 현재 consecutive matched가 0이므로 "3일만 더 관찰"하면 Phase 0이 통과하는 상태가 아니다.
+2. `373220` 차이는 current-epoch 전체기간 KIS 체결 및 계좌 snapshot으로 재확인했다. 미연결 2행의 종목·방향·체결수량을 민감정보 없이 확인해 순효과 -1주가 어느 활동에서 왔는지 특정해야 한다. 그 전에는 계좌 상태를 자동 정렬하거나 baseline을 재생성하지 않는다. 원인에 맞는 소유자 승인 교정 뒤 새 정합 유효 거래일 10일을 확인해야 하므로 "3일만 더 관찰"해서 통과하는 상태가 아니다.
 3. E7은 threshold/model/manifest를 바꾸지 않고 official episode와 종목 표본을 축적한다.
 4. 다음 거래일에는 정각 reconnect와 storm 재발, 재구독/첫 프레임 회복, 예상 밖 공통 gap, coverage와 lineage를 함께 확인한다.
 5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
@@ -115,7 +115,7 @@
 ### 이번 감사 근거
 
 - 수집: `runtime-data/reports/data-quality/latest-kis-live-data-quality.json` (9/23 20:35 KST)
-- 정합: `runtime-data/reports/reconciliation/latest-paper-account-history.json`, `latest-paper-account-sync.json` (9/24 08:20), `latest-paper-kis-mismatch-trace.json` (9/24 13:37)
+- 정합: `runtime-data/reports/reconciliation/latest-paper-account-history.json`, `latest-paper-account-sync.json` (9/24 16:40), `latest-paper-account-activity.json` (9/24 21:37), `latest-paper-kis-mismatch-trace.json` (9/24 21:39)
 - E7: `runtime-data/reports/research/e7/latest-e7-daily-evidence.json` (9/23 20:36) 및 동일 기간 SQLite read-only 교차검사
 - 검증: `.tmp-tests/full-check-20260924-focused.log`, `.tmp-tests/full-check-20260924-unittest.log`
 
