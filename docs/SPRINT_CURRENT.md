@@ -23,7 +23,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 4. 실패 결과를 threshold로 구제하지 않고 h60 또는 entry/exit 분리 가설로 이동할 기준을 고정한다.
 5. active model, gate, 주문 정책은 검증 통과 전까지 동결한다.
 
-## 현재 기준선
+## 스프린트 기준선 (2026-09-18, 현재값은 STATUS)
 
 - 거래 모드: `paper`
 - active h15: `baseline-h15-v1`
@@ -59,6 +59,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 이전 계좌 Phase 0 full-period account activity 22페이지/329행과 pagination 완결 확보
 - [x] 이전 계좌 broker-only 9행을 확인하고 2026-08-15 clean baseline 생성
 - [x] Phase 0 history를 baseline 및 paper account epoch로 분리
+- [x] full-period activity의 alignment/snapshot scope를 검사해 과거 계좌 판정 덮어쓰기 차단; bounded lookup의 전체 원장 오해 제거
 - [x] broker failure taxonomy, 30분 account hard-rejection circuit, decision→attempt→failure lineage 추가
 - [x] 이전 paper 계좌 만료를 account rejection의 유력 root cause로 교정
 - [x] 새 paper APP 자격정보, account snapshot, `VTTC8908R/ORD_DVSN=00` orderability 확인
@@ -90,6 +91,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 외국인·기관 finalized EOD 수급을 E7과 분리한 shadow 계약과 no-look-ahead report 추가
 - [x] OpenDART published disclosure event를 E7과 분리한 shadow 계약과 no-look-ahead report 추가
 - [x] KRX finalized EOD short-sale/optional net-position을 E7과 분리한 descriptive shadow 계약과 no-look-ahead report 추가
+- [ ] 외부 shadow의 공식 export 입력 확보와 실제 표본 축적 확인 (평가 코드 구현과 수집 가동을 구분)
+- [ ] 공식 E7 평가 전 shadow prediction identity/중복 fail-closed 검증 보강; 계약 변경 시 evaluator 버전 분리
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정

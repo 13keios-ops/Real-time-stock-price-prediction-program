@@ -296,9 +296,41 @@ def _broker_ledger_coverage(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _aware_timestamp(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _activity_scope_exclusions(
+    activity: dict[str, Any],
+    alignment_cutoff: str | None,
+    account_snapshot_as_of: Any,
+) -> list[str]:
+    scope = activity.get("scope") or {}
+    if not isinstance(scope, dict):
+        scope = {}
+    exclusions = []
+    for name, current, recorded in (
+        ("alignment", alignment_cutoff, scope.get("alignment_at")),
+        ("account_snapshot", account_snapshot_as_of, scope.get("account_snapshot_as_of")),
+    ):
+        current_time, recorded_time = _aware_timestamp(current), _aware_timestamp(recorded)
+        if current_time is None or recorded_time is None:
+            exclusions.append(f"{name}_scope_unverifiable")
+        elif current_time != recorded_time:
+            exclusions.append(f"{name}_scope_mismatch")
+    return exclusions
+
+
 def _full_account_activity_summary(
     report: dict[str, Any],
     attempt: dict[str, Any],
+    *,
+    alignment_cutoff: str | None,
+    account_snapshot_as_of: Any,
 ) -> dict[str, Any]:
     success_statuses = {
         "full_activity_and_accounts_matched",
@@ -306,9 +338,20 @@ def _full_account_activity_summary(
         "resolved_local_ledger_divergence",
         "broker_snapshot_vs_full_activity_divergence",
     }
-    candidate = report if report.get("status") in success_statuses else attempt
+    sources = (("completed_probe", report), ("latest_attempt", attempt))
+    invalid_sources = [source for source, item in sources if not isinstance(item, dict)]
+    candidates = [item for _, item in sources if isinstance(item, dict) and item]
+    applicable = [
+        item for item in candidates
+        if not _activity_scope_exclusions(item, alignment_cutoff, account_snapshot_as_of)
+    ]
+    pool = applicable or candidates
+    candidate = next(
+        (item for item in pool if item is report and item.get("status") in success_statuses),
+        pool[-1] if pool else {},
+    )
     if not candidate:
-        return {"available": False, "status": "not_available"}
+        return {"available": False, "status": "not_available", "invalid_sources": invalid_sources}
     keys = (
         "generated_at",
         "status",
@@ -325,6 +368,22 @@ def _full_account_activity_summary(
     summary = {key: candidate.get(key) for key in keys if key in candidate}
     summary["available"] = True
     summary["source"] = "completed_probe" if candidate is report else "latest_attempt"
+    summary["scope_exclusions"] = _activity_scope_exclusions(candidate, alignment_cutoff, account_snapshot_as_of)
+    summary["applies_to_current_account"] = not summary["scope_exclusions"]
+    summary["invalid_sources"] = invalid_sources
+    summary["other_evidence"] = []
+    for source, item in sources:
+        if not isinstance(item, dict) or not item or item is candidate:
+            continue
+        other = {
+            key: item[key] for key in (
+                "generated_at", "status", "scope", "root_cause_scope", "phase0_resolution", "cooldown_until",
+            ) if key in item
+        }
+        other["source"] = source
+        other["scope_exclusions"] = _activity_scope_exclusions(item, alignment_cutoff, account_snapshot_as_of)
+        other["applies_to_current_account"] = not other["scope_exclusions"]
+        summary["other_evidence"].append(other)
     return summary
 
 
@@ -333,6 +392,35 @@ def _apply_full_account_activity_resolution(
     activity: dict[str, Any],
 ) -> None:
     status = str(activity.get("status") or "not_available")
+    alignment_time = _aware_timestamp(report.get("paper_alignment_cutoff"))
+    activity_time = _aware_timestamp(activity.get("generated_at"))
+    if not activity.get("applies_to_current_account"):
+        # Keep old evidence visible, but never let it diagnose a newer account snapshot.
+        if activity.get("available") and report.get("mismatch_count"):
+            report["phase0_resolution"] = {
+                "status": "blocked_requires_full_account_history_or_clean_baseline",
+                "automatic_alignment_allowed": False,
+                "reason": "full_activity_not_applicable_to_current_account",
+                "required_evidence": ["current-baseline full-period account activity tied to the current account snapshot"],
+            }
+        elif (
+            not report.get("mismatch_count")
+            and alignment_time is not None and activity_time is not None
+            and alignment_time > activity_time
+            and (status.startswith("resolved_") or status == "full_activity_and_accounts_matched")
+        ):
+            report["assessment"] = {
+                "status": "ok",
+                "summary": "current positions match after baseline; earlier activity is historical evidence only",
+            }
+            report["phase0_resolution"] = {
+                "status": "clean_baseline_created_waiting_10_matched_days",
+                "automatic_alignment_allowed": False,
+                "baseline_aligned_at": report["paper_alignment_cutoff"],
+                "previous_root_cause_scope": activity.get("root_cause_scope"),
+                "required_matched_days": 10,
+            }
+        return
     if status in {"rate_limited", "cooldown_active"}:
         report["phase0_resolution"] = {
             "status": "blocked_full_account_history_rate_limited",
@@ -349,29 +437,6 @@ def _apply_full_account_activity_resolution(
         }
         return
     if status.startswith("resolved_") or status == "full_activity_and_accounts_matched":
-        alignment_cutoff = report.get("paper_alignment_cutoff")
-        activity_generated_at = activity.get("generated_at")
-        clean_baseline_created = False
-        if not report.get("mismatch_count") and alignment_cutoff and activity_generated_at:
-            try:
-                clean_baseline_created = datetime.fromisoformat(str(alignment_cutoff)) > datetime.fromisoformat(
-                    str(activity_generated_at)
-                )
-            except ValueError:
-                clean_baseline_created = False
-        if clean_baseline_created:
-            report["assessment"] = {
-                "status": "ok",
-                "summary": "owner-approved clean baseline created after full-period account activity evidence",
-            }
-            report["phase0_resolution"] = {
-                "status": "clean_baseline_created_waiting_10_matched_days",
-                "automatic_alignment_allowed": False,
-                "baseline_aligned_at": alignment_cutoff,
-                "previous_root_cause_scope": activity.get("root_cause_scope"),
-                "required_matched_days": 10,
-            }
-            return
         report["assessment"] = {
             "status": "needs_review" if report.get("mismatch_count") else "ok",
             "summary": f"full-period account activity result: {status}",
@@ -601,6 +666,13 @@ def _classify_position_divergence(
                 "bounded lookup window. Obtain sanitized full-period account activity or establish an "
                 "account-owner-approved clean baseline before changing local state.",
             )
+        if broker_ledger_coverage_status == "bounded_recent_lookup":
+            return (
+                "account_snapshot_differs_from_bounded_mirrored_ledger",
+                "current_account_vs_partial_mirrored_order_ledger_unresolved",
+                "A nonempty bounded lookup does not cover all account activity or refresh every historical "
+                "mirrored order. Obtain current-baseline full-period evidence before attributing the divergence.",
+            )
         if _quantities_equal(local_qty, 0) and not _quantities_equal(broker_qty, 0):
             return (
                 "broker_account_has_residual_qty_not_in_order_fill_net",
@@ -741,7 +813,11 @@ def build_trace_report(
     broker_sync = _read_json(broker_sync_path)
     account_activity_report = _read_json(account_activity_path) if account_activity_path else {}
     account_activity_attempt = _read_json(account_activity_attempt_path) if account_activity_attempt_path else {}
-    full_account_activity = _full_account_activity_summary(account_activity_report, account_activity_attempt)
+    alignment_cutoff = _load_alignment_cutoff(db_path)
+    full_account_activity = _full_account_activity_summary(
+        account_activity_report, account_activity_attempt,
+        alignment_cutoff=alignment_cutoff, account_snapshot_as_of=account_sync.get("as_of"),
+    )
     mismatches, mismatch_source = _select_mismatch_rows(dual_match=dual_match, account_sync=account_sync)
     symbols = [str(row["symbol"]) for row in mismatches]
     broker_ledger_coverage = _broker_ledger_coverage(broker_sync)
@@ -777,7 +853,6 @@ def build_trace_report(
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     latest_status_synced_at = _latest_broker_status_synced_at(conn)
-    alignment_cutoff = _load_alignment_cutoff(db_path)
     report["broker_order_fill_latest_synced_at"] = latest_status_synced_at
     report["paper_alignment_cutoff"] = alignment_cutoff
     infos = _table_infos(conn, include_auxiliary=include_auxiliary)
@@ -814,7 +889,10 @@ def build_trace_report(
     historical_ledger_unresolved_count = sum(
         1
         for item in symbol_summaries
-        if item.get("root_cause_scope") == "current_account_vs_historical_mirrored_order_ledger_unresolved"
+        if item.get("root_cause_scope") in {
+            "current_account_vs_historical_mirrored_order_ledger_unresolved",
+            "current_account_vs_partial_mirrored_order_ledger_unresolved",
+        }
     )
     rate_limited_count = sum(
         1 for item in symbol_summaries if item.get("likely_issue") == "broker_order_fill_recovery_rate_limited"
@@ -824,7 +902,7 @@ def build_trace_report(
             "status": "needs_review",
             "summary": (
                 f"{historical_ledger_unresolved_count} symbol(s) differ between the current KIS account snapshot "
-                "and historical mirrored-order evidence outside the latest bounded lookup window"
+                "and partial mirrored-order evidence; the bounded lookup is not full account history"
             ),
         }
         report["phase0_resolution"] = {
@@ -893,6 +971,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- paper_alignment_cutoff: `{report.get('paper_alignment_cutoff')}`",
         f"- full_account_activity_status: `{report.get('full_account_activity', {}).get('status')}`",
         f"- full_account_activity_source: `{report.get('full_account_activity', {}).get('source')}`",
+        f"- full_account_activity_applies_to_current_account: `{report.get('full_account_activity', {}).get('applies_to_current_account')}`",
+        f"- full_account_activity_scope_exclusions: {report.get('full_account_activity', {}).get('scope_exclusions', [])}",
+        f"- full_account_activity_other_evidence: {report.get('full_account_activity', {}).get('other_evidence', [])}",
+        f"- full_account_activity_invalid_sources: {report.get('full_account_activity', {}).get('invalid_sources', [])}",
         f"- full_account_activity_cooldown_until: `{report.get('full_account_activity', {}).get('cooldown_until')}`",
         "",
         "## Mismatches",

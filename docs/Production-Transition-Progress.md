@@ -8,7 +8,7 @@
 - 현재 기본 운용은 `paper`, 실전 주문은 비활성이다.
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다.
 - active h15는 `baseline-h15-v1`, challenger action은 `keep_active`, promotion은 `false`다.
-- Phase 0 현재 계좌 epoch는 `paper-2026-09-03`이고, 2026-09-06 승인 clean baseline과 호환된다. 현재 `no_history`, `0/10`이다.
+- Phase 0 현재 계좌 epoch는 `paper-2026-09-03`이고 승인 baseline과 호환되지만, 현재 계좌 수량 불일치로 미통과다. 최신 유효일·matched 집계는 `docs/STATUS.md`를 따른다.
 - 과거 Phase 1b bounded read-only 관측은 연결 이력으로 통과했지만 latest readiness가 stale하므로 현재 Phase 2 증거가 아니다.
 - Phase 2 실제 주문 canary는 시작하지 않는다.
 
@@ -21,7 +21,7 @@
 
 ### Phase 0: paper + KIS 모의계좌
 
-- 상태: 진행 중, `no_history`
+- 상태: 진행 중, current-account mismatch 미해결
 - 현재 계좌 epoch: `paper-2026-09-03`, 활성 `2026-09-03`, 만료 `2026-12-03`
 - 갱신 경고: 30일 전 `2026-11-03`, 긴급 7일 전 `2026-11-26`
 - 새 자격정보 token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` orderability 통과
@@ -29,17 +29,17 @@
 - 실패: invalid tick 4건은 `broker_invalid_request/invalid_price_tick`, network timeout 1건은 `broker_network_error`
 - order-fill sync: 2026-09-05 장외 1회에서 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결
 - 2026-09-06 승인 marker-only clean baseline 생성, 직후 mismatch/effective cash/total asset gap 0
-- 현재 epoch: `0/10`, matched 0일, mismatch 0일, remaining 10일
+- baseline 직후 무이력 상태는 종료됐으며 현재는 불일치 관측이 누적 중이다. 일수 경과만으로 통과하지 않는다.
 - 이전 계좌 epoch: `10/10`, matched 0일, mismatch 10일
 - 이전 full-period sanitized activity: 22페이지/329행/20거래일, pagination complete
 - 이전 계좌 root cause: `external_or_unlinked_broker_activity`; 이후 account rejection은 계좌 만료가 유력 root cause
-- 해소 상태: `baseline_complete_waiting_valid_days`
+- 해소 상태: baseline 완료, 현재 원천 불일치는 별도 미해결
 - 계좌 hard rejection circuit과 failure lineage는 유지하며 local paper/E7 원장은 계속 쌓는다.
 - 유효일 조건: 현재 계좌와 호환되는 baseline 뒤 post-close, broker snapshot available, 실제 mirrored submission 존재
-- 무거래일과 weekend/holiday는 분모를 늘리지 않는다.
+- 현행 코드는 baseline 이후 mirrored submission 이력과 post-close snapshot을 요구한다. 당일 신규 주문 0건과 제출 이력 자체 없음은 다르며 weekend/holiday는 분모를 늘리지 않는다.
 - 완료 조건: 현재 계좌 epoch 유효 거래일 10개가 모두 matched
 - 추가 자동 align, `SyncInitialCash`, 강제 거래는 금지
-- 현재 local/new-broker position과 effective cash·total asset은 일치한다. 과거 원장과 이전 계좌 epoch는 삭제·reset하지 않는다.
+- 현재 local/broker position·cash 차이는 자동 정렬하지 않는다. 이전 계좌 full-period activity는 현재 계좌의 원인 근거가 아니며 과거 원장과 epoch는 삭제·reset하지 않는다.
 
 ### Phase 1a: KIS 모의투자 read-only
 
@@ -79,7 +79,7 @@
 
 ### P1
 
-1. current account clean baseline 뒤 Phase 0 유효 거래일 축적 대기, `0/10`
+1. current account position mismatch의 현재 기준선 전체 기간 증거 확보 및 원인 확인
 2. 검증된 절대 양수 수익 후보 없음
 3. Phase 1b latest readiness stale
 4. 실제 WebSocket recovery 연결기는 완료됐으나 2026-09-04 증거는 30분 freshness 초과, 새 세션 artifact 필요
@@ -87,7 +87,7 @@
 
 ## 5. 다음 순서
 
-1. 다음 정상 거래일부터 current account Phase 0 유효일을 강제 거래 없이 축적한다.
+1. current account 불일치부터 충분한 기간의 원천 증거로 확인하고, 이후 정상 거래일 정합을 강제 거래 없이 축적한다. 같은 baseline을 재생성하지 않는다.
 2. tick rejection 재발 여부, coverage 95% 이상, lineage 100%, storm 0과 subscription/first-frame 복구 증적을 확인한다.
 3. E7 미래 표본이 최소 기준을 채우면 decision-episode portfolio/random-control을 실행한다.
 4. E7 고정 평가 3회 실패 시 threshold 탐색 없이 h60 또는 entry/exit 분리 가설로 이동한다.

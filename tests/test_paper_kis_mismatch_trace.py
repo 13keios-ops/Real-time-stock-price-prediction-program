@@ -4,10 +4,119 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.trace_paper_kis_mismatch import build_trace_report
+from scripts.trace_paper_kis_mismatch import _classify_position_divergence, build_trace_report, render_markdown
 
 
 class PaperKisMismatchTraceTests(unittest.TestCase):
+    def test_nonempty_bounded_lookup_is_not_full_account_activity(self):
+        _, scope, _ = _classify_position_divergence(
+            local_qty=1, broker_qty=0, broker_order_fill_net_qty=1,
+            broker_status_available=True, rejected_close_recent_count=0,
+            broker_sync_status='ok', broker_ledger_coverage_status='bounded_recent_lookup',
+        )
+        self.assertEqual(scope, 'current_account_vs_partial_mirrored_order_ledger_unresolved')
+
+    def _activity_trace(self, activity, attempt=None, *, mismatched=True):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / 'trace.db'
+            sqlite3.connect(db).close()
+            marker = root / 'reports/broker-paper/latest-alignment.json'
+            marker.parent.mkdir(parents=True)
+            marker.write_text(json.dumps({'aligned_at': '2026-09-06T07:10:53+09:00'}))
+            paths = {name: root / f'{name}.json' for name in ('account', 'activity', 'attempt')}
+            paths['account'].write_text(json.dumps({
+                'as_of': '2026-09-24T08:20:08+09:00',
+                'comparison': {'mismatch_rows': [
+                    {'symbol': '373220', 'local_qty': 1, 'broker_qty': 0}
+                ] if mismatched else []},
+            }))
+            paths['activity'].write_text(json.dumps(activity))
+            paths['attempt'].write_text(json.dumps(attempt or {}))
+            return build_trace_report(
+                db_path=db, dual_match_path=root / 'dual.json',
+                account_sync_path=paths['account'], broker_sync_path=root / 'broker.json',
+                account_activity_path=paths['activity'], account_activity_attempt_path=paths['attempt'],
+                limit_per_table=3, include_auxiliary=False,
+            )
+
+    @staticmethod
+    def _activity(*, historical=False, status='resolved_external_or_unlinked_account_activity'):
+        return {
+            'status': status,
+            'generated_at': '2026-08-14T23:52:16+09:00' if historical else '2026-09-24T09:00:00+09:00',
+            'scope': {
+                'alignment_at': '2026-06-14T05:36:35+09:00' if historical else '2026-09-06T07:10:53+09:00',
+                'account_snapshot_as_of': '2026-08-14T17:01:33+09:00' if historical else '2026-09-24T08:20:08+09:00',
+            },
+            'pagination': {'pagination_complete': True},
+            'phase0_resolution': {'status': 'cause_identified_clean_baseline_still_required'},
+        }
+
+    def test_previous_baseline_activity_cannot_resolve_current_mismatch(self):
+        report = self._activity_trace(self._activity(historical=True))
+        self.assertEqual(report['assessment']['status'], 'needs_review')
+        self.assertEqual(report['phase0_resolution']['status'], 'blocked_requires_full_account_history_or_clean_baseline')
+        self.assertFalse(report['full_account_activity']['applies_to_current_account'])
+        self.assertIn('alignment_scope_mismatch', report['full_account_activity']['scope_exclusions'])
+        self.assertIn('full_account_activity_applies_to_current_account: `False`', render_markdown(report))
+
+    def test_current_attempt_is_not_hidden_by_previous_baseline_completion(self):
+        attempt = self._activity(status='rate_limited')
+        attempt['cooldown_until'] = '2026-09-25T09:00:00+09:00'
+        report = self._activity_trace(self._activity(historical=True), attempt)
+        self.assertEqual(report['full_account_activity']['source'], 'latest_attempt')
+        self.assertTrue(report['full_account_activity']['applies_to_current_account'])
+        self.assertEqual(report['phase0_resolution']['status'], 'blocked_full_account_history_rate_limited')
+        self.assertEqual(report['phase0_resolution']['cooldown_until'], attempt['cooldown_until'])
+        historical = report['full_account_activity']['other_evidence'][0]
+        self.assertEqual(historical['source'], 'completed_probe')
+        self.assertEqual(historical['generated_at'], '2026-08-14T23:52:16+09:00')
+        self.assertFalse(historical['applies_to_current_account'])
+
+    def test_malformed_attempt_does_not_hide_valid_completed_evidence(self):
+        report = self._activity_trace(self._activity(), ['malformed'])
+        self.assertEqual(report['full_account_activity']['source'], 'completed_probe')
+        self.assertTrue(report['full_account_activity']['applies_to_current_account'])
+        self.assertEqual(report['full_account_activity']['invalid_sources'], ['latest_attempt'])
+
+    def test_malformed_activity_sources_are_not_usable_evidence(self):
+        report = self._activity_trace(['malformed'], ['malformed'])
+        self.assertFalse(report['full_account_activity']['available'])
+        self.assertEqual(report['full_account_activity']['invalid_sources'], ['completed_probe', 'latest_attempt'])
+
+    def test_current_completion_with_equivalent_timezone_scope_is_applied(self):
+        activity = self._activity()
+        activity['scope']['alignment_at'] = '2026-09-05T22:10:53+00:00'
+        report = self._activity_trace(activity)
+        self.assertTrue(report['full_account_activity']['applies_to_current_account'])
+        self.assertEqual(report['phase0_resolution'], activity['phase0_resolution'])
+
+    def test_stale_snapshot_or_unverifiable_scope_is_not_applied(self):
+        for field, value in (
+            ('alignment_at', None), ('alignment_at', 'invalid'),
+            ('alignment_at', '2026-09-06T07:10:53'),
+            ('account_snapshot_as_of', '2026-09-23T08:20:08+09:00'),
+            ('account_snapshot_as_of', None),
+        ):
+            with self.subTest(field=field, value=value):
+                activity = self._activity()
+                activity['scope'][field] = value
+                report = self._activity_trace(activity)
+                self.assertFalse(report['full_account_activity']['applies_to_current_account'])
+                self.assertEqual(report['phase0_resolution']['status'], 'blocked_requires_full_account_history_or_clean_baseline')
+
+    def test_old_rate_limit_cannot_block_new_baseline(self):
+        report = self._activity_trace({}, self._activity(historical=True, status='rate_limited'))
+        self.assertNotEqual(report['phase0_resolution']['status'], 'blocked_full_account_history_rate_limited')
+        self.assertFalse(report['full_account_activity']['applies_to_current_account'])
+
+    def test_matched_new_baseline_keeps_historical_cause_separate(self):
+        report = self._activity_trace(self._activity(historical=True), mismatched=False)
+        self.assertEqual(report['assessment']['status'], 'ok')
+        self.assertFalse(report['full_account_activity']['applies_to_current_account'])
+        self.assertEqual(report['phase0_resolution']['status'], 'clean_baseline_created_waiting_10_matched_days')
+
     def test_account_sync_mismatches_override_stale_dual_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

@@ -12,6 +12,7 @@ class Phase0FullAccountActivityTraceTests(unittest.TestCase):
     def test_rate_limit_blocks_alignment_and_preserves_cooldown(self) -> None:
         trace = {"mismatch_count": 4}
         activity = {
+            "applies_to_current_account": True,
             "status": "cooldown_active",
             "cooldown_until": "2026-08-10T00:48:27+09:00",
         }
@@ -28,7 +29,7 @@ class Phase0FullAccountActivityTraceTests(unittest.TestCase):
 
         _apply_full_account_activity_resolution(
             trace,
-            {"status": "blocked_history_unavailable_or_empty"},
+            {"status": "blocked_history_unavailable_or_empty", "applies_to_current_account": True},
         )
 
         resolution = trace["phase0_resolution"]
@@ -44,12 +45,15 @@ class Phase0FullAccountActivityTraceTests(unittest.TestCase):
             "raw_response": {"secret": "must-not-leak"},
         }
 
-        summary = _full_account_activity_summary(completed, {})
+        summary = _full_account_activity_summary(
+            completed, {}, alignment_cutoff=None, account_snapshot_as_of=None,
+        )
 
         self.assertEqual(summary["source"], "completed_probe")
         self.assertEqual(summary["status"], completed["status"])
         self.assertNotIn("account_number", summary)
         self.assertNotIn("raw_response", summary)
+        self.assertFalse(summary["applies_to_current_account"])
 
     def test_new_clean_baseline_replaces_stale_required_resolution(self) -> None:
         trace = {
@@ -80,7 +84,7 @@ class Phase0FullAccountActivityTraceTests(unittest.TestCase):
 
         _apply_full_account_activity_resolution(
             trace,
-            {"status": "blocked_incomplete_pagination"},
+            {"status": "blocked_incomplete_pagination", "applies_to_current_account": True},
         )
 
         resolution = trace["phase0_resolution"]

@@ -118,6 +118,8 @@ python3 scripts/probe_kis_paper_account_activity.py
 - 로컬 submission에 없는 broker 활동, 로컬 원장 divergence, account snapshot과 전체 활동 divergence를 분리한다.
 - `EGW00201`이면 2시간 cooldown 동안 어떤 dry-run도 네트워크 실행으로 승격하지 않는다.
 - 완료 결과는 `latest-paper-account-activity.json`, 제한/차단 시도는 `latest-paper-account-activity-attempt.json`에 분리한다.
+- mismatch trace는 activity의 `scope.alignment_at`과 `scope.account_snapshot_as_of`를 현재 alignment marker 및 account sync `as_of`와 timezone-aware 값으로 대조한다. 불일치/누락/시각 오류는 `applies_to_current_account=false`, `scope_exclusions`로 표시하며 과거 evidence로 보존할 뿐 현재 원인을 확정하지 않는다.
+- 현재 범위에 맞는 attempt가 있으면 이전 baseline의 completed 결과가 이를 가리지 않는다. 최신 조회에서 반환 행이 있어도 bounded mirrored-order history를 전체 계좌 활동으로 간주하지 않는다. 이 진단 표시는 probe 자체의 cooldown·명시 승인 조건을 완화하지 않는다.
 - 어떤 결과도 자동 align, `SyncInitialCash`, 주문 정책 변경을 허용하지 않는다.
 
 2026-08-14 새 승인 조회 범위는 `2026-06-14~2026-08-14`다. `--max-pages 30` 실행은 22페이지/329행/20거래일에서 `pagination_complete=true`였고 로컬 submission 320개와 broker-only 활동 9행을 확인했다. 전체 활동 position은 KIS snapshot과 일치하고 local paper만 divergence여서 `external_or_unlinked_broker_activity`로 확정했다. 2026-08-15 별도 승인으로 KIS snapshot 기준 marker-only clean baseline을 생성했고 mismatch/cash/total asset gap 0을 확인했다. 과거 10일 이력은 보존하며 새 기준선 이후 10개 유효 거래일을 다시 누적한다.

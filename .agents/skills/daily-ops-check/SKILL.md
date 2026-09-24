@@ -109,7 +109,7 @@ python3 scripts/check_kis_paper_account_lifecycle.py
 - 현재 clean baseline은 계좌 소유자 승인으로 2026-09-06 생성했으며 `paper-2026-09-03` epoch와 호환된다. 같은 baseline을 자동 재생성하지 않는다.
 - 2026-09-03 새 계좌의 자연 KIS cash-order submission 36건은 성공했고, 2026-09-05 order-fill sync가 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결됐다. `068270` 매도 체결 1건·2주도 로컬에 적용됐다.
 - 2026-09-04 이전 baseline 비교 mismatch 5건과 2026-09-05 후속 체결 동기화는 과거 진단으로 보존한다.
-- 2026-09-06 baseline 직후 reconciliation은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`이다. 현재 epoch는 `no_history`, 유효일 `0/10`이며 휴장일 baseline 생성일은 분모에 넣지 않는다.
+- 2026-09-06 baseline 직후의 역사 스냅샷은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`, 당시 epoch `no_history`, 유효일 `0/10`이다. 현재 정합 판정은 최신 history/sync와 `docs/STATUS.md`를 확인하며 이 과거 수치를 재사용하지 않는다. 휴장일 baseline 생성일은 분모에 넣지 않는다.
 - 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 broker sync/reconciliation을 중복 호출하지 않는다.
 - lifecycle과 baseline이 현재 계좌에 호환되고, 오늘 유효 기록이 없고, 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
 

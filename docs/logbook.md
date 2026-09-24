@@ -5,6 +5,16 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-24] FULL CHECK: Phase 0 증거 범위와 현재 상태 교정
+
+- 8/14 이전 계좌의 completed full-period activity가 9/6 baseline 이후 실제 mismatch 판정을 덮는 결함을 재현했다. alignment/snapshot scope 검증과 historical-only 표시를 추가하고, 현재 attempt보다 과거 completed를 우선하던 선택을 교정했다.
+- nonempty bounded lookup도 전체 계좌 원장이 아니므로 원인 미확정으로 분리했다. 373220 실제 수량 차이는 해소했다고 보고하지 않으며, 자동 align·계좌 조회·주문 없이 local trace만 갱신했다.
+- E7 미래 threshold 통과 1행이 동일 episode의 최초 미통과 판단에 묶여 공식 0 episode가 되는 경로를 확인했다. 원장 shadow identity 교차검사는 일치했지만 writer 내부의 shadow fail-closed 보강은 후속 과제다. evaluator/manifest/threshold는 수정하지 않았다.
+- 외부 EOD·공시·공매도 shadow 입력 파일이 없음을 확인했다. 구현 완료를 실제 수집/표본 축적 완료로 부르지 않도록 STATUS와 스프린트를 맞췄다.
+- 회귀: 수정 전 stale 판정과 bounded 조회 오분류 실패 재현, 독립 리뷰의 malformed 입력/역사 증거 보존도 보완했다. 최종 focused 31건 및 전체 unittest 664건 통과. structure audit 오류 0, 기존 dashboard/research 대형 모듈 경고 2건. 검증 로그는 `.tmp-tests/full-check-20260924-*.log`.
+- daily-ops skill의 9/6 직후 0/10 문구는 현재값이 아닌 역사 스냅샷으로 명확히 했다. 자동화 시간/프롬프트/실행 절차는 변경하지 않았다.
+- 전략·risk·config·VERSION·Phase 0 baseline·운영 DB·E7 산출물은 변경하지 않았다. 최신 운영 수치와 남은 blocker는 `docs/STATUS.md`가 소유한다.
+
 ## [2026-09-19] 공식 EOD·공시 shadow 확장
 
 - KRX finalized EOD 수급을 입력하는 source-neutral JSONL 계약과 read-only h15/h60 사후평가를 추가했다. `available_at` 이후 첫 label만 선택해 당일 정보가 과거 판단으로 새지 않게 한다.
