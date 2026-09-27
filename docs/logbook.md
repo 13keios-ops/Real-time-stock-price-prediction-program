@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-27] 승인된 timeout 현재 상태 보정
+
+- 소유자의 직접 매도 부인 및 별도 실행 승인에 따라 incident 전용 `recover_paper_timeout_sell_once.py`를 정확히 1회 적용했다. KIS API/주문/취소는 0회다. 실제 수치는 STATUS와 로컬 recovery report가 소유한다.
+- 현행 baseline overlay로 과거 epoch 포지션을 계산에서 제외하고 해당 DB 행 자체는 보존한다. exclusive 0600 preimage backup 뒤 현재 포지션·보정 이벤트·새 snapshot을 한 transaction에 저장한다. 같은 recovery ID는 재적용하지 않고 실패하면 전부 rollback한다.
+- broker ID exact 연결이나 실제 수수료 확정은 주장하지 않는다. 비용은 기존 연구 모형이며 합성 fill/submission을 만들지 않았다. 전후 해시로 기존 주문/fill/submission/status snapshot/과거 portfolio snapshot/다른 포지션과 Phase 0 history/baseline/config 보존을 확인했다. E7과 계좌 기준선은 변경하지 않았다.
+- 집중 11건 및 전체 679건 통과. 구조 audit 오류 0/기존 경고 3건이다. cached broker 수량만 일치하며 잔여 현금/평가 gap과 다음 정상 거래일의 공식 정합 확인은 남겨둔다.
+
 ## [2026-09-24] Phase 0 broker paper 제출 타임아웃 보호
 
 - 9/8 `373220` 매도 1주는 KIS에서 체결됐지만 로컬은 API timeout을 최종 `rejected`로 처리하고 submission/fill을 남기지 않아 current epoch 수량 불일치를 만들었다. KIS 주문 ID가 응답 유실로 직접 연결되지 않은 점은 그대로 표시한다.

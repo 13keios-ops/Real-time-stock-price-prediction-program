@@ -2,13 +2,13 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-24 21:44 KST, Phase 0 전체기간 주문·체결 확인
-- 장 상태: holiday
+- 확인 시각: 2026-09-27 22:03 KST, 승인된 Phase 0 현재 장부 보정
+- 장 상태: weekend
 - live runtime: 정지, `paper`; 휴장 중 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat 정상, `live_runtime_should_run=false`
 - dashboard: 실행 중, server/API 정상
 - Windows startup launcher: 설치 및 정상
-- 수집·학습·E7은 2026-09-23 장후, 계좌 비교는 2026-09-24 16:40 KST 스냅샷을 반영한다.
+- 수집·학습·E7은 2026-09-23 장후다. 현재 장부 보정은 9/24 전체기간 체결 증거와 9/25 08:20 KST cached 계좌 snapshot을 사용했고 새 KIS 조회는 하지 않았다.
 
 ## 최신 수집 상태 (수집 정상 / 연결 주의)
 
@@ -68,13 +68,15 @@
 - baseline 직후의 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap 0은 9/6 역사 스냅샷이며 현재 정합 상태가 아니다.
 - 2026-09-07 장후 order-fill sync는 9페이지/124행을 완결했다. submission 124/124 exact-linked, final 123/open 1이며 pending `005930` 2주 지정가 주문은 실제 broker-authoritative 미체결 상태로 보존한다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
-- 현재 epoch의 최근 유효 10거래일(9/10~9/23)은 matched `0`, mismatch `10`, consecutive matched `0`이다. 이는 거래 0건이 아니라 로컬·KIS 계좌의 수량·잔고·총자산이 모두 일치한 날이 0일이라는 뜻이다. `373220` local 1주/broker 0주가 지속된다. 9/24 snapshot의 effective cash gap은 `-350,593.78원`, total asset gap은 `-31,093.78원`이며 자동 정렬하지 않는다.
+- 현재 epoch의 최근 유효 10거래일(9/10~9/23)은 matched `0`, mismatch `10`, consecutive matched `0`인 역사 기록으로 보존한다. 이는 거래 0건이 아니라 로컬·KIS 계좌의 수량·잔고·총자산이 모두 일치한 날이 0일이라는 뜻이다. 당시 `373220` local 1주/broker 0주였고, 9/24 snapshot의 effective cash gap `-350,593.78원`, total asset gap `-31,093.78원`도 과거 비교다. 현재 보정 결과는 아래와 분리한다.
 - 현재 누적 broker submissions는 `349`; 9/23 신규 local order와 broker submission은 모두 0건이다. decision은 signal 차단 2,251 / allocator zero 366 / position·pending 제약 1,181건이며 제출 단계에 이르지 않았다. 최근 자연 주문인 9/21 `247540` 6주는 decision→prediction/signal/target→local order→broker submission→9/21 14:48:59 fill로 연결된다.
 - 현행 Phase 0 유효일 코드는 당일 신규 주문 수가 아니라 current-baseline 누적 mirrored submission 이력과 post-close snapshot을 사용한다. 따라서 신규 제출 0건인 보유 관측일도 유효일이 될 수 있다. baseline 이후 제출 이력이 전혀 없는 날·weekend/holiday는 제외하며 이번 감사에서 분모 규칙을 바꾸지 않았다.
 - 9/24 bounded 3일 조회는 반환 0행이다. 별도 승인으로 current baseline `9/6`부터 최신 계좌 snapshot `9/24`까지 KIS 주문·체결을 장외에 정확히 1회 조회했다. 24페이지/351행에서 `pagination_complete=true`; 로컬 submission 349건과 연결되고 2행은 연결되지 않았다. 중복 exact key 0, 모호한 fallback key 3건이다. 전체기간 체결 재구성 수량은 KIS snapshot의 5종목과 모두 일치하지만 로컬 장부는 `373220` 1주가 남는다. 후속 read-only KIS 표본 조회에서 미연결 2행을 특정했다: 9/8 `373220` 매도 1주 체결 1주(349,500원), `005930` 매도 2주 체결 0주. 같은 날 로컬 `373220` 매도 1주(349,500원)는 KIS 요청 타임아웃 후 `broker_network_error`/`rejected`로 기록되어 submission·fill 연결이 없다. 종목·방향·수량·가격이 일치하고 다른 미연결 체결이 없어, 응답을 잃은 주문이 브로커에서는 접수·체결된 것이 수량 차이의 강한 원인 증거다. 응답이 없어 브로커 주문 ID의 직접 연결은 미확정이며 자동 정렬 근거로 쓰지 않는다.
 - 22페이지/329행 full-period activity는 `2026-08-14`의 이전 계좌 증거로 현재 계좌 판단에 쓰지 않는다. 현재 계좌 보고서의 `external_or_unlinked_broker_activity`와 trace의 `cause_identified_clean_baseline_still_required`는 개별 미연결 행을 조회하기 전의 포괄적·낡은 분류다. 위의 9/8 timeout/체결 증거가 더 구체적이며, 이 상태 문자열을 자동 baseline 재생성 허가로 해석하지 않는다.
 - 9/24 미래 주문 보호 코드: 새 broker paper submit의 network/unknown 응답은 `submission_unknown`과 보류 종목으로 남겨 중복 제출을 막고, sync report는 미확정 로컬 제출 수를 따로 기록한다. 미확정 주문이 있으면 수치상 계좌 일치에도 reconciliation을 `needs_review`로 둔다. 기존 9/8 rejected 주문·포트폴리오·과거 snapshot은 변경하지 않았으며 현재 Phase 0 matched 0/10도 그대로다.
 - 9/24 추가 확인: 9/8 373220 매도는 승인된 KIS read-only 조회 1회(1페이지/10행, pagination complete)에서 9건이 기존 로컬 제출과 연결되고, 15:03:22의 1주·349,500원 전량 체결 1건만 미연결이었다. 같은 거래일의 동일 종목·방향·수량·가격 로컬 주문 후보는 15:01 분봉 시각의 timeout/rejected 1건뿐이다. 15:01은 실제 전송 시각이 아닌 분봉 이벤트 시각이므로 브로커 접수 시각과 직접 일치 검사는 불가하다. 9/7과 9/8 장후 cash gap은 -615.81원에서 -349,965.76원으로 이동했다. 연구용 비용 가정의 매도 순유입 348,748.575원을 단순 반영하면 9/8 gap은 약 -1,217.18원이지만 실제 브로커 수수료·세금과 유실된 주문번호 직접 연결은 미확인이다. 9/21 로컬 평가 snapshot과 9/24 브로커 snapshot은 동시점이 아니며 현재 포지션 mark 합계와 로컬 최신 평가 snapshot 사이에도 26,500원 차이가 있어 총자산 gap을 해당 매도 손익으로 단정하지 않는다. 계좌/DB/과거 snapshot/Phase 0 기준은 변경하지 않았다.
+- 9/27 계좌 소유자는 직접 매도한 적이 없음을 확인하고 1회 로컬 보정을 승인했다. `recover_paper_timeout_sell_once.py`로 현재 `373220`만 0주로 정리하고 기존 연구용 비용 가정(commission 52.425원, sell tax 699원)의 순현금 348,748.575원을 반영했다. 현금은 7,597,135.795원, 보유 종목은 4개다. 단일 SQLite transaction에 현재 포지션 변경과 보정 이벤트/새 snapshot을 함께 저장했고, exclusive 0600 preimage backup을 먼저 보존했다. 원래 rejected 주문·실제 fill·broker submission·과거 snapshot과 9/6 baseline은 재작성하지 않았다. 주문번호 연결은 `inferred_owner_approved_not_exact`이며 합성 fill이나 submission을 만들지 않았다.
+- 보정 뒤 수량은 9/25 cached KIS snapshot과 일치한다. cached effective cash gap은 약 -1,845.205원, total asset gap은 약 -6,845.205원이다. 보유 주식은 저장된 mark를 사용하므로 동시점 공식 검증이 아니며 실제 KIS 비용도 미확인이다. `official_phase0_pass=false`, 기존 history/sync/trace는 보정 전 증거로 보존한다. 다음 정상 post-close의 동시점 정합 확인에서 잔여 gap을 조사하고, 정합 유효 거래일을 새로 축적해야 한다. 보정은 E7 평가 fill 원장이나 manifest를 변경하지 않았다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
@@ -108,7 +110,7 @@
 ## 현재 blocker와 다음 순서
 
 1. 현재 계좌 clean baseline은 완료됐다. 같은 baseline을 반복 생성하거나 과거 epoch 증거를 현재 분모와 섞지 않는다.
-2. `373220` 차이는 9/8 KIS 매도 1주 체결과 같은 종목·수량·가격의 로컬 timeout/rejected 주문 사이의 미확정 제출 결과가 가장 강한 원인이다. `005930` 미연결 매도 2주는 미체결이어서 수량 차이를 만들지 않았다. KIS 응답/주문 ID가 유실된 상태이므로 exact identity로 연결됐다고 주장하거나 자동 정렬·baseline 재생성을 하지 않는다. 새 broker submit timeout의 unknown outcome 보존은 구현·검증했지만 기존 계좌 이력과 로컬 attempt의 안전한 연결 및 과거 장부 복구는 아직 남았다. 과거 9/8 장부 교정은 중복 적용·실제 수수료·당시 snapshot 보존을 검토한 별도 승인 작업으로 분리한다. 이후 동일 시점 잔고·현금·총자산을 재검증하고 새 정합 유효 거래일 10일을 확인해야 하므로 "3일만 더 관찰"해서 통과하는 상태가 아니다.
+2. `373220` 수량 차이는 승인된 현재 상태 보정으로 해소했다. 타임아웃 주문의 exact broker identity는 여전히 미확정이며 과거 원장은 보존한다. 다음 정상 post-close에서 동시점 잔고·현금·총자산과 잔여 비용/평가 gap을 확인하고 이후 최근 10개 유효 거래일 모두 matched를 확인한다. 자동 정렬·baseline 재생성이나 강제 주문은 하지 않는다.
 3. E7은 threshold/model/manifest를 바꾸지 않고 official episode와 종목 표본을 축적한다.
 4. 다음 거래일에는 정각 reconnect와 storm 재발, 재구독/첫 프레임 회복, 예상 밖 공통 gap, coverage와 lineage를 함께 확인한다.
 5. B2/B3, live-canary C1~C4 service 안전 계약, real WS evidence 연결기는 완료했다. 다음 실제 세션에서 30분 이내 fresh Phase 1b artifact를 만들고, Phase 2 runtime 조립 시 C4 단일 recovery 엔트리포인트를 연결해야 한다.
@@ -120,6 +122,7 @@
 - 정합: `runtime-data/reports/reconciliation/latest-paper-account-history.json`, `latest-paper-account-sync.json` (9/24 16:40), `latest-paper-account-activity.json` (9/24 21:37), `latest-paper-kis-mismatch-trace.json` (9/24 21:39)
 - E7: `runtime-data/reports/research/e7/latest-e7-daily-evidence.json` (9/23 20:36) 및 동일 기간 SQLite read-only 교차검사
 - 검증: `.tmp-tests/full-check-20260924-focused.log`, `.tmp-tests/full-check-20260924-unittest.log`
+- 승인 보정: `runtime-data/reports/codex/paper-account-recovery-20260908-373220-v1-before.json`, 동일 prefix의 `-result.json`; 집중 11건과 전체 679건 통과 (`.tmp-tests/paper-timeout-recovery-unittest.log`)
 
 ## 기준 문서
 
