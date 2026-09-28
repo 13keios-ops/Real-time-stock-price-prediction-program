@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-28] order-fill 조회 timeout 보고 보완과 승인 재검증
+
+- 장후 GET timeout이 예외로 전파돼 최신 sync report가 이전 성공으로 남는 결함을 재현했다. timeout/network 실패를 비밀값 없는 `network_error` 결과와 중단 페이지 증거로 기록하고, 기존 주문·fill·포지션을 보존한다. sync CLI는 실패 exit 1로 후속 잔고 조회를 멈춘다.
+- 수집기의 구조화된 network 실패도 기존 5/10/20/40/60분 일반 오류 백오프를 유지한다. rate-limit 2시간 cooldown, submit POST, UNKNOWN 보호, 전략·E7·baseline은 변경하지 않았다. focused 58건, 최종 전체 unittest 683건, diff check 통과; 구조 audit 오류 0/기존 경고 3건이다.
+- 자동 권한 검토가 예약 외 재검증을 처음 차단해 실제 호출은 없었다. 이후 사용자의 별도 장외 읽기 전용 1회 승인으로 통합 recheck를 수행했다. 성공 결과는 `runtime-data/reports/codex/manual-recheck-20260928.json`이며 정기 실패 산출물과 과거 이력을 보존했다. 현재 정합·누적 수치는 STATUS가 소유한다.
+- 이 재검증은 추가 fill/주문 변경 0건, 주문·취소·정렬 0건이다. `105560` 매수는 broker 미체결 상태 그대로이며 비용·평가 오차를 0으로 만들기 위한 장부 조정이나 Phase 0 분모 변경은 하지 않았다.
+
 ## [2026-09-27] 승인된 timeout 현재 상태 보정
 
 - 소유자의 직접 매도 부인 및 별도 실행 승인에 따라 incident 전용 `recover_paper_timeout_sell_once.py`를 정확히 1회 적용했다. KIS API/주문/취소는 0회다. 실제 수치는 STATUS와 로컬 recovery report가 소유한다.

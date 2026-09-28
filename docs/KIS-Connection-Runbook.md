@@ -57,6 +57,7 @@
 - cooldown 중에는 broker paper sync가 KIS order-fill 조회를 건너뛰고 `skipped_broker_call=true`, 남은 `retry_after_seconds`를 리포트에 남긴다.
 - 실시간 수집기의 process pause도 `rate_limited` 결과에는 120분을 적용한다.
 - timeout/게이트웨이 routing 같은 일반 예외는 5/10/20/40/60분 지수 백오프로 낮추고, 성공하면 초기화한다. 분봉 확정 경로를 반복 REST timeout으로 막지 않는 것이 우선이다.
+- order-fill GET timeout/network 오류는 `latest-sync.json`의 `status=network_error`, `ok=false`, pagination 중단 증거로 기록한다. rate limit으로 오분류하거나 같은 batch에서 재시도하지 않는다. CLI 종료 코드 1이 통합 recheck의 후속 잔고 조회를 중단한다. 예약 외 재검증은 별도 승인된 논리적 1회만 수행하고 실패하면 추가 호출하지 않는다.
 - order-fill이 복구되지 않은 상태에서 `AlignToBroker`나 `SyncInitialCash`를 자동 적용하지 않는다.
 
 권장 절차:

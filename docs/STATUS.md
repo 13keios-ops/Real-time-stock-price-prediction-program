@@ -2,19 +2,19 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-09-27 22:03 KST, 승인된 Phase 0 현재 장부 보정
-- 장 상태: weekend
-- live runtime: 정지, `paper`; 휴장 중 시작하지 않음
+- 확인 시각: 2026-09-28 21:16 KST, 별도 승인된 장외 읽기 전용 정합 재검증
+- 장 상태: post-close
+- live runtime: 정지, `paper`; 장외에 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat 정상, `live_runtime_should_run=false`
 - dashboard: 실행 중, server/API 정상
 - Windows startup launcher: 설치 및 정상
-- 수집·학습·E7은 2026-09-23 장후다. 현재 장부 보정은 9/24 전체기간 체결 증거와 9/25 08:20 KST cached 계좌 snapshot을 사용했고 새 KIS 조회는 하지 않았다.
+- 9/28 장후 수집·학습·E7 artifact와 승인된 주문·체결/잔고 재검증을 확인했다. 9/27 장부 보정과 이번 읽기 전용 검증을 분리하며 추가 보정·주문·취소·baseline 변경은 하지 않았다.
 
 ## 최신 수집 상태 (수집 정상 / 연결 주의)
 
-- 최신 장후 data-quality는 raw market/orderbook `3,809/4,060` symbol-minute, closed bar/feature `3,798/3,798`, serving decision `3,798/3,798 (100%)`이다. raw market coverage는 `3,809/3,910=97.42%`, closed feature coverage는 `3,798/3,900=97.38%`로 분모를 구분한다.
+- 9/28 장후 data-quality는 raw market/orderbook `3,817/4,053` symbol-minute, closed feature `3,801`, serving decision `3,803/3,803 (100%)`이다. raw market coverage는 `3,817/3,910=97.62%`, closed feature coverage는 `3,801/3,900=97.46%`로 분모를 구분한다.
 - `H0STCNT0` 다건 frame의 actual row width 보완은 실제 세션에서 수집·특징·판단 lineage 완결로 검증됐다. 과거 raw 데이터는 재작성하지 않았다.
-- WebSocket은 `no close frame received or sent` reconnect `7`, storm `0`이다. 재구독 및 첫 프레임 복구가 각각 7건 확인됐으며 마지막 복구는 15:00:11 KST다. 최근 거래일은 수집 정상과 연결 주의를 분리하고, 과거 storm 이력은 별도로 보존한다.
+- 9/28 WebSocket reconnect `9`, storm `0`이다. 원인은 `no close frame received or sent` 8건, 재구독 뒤 30초 무수신 1건이다. 수집 정상과 연결 주의를 분리하고, 과거 storm 이력은 별도로 보존한다.
 - 수신 queue 분리는 broker REST sync가 socket frame 소비를 막지 않게 한다. 정각 disconnect의 upstream/KIS/네트워크 원천은 저장 증거만으로 확정하지 않으며 retry 정책이나 전략은 변경하지 않는다.
 
 ## 프로젝트 목표 정합성
@@ -32,24 +32,24 @@
 - active h15: `baseline-h15-v1`
 - challenger 조치: `keep_active`
 - 모델 승격: 없음
-- 최신 KIS 거래일: `2026-09-23`
-- raw market/orderbook rows: `587,003/554,796`; coverage와 lineage는 위 최신 수집 상태를 기준으로 한다.
+- 최신 KIS 거래일: `2026-09-28`
+- 9/23 역사 raw market/orderbook rows: `587,003/554,796`; 최신 coverage와 lineage는 위 수집 상태를 기준으로 한다.
 - 최신 data-quality는 `watch/ATTENTION`이다. 다음 정상 세션에서도 reconnect/storm과 복구 증적을 함께 확인한다.
 - 시각 파서는 5자리 값을 leading-zero로 정규화하고 유효하지 않은 HHMMSS 레코드만 경고 후 건너뛴다.
 - 운영 SQLite는 약 `30 GiB`, WAL은 확인 시점 0바이트이며 D드라이브 여유는 약 458GiB다. 대형 DB 전체 집계와 snapshot은 장외·D드라이브 기준을 유지한다.
 
 ## 학습과 수익성
 
-- 2026-09-23 장후 ML: `status=ok`, `quick-live-train`, 17:25:29 KST 완료; label refresh `status=ok`, 17:50:16 KST 완료.
-- top challenger `linear_score_builtin`: 3분류 정확도 `14.80%`, buy/trade hit `9.39%`, 누적 진단 순수익 `-461.61%`, 거래 `1,630건`이다. 이는 계좌 수익률이 아니며 active `baseline-h15-v1` 유지, 승격은 없다.
-- buy-avoid: 최신 9/23 갱신, joined `70,563`행. threshold `0.40`의 overlapping-row 진단 delta는 양수지만 절대 portfolio 수익은 음수여서 `rejected_no_absolute_portfolio_profit`이다.
-- buy-rescue: 실제 serving decision ledger `177,433`행 중 eligible `89,908`행이다. 6/11 이후 탐색 포함 LightGBM threshold `0.55` 진단 77행, precision `57.14%`이며 portfolio/random-control 미충족으로 후보가 아니다. Cybos proxy는 7/5의 stale `buy_avoid_candidate_only`로 별도 보존한다.
-- hold-rescue: replay 가능 `382 lot`; threshold `0.40` 적용 `38 lot`, delta `-26,887원`; `0.45` 적용 5 lot, delta `-7,696원`이다. `diagnostic_only_no_hold_rescue_candidate`를 유지한다.
+- 2026-09-28 장후 ML: `status=ok`, `quick-live-train`, 17:22:51 KST 완료; label refresh `status=ok`, 17:48:34 KST 완료.
+- top challenger `linear_score_builtin`: 3분류 정확도 `15.33%`, buy/trade hit `7.81%`, 누적 진단 순수익 `-490.15%`, 거래 `1,678건`이다. 이는 계좌 수익률이 아니며 active `baseline-h15-v1` 유지, 승격은 없다.
+- buy-avoid: 최신 9/28 갱신, joined `72,053`행. threshold `0.40`의 overlapping-row 진단 delta는 양수지만 절대 portfolio 수익은 음수여서 `rejected_no_absolute_portfolio_profit`이다.
+- buy-rescue: 실제 serving decision ledger `181,236`행 중 eligible `91,863`행이다. 6/11 이후 탐색 포함 LightGBM threshold `0.55` 진단 77행, precision `57.14%`이며 portfolio/random-control 미충족으로 후보가 아니다. Cybos proxy는 7/5의 stale `buy_avoid_candidate_only`로 별도 보존한다.
+- hold-rescue: replay 가능 `383 lot`; threshold `0.40` 적용 `38 lot`, delta `-26,887원`; `0.45` 적용 5 lot, delta `-7,696원`이다. `diagnostic_only_no_hold_rescue_candidate`를 유지한다.
 - meta-policy: primary candidate 없음. rescue/avoid는 관측 전용으로 유지한다.
 - 현행 비용 모델은 `krx-common-stock-2026-v1`, 왕복 `0.29%`, 2배 민감도 `0.58%`다.
 - E7 buy-rescue 미래 검증은 threshold `0.55`, `2026-08-31 09:15 KST` 이후 구간, 최소 10거래일/100 episode/5종목, portfolio replay, random control 1,000회, 비중복 2구간을 사전등록했다. 주문 정책에는 반영하지 않는다.
 - 기존 `portfolio-replay-v1-entry-mark`는 보존했다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`는 일치한다.
-- E7은 최신 장후 artifact 기준 미래 거래일 `17일`, 실행 가능 모집단 episode `8,258`, official policy episode/symbol `0/0`, mark observation 및 missing/stale/invalid mark 모두 `0`이다. `valid_collecting`, normal/2x cost 및 random control·두 비중복 구간은 최소 표본 대기다. mark 0은 평가 대상이 없다는 뜻이지 가격 품질 통과 증거가 아니다.
+- E7은 9/28 장후 artifact 기준 미래 거래일 `18일`, 실행 가능 모집단 episode `8,861`, official policy episode/symbol `0/0`, mark observation 및 missing/stale/invalid mark 모두 `0`이다. `valid_collecting`, normal/2x cost 및 random control·두 비중복 구간은 최소 표본 대기다. mark 0은 평가 대상이 없다는 뜻이지 가격 품질 통과 증거가 아니다.
 - read-only 원장 재집계: 미래 join `53,101`행, 적격 `26,863`행, threshold 통과 적격 행 1건, 최초 판단 유지 grouping 후 선택 episode 0건이다. 9/3 `086520` 12:29 점수 `0.552476`은 12:25 최초 점수 `0.369073`인 같은 episode에 묶인다. 현재 구현 결과와 일치하며 사후 grouping/threshold 변경으로 표본을 만들지 않는다.
 - 미래 join 전체에서 shadow prediction ID·training run·artifact·hash·score를 독립 교차검사해 누락/중복/불일치 0건을 확인했다. 다만 daily writer 자체는 active lineage 존재 여부만 검사하므로 공식 평가 전 shadow identity·중복의 fail-closed 검증을 보강해야 한다. 평가 계약 변경이 필요하면 기존 공식 결과와 버전을 분리한다.
 
@@ -69,14 +69,17 @@
 - 2026-09-07 장후 order-fill sync는 9페이지/124행을 완결했다. submission 124/124 exact-linked, final 123/open 1이며 pending `005930` 2주 지정가 주문은 실제 broker-authoritative 미체결 상태로 보존한다.
 - 과거 epoch는 유효 `10/10`, matched `0`, mismatch `10`, 종목 `035420/086520/105560/247540`로 미통과 이력을 보존한다.
 - 현재 epoch의 최근 유효 10거래일(9/10~9/23)은 matched `0`, mismatch `10`, consecutive matched `0`인 역사 기록으로 보존한다. 이는 거래 0건이 아니라 로컬·KIS 계좌의 수량·잔고·총자산이 모두 일치한 날이 0일이라는 뜻이다. 당시 `373220` local 1주/broker 0주였고, 9/24 snapshot의 effective cash gap `-350,593.78원`, total asset gap `-31,093.78원`도 과거 비교다. 현재 보정 결과는 아래와 분리한다.
-- 현재 누적 broker submissions는 `349`; 9/23 신규 local order와 broker submission은 모두 0건이다. decision은 signal 차단 2,251 / allocator zero 366 / position·pending 제약 1,181건이며 제출 단계에 이르지 않았다. 최근 자연 주문인 9/21 `247540` 6주는 decision→prediction/signal/target→local order→broker submission→9/21 14:48:59 fill로 연결된다.
+- 현재 누적 broker submissions는 `352`; 9/28 자연 제출은 `035420` 매수/매도 각 3주와 `105560` 매수 3주의 총 3건이다. `035420` 양방향은 체결됐고 `105560`은 21:16 재조회에서도 체결 0/잔량 3인 `open`으로 확인했다. 미확정 local submission은 0건이며 강제 거래나 취소는 하지 않았다. 9/23 신규 제출 0건과 차단 taxonomy는 당시 관측 이력이다.
 - 현행 Phase 0 유효일 코드는 당일 신규 주문 수가 아니라 current-baseline 누적 mirrored submission 이력과 post-close snapshot을 사용한다. 따라서 신규 제출 0건인 보유 관측일도 유효일이 될 수 있다. baseline 이후 제출 이력이 전혀 없는 날·weekend/holiday는 제외하며 이번 감사에서 분모 규칙을 바꾸지 않았다.
 - 9/24 bounded 3일 조회는 반환 0행이다. 별도 승인으로 current baseline `9/6`부터 최신 계좌 snapshot `9/24`까지 KIS 주문·체결을 장외에 정확히 1회 조회했다. 24페이지/351행에서 `pagination_complete=true`; 로컬 submission 349건과 연결되고 2행은 연결되지 않았다. 중복 exact key 0, 모호한 fallback key 3건이다. 전체기간 체결 재구성 수량은 KIS snapshot의 5종목과 모두 일치하지만 로컬 장부는 `373220` 1주가 남는다. 후속 read-only KIS 표본 조회에서 미연결 2행을 특정했다: 9/8 `373220` 매도 1주 체결 1주(349,500원), `005930` 매도 2주 체결 0주. 같은 날 로컬 `373220` 매도 1주(349,500원)는 KIS 요청 타임아웃 후 `broker_network_error`/`rejected`로 기록되어 submission·fill 연결이 없다. 종목·방향·수량·가격이 일치하고 다른 미연결 체결이 없어, 응답을 잃은 주문이 브로커에서는 접수·체결된 것이 수량 차이의 강한 원인 증거다. 응답이 없어 브로커 주문 ID의 직접 연결은 미확정이며 자동 정렬 근거로 쓰지 않는다.
 - 22페이지/329행 full-period activity는 `2026-08-14`의 이전 계좌 증거로 현재 계좌 판단에 쓰지 않는다. 현재 계좌 보고서의 `external_or_unlinked_broker_activity`와 trace의 `cause_identified_clean_baseline_still_required`는 개별 미연결 행을 조회하기 전의 포괄적·낡은 분류다. 위의 9/8 timeout/체결 증거가 더 구체적이며, 이 상태 문자열을 자동 baseline 재생성 허가로 해석하지 않는다.
 - 9/24 미래 주문 보호 코드: 새 broker paper submit의 network/unknown 응답은 `submission_unknown`과 보류 종목으로 남겨 중복 제출을 막고, sync report는 미확정 로컬 제출 수를 따로 기록한다. 미확정 주문이 있으면 수치상 계좌 일치에도 reconciliation을 `needs_review`로 둔다. 기존 9/8 rejected 주문·포트폴리오·과거 snapshot은 변경하지 않았으며 현재 Phase 0 matched 0/10도 그대로다.
 - 9/24 추가 확인: 9/8 373220 매도는 승인된 KIS read-only 조회 1회(1페이지/10행, pagination complete)에서 9건이 기존 로컬 제출과 연결되고, 15:03:22의 1주·349,500원 전량 체결 1건만 미연결이었다. 같은 거래일의 동일 종목·방향·수량·가격 로컬 주문 후보는 15:01 분봉 시각의 timeout/rejected 1건뿐이다. 15:01은 실제 전송 시각이 아닌 분봉 이벤트 시각이므로 브로커 접수 시각과 직접 일치 검사는 불가하다. 9/7과 9/8 장후 cash gap은 -615.81원에서 -349,965.76원으로 이동했다. 연구용 비용 가정의 매도 순유입 348,748.575원을 단순 반영하면 9/8 gap은 약 -1,217.18원이지만 실제 브로커 수수료·세금과 유실된 주문번호 직접 연결은 미확인이다. 9/21 로컬 평가 snapshot과 9/24 브로커 snapshot은 동시점이 아니며 현재 포지션 mark 합계와 로컬 최신 평가 snapshot 사이에도 26,500원 차이가 있어 총자산 gap을 해당 매도 손익으로 단정하지 않는다. 계좌/DB/과거 snapshot/Phase 0 기준은 변경하지 않았다.
 - 9/27 계좌 소유자는 직접 매도한 적이 없음을 확인하고 1회 로컬 보정을 승인했다. `recover_paper_timeout_sell_once.py`로 현재 `373220`만 0주로 정리하고 기존 연구용 비용 가정(commission 52.425원, sell tax 699원)의 순현금 348,748.575원을 반영했다. 현금은 7,597,135.795원, 보유 종목은 4개다. 단일 SQLite transaction에 현재 포지션 변경과 보정 이벤트/새 snapshot을 함께 저장했고, exclusive 0600 preimage backup을 먼저 보존했다. 원래 rejected 주문·실제 fill·broker submission·과거 snapshot과 9/6 baseline은 재작성하지 않았다. 주문번호 연결은 `inferred_owner_approved_not_exact`이며 합성 fill이나 submission을 만들지 않았다.
-- 보정 뒤 수량은 9/25 cached KIS snapshot과 일치한다. cached effective cash gap은 약 -1,845.205원, total asset gap은 약 -6,845.205원이다. 보유 주식은 저장된 mark를 사용하므로 동시점 공식 검증이 아니며 실제 KIS 비용도 미확인이다. `official_phase0_pass=false`, 기존 history/sync/trace는 보정 전 증거로 보존한다. 다음 정상 post-close의 동시점 정합 확인에서 잔여 gap을 조사하고, 정합 유효 거래일을 새로 축적해야 한다. 보정은 E7 평가 fill 원장이나 manifest를 변경하지 않았다.
+- 9/27 보정 직후 수량은 9/25 cached KIS snapshot과 일치했고 effective cash gap 약 -1,845.205원, total asset gap 약 -6,845.205원이었다. 이는 역사 cached 비교이며 실제 KIS 비용은 미확인이다. 보정은 E7 평가 fill 원장이나 manifest를 변경하지 않았다.
+- 9/28 20:28 정기 recheck는 order-fill GET timeout으로 중단됐다. 예외 시 `latest-sync`가 이전 성공으로 남는 보고 누락을 수정하고, 별도 승인 후 21:16 장외 검증을 논리적 1회 수행했다. 1페이지/3행 모두 기존 제출에 연결됐고 추가 fill/주문 변경은 0건이다. 보고서는 `runtime-data/reports/codex/manual-recheck-20260928.json`이며 정기 실패 산출물은 보존한다.
+- 최신 공식 account sync는 `aligned`, 보유 수량 mismatch `0`, effective cash gap `-1,865.905원`, total asset gap `+8,434.095원`이다. 기존 판정은 현금/총자산 각각 절대차 `10,000원 미만`을 허용하므로 정확한 0원 일치를 뜻하지 않는다. 비용·정산과 로컬 보유 mark/브로커 평가 시점 차이는 별도 잔여 진단이며 tolerance를 변경하지 않았다. 9/24 `latest-paper-dual-account-match`는 역사 증거로, 현재 판정은 fresh `latest-paper-account-sync`가 소유한다.
+- 현재 최근 유효 10거래일(9/11~9/28)은 matched `1`, mismatch `9`, consecutive matched `1`, `ready=false`다. 보정 후 첫 정상 정합일을 확보했지만 과거 불일치를 지우지 않으며 추가 정상 거래일 정합 축적 전 Phase 0 통과로 보고하지 않는다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.

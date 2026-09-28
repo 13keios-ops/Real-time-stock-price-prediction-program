@@ -705,7 +705,7 @@ def main() -> int:
             if args.sync_broker_paper_orders:
                 result = sync_broker_paper_orders(project_root=project_root)
                 print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-                return 0
+                return 0 if result.ok else 1
 
             if args.align_local_paper_to_broker:
                 result = align_local_paper_to_broker(project_root=project_root)

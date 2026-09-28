@@ -367,6 +367,8 @@ class OnlinePipelineProcessor:
             result = self.broker_paper_sync.sync_recent_orders(
                 retry_delays_seconds=(),
             )
+            if result.status == "network_error":
+                raise KisApiError("Broker paper sync network failure; see latest-sync report.")
         except Exception:
             self._broker_sync_consecutive_failures += 1
             cooldown_minutes = min(

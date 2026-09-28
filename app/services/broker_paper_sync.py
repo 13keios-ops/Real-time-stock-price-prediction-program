@@ -538,10 +538,11 @@ class BrokerPaperExecutionSync:
                 if metadata_key in metadata and metadata[metadata_key] is not None
             }
 
-        def build_rate_limited_payload(
+        def build_failed_query_payload(
             *,
             error: str,
-            rate_limited_at: str,
+            query_status: str = "rate_limited",
+            rate_limited_at: str | None = None,
             cooldown_active: bool = False,
             skipped_broker_call: bool = False,
             retry_after_seconds: int | None = None,
@@ -572,9 +573,8 @@ class BrokerPaperExecutionSync:
             payload: dict[str, Any] = {
                 "ok": False,
                 "synced_at": synced_at.isoformat(),
-                "status": "rate_limited",
+                "status": query_status,
                 "error": error,
-                "rate_limited_at": rate_limited_at,
                 "total_submissions": len(submission_rows),
                 "unknown_local_submission_count": len(unknown_local_rows),
                 "matched_orders": 0,
@@ -585,6 +585,8 @@ class BrokerPaperExecutionSync:
                 "final_order_count": final_order_count,
                 "pending_symbols": sorted(pending_symbols),
             }
+            if rate_limited_at is not None:
+                payload["rate_limited_at"] = rate_limited_at
             if cooldown_active:
                 payload["cooldown_active"] = True
             if skipped_broker_call:
@@ -600,7 +602,7 @@ class BrokerPaperExecutionSync:
         )
         if previous_rate_limit is not None:
             rate_limited_at, retry_after_seconds = previous_rate_limit
-            payload = build_rate_limited_payload(
+            payload = build_failed_query_payload(
                 error="KIS order-fill query skipped because rate-limit cooldown is active.",
                 rate_limited_at=rate_limited_at,
                 cooldown_active=True,
@@ -619,16 +621,18 @@ class BrokerPaperExecutionSync:
                 lookback_days=lookback_days,
                 retry_delays_seconds=retry_delays_seconds,
             )
-        except KisApiError as exc:
-            if not is_kis_rate_limit_error(exc):
+        except (KisApiError, TimeoutError) as exc:
+            network_error = isinstance(exc, TimeoutError) or str(exc).startswith("KIS network error:")
+            if not network_error and not is_kis_rate_limit_error(exc):
                 raise
-            payload = build_rate_limited_payload(
-                error=str(exc),
-                rate_limited_at=synced_at.isoformat(),
-                cooldown_active=rate_limit_cooldown_seconds > 0,
+            payload = build_failed_query_payload(
+                error="KIS order-fill query failed due to a network error or timeout." if network_error else str(exc),
+                query_status="network_error" if network_error else "rate_limited",
+                rate_limited_at=None if network_error else synced_at.isoformat(),
+                cooldown_active=not network_error and rate_limit_cooldown_seconds > 0,
                 retry_after_seconds=(
                     max(int(math.ceil(rate_limit_cooldown_seconds)), 0)
-                    if rate_limit_cooldown_seconds > 0
+                    if not network_error and rate_limit_cooldown_seconds > 0
                     else None
                 ),
             )

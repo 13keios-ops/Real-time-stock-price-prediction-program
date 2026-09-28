@@ -50,6 +50,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 ## 활성 체크리스트
 
+- [x] order-fill GET timeout/network 실패의 최신 보고와 batch 실패 종료, 기존 수집 백오프 보존
+- [ ] 현재 장부 보정 후 정상 거래일 정합을 축적해 Phase 0 최근 10거래일 기준 충족 (최신 수치는 STATUS)
 - [x] 정규장 `serving_decision_ledger`와 prediction artifact lineage 축적
 - [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결
 - [x] 비정상 호가 fail-closed와 broker 상태 snapshot 중복 적재 차단

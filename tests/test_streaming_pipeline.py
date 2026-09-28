@@ -7,7 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_ws import DOMESTIC_ORDERBOOK_TR_ID, DOMESTIC_TRADE_TR_ID
@@ -492,6 +492,36 @@ class StreamingPipelineTests(unittest.TestCase):
         self.assertEqual(fake_sync.calls, 2)
         self.assertEqual(fake_sync.retry_delays_seen, [(), ()])
         self.assertEqual(processor._broker_sync_consecutive_failures, 0)
+
+    def test_reported_network_error_keeps_existing_exponential_backoff(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-sync-network" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True, exist_ok=True)
+        env = {"RUNTIME_DATA_DIR": str(runtime_root),
+               "DATABASE_URL": f"sqlite:///{runtime_root / 'test.db'}",
+               "ENABLE_BROKER_PAPER_MIRRORING": "false"}
+        failed = BrokerPaperSyncResult(
+            ok=False, synced_at="2026-04-13T10:15:00+09:00", status="network_error",
+            total_submissions=1, matched_orders=0, updated_orders=0,
+            applied_fill_events=0, applied_fill_qty=0, open_order_count=1,
+            final_order_count=0, pending_symbols=["005930"],
+            report_markdown_path=runtime_root / "sync.md",
+            report_json_path=runtime_root / "sync.json",
+        )
+        with patch.dict(os.environ, env, clear=False):
+            processor = OnlinePipelineProcessor(load_settings(project_root=root))
+            fake_sync = Mock()
+            fake_sync.sync_recent_orders.return_value = failed
+            processor.broker_paper_sync = fake_sync
+            start = datetime.fromisoformat("2026-04-13T10:15:30+09:00")
+            processor._run_broker_sync(bar_time=start)
+            self.assertEqual(processor._broker_sync_pause_until, start.replace(second=0) + timedelta(minutes=5))
+            processor._run_broker_sync(bar_time=start + timedelta(minutes=1))
+            processor._run_broker_sync(bar_time=start + timedelta(minutes=5))
+            self.assertEqual(processor._broker_sync_pause_until, start.replace(second=0) + timedelta(minutes=15))
+            processor._run_broker_sync(bar_time=start + timedelta(minutes=10))
+            self.assertEqual(fake_sync.sync_recent_orders.call_count, 2)
+            self.assertEqual(processor._broker_sync_consecutive_failures, 2)
 
     def test_broker_sync_exception_keeps_runtime_alive_and_enters_cooldown(self) -> None:
         root = Path(__file__).resolve().parents[1]

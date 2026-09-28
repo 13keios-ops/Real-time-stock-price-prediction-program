@@ -1,5 +1,7 @@
 import os
 import json
+import io
+from contextlib import redirect_stdout
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +9,7 @@ import unittest
 import uuid
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.error import URLError
 
 from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_rest import KisDailyOrderFillRecord
@@ -23,6 +26,22 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class BrokerPaperSyncTests(unittest.TestCase):
+    def test_sync_cli_exits_nonzero_for_incomplete_query(self) -> None:
+        from app import __main__ as cli
+
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            for status, ok in (("network_error", False), ("rate_limited", False), ("ok", True)):
+                with self.subTest(status=status):
+                    result = SimpleNamespace(ok=ok, to_dict=lambda: {"ok": ok, "status": status})
+                    output = io.StringIO()
+                    with patch("sys.argv", ["app", "--project-root", str(root), "--sync-broker-paper-orders"]):
+                        with patch.object(cli, "sync_broker_paper_orders", return_value=result):
+                            with redirect_stdout(output):
+                                exit_code = cli.main()
+                    self.assertEqual(exit_code, 0 if ok else 1)
+                    self.assertEqual(json.loads(output.getvalue())["status"], status)
+
     def _prepare_runtime(self) -> tuple[Path, dict[str, str]]:
         root = Path(__file__).resolve().parents[1]
         runtime_root = root / ".tmp-tests" / "broker-paper-sync" / str(uuid.uuid4())
@@ -618,6 +637,58 @@ class BrokerPaperSyncTests(unittest.TestCase):
         )
         self.assertIsNotNone(latest_order)
         self.assertEqual(str(latest_order["status"]), "submitted")
+
+    def test_query_network_failure_replaces_stale_success_without_book_changes(self) -> None:
+        for failure in (TimeoutError("synthetic-secret"), URLError("synthetic-secret")):
+            with self.subTest(failure=type(failure).__name__):
+                root, env = self._prepare_runtime()
+                event_time = datetime.fromisoformat("2026-04-17T10:15:00+09:00")
+                with patch.dict(os.environ, env, clear=False):
+                    settings = load_settings(project_root=root)
+                    writer = RuntimeWriter.from_settings(settings)
+                    writer.write_paper_order(PaperOrder(
+                        order_id="network-order", symbol="005930", event_time=event_time,
+                        side="buy", qty=3, limit_price=70000.0, status="submitted",
+                    ))
+                    writer.write_broker_order_submission(BrokerOrderSubmission(
+                        submission_id="network-submission", local_order_id="network-order",
+                        broker_mode="paper", symbol="005930", event_time=event_time,
+                        side="buy", qty=3, limit_price=70000.0, order_type="00",
+                        status="submitted", broker_order_no="1234567890",
+                        broker_branch_no="00111", detail={"message": "ok"},
+                    ))
+                    store = get_sqlite_store(settings)
+                    tables = ("paper_orders", "paper_fills", "paper_positions",
+                              "paper_portfolio_snapshots", "broker_paper_order_submissions",
+                              "broker_paper_order_status_snapshots")
+                    before = {table: store.count_rows(table) for table in tables}
+                    report_path = settings.runtime_data_dir / "reports/broker-paper/latest-sync.json"
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    report_path.write_text(json.dumps({"ok": True, "status": "ok"}), encoding="utf-8")
+                    with patch("app.brokers.kis_auth.KisTokenManager.get_access_token",
+                               return_value=SimpleNamespace(authorization_header="Bearer test-token")):
+                        with patch("app.brokers.kis_quote_rest.urlopen", side_effect=failure) as fetch:
+                            result = sync_broker_paper_orders(project_root=root)
+                    self.assertEqual(fetch.call_count, 1)
+                    self.assertFalse(result.ok)
+                    self.assertEqual(result.status, "network_error")
+                    self.assertFalse(result.cooldown_active)
+                    self.assertIsNone(result.rate_limited_at)
+                    self.assertIsNone(result.retry_after_seconds)
+                    self.assertEqual(result.pending_symbols, ["005930"])
+                    self.assertEqual(result.applied_fill_events, 0)
+                    self.assertEqual(result.order_fill_http_requests_attempted, 1)
+                    self.assertEqual(result.order_fill_failed_page, 1)
+                    self.assertIs(result.order_fill_pagination_complete, False)
+                    self.assertIs(result.order_fill_pagination_interrupted_by_rate_limit, False)
+                    self.assertEqual(before, {table: store.count_rows(table) for table in tables})
+                    order = store.fetch_latest_row_by_column("paper_orders", "order_id", "network-order", "event_time")
+                    self.assertEqual(order["status"], "submitted")
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    self.assertEqual(report["status"], "network_error")
+                    self.assertNotIn("synthetic-secret", json.dumps(result.to_dict()))
+                    self.assertNotIn("synthetic-secret", report_path.read_text(encoding="utf-8"))
+                    self.assertNotIn("synthetic-secret", result.report_markdown_path.read_text(encoding="utf-8"))
 
     def test_recent_rate_limit_report_skips_broker_call_during_cooldown(self) -> None:
         root, env = self._prepare_runtime()

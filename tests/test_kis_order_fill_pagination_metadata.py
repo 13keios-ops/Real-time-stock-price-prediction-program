@@ -26,6 +26,23 @@ def _payload(*, order_no: str, continuation: bool) -> dict:
 
 
 class KisOrderFillPaginationMetadataTests(unittest.TestCase):
+    def test_timeout_on_continuation_preserves_incomplete_page_evidence(self) -> None:
+        client = self._client()
+        client._request_response = MagicMock(side_effect=[
+            (_payload(order_no="100", continuation=True), {"tr_cont": "M"}),
+            TimeoutError("timed out"),
+        ])
+        with patch("app.brokers.kis_quote_rest.time.sleep"):
+            with self.assertRaises(TimeoutError):
+                client.get_daily_order_fills(start_date="20260614", end_date="20260615")
+        metadata = client.last_daily_order_fill_query
+        self.assertEqual(client._request_response.call_count, 2)
+        self.assertEqual(metadata["http_requests_attempted"], 2)
+        self.assertEqual(metadata["pages_fetched_before_error"], 1)
+        self.assertEqual(metadata["failed_page"], 2)
+        self.assertIs(metadata["pagination_complete"], False)
+        self.assertIs(metadata["pagination_interrupted_by_rate_limit"], False)
+
     def _client(self, *, mode: str = "paper") -> KisRestQuoteClient:
         profile = MagicMock()
         profile.mode = mode

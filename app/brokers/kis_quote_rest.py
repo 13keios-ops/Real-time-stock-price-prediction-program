@@ -830,7 +830,7 @@ class KisRestQuoteClient:
                     },
                     extra_headers={"tr_cont": tr_cont} if tr_cont else None,
                 )
-            except KisApiError as exc:
+            except (KisApiError, TimeoutError) as exc:
                 error_text = str(exc).lower()
                 self._last_daily_order_fill_query.update(
                     {
