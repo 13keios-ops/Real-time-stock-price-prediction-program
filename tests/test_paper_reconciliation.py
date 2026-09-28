@@ -136,6 +136,29 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertNotEqual(history_recording["status"], "recording_failed")
         self.assertTrue(Path(history_recording["summary_json_path"]).is_file())
 
+    def test_required_fresh_account_cannot_record_cached_success_as_eligible(self) -> None:
+        root, env = self._prepare_runtime()
+        now = datetime.fromisoformat("2026-04-17T20:25:00+09:00")
+        for case in ("fresh", "cache", "stale"):
+            with self.subTest(case=case):
+                root, env = self._prepare_runtime()
+                with patch.dict(os.environ, env, clear=False):
+                    self._seed_local_state(root)
+                    report = self._mock_report(broker_qty=3)
+                    report.to_dict.return_value.update(
+                        fetched_at=now.isoformat() if case != "stale" else "2026-04-16T20:25:00+09:00",
+                        cache_used=case == "cache", error="SECRET-ERROR" if case == "cache" else None)
+                    with patch("app.services.paper_reconciliation.now_local", return_value=now):
+                        with patch("app.services.paper_reconciliation.refresh_kis_account_report", return_value=report):
+                            result = reconcile_paper_accounts(root, require_fresh_broker_account=True)
+                    self.assertEqual(result.ok, case == "fresh")
+                    payload = json.loads(result.report_json_path.read_text())
+                    self.assertNotIn("SECRET-ERROR", json.dumps(payload))
+                    history = json.loads((result.report_json_path.parent / "latest-paper-account-history.json").read_text())
+                    if case != "fresh":
+                        self.assertEqual(result.status, "broker_unavailable")
+                        self.assertFalse(any(day.get("eligible_for_phase0_gate") for day in history["days"]))
+
     def test_matching_balances_do_not_align_with_unknown_local_submission(self) -> None:
         root, env = self._prepare_runtime()
         with patch.dict(os.environ, env, clear=False):

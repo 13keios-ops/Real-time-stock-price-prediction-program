@@ -529,6 +529,12 @@ rate-limit과 일반 실패 cooldown, pending 보존, 종료 시 queue drain 뒤
 
 `scripts/recheck_paper_kis_mismatch.py`는 실제 sync/reconcile/trace 실행 결과만 `latest-paper-kis-mismatch-recheck.json`에 기록한다. dry-run 또는 장중·주말 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에 따로 기록해 마지막 정상 운영 증거를 덮지 않는다.
 
+장후 wrapper는 `--broker-sync-confirmed-only`를 사용한다. 완결된 paper 조회의 날짜/지점/주문번호 exact identity와 로컬 종목/방향/수량·이미 적용한 fill 원장을 교차 검증하고 기존 주문별 transaction으로 새 delta fill만 동기화한다. 중복/충돌/UNKNOWN/불완전 조회는 반영 전 batch를 차단한다. lookback에서 빠진 주문은 이전 상태를 보존하고 자동 만료시키지 않는다. 기본 수동·장중 sync의 기존 동작은 바꾸지 않는다. 새 `--diagnose-only`와 당일 eligible history 중복 방지 경로는 KIS/회계 쓰기 없이 read-only trace와 진단만 갱신한다.
+
+`remediation`은 현재 계좌·broker·trace 시각과 실행 성공을 검증하고 수량/현금/평가액/미확정 제출을 분리한다. 실제 이번 실행의 확정 fill 반영만 조치로 기록하며 기존 cached 성공을 복구로 부르지 않는다. tolerance 내 비영 gap은 `aligned_with_tolerated_gaps`와 비용/정산/mark 시점 미확정으로 남긴다. 임의 align, 과거 fill/snapshot/history 재작성, E7 identity/전략 변경은 하지 않는다.
+
+장후 대사는 `--require-fresh-broker-account`를 사용해 실제 fetch 시각·paper mode·cache/error를 확인한 뒤 Phase 0 이력을 기록한다. cached fallback은 `broker_unavailable`, `ok=false`이며 유효 성공으로 계산하지 않는다. sync와 후속 대사 완료를 분리하고, 일부 주문만 커밋된 뒤 실패한 경우 sync 실패 report에 커밋된 fill/events 수를 보존한다. 실패 report의 현재성을 증명하지 못하면 반영 여부를 미확정으로 남긴다.
+
 broker paper sync는 KIS 주문/체결 행과 로컬 broker 제출 원장의 연결 상태를 식별정보 없는 건수로 함께 기록한다. `broker_rows_unlinked_to_submissions`는 수동/외부 주문 또는 제출 원장 누락 후보, `fallback_matched_orders`는 주문일 없는 보조 매칭 사용, `ambiguous_fallback_key_count`는 보조키 중복을 뜻한다. 이 값은 mismatch 원인 범위를 좁히기 위한 진단이며 계좌 align, 주문 정책, position 원장을 자동 변경하지 않는다. 장후 자동화는 당일 유효 reconciliation history가 이미 있으면 broker endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 당일 기록이 없을 때만 통합 recheck를 한 번 실행한다.
 
 변경 전 / 변경 후 / 영향 범위 / 회귀 위험:

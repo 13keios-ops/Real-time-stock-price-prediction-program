@@ -18,6 +18,8 @@ import subprocess
 import sys
 from collections import Counter
 from datetime import datetime
+import math
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,9 @@ DEFAULT_ATTEMPT_OUTPUT_PATH = Path(
     "runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck-attempt.json"
 )
 DEFAULT_TRACE_PATH = Path("runtime-data/reports/reconciliation/latest-paper-kis-mismatch-trace.json")
+DEFAULT_ACCOUNT_PATH = Path("runtime-data/reports/reconciliation/latest-paper-account-sync.json")
+DEFAULT_BROKER_PATH = Path("runtime-data/reports/broker-paper/latest-sync.json")
+DEFAULT_HISTORY_PATH = Path("runtime-data/reports/reconciliation/latest-paper-account-history.json")
 PROTECTED_SESSION_STATUSES = {"pre-open", "regular-session"}
 NON_TRADING_DAY_STATUSES = {"weekend", "holiday"}
 
@@ -51,12 +56,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-protected-session", action="store_true")
     parser.add_argument("--allow-non-trading-day", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--diagnose-only", action="store_true", help="Use existing evidence without KIS calls or accounting writes")
     args = parser.parse_args(argv)
 
     project_root = Path(args.project_root).expanduser().resolve()
-    generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    generated_at = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="microseconds")
+    trade_date = generated_at[:10]
     runtime_status = load_live_runtime_status(project_root)
     planned_commands = build_command_plan(project_root, limit_per_table=args.limit_per_table)
+    history = load_json(project_root / DEFAULT_HISTORY_PATH)
+    eligible_today = any(
+        isinstance(day, dict) and day.get("trade_date") == trade_date
+        and day.get("eligible_for_phase0_gate") is True
+        for day in history.get("days", [])
+    )
+    diagnose_only = args.diagnose_only or eligible_today
+    if diagnose_only:
+        planned_commands = planned_commands[-1:]
     protected_blocked = is_protected_runtime_status(runtime_status) and not args.allow_protected_session
     non_trading_blocked = is_non_trading_day_status(runtime_status) and not args.allow_non_trading_day
     default_output = choose_default_output_path(
@@ -128,19 +144,36 @@ def main(argv: list[str] | None = None) -> int:
         status = "failed"
         trace_summary = {"status": "missing", "path": str(DEFAULT_TRACE_PATH)}
 
+    step_ok = {step["name"]: step["returncode"] == 0 for step in steps}
+    remediation = build_remediation_diagnosis(
+        load_json(project_root / DEFAULT_ACCOUNT_PATH),
+        load_json(project_root / DEFAULT_BROKER_PATH), load_json(trace_path),
+        trade_date=trade_date, sync_attempted=not diagnose_only,
+        sync_completed=step_ok.get("sync_broker_paper_orders", False),
+        reconciliation_completed=step_ok.get("reconcile_paper_accounts", False),
+        trace_completed=step_ok.get("trace_paper_kis_mismatch", False),
+        execution_started_at=generated_at,
+    )
+    execution_status = status
+    if remediation["status"] not in {"aligned", "aligned_with_tolerated_gaps", "no_submission_observation"}:
+        status = "failed" if execution_status == "failed" else "needs_review"
+
     payload = {
         "status": status,
         "generated_at": generated_at,
-        "mode": "executed_recheck",
-        "summary": build_recheck_summary(status, trace_summary),
+        "mode": "diagnose_existing_evidence" if diagnose_only else "executed_recheck",
+        "execution_status": execution_status,
+        "summary": "paper/KIS post-close diagnosis: " + remediation["status"],
+        "remediation": remediation,
         "runtime_status": runtime_status,
         "steps": steps,
         "trace_report_path": str(DEFAULT_TRACE_PATH),
         "trace_summary": trace_summary,
-        "blocking_reasons": [] if status == "ok" else ["recheck_step_failed_or_trace_missing"],
+        "blocking_reasons": remediation["evidence_blocking_reasons"],
         "dry_run": False,
         "safety": {
             "alignment_applied": False,
+            "broker_calls_skipped": diagnose_only,
             "orders_sent": False,
             "live_orders_enabled_changed": False,
         },
@@ -153,8 +186,8 @@ def main(argv: list[str] | None = None) -> int:
 def build_command_plan(project_root: Path, *, limit_per_table: int) -> list[tuple[str, list[str]]]:
     python = sys.executable
     return [
-        ("sync_broker_paper_orders", [python, "-m", "app", "--sync-broker-paper-orders"]),
-        ("reconcile_paper_accounts", [python, "-m", "app", "--reconcile-paper-accounts"]),
+        ("sync_broker_paper_orders", [python, "-m", "app", "--sync-broker-paper-orders", "--broker-sync-confirmed-only"]),
+        ("reconcile_paper_accounts", [python, "-m", "app", "--reconcile-paper-accounts", "--require-fresh-broker-account"]),
         (
             "trace_paper_kis_mismatch",
             [python, "scripts/trace_paper_kis_mismatch.py", "--limit-per-table", str(limit_per_table)],
@@ -164,6 +197,8 @@ def build_command_plan(project_root: Path, *, limit_per_table: int) -> list[tupl
 
 def is_protected_runtime_status(status: dict[str, Any]) -> bool:
     session_status = str(status.get("current_session_status") or status.get("session_status") or "").strip()
+    if not session_status or status.get("status_command_returncode", 0) != 0:
+        return True
     if session_status in PROTECTED_SESSION_STATUSES:
         return True
     if bool(status.get("process_running")):
@@ -171,6 +206,112 @@ def is_protected_runtime_status(status: dict[str, Any]) -> bool:
     if bool(status.get("live_runtime_should_run")):
         return True
     return False
+
+
+def _evidence_time(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(ZoneInfo("Asia/Seoul"))
+    except (ValueError, TypeError):
+        return None
+
+
+def build_remediation_diagnosis(
+    account: dict[str, Any], broker: dict[str, Any], trace: dict[str, Any], *,
+    trade_date: str, sync_completed: bool, trace_completed: bool, sync_attempted: bool,
+    execution_started_at: str | None = None,
+    reconciliation_completed: bool = True,
+) -> dict[str, Any]:
+    """Separate observed discrepancies from unproven causes; never synthesize accounting."""
+    comparison = account.get("comparison") or {}
+    blockers: list[str] = []
+    account_time = _evidence_time(account.get("as_of"))
+    broker_time = _evidence_time(broker.get("synced_at"))
+    trace_time = _evidence_time(trace.get("generated_at"))
+    start_time = _evidence_time(execution_started_at)
+    fetch_time = _evidence_time(comparison.get("latest_broker_fetch_time"))
+    if (not account_time or account_time.date().isoformat() != trade_date
+            or account.get("market_session_status") != "post-close"
+            or not trace_completed or not trace_time or not account_time
+            or trace_time.date().isoformat() != trade_date
+            or trace_time.replace(microsecond=0) < account_time.replace(microsecond=0)):
+        blockers.append("stale_or_missing_account_trace")
+    if (not fetch_time or fetch_time.date().isoformat() != trade_date
+            or (account_time and fetch_time > account_time)
+            or (sync_attempted and start_time and fetch_time.replace(microsecond=0) < start_time)
+            or comparison.get("broker_account_refresh_confirmed") is False):
+        blockers.append("stale_or_failed_account_fetch")
+    if sync_attempted and not reconciliation_completed:
+        blockers.append("reconciliation_not_completed")
+    if (not broker_time or broker_time.date().isoformat() != trade_date
+            or (account_time and broker_time > account_time)):
+        blockers.append("stale_or_missing_broker_sync")
+    if sync_attempted and start_time and (
+        not broker_time or broker_time < start_time
+        or not account_time or account_time < start_time
+    ):
+        blockers.append("evidence_not_from_current_execution")
+    broker_ok = (broker.get("ok") is True
+                 and (broker.get("order_fill_pagination_complete") is True
+                      or broker.get("status") == "no_submissions"))
+    if not broker_ok or (sync_attempted and (
+        not sync_completed or broker.get("confirmed_evidence_required") is not True
+    )):
+        blockers.extend(broker.get("evidence_blocking_reasons") or ["broker_sync_not_complete"])
+        status = "blocked_broker_evidence"
+    elif blockers:
+        status = "stale_evidence"
+    else:
+        status = "aligned"
+    categories: list[str] = []
+    for flag, category in (("positions_match", "quantity"), ("balance_match", "cash"),
+                           ("total_asset_match", "valuation")):
+        if comparison.get(flag) is not True:
+            categories.append(category)
+    if int(comparison.get("unknown_local_submission_count", 0) or 0) > 0:
+        categories.append("unconfirmed_submission")
+    gaps = [comparison.get("cash_gap"), comparison.get("total_asset_gap")]
+    valid_gaps = all(isinstance(gap, (int, float)) and math.isfinite(gap) for gap in gaps)
+    if not valid_gaps:
+        categories.append("invalid_gap_evidence")
+    if status == "aligned":
+        if categories or comparison.get("status") not in {"aligned", "aligned_waiting_first_submission"}:
+            status = "needs_review"
+        elif comparison.get("status") == "aligned_waiting_first_submission":
+            status = "no_submission_observation"
+        elif any(gap != 0 for gap in gaps):
+            status = "aligned_with_tolerated_gaps"
+    # A cached prior recovery is not a recovery performed by this invocation.
+    report_current = (broker_time and broker_time.date().isoformat() == trade_date
+                      and (not start_time or broker_time >= start_time))
+    applied = (sync_attempted and report_current and broker.get("confirmed_evidence_required") is True
+               and (sync_completed or broker.get("status") == "accounting_sync_failed"))
+    applied_events = int(broker.get("applied_fill_events", 0) or 0) if applied else 0
+    applied_qty = int(broker.get("applied_fill_qty", 0) or 0) if applied else 0
+    action = "confirmed_fill_sync_applied" if applied_events else "no_accounting_change"
+    if applied_events and broker.get("status") == "accounting_sync_failed":
+        action = "partial_confirmed_fill_sync_applied"
+    if sync_attempted and not sync_completed and (not report_current or broker.get("ok") is True):
+        action = "accounting_change_unverified"
+        applied_events = applied_qty = None
+    remaining = list(categories)
+    if valid_gaps and any(gap != 0 for gap in gaps):
+        remaining.append("cost_settlement_or_mark_timing_unresolved")
+    if blockers:
+        remaining.append("complete_current_broker_evidence_required_no_automatic_retry")
+    return {
+        "status": status, "gap_categories": categories,
+        "cash_gap": comparison.get("cash_gap"), "total_asset_gap": comparison.get("total_asset_gap"),
+        "accounting_action": action,
+        "applied_fill_events": applied_events, "applied_fill_qty": applied_qty,
+        "automatic_account_alignment": False, "evidence_blocking_reasons": sorted(set(blockers)),
+        "root_cause_scope_counts": summarize_trace_payload(trace)["root_cause_scope_counts"] if not blockers else {},
+        "cause_confidence": "existing_trace_evidence_only" if not blockers else "unresolved",
+        "remaining_investigation": remaining,
+        "phase0_history_rewritten": False,
+    }
 
 
 def is_non_trading_day_status(status: dict[str, Any]) -> bool:

@@ -31,7 +31,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - 수익화 판정: `no_profitable_candidate`
 - 자동 승격: 없음
 - Phase 0 과거 계좌 epoch: 유효일 `10/10`, matched 0일, mismatch 10일
-- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 유효 거래일 `10`, matched `1`, mismatch `9`, consecutive matched `0`; `373220` 원천 불일치 해소 뒤 새 정합 관측이 필요
+- Phase 0 현재 계좌 epoch: `paper-2026-09-03`; 장부 보정 후 정상 거래일 정합 축적 중이며 최신 누적 수치는 STATUS가 소유한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness는 stale
 - Phase 2/3: 미시작
@@ -51,6 +51,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 ## 활성 체크리스트
 
 - [x] order-fill GET timeout/network 실패의 최신 보고와 batch 실패 종료, 기존 수집 백오프 보존
+- [x] 장후 확정 체결 동기화 안전 검사, 당일 중복 조회 방지와 잔여 mismatch 원인 진단
 - [ ] 현재 장부 보정 후 정상 거래일 정합을 축적해 Phase 0 최근 10거래일 기준 충족 (최신 수치는 STATUS)
 - [x] 정규장 `serving_decision_ledger`와 prediction artifact lineage 축적
 - [x] baseline 판단, gate, allocator, 현금·보유·pending, 주문·체결 결과 연결

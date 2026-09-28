@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
@@ -311,10 +312,12 @@ def reconcile_paper_accounts(
     *,
     force_account_refresh: bool = False,
     max_account_age_seconds: int = 60,
+    require_fresh_broker_account: bool = False,
 ) -> PaperAccountReconciliationResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
     local_account_state = load_local_paper_account_state(settings)
+    refresh_started_at = now_local(settings.timezone)
     broker_report_result: KisAccountReportResult = refresh_kis_account_report(
         project_root=project_root,
         account_mode="paper",
@@ -322,12 +325,24 @@ def reconcile_paper_accounts(
         max_age_seconds=max_account_age_seconds,
     )
     broker_report = broker_report_result.to_dict()
+    if require_fresh_broker_account:
+        try:
+            fetched_at = datetime.fromisoformat(str(broker_report.get("fetched_at")))
+            fresh = (fetched_at.tzinfo is not None
+                     and fetched_at >= refresh_started_at.replace(microsecond=0))
+        except (ValueError, TypeError):
+            fresh = False
+        if (not fresh or broker_report.get("cache_used") is not False
+                or broker_report.get("error") or broker_report.get("trading_mode") != "paper"):
+            broker_report["ok"] = False
     comparison = build_paper_account_reconciliation_payload(
         local_account_state=local_account_state,
         broker_report=broker_report,
         order_mirroring_enabled=settings.strategy.enable_broker_paper_mirroring,
         mirrored_order_count=int(local_account_state.get("broker_order_submissions", 0) or 0),
     )
+    if require_fresh_broker_account:
+        comparison["broker_account_refresh_confirmed"] = broker_report.get("ok") is True
     as_of = now_local(settings.timezone)
     market_session_status = get_market_session_status(settings.market_calendar, as_of)
     markdown_path, json_path = _report_paths(settings.runtime_data_dir)
@@ -372,4 +387,3 @@ def reconcile_paper_accounts(
         report_markdown_path=markdown_path,
         report_json_path=json_path,
     )
-

@@ -132,6 +132,8 @@ def main() -> int:
     parser.add_argument("--kis-account-balance", action="store_true", help="Fetch KIS broker account balance and write a cached report.")
     parser.add_argument("--reconcile-paper-accounts", action="store_true", help="Compare the local virtual paper book against the broker paper account.")
     parser.add_argument("--sync-broker-paper-orders", action="store_true", help="Sync broker paper-order status and fills back into the local virtual paper book.")
+    parser.add_argument("--broker-sync-confirmed-only", action="store_true", help="Require complete, exact broker evidence before batch paper fill accounting.")
+    parser.add_argument("--require-fresh-broker-account", action="store_true", help="Reject cached account fallback for post-close reconciliation.")
     parser.add_argument("--align-local-paper-to-broker", action="store_true", help="Reset the local virtual paper book to the current broker paper-account baseline.")
     parser.add_argument("--kis-approval-key", action="store_true", help="Issue a KIS WebSocket approval key.")
     parser.add_argument("--symbol", default="005930", help="Target symbol for the demo run.")
@@ -698,12 +700,13 @@ def main() -> int:
                 return 0
 
             if args.reconcile_paper_accounts:
-                result = reconcile_paper_accounts(project_root=project_root, force_account_refresh=True)
+                result = reconcile_paper_accounts(project_root=project_root, force_account_refresh=True,
+                                                 require_fresh_broker_account=args.require_fresh_broker_account)
                 print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-                return 0
+                return 0 if result.ok else 1
 
             if args.sync_broker_paper_orders:
-                result = sync_broker_paper_orders(project_root=project_root)
+                result = sync_broker_paper_orders(project_root=project_root, require_confirmed_evidence=args.broker_sync_confirmed_only)
                 print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
                 return 0 if result.ok else 1
 

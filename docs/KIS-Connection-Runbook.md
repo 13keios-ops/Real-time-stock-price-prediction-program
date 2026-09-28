@@ -107,6 +107,13 @@ KIS 제출 API가 timeout/network 오류로 끝나면 로컬 응답 부재는 KI
 
 장후 자동화는 먼저 `latest-paper-account-history.json`에서 오늘 유효 기록 존재 여부를 확인한다. 이미 있으면 같은 endpoint를 중복 호출하지 않고, 실제 거래일 장후인데 기록이 없을 때만 통합 recheck를 한 번 실행한다. 주말/휴장일 차단 시도는 `latest-paper-kis-mismatch-recheck-attempt.json`에만 남고 10거래일 분모에는 들어가지 않는다.
 
+장후의 확정 체결 동기화와 원인 진단:
+
+- `recheck_paper_kis_mismatch.sh`는 confirmed-only sync -> reconciliation -> read-only trace 순서다. 당일 eligible 기록이 있거나 `--diagnose-only`이면 trace/기존 증거 진단만 실행하고 KIS를 건너뛴다. 재조회 실패 뒤 같은 endpoint나 full-period probe로 자동 우회하지 않는다.
+- 정상 DB 반영은 완결 paper 조회와 날짜/지점/주문번호 exact 연결, 종목/방향/수량·기존 fill 일관성이 확인된 기존 제출의 delta fill뿐이다. 충돌/중복/UNKNOWN/누적 역행은 `evidence_blocked`로 전체 반영을 차단한다. 범위 밖 주문은 기존 상태를 보존하며 unlinked/응답 유실 주문을 추정으로 복구하지 않는다.
+- 보고서 `remediation`에서 실제 반영 qty/events, 수량·현금·평가액 차이와 증거 freshness/blocker를 확인한다. mismatch 0은 수량 비교값이지 현금까지 정확히 같은 뜻이 아니다. tolerance 내 gap도 비용/정산/mark 시점 조사로 남기며 자동 현금 정렬·baseline 재생성·과거 이력 교정은 금지한다.
+- 후속 대사는 `--require-fresh-broker-account`로 cache/error와 실제 fetch 시각을 확인한다. API 실패 후 새 대사 작성 시각만 생긴 cached 계좌는 유효 성공이 아니다. 이미 적용한 fill은 후속 대사 실패와 별개로 보고하며, 부분 transaction 실패는 커밋된 수량을 보존하고 불명확한 반영은 `accounting_change_unverified`로 남긴다. 실패 뒤 자동 재시도/정렬하지 않는다.
+
 ### 3.1.2. Phase 0 전체 기간 계좌 활동 probe
 
 Phase 0 snapshot divergence는 최근 3일 조회를 반복하지 않고 아래 dry-run으로 범위와 cooldown을 먼저 확인한다.

@@ -5,6 +5,14 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-09-28] 장후 확정 체결 동기화와 불일치 원인 진단
+
+- 장후 wrapper에 완결 paper 조회·유일 exact 주문 identity·종목/방향/수량·기존 fill 수량/금액 검사를 추가했다. 불명확한 증거는 반영 전 차단하고, 확정 delta fill만 기존 주문별 transaction으로 반영한다. lookback 밖 주문과 unlinked/응답 유실 이력을 추정으로 교정하지 않는다.
+- 당일 eligible history는 matched 여부와 무관하게 KIS 중복 호출을 막고 diagnose-only로 전환한다. 수량/현금/평가액/UNKNOWN과 원인 미확정을 분리하며 허용 오차 내 잔여 gap을 없애지 않는다. API 실패의 cached 계좌는 새 대사 시각만으로 유효 성공이 될 수 없다.
+- 독립 리뷰에서 cache fallback, 누락 side, 기존 fill 금액 충돌, 부분 커밋 보고를 지적받아 실패 재현 테스트와 보호를 추가했다. 이미 커밋된 체결은 후속 대사 실패와 별도로 보고하고, 반영 증거가 불명확하면 변경 없음 대신 미확정으로 남긴다.
+- focused 55건, 최종 전체 unittest 708건, diff check 통과. 구조 audit 오류 0/기존 경고 3건이다. 수동 diagnose-only 검증은 KIS/주문/회계 쓰기 0회이며 history·baseline·E7 기준 문서 해시를 보존했다. 실제 최신 진단은 `runtime-data/reports/codex/post-close-remediation-validation-20260928.json`, 현재 정합 수치는 STATUS가 소유한다.
+- daily-ops skill과 실제 `automation-2` 프롬프트를 함께 갱신했다. 07:25/20:25 일정·이름·ACTIVE·연결 thread는 유지했다. 향후 예약 작업의 source code/전략/임의 DB 변경과 commit/push는 계속 금지하며 정상 확정 체결 동기화만 예외다. 임의 정렬·기준선·과거 이력·E7 정책·live·NAS는 변경하지 않았다.
+
 ## [2026-09-28] order-fill 조회 timeout 보고 보완과 승인 재검증
 
 - 장후 GET timeout이 예외로 전파돼 최신 sync report가 이전 성공으로 남는 결함을 재현했다. timeout/network 실패를 비밀값 없는 `network_error` 결과와 중단 페이지 증거로 기록하고, 기존 주문·fill·포지션을 보존한다. sync CLI는 실패 exit 1로 후속 잔고 조회를 멈춘다.

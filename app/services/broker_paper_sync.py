@@ -71,6 +71,9 @@ class BrokerPaperSyncResult:
     order_fill_failed_page: int | None = None
     order_fill_pagination_complete: bool | None = None
     order_fill_pagination_interrupted_by_rate_limit: bool | None = None
+    confirmed_evidence_required: bool | None = None
+    evidence_blocking_reasons: list[str] | None = None
+    unmatched_orders_preserved: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -113,6 +116,9 @@ class BrokerPaperSyncResult:
             "order_fill_failed_page",
             "order_fill_pagination_complete",
             "order_fill_pagination_interrupted_by_rate_limit",
+            "confirmed_evidence_required",
+            "evidence_blocking_reasons",
+            "unmatched_orders_preserved",
         ):
             value = getattr(self, key)
             if value is not None:
@@ -269,6 +275,9 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         "order_fill_failed_page",
         "order_fill_pagination_complete",
         "order_fill_pagination_interrupted_by_rate_limit",
+        "confirmed_evidence_required",
+        "evidence_blocking_reasons",
+        "unmatched_orders_preserved",
     )
     diagnostic_lines = [
         f"- `{key}`: {payload.get(key)}"
@@ -427,6 +436,7 @@ class BrokerPaperExecutionSync:
         lookback_days: int = 3,
         retry_delays_seconds: tuple[float, ...] | None = None,
         rate_limit_cooldown_seconds: float = BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS,
+        require_confirmed_evidence: bool = False,
     ) -> BrokerPaperSyncResult:
         synced_at = now_local(self.settings.timezone)
         markdown_path, json_path = _report_paths(self.settings.runtime_data_dir)
@@ -493,7 +503,7 @@ class BrokerPaperExecutionSync:
         )
         if not submission_rows:
             payload = {
-                "ok": True,
+                "ok": not (require_confirmed_evidence and unknown_local_rows),
                 "synced_at": synced_at.isoformat(),
                 "status": "submission_outcome_unknown" if unknown_local_rows else "no_submissions",
                 "total_submissions": 0,
@@ -506,6 +516,10 @@ class BrokerPaperExecutionSync:
                 "final_order_count": 0,
                 "pending_symbols": sorted(unknown_symbols),
             }
+            if require_confirmed_evidence:
+                payload.update(confirmed_evidence_required=True,
+                               evidence_blocking_reasons=["unknown_local_submission"] if unknown_local_rows else [],
+                               unmatched_orders_preserved=0)
             _write_report(markdown_path, json_path, payload)
             return BrokerPaperSyncResult(
                 report_markdown_path=markdown_path,
@@ -555,7 +569,7 @@ class BrokerPaperExecutionSync:
                 paper_order = paper_orders.get(local_order_id, {})
                 previous_snapshot = latest_status_by_order.get(local_order_id) or {}
                 status = str(previous_snapshot.get("status") or paper_order.get("status") or submission.get("status") or "submitted")
-                if previous_snapshot:
+                if previous_snapshot and query_status != "evidence_blocked":
                     status = _expire_stale_open_status(
                         status=status,
                         order_date=previous_snapshot.get("order_date"),
@@ -653,6 +667,83 @@ class BrokerPaperExecutionSync:
             broker_lookup_fallback[fallback_key] = row
             broker_fallback_key_counts[fallback_key] += 1
 
+        if require_confirmed_evidence:
+            blockers: set[str] = set()
+            metadata = self.broker_mirror.client.last_daily_order_fill_query
+            if metadata.get("pagination_complete") is not True:
+                blockers.add("pagination_incomplete")
+            if self.broker_mirror.profile.mode != "paper":
+                blockers.add("non_paper_profile")
+            if unknown_local_rows:
+                blockers.add("unknown_local_submission")
+            broker_key_counts = Counter(
+                (_normalize_order_date(row.order_date), row.broker_branch_no, row.broker_order_no)
+                for row in broker_rows
+            )
+            submission_key_counts = Counter(
+                (_normalize_order_date(str(row.get("event_time") or "")[:10]),
+                 str(row.get("broker_branch_no") or ""), str(row.get("broker_order_no") or ""))
+                for row in submission_rows
+            )
+            local_order_counts = Counter(str(row.get("local_order_id") or "") for row in submission_rows)
+            if any(not order_id or count != 1 for order_id, count in local_order_counts.items()):
+                blockers.add("ambiguous_local_order_identity")
+            projected_qty = {symbol: position.qty for symbol, position in self.portfolio_book.positions.items()}
+            for submission in submission_rows:
+                key = (_normalize_order_date(str(submission.get("event_time") or "")[:10]),
+                       str(submission.get("broker_branch_no") or ""), str(submission.get("broker_order_no") or ""))
+                if not all(key) or submission_key_counts[key] != 1:
+                    blockers.add("ambiguous_submission_identity")
+                row = broker_lookup.get(key)
+                if row is None:
+                    if key[1:] in broker_lookup_fallback:
+                        blockers.add("non_exact_order_identity")
+                    continue
+                if broker_key_counts[key] != 1:
+                    blockers.add("duplicate_broker_identity")
+                order_id = str(submission["local_order_id"])
+                order = paper_orders.get(order_id, {})
+                side = _to_side_text(row.side)
+                if str(row.side).strip().lower() not in {"01", "02", "b", "s", "buy", "sell"}:
+                    blockers.add("unconfirmed_order_side")
+                symbol = str(submission.get("symbol") or "")
+                if (row.mode != "paper" or submission.get("broker_mode") != "paper"
+                        or row.symbol != symbol or order.get("symbol") != symbol
+                        or side != submission.get("side") or side != order.get("side")
+                        or row.order_qty != submission.get("qty") or row.order_qty != order.get("qty")):
+                    blockers.add("order_identity_conflict")
+                previous = latest_status_by_order.get(order_id) or {}
+                applied = int(previous.get("applied_fill_qty", 0) or 0)
+                local_qty, local_notional = sqlite_store.fetch_paper_fill_totals(order_id)
+                if local_qty != applied:
+                    blockers.add("applied_fill_ledger_conflict")
+                if (row.order_qty <= 0 or row.filled_qty < applied or row.filled_qty > row.order_qty
+                        or row.remaining_qty < 0 or row.filled_qty + row.remaining_qty > row.order_qty):
+                    blockers.add("invalid_cumulative_fill_quantity")
+                delta = row.filled_qty - applied
+                cumulative = float(row.filled_amount or row.filled_qty * row.avg_fill_price)
+                if applied > 0 and delta == 0 and (
+                    not math.isfinite(local_notional) or not math.isfinite(cumulative)
+                    or not math.isclose(cumulative, local_notional, rel_tol=0.0, abs_tol=0.01)
+                ):
+                    blockers.add("applied_fill_amount_conflict")
+                if delta > 0:
+                    if (not math.isfinite(row.avg_fill_price) or row.avg_fill_price <= 0
+                            or not math.isfinite(cumulative) or cumulative <= local_notional):
+                        blockers.add("invalid_cumulative_fill_amount")
+                    if side == "sell" and projected_qty.get(symbol, 0) < delta:
+                        blockers.add("sell_fill_exceeds_local_position")
+                    projected_qty[symbol] = projected_qty.get(symbol, 0) + (delta if side == "buy" else -delta)
+            if blockers:
+                payload = build_failed_query_payload(
+                    error="Confirmed broker evidence is required; local accounting was not changed.",
+                    query_status="evidence_blocked",
+                )
+                payload.update(order_fill_pagination_diagnostics())
+                payload.update(confirmed_evidence_required=True, evidence_blocking_reasons=sorted(blockers))
+                _write_report(markdown_path, json_path, payload)
+                return BrokerPaperSyncResult(report_markdown_path=markdown_path, report_json_path=json_path, **payload)
+
         submission_exact_keys = {
             (
                 _normalize_order_date(str(row.get("event_time") or "")[:10]),
@@ -693,6 +784,7 @@ class BrokerPaperExecutionSync:
         open_order_count = 0
         final_order_count = 0
         pending_symbols: set[str] = set()
+        unmatched_orders_preserved = 0
 
         for submission in submission_rows:
             local_order_id = str(submission["local_order_id"])
@@ -710,6 +802,15 @@ class BrokerPaperExecutionSync:
             )
             if broker_row is not None:
                 exact_matched_orders += 1
+            elif require_confirmed_evidence:
+                unmatched_orders_preserved += 1
+                preserved_status = str(previous_snapshot.get("status") or paper_order.get("status") or "submitted")
+                if preserved_status in FINAL_BROKER_ORDER_STATUSES:
+                    final_order_count += 1
+                else:
+                    open_order_count += 1
+                    pending_symbols.add(str(submission.get("symbol") or ""))
+                continue
             else:
                 broker_row = broker_lookup_fallback.get(
                     (
@@ -883,6 +984,16 @@ class BrokerPaperExecutionSync:
             except BaseException:
                 if portfolio_before is not None:
                     self.portfolio_book = portfolio_before
+                if require_confirmed_evidence:
+                    payload = build_failed_query_payload(
+                        error="Confirmed sync accounting failed; prior committed orders are preserved.",
+                        query_status="accounting_sync_failed")
+                    payload.update(order_fill_pagination_diagnostics())
+                    payload.update(confirmed_evidence_required=True,
+                                   evidence_blocking_reasons=["accounting_transaction_failed"],
+                                   applied_fill_events=applied_fill_events, applied_fill_qty=applied_fill_qty,
+                                   updated_orders=updated_orders)
+                    _write_report(markdown_path, json_path, payload)
                 raise
 
             if delta_fill_qty > 0:
@@ -914,6 +1025,9 @@ class BrokerPaperExecutionSync:
             "pending_symbols": sorted((pending_symbols | unknown_symbols) - {""}),
         }
         payload.update(order_fill_pagination_diagnostics())
+        if require_confirmed_evidence:
+            payload.update(confirmed_evidence_required=True, evidence_blocking_reasons=[],
+                           unmatched_orders_preserved=unmatched_orders_preserved)
         _write_report(markdown_path, json_path, payload)
         return BrokerPaperSyncResult(
             report_markdown_path=markdown_path,
@@ -928,6 +1042,7 @@ def sync_broker_paper_orders(
     lookback_days: int = 3,
     retry_delays_seconds: tuple[float, ...] | None = None,
     rate_limit_cooldown_seconds: float = BATCH_ORDER_FILL_RATE_LIMIT_COOLDOWN_SECONDS,
+    require_confirmed_evidence: bool = False,
 ) -> BrokerPaperSyncResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -941,4 +1056,5 @@ def sync_broker_paper_orders(
         lookback_days=lookback_days,
         retry_delays_seconds=effective_retry_delays,
         rate_limit_cooldown_seconds=rate_limit_cooldown_seconds,
+        require_confirmed_evidence=require_confirmed_evidence,
     )

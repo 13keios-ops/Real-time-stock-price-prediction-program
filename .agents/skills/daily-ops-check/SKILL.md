@@ -24,7 +24,7 @@ git status --short --branch
 - `regular-session`, 실제 장전 `pre-open`, `live_runtime_should_run=true`, live runtime 실행 중이면 장중 수집 보호 모드다.
 - 보호 모드에서는 기존 파일을 읽는 것 외에 tracked file, DB, runtime-data, dashboard/runtime report를 쓰거나 component를 재시작하지 않는다.
 - 예외는 pre-open 절차에 명시한 네트워크 0회 Phase 1b preflight뿐이다. `--execute`는 반복 자동화에서 금지한다.
-- scheduled automation은 application code, 전략, 설정, DB를 수정하거나 commit/push하지 않는다.
+- scheduled automation은 application code, 전략, 설정, DB를 임의 수정하거나 commit/push하지 않는다. DB 쓰기 예외는 아래 장후 wrapper의 검증된 기존 제출 체결 동기화뿐이며, 보호 모드에서는 이 예외도 금지한다.
 - 실전 주문/취소와 NAS 백업은 수행하지 않는다.
 
 핵심 최신 증거:
@@ -35,6 +35,7 @@ git status --short --branch
 - `runtime-data/reports/reconciliation/latest-paper-account-history.json`
 - `runtime-data/reports/reconciliation/latest-paper-account-sync.json`
 - `runtime-data/reports/broker-paper/latest-sync.json`
+- `runtime-data/reports/reconciliation/latest-paper-kis-mismatch-recheck.json` (`remediation` 원인·조치·잔여 조사)
 - `runtime-data/reports/broker-paper/latest-kis-paper-orderability.json`
 - `runtime-data/reports/research/e7/latest-e7-daily-evidence.json`
 - `runtime-data/reports/challengers/latest-lightgbm-defensive-shadow-h15.json`
@@ -69,7 +70,7 @@ protected post-close no write: 보호 조건이나 runtime 실행이 남아 있�
 
 안전 조건이 맞으면 아래 순서로 각 항목을 최대 1회 실행한다.
 
-1. Phase 0 중복 방지 판단과 필요한 recheck.
+1. Phase 0 중복 방지 판단, 확정 체결 동기화가 필요한 recheck 또는 기존 증거 원인 진단.
 2. KIS live data quality 집계.
 
 ```bash
@@ -110,13 +111,23 @@ python3 scripts/check_kis_paper_account_lifecycle.py
 - 2026-09-03 새 계좌의 자연 KIS cash-order submission 36건은 성공했고, 2026-09-05 order-fill sync가 3페이지/38행, submission 38/38 exact-linked, open 0/final 38/pending 0으로 완결됐다. `068270` 매도 체결 1건·2주도 로컬에 적용됐다.
 - 2026-09-04 이전 baseline 비교 mismatch 5건과 2026-09-05 후속 체결 동기화는 과거 진단으로 보존한다.
 - 2026-09-06 baseline 직후의 역사 스냅샷은 `aligned_waiting_first_submission`, mismatch/effective cash/total asset gap `0`, 당시 epoch `no_history`, 유효일 `0/10`이다. 현재 정합 판정은 최신 history/sync와 `docs/STATUS.md`를 확인하며 이 과거 수치를 재사용하지 않는다. 휴장일 baseline 생성일은 분모에 넣지 않는다.
-- 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 broker sync/reconciliation을 중복 호출하지 않는다.
+- 오늘 `eligible_for_phase0_gate=true` 기록이 이미 있으면 matched 여부와 무관하게 broker sync/reconciliation을 중복 호출하지 않는다. 아래 diagnose-only를 최대 1회 실행해 기존 증거와 read-only trace로 잔여 원인을 보고한다. wrapper 자체도 당일 유효 기록이 있으면 이 모드로 전환한다.
+
+```bash
+./scripts/recheck_paper_kis_mismatch.sh --diagnose-only
+```
+
 - lifecycle과 baseline이 현재 계좌에 호환되고, 오늘 유효 기록이 없고, 실제 거래일 post-close이며 live runtime이 정지한 경우에만 아래 wrapper를 최대 1회 실행한다.
 
 ```bash
 ./scripts/recheck_paper_kis_mismatch.sh
 ```
 
+- 기본 wrapper는 `--broker-sync-confirmed-only`로 주문·체결 조회를 논리적 1회 수행한다. pagination 완결, paper profile, 주문일/지점/주문번호의 유일 exact 연결, 로컬 주문의 종목/방향/수량, 기존 적용 fill 수량 및 누적 체결 금액을 모두 검증한 뒤 기존 주문별 transaction으로 아직 미적용인 체결만 반영한다. 정상 동기화 뒤 계좌를 재검증하며 실패 시 후속 잔고 조회를 멈춘다. 이는 정상 회계 동기화이지 잔고를 맞추는 보정이 아니다.
+- 후속 대사는 `--require-fresh-broker-account`로 계좌 조회 실패의 cached fallback을 성공으로 쓰지 않는다. 실제 broker fetch 시각과 cache/error 상태를 검증하며 실패·stale 증거는 Phase 0 유효 성공이 아니다. 체결 반영 뒤 대사에 실패하면 이미 커밋된 반영분은 그대로 보고하고 정합 통과는 주장하지 않는다. 일부 주문 transaction만 성공한 경우 `partial_confirmed_fill_sync_applied`, 반영 여부를 증명하지 못하면 `accounting_change_unverified`로 사람 검토를 남기고 자동 재시도하지 않는다.
+- 미확정 제출, 중복/충돌 identity, 불완전 조회, 누적 체결 역행, 로컬 fill 원장 충돌은 `evidence_blocked`로 장부 쓰기를 차단한다. 조회 범위에서 빠진 주문은 기존 상태를 보존하고 만료/체결을 추론하지 않는다. unlinked 행이나 timeout 후 주문번호를 잃은 주문은 자동으로 연결·합성하지 않는다.
+- `remediation.status`, `accounting_action`, `applied_fill_events/qty`, `gap_categories`, `evidence_blocking_reasons`, `remaining_investigation`을 보고한다. 실제 실행에서 반영한 확정 fill만 조치로 계산하며 cached 과거 반영 수를 오늘 복구로 보고하지 않는다. 수량·현금·평가액·미확정 제출을 구분하고 오래된 성공 증거로 실패를 덮지 않는다.
+- 허용 오차 안의 비영 현금/평가액 gap은 `aligned_with_tolerated_gaps`다. 비용/정산/mark 시점 원인을 미확정으로 남기며 정확한 0원 일치나 모든 원인 해소라고 보고하지 않는다. 비용 가정·허용 오차·baseline·과거 snapshot/fill/Phase 0 이력·E7 manifest를 수정하지 않는다.
 - reconciliation은 최신인데 trace만 오래됐으면 KIS를 다시 부르지 않고 아래만 실행할 수 있다.
 
 ```bash
@@ -129,7 +140,7 @@ python3 scripts/trace_paper_kis_mismatch.py --limit-per-table 12
 - 불일치가 있으면 표본 부족보다 먼저 보고한다.
 - `latest-sync.json`의 `unknown_local_submission_count`가 0보다 크면 미확정 제출을 별도로 보고하고, 수치상 정합만으로 Phase 0 matched를 주장하지 않는다. 새 시도의 `submission_unknown`과 이전 버전의 timeout 후 `rejected` 이력을 구분한다.
 - 불일치가 새로 발생하거나 지속되면 단순 gap 반복 대신 기존 sanitized sync/trace, `broker_paper_order_submissions`, `paper_orders`/`paper_order_events`, `ops_risk_events`의 attempt/local order/decision ID와 broker 조회 완결성으로 원인을 분류한다. `broker_network_error` 이후 로컬 `rejected`라도 KIS 접수 여부는 미확정이다. 미연결 KIS 주문·체결이 있으면 종목·방향·수량·가격·시각을 대조해 `confirmed`, `strongly_suspected`, `unresolved`와 근거 부족 항목을 보고한다. 응답 유실 시 broker order ID 직접 연결을 추정으로 승격하지 않는다.
-- 장후 자동화는 기존 증거만으로 원인을 판단한다. 추가 KIS 조회, 같은 endpoint 재시도, DB 교정, timeout 주문 재제출은 자동으로 하지 않는다. 차이가 수량인지 평가 시각/가격·현금인지 분리하고 동일 시점 snapshot이 아니면 총자산 gap을 독립 원인으로 단정하지 않는다.
+- 장후 자동화는 위 1회 정상 동기화 또는 이미 보유한 증거만으로 원인을 판단한다. 진단을 위한 추가 KIS 조회, 같은 endpoint 재시도, 임의 DB 교정, timeout 주문 재제출은 자동으로 하지 않는다. 차이가 수량인지 평가 시각/가격·현금인지 분리하고 동일 시점 snapshot이 아니면 총자산 gap을 독립 원인으로 단정하지 않는다. 확정되지 않은 원인이나 코드 결함은 사람이 검토할 후속 조치로 남기고 자동 코드 수정은 하지 않는다.
 - 이미 `docs/STATUS.md`에 원인이 특정된 불일치가 지속되면 최신 수량·sync 증거와 대조해 동일 원인 지속인지 보고한다. 새로운 종목·수량 gap 또는 근거 변화는 기존 사건으로 덮지 말고 별도 조사 필요로 표시한다.
 - auto align, `SyncInitialCash`, `AlignToBroker`, clean baseline 재생성, 강제 주문/취소를 자동 수행하지 않는다.
 - full-period activity `--execute`는 계좌 소유자가 해당 작업에서 명시 승인한 장외 1회에만 허용한다.
@@ -249,6 +260,7 @@ E1/E5와 과거 Phase 0 recovery를 자동 재실행하지 않는다.
 - 장 상태와 runtime/watchdog/dashboard/startup launcher
 - 데이터 coverage, decision ledger lineage, reconnect/storm
 - Phase 0 최근 10 유효 거래일 누적, 오늘 broker submission/failure taxonomy, reconciliation
+- 장후 `remediation`의 확정 체결 반영 여부, 수량/현금/평가액 차이, 증거 차단 이유와 남은 원인 조사
 - E7 progress와 evaluator/manifest/evidence health
 - 장후 ML과 buy-avoid/buy-rescue/hold-rescue
 - 자동화가 실제 조치한 것

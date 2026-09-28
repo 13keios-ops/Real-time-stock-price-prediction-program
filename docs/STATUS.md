@@ -80,6 +80,7 @@
 - 9/28 20:28 정기 recheck는 order-fill GET timeout으로 중단됐다. 예외 시 `latest-sync`가 이전 성공으로 남는 보고 누락을 수정하고, 별도 승인 후 21:16 장외 검증을 논리적 1회 수행했다. 1페이지/3행 모두 기존 제출에 연결됐고 추가 fill/주문 변경은 0건이다. 보고서는 `runtime-data/reports/codex/manual-recheck-20260928.json`이며 정기 실패 산출물은 보존한다.
 - 최신 공식 account sync는 `aligned`, 보유 수량 mismatch `0`, effective cash gap `-1,865.905원`, total asset gap `+8,434.095원`이다. 기존 판정은 현금/총자산 각각 절대차 `10,000원 미만`을 허용하므로 정확한 0원 일치를 뜻하지 않는다. 비용·정산과 로컬 보유 mark/브로커 평가 시점 차이는 별도 잔여 진단이며 tolerance를 변경하지 않았다. 9/24 `latest-paper-dual-account-match`는 역사 증거로, 현재 판정은 fresh `latest-paper-account-sync`가 소유한다.
 - 현재 최근 유효 10거래일(9/11~9/28)은 matched `1`, mismatch `9`, consecutive matched `1`, `ready=false`다. 보정 후 첫 정상 정합일을 확보했지만 과거 불일치를 지우지 않으며 추가 정상 거래일 정합 축적 전 Phase 0 통과로 보고하지 않는다.
+- 장후 자동화는 확정 체결만 기존 동기화로 반영한 뒤 수량/현금/평가액 원인과 남은 조사를 보고한다. 당일 유효 기록이 있으면 KIS를 다시 부르지 않고 diagnose-only로 전환한다. identity/원장/조회 완결성이 불명확하면 반영을 차단하며 임의 정렬·기준선·과거 이력 교정은 하지 않는다. 구체 절차는 daily-ops skill과 KIS runbook이 소유한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.
 - Phase 2/3: 미시작. real-evidence 연결기는 완료됐지만 새 실제 세션의 fresh Phase 1b readiness, 수익 후보, Phase 0 통과 전에는 진입하지 않는다.
