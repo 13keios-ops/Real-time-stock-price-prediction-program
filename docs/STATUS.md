@@ -59,11 +59,11 @@
 - 수급은 `no_observations_file`, SNS는 `no_events_file`; 공시/공매도 최신 report는 아직 없다. 입력 확보와 실제 no-look-ahead 평가가 다음 단계이며 네트워크 collector나 새 소스는 이번 감사에서 추가하지 않았다.
 
 ## Phase 0과 readiness
-- 최신 공식 Phase 0 관측(10/2): 현재 epoch 최근 유효 10거래일 matched `1`, mismatch `9`, consecutive `0`, `ready=false`. 9/29 이후 `035420` 로컬 3주/KIS 0주와 미확정 제출 1건이 계속된다. 과거 일별 판정은 재작성하지 않는다.
+- 최신 공식 Phase 0 관측(10/2): 현재 epoch 최근 유효 10거래일 matched `1`, mismatch `9`, consecutive `0`, `ready=false`. 당시 `035420` 로컬 3주/KIS 0주와 미확정 제출 1건이 있었다. 과거 일별 판정은 재작성하지 않는다.
 - 10/3 별도 승인 KIS 읽기 전용 1회 조회는 9/29 `035420` 주문·체결 4행/1페이지, pagination complete였다. 10:48:21 매도 3주, 주문가 194,600원, 체결 평균 194,700원/총액 584,100원 1행만 로컬 submission과 미연결이다. 로컬 10:47 `submission_unknown` 매도 3주와 종목·방향·수량·주문가가 일치하지만 timeout으로 broker ACK의 정확한 ID 연결은 없다.
 - 반복 불일치의 원인은 이 미확정 체결이 확정 ID 전용 일일 sync에서 제외된 점과, 9/29 로컬 평가 snapshot을 10/2 KIS 현재 평가액과 직접 비교한 점이다. 전자는 자동 추정 반영하지 않으며, 후자는 `paper-account-reconciliation-v2-common-mark`로 동일 KIS mark 기준 비교/구판 snapshot gap 별도 보고를 구현했다.
-- 10/3 현재상태 보정 드라이런은 통과했다. 별도 장부 보정 승인 전에는 실제 DB 변경을 하지 않으며, 보정 자체가 과거 Phase 0 불일치일을 통과로 바꾸거나 E7 fill 원장을 수정하지 않는다.
-
+- 10/3 계좌 소유자 승인 후 `recover_paper_035420_sell_once.py --execute --owner-approved`를 정확히 1회 실행했다. 원본 백업과 감사 이벤트를 남기고 현재 주문을 `externally_reconciled`, `035420` 보유를 3주에서 0주로 변경했으며 현금에 연구용 비용 가정에 따른 순매도대금 `582,844.185원`을 반영했다. 합성 fill/submission, 과거 snapshot, E7 fill 원장, Phase 0 이력은 변경하지 않았다. 직접 broker ACK ID와 실제 비용은 미확정이다.
+- 보정 후 읽기 전용 DB 검증은 `035420` 0주, 현금 `7,586,616.2575원`, 열린 포지션 4종목, 감사 이벤트 1건, 합성 fill 0건이다. 10/2 캐시 KIS 계좌와 current epoch baseline을 적용한 오프라인 비교는 수량 불일치 0, 미확정 제출 0, 현금 및 common-mark 자산 차이 각각 `-1,927.7425원`으로 `aligned`다. 이는 새 KIS 조회나 공식 유효일 판정이 아니며 다음 실제 거래일 장후의 fresh 계좌 snapshot으로 재검증해야 한다.
 
 - 현재 paper account epoch는 `paper-2026-09-03`이다. 활성일 `2026-09-03`, 만료일 `2026-12-03`, 갱신 경고 시작 `2026-11-03`, 긴급 경고 시작 `2026-11-26`으로 관리한다.
 - 새 APP 자격정보의 auth-only token refresh, 새 계좌 snapshot, `VTTC8908R/ORD_DVSN=00` read-only orderability가 모두 통과했다. 실제 주문·취소는 실행하지 않았다.
