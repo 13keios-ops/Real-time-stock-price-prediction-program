@@ -45,6 +45,17 @@ class PaperKisMismatchRecheckTests(unittest.TestCase):
         self.assertIn("cash", result["gap_categories"])
         self.assertFalse(result["automatic_account_alignment"])
 
+    def test_quantity_mismatch_marks_valuation_not_comparable(self):
+        account, broker, trace = self.evidence()
+        account["comparison"].update(
+            positions_match=False, mismatch_count=1, status="needs_review",
+            total_asset_match=False, total_asset_gap=None, valuation_comparison_basis="unavailable",
+        )
+        result = self.diagnose(account, broker, trace)
+        self.assertEqual(result["status"], "needs_review")
+        self.assertIn("valuation_not_comparable", result["gap_categories"])
+        self.assertNotIn("invalid_gap_evidence", result["gap_categories"])
+
     def test_tolerated_cash_and_mark_gaps_are_observed_not_aligned_away(self):
         result = self.diagnose(*self.evidence())
         self.assertEqual(result["status"], "aligned_with_tolerated_gaps")

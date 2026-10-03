@@ -275,7 +275,13 @@ def build_remediation_diagnosis(
     gaps = [comparison.get("cash_gap"), comparison.get("total_asset_gap")]
     valid_gaps = all(isinstance(gap, (int, float)) and math.isfinite(gap) for gap in gaps)
     if not valid_gaps:
-        categories.append("invalid_gap_evidence")
+        if (comparison.get("positions_match") is False
+                and comparison.get("valuation_comparison_basis") == "unavailable"
+                and isinstance(gaps[0], (int, float)) and math.isfinite(gaps[0])
+                and gaps[1] is None):
+            categories.append("valuation_not_comparable")
+        else:
+            categories.append("invalid_gap_evidence")
     if status == "aligned":
         if categories or comparison.get("status") not in {"aligned", "aligned_waiting_first_submission"}:
             status = "needs_review"

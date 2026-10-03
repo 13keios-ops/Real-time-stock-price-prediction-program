@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from app.config.settings import load_settings
 from app.services.paper_reconciliation import reconcile_paper_accounts
 from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, PaperPosition, PortfolioSnapshot
-from app.storage.runtime_writer import RuntimeWriter
+from app.storage.runtime_writer import RuntimeWrite
 
 
 class PaperReconciliationTests(unittest.TestCase):
@@ -211,6 +211,42 @@ class PaperReconciliationTests(unittest.TestCase):
         self.assertTrue(result.comparison["balance_match"])
         self.assertEqual(result.comparison["cash_gap"], 0.0)
         self.assertEqual(result.comparison["raw_cash_gap"], -214500.0)
+
+    def test_reconcile_uses_common_mark_instead_of_stale_local_snapshot(self) -> None:
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_local_state(root)
+            report = self._mock_report(
+                broker_qty=3,
+                stock_evaluation_amount=240000,
+                total_asset_amount=1240000,
+            )
+            position = report.to_dict.return_value["account_snapshot"]["positions"][0]
+            position["current_price"] = 80000.0
+            position["evaluation_amount"] = 240000.0
+            with patch("app.services.paper_reconciliation.refresh_kis_account_report", return_value=report):
+                result = reconcile_paper_accounts(project_root=root)
+
+        self.assertEqual(result.status, "aligned")
+        self.assertEqual(result.comparison["total_asset_gap"], 0.0)
+        self.assertEqual(result.comparison["snapshot_total_asset_gap"], -25500.0)
+        self.assertEqual(result.comparison["valuation_comparison_basis"], "broker_snapshot_common_mark")
+
+    def test_reconcile_does_not_align_without_common_broker_mark(self) -> None:
+        root, env = self._prepare_runtime()
+        with patch.dict(os.environ, env, clear=False):
+            self._seed_local_state(root)
+            report = self._mock_report(broker_qty=3)
+            position = report.to_dict.return_value["account_snapshot"]["positions"][0]
+            position["current_price"] = 0.0
+            position["evaluation_amount"] = 0.0
+            with patch("app.services.paper_reconciliation.refresh_kis_account_report", return_value=report):
+                result = reconcile_paper_accounts(project_root=root)
+
+        self.assertEqual(result.status, "needs_review")
+        self.assertFalse(result.comparison["total_asset_match"])
+        self.assertIsNone(result.comparison["total_asset_gap"])
+        self.assertEqual(result.comparison["valuation_comparison_basis"], "unavailable")
 
     def test_reconcile_paper_accounts_adjusts_stale_snapshot_from_newer_fill(self) -> None:
         root, env = self._prepare_runtime()

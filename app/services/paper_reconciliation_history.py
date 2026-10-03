@@ -106,6 +106,9 @@ def build_paper_reconciliation_history_entry(
         "total_asset_match": comparison.get("total_asset_match") is True,
         "cash_gap": _safe_float(comparison.get("cash_gap")),
         "total_asset_gap": _safe_float(comparison.get("total_asset_gap")),
+        "snapshot_total_asset_gap": _safe_float(comparison.get("snapshot_total_asset_gap")),
+        "valuation_comparison_basis": comparison.get("valuation_comparison_basis"),
+        "reconciliation_evaluator_version": comparison.get("reconciliation_evaluator_version"),
         "order_mirroring_enabled": bool(comparison.get("order_mirroring_enabled")),
         "mirrored_order_count": mirrored_order_count,
     }

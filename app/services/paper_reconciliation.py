@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -216,10 +217,31 @@ def build_paper_account_reconciliation_payload(
         if local_cash is not None and broker_raw_cash is not None
         else None
     )
-    total_asset_gap = (float(local_total) - float(broker_total)) if local_total is not None and broker_total is not None else None
+    snapshot_total_asset_gap = (
+        float(local_total) - float(broker_total)
+        if local_total is not None and broker_total is not None else None
+    )
     positions_match = len(mismatch_rows) == 0
     unknown_local_submission_count = int(local_account_state.get("unknown_local_submission_count") or 0)
     balance_match = cash_gap is not None and abs(cash_gap) < 10_000.0
+    total_asset_gap = None
+    if (positions_match and local_cash is not None and broker_total is not None
+            and broker_stock_evaluation is not None):
+        common_mark_value = 0.0
+        for symbol, local_row in local_positions_map.items():
+            broker_row = broker_positions_map[symbol]
+            qty = local_row["local_qty"]
+            price = broker_row["broker_current_price"]
+            if not math.isfinite(price) or price <= 0:
+                evaluation = broker_row["broker_evaluation_amount"]
+                price = evaluation / qty if qty > 0 and math.isfinite(evaluation) else 0.0
+            if not math.isfinite(price) or price <= 0:
+                common_mark_value = None
+                break
+            common_mark_value += qty * price
+        if common_mark_value is not None:
+            total_asset_gap = float(local_cash) + common_mark_value - float(broker_total)
+    valuation_comparison_basis = "broker_snapshot_common_mark" if total_asset_gap is not None else "unavailable"
     total_asset_match = total_asset_gap is not None and abs(total_asset_gap) < 10_000.0
 
     if not broker_payload.get("ok"):
@@ -255,6 +277,9 @@ def build_paper_account_reconciliation_payload(
         "cash_gap": cash_gap,
         "raw_cash_gap": raw_cash_gap,
         "total_asset_gap": total_asset_gap,
+        "snapshot_total_asset_gap": snapshot_total_asset_gap,
+        "valuation_comparison_basis": valuation_comparison_basis,
+        "reconciliation_evaluator_version": "paper-account-reconciliation-v2-common-mark",
         "broker_effective_cash_balance": broker_effective_cash,
         "broker_raw_cash_balance": broker_raw_cash,
         "local_positions_count": len(local_positions_map),
@@ -285,6 +310,9 @@ def _write_report(markdown_path: Path, json_path: Path, payload: dict[str, Any])
         f"- `mismatch_count`: {comparison.get('mismatch_count')}",
         f"- `cash_gap`: {comparison.get('cash_gap')}",
         f"- `total_asset_gap`: {comparison.get('total_asset_gap')}",
+        f"- `snapshot_total_asset_gap`: {comparison.get('snapshot_total_asset_gap')}",
+        f"- `valuation_comparison_basis`: {comparison.get('valuation_comparison_basis')}",
+        f"- `reconciliation_evaluator_version`: {comparison.get('reconciliation_evaluator_version')}",
         f"- `order_mirroring_enabled`: {comparison.get('order_mirroring_enabled')}",
         f"- `mirrored_order_count`: {comparison.get('mirrored_order_count')}",
         "",
