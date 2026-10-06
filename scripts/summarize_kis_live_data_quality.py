@@ -8,6 +8,7 @@ import re
 import sqlite3
 import tomllib
 from collections import Counter
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -308,6 +309,49 @@ def _latest_raw_gap_summary(
     }
 
 
+def _raw_source_symbols(connection: sqlite3.Connection, table_name: str) -> Iterator[tuple[str, str]]:
+    if not _table_exists(connection, table_name):
+        return
+    # Seek past each symbol using the existing (source, symbol, event_time) index.
+    for source in ACTUAL_RAW_SOURCES:
+        after_symbol: str | None = None
+        while True:
+            clause = " AND symbol > ?" if after_symbol is not None else ""
+            params = (source, after_symbol) if after_symbol is not None else (source,)
+            row = connection.execute(
+                f"SELECT symbol FROM {table_name} WHERE source = ?{clause} ORDER BY symbol LIMIT 1",
+                params,
+            ).fetchone()
+            if row is None:
+                break
+            after_symbol = str(row["symbol"])
+            yield source, after_symbol
+
+
+def _raw_minute_groups(
+    connection: sqlite3.Connection, table_name: str, trade_dates: list[str] | None,
+) -> Iterator[sqlite3.Row]:
+    fields = "symbol, substr(event_time, 1, 16) AS minute_key, source, MIN(event_time) AS sample_time, COUNT(*) AS row_count"
+    grouping = "GROUP BY symbol, minute_key, source ORDER BY minute_key, symbol"
+    if trade_dates is None:
+        yield from connection.execute(
+            f"SELECT {fields} FROM {table_name} WHERE {_source_clause()} {grouping}", ACTUAL_RAW_SOURCES,
+        )
+        return
+    if not trade_dates:
+        return
+    start_at = min(trade_dates)
+    _, end_at = _date_bounds(max(trade_dates))
+    date_clause, date_params = _date_filter("event_time", trade_dates)
+    for source, symbol in _raw_source_symbols(connection, table_name):
+        yield from connection.execute(
+            f"SELECT {fields} FROM {table_name} "
+            f"WHERE source = ? AND symbol = ? AND event_time >= ? AND event_time < ? "
+            f"AND {date_clause} {grouping}",
+            (source, symbol, start_at, end_at, *date_params),
+        )
+
+
 def _raw_minute_index(
     connection: sqlite3.Connection,
     table_name: str,
@@ -318,26 +362,7 @@ def _raw_minute_index(
     actual_minutes: dict[str, dict[str, set[str]]] = {}
     if not _table_exists(connection, table_name):
         return day_stats, symbol_minutes, actual_minutes
-    date_where = ""
-    params: tuple[Any, ...] = ACTUAL_RAW_SOURCES
-    if trade_dates is not None:
-        date_clause, date_params = _date_filter("event_time", trade_dates)
-        date_where = f" AND {date_clause}"
-        params = (*params, *date_params)
-    query = f"""
-        SELECT
-            symbol,
-            substr(event_time, 1, 16) AS minute_key,
-            source,
-            MIN(event_time) AS sample_time,
-            COUNT(*) AS row_count
-        FROM {table_name}
-        WHERE {_source_clause()}
-          {date_where}
-        GROUP BY symbol, minute_key, source
-        ORDER BY minute_key, symbol
-    """
-    for row in connection.execute(query, params):
+    for row in _raw_minute_groups(connection, table_name, trade_dates):
         symbol = str(row["symbol"])
         minute_key = str(row["minute_key"])
         trade_date = minute_key[:10]
@@ -434,7 +459,26 @@ def _query_actual_symbol_rows(
     )
 
 
-def _trade_dates(connection: sqlite3.Connection) -> list[str]:
+def _trade_dates(connection: sqlite3.Connection, *, recent_days: int | None = None) -> list[str]:
+    if recent_days is not None and recent_days > 0:
+        dates: set[str] = set()
+        # The last N dates of each stream contain the last N dates of their union.
+        for table_name in ("raw_market_ticks", "raw_orderbook_ticks"):
+            for source, symbol in _raw_source_symbols(connection, table_name):
+                before_date: str | None = None
+                for _ in range(recent_days):
+                    clause = " AND event_time < ?" if before_date is not None else ""
+                    params = (source, symbol, before_date) if before_date is not None else (source, symbol)
+                    row = connection.execute(
+                        f"SELECT event_time FROM {table_name} WHERE source = ? AND symbol = ?{clause} "
+                        "ORDER BY event_time DESC LIMIT 1",
+                        params,
+                    ).fetchone()
+                    if row is None:
+                        break
+                    before_date = str(row["event_time"])[:10]
+                    dates.add(before_date)
+        return sorted(dates)[-recent_days:]
     parts: list[str] = []
     if _table_exists(connection, "raw_market_ticks"):
         parts.append(
@@ -1061,9 +1105,11 @@ def summarize(
     *,
     recent_days: int = 10,
     live_runtime_log_path: Path | None = None,
+    include_history: bool = False,
 ) -> dict[str, Any]:
+    include_history = include_history or recent_days <= 0
     with _connect(database_path) as connection:
-        trade_dates = _trade_dates(connection)
+        trade_dates = _trade_dates(connection, recent_days=None if include_history else recent_days)
         selected_dates = trade_dates[-recent_days:] if recent_days > 0 else trade_dates
         raw_market_by_date, raw_market_symbol_minutes, raw_market_actual_minutes = _raw_minute_index(
             connection, "raw_market_ticks", selected_dates
@@ -1110,7 +1156,7 @@ def summarize(
         source_summary = {
             "raw_market_ticks": _source_summary(connection, "raw_market_ticks"),
             "raw_orderbook_ticks": _source_summary(connection, "raw_orderbook_ticks"),
-        }
+        } if include_history else {}
     label_counter: Counter[str] = Counter()
     for day in day_rows:
         label_counter.update({key: int(value) for key, value in day.get("label_distribution_h15", {}).items()})
@@ -1124,11 +1170,17 @@ def summarize(
         "completed_at": datetime.now().astimezone().isoformat(),
         "database_path": str(database_path),
         "actual_raw_sources": list(ACTUAL_RAW_SOURCES),
-        "trade_dates_observed": len(trade_dates),
-        "first_trade_date": trade_dates[0] if trade_dates else None,
+        "trade_dates_observed": len(trade_dates) if include_history else None,
+        "first_trade_date": trade_dates[0] if include_history and trade_dates else None,
         "latest_trade_date": latest_trade_date,
         "recent_days_requested": recent_days,
         "source_summary": source_summary,
+        "history_summary": {"scope": "all_history", "status": "complete" if include_history else "not_requested"},
+        "recent_scope": {
+            "trade_dates_observed": len(selected_dates),
+            "first_trade_date": selected_dates[0] if selected_dates else None,
+            "latest_trade_date": latest_trade_date,
+        },
         "recent_days": day_rows,
         "recent_h15_label_distribution": dict(sorted(label_counter.items())),
         "latest_symbol_summary": latest_symbols,
@@ -1160,8 +1212,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"- completed_at: `{summary.get('completed_at')}`",
         f"- database_path: `{summary.get('database_path')}`",
-        f"- observed_dates: `{summary.get('trade_dates_observed')}`",
-        f"- date_range: `{summary.get('first_trade_date')}`..`{summary.get('latest_trade_date')}`",
+        f"- history_summary_status: `{(summary.get('history_summary') or {}).get('status', 'complete')}`",
+        f"- historical_observed_dates: `{summary.get('trade_dates_observed') if summary.get('trade_dates_observed') is not None else 'not requested'}`",
+        f"- historical_first_trade_date: `{summary.get('first_trade_date') or 'not requested'}`",
+        f"- recent_scope: `{summary.get('recent_scope')}`",
+        f"- latest_trade_date: `{summary.get('latest_trade_date')}`",
         f"- assessment: `{(summary.get('assessment') or {}).get('status')}`",
         f"- severity: `{(summary.get('assessment') or {}).get('severity')}`",
         f"- korean_prefix: `{(summary.get('assessment') or {}).get('korean_prefix')}`",
@@ -1295,6 +1350,7 @@ def main() -> int:
     parser.add_argument("--db-path", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--recent-days", type=int, default=10)
+    parser.add_argument("--include-history", action="store_true", help="Also scan full raw history for lifetime totals. Nonpositive --recent-days requests all history too.")
     parser.add_argument("--live-runtime-log-path", type=Path, default=None)
     args = parser.parse_args()
 
@@ -1307,6 +1363,7 @@ def main() -> int:
         database_path,
         recent_days=args.recent_days,
         live_runtime_log_path=args.live_runtime_log_path,
+        include_history=args.include_history,
     )
     json_path = output_dir / f"{DEFAULT_OUTPUT_NAME}.json"
     md_path = output_dir / f"{DEFAULT_OUTPUT_NAME}.md"

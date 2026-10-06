@@ -21,6 +21,8 @@
 
 quick 경로는 10분 안쪽의 운영 점검을 목표로 하므로 전체 feature/label 재생성은 포함하지 않는다. 장마감 뒤 h15/h60 라벨까지 닫아 학습 가능한 상태로 만들 때는 `./scripts/run_post_close_label_refresh.sh`를 별도로 실행한다. 이 경로는 `--recent-days` 값에 맞춰 `python -m app --build-feature-dataset --feature-dataset-recent-days N`으로 최근 구간만 갱신한 뒤 KIS live 품질, source drift, KIS live feature diagnostics, runtime report, dashboard 를 갱신하고 상태를 `runtime-data/reports/ml-maintenance/state/latest-post-close-label-refresh.json`에 남긴다. 전체 이력 feature/label 재생성은 연구/복구용 명시 작업으로만 실행한다.
 
+KIS 데이터 품질의 일일 점검은 `python3 scripts/summarize_kis_live_data_quality.py --recent-days 10`으로 최근 관측 10일만 집계한다. 기존 `(source, symbol, event_time)` 인덱스의 제한 조회를 사용하며, coverage/lineage/reconnect 판정은 그대로 유지한다. 전체 이력 소스별 행 수와 최초 관측일은 기본 실행에서 계산하지 않고 `history_summary.status=not_requested`로 구분한다. 전체 이력 합계가 필요한 장외 명시 작업에서만 `--include-history`를 추가한다. `--recent-days 0` 이하도 전체 이력 요청이므로 일일 자동화에 사용하지 않는다. DB 스키마나 인덱스 변경은 필요하지 않다.
+
 ## 로컬 데이터 저장 원칙
 
 작업 중 새로 생기는 캐시, 다운로드, 임시 데이터, 수집 데이터, 모델 산출물, 리포트, 스냅샷은 모두 D드라이브에만 둔다. WSL 저장소 자체가 `D:\WSL\Ubuntu` 아래에 있으므로 저장소 내부 `runtime-data/`와 `.tmp-tests/`도 물리적으로 D드라이브 기준이다.

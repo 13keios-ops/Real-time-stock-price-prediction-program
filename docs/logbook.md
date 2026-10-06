@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-07] 일일 KIS 품질 집계의 전체 이력 스캔 분리
+
+- `source`와 날짜만 제한하면 기존 인덱스의 중간 `symbol` 키가 비어 전체 raw 이력을 훑는 실행 계획이었다. 소스별 종목을 ordered seek로 열거하고 종목별 최신 날짜/시간 범위를 조회해 기존 인덱스 세 키를 모두 사용한다. 전체 이력 날짜/소스 합계는 `--include-history` 또는 nonpositive `--recent-days` 명시 요청에만 계산한다.
+- 최근 scope와 역사 합계를 구분하고 미요청 역사값은 null/`not_requested`로 기록한다. 기존 source별 symbol-minute 중복 계수, 비연속 관측일, watchlist 밖 종목, 테이블/데이터 부재 의미를 보존한다. CLI 기본/명시 옵션과 `EXPLAIN QUERY PLAN`을 회귀 검증했다.
+- 새 실패 테스트를 먼저 확인한 뒤 관련 28건을 통과했다. 전체 unittest는 720건 중 기존 정합 테스트의 `RuntimeWrite` import 오류 1건으로 실패했다. 실제 DB의 기존 보고서 대비 운영 지표 보존과 측정 시간은 STATUS에 기록했다. 로그는 `.tmp-tests/kis-quality-full-tests-20261007.log`이다.
+- 스키마/인덱스/운영 DB, 자동화 일정/프롬프트, 주문/계좌 기준, E7 evaluator/manifest/전략과 NAS는 변경하지 않았다. 기존 운영 wrapper 명령은 그대로 제한 조회를 사용한다.
+
 ## [2026-09-28] 장후 확정 체결 동기화와 불일치 원인 진단
 
 - 장후 wrapper에 완결 paper 조회·유일 exact 주문 identity·종목/방향/수량·기존 fill 수량/금액 검사를 추가했다. 불명확한 증거는 반영 전 차단하고, 확정 delta fill만 기존 주문별 transaction으로 반영한다. lookback 밖 주문과 unlinked/응답 유실 이력을 추정으로 교정하지 않는다.

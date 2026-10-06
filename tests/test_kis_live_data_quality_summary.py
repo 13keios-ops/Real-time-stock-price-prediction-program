@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import sqlite3
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from contextlib import redirect_stdout
 
 from scripts.summarize_kis_live_data_quality import (
     _decision_lineage_summary,
     _latest_raw_gap_summary,
     _overall_assessment,
     _raw_minute_index,
+    _trade_dates,
     _websocket_reconnect_summary,
+    render_markdown,
+    main,
     summarize,
 )
 
@@ -128,7 +134,7 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
             connection.commit()
             connection.close()
 
-            result = summarize(database_path, recent_days=5)
+            result = summarize(database_path, recent_days=5, include_history=True)
 
         self.assertEqual(result["latest_trade_date"], "2026-05-08")
         self.assertEqual(result["trade_dates_observed"], 1)
@@ -199,6 +205,116 @@ class KisLiveDataQualitySummaryTests(unittest.TestCase):
             actual_minutes["2026-05-08"]["005930"],
             {"2026-05-08T09:00", "2026-05-08T09:01"},
         )
+
+
+class KisLiveDataQualityBoundedQueryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.database_path = Path(self.tmp.name) / "test.db"
+        self.connection = sqlite3.connect(self.database_path)
+        self.connection.row_factory = sqlite3.Row
+        self.addCleanup(self.connection.close)
+        for table in ("raw_market_ticks", "raw_orderbook_ticks"):
+            self.connection.execute(
+                f"CREATE TABLE {table} (source TEXT NOT NULL, symbol TEXT NOT NULL, event_time TEXT NOT NULL)"
+            )
+            self.connection.execute(
+                f"CREATE INDEX idx_{table}_source_symbol_time ON {table}(source, symbol, event_time)"
+            )
+        self.connection.executemany(
+            "INSERT INTO raw_market_ticks VALUES (?, ?, ?)",
+            [
+                ("kis-ws", "005930", "2026-05-01T09:00:01+09:00"),
+                ("kis-ws", "005930", "2026-05-07T09:00:01+09:00"),
+                ("kis-ws", "005930", "2026-05-08T09:00:01+09:00"),
+                ("kis-ws", "005930", "2026-05-08T09:00:02+09:00"),
+                ("kis-rest", "005930", "2026-05-08T09:00:03+09:00"),
+                ("kis-rest", "999999", "2026-05-11T09:00:01+09:00"),
+                ("cybos-historical", "000001", "2026-05-12T09:00:01+09:00"),
+            ],
+        )
+        self.connection.execute(
+            "INSERT INTO raw_orderbook_ticks VALUES (?, ?, ?)",
+            ("kis-ws", "000660", "2026-05-09T09:00:01+09:00"),
+        )
+        self.connection.commit()
+
+    def test_recent_dates_use_observed_union_not_calendar_or_watchlist(self) -> None:
+        self.assertEqual(
+            _trade_dates(self.connection, recent_days=3),
+            ["2026-05-08", "2026-05-09", "2026-05-11"],
+        )
+        self.assertEqual(_trade_dates(self.connection, recent_days=1), ["2026-05-11"])
+        self.assertEqual(_trade_dates(self.connection, recent_days=20), _trade_dates(self.connection))
+
+    def test_default_summary_skips_history_and_preserves_operational_results(self) -> None:
+        full = summarize(self.database_path, recent_days=3, include_history=True)
+        with patch("scripts.summarize_kis_live_data_quality._source_summary", side_effect=AssertionError("full scan")):
+            recent = summarize(self.database_path, recent_days=3)
+        for field in (
+            "recent_days", "recent_h15_label_distribution", "latest_symbol_summary",
+            "latest_session_observability", "assessment", "latest_trade_date",
+        ):
+            self.assertEqual(recent[field], full[field], field)
+        self.assertIsNone(recent["trade_dates_observed"])
+        self.assertIsNone(recent["first_trade_date"])
+        self.assertEqual(recent["source_summary"], {})
+        self.assertEqual(recent["history_summary"]["status"], "not_requested")
+        self.assertEqual(recent["recent_scope"]["trade_dates_observed"], 3)
+        self.assertEqual(full["trade_dates_observed"], 5)
+        self.assertEqual(full["history_summary"]["status"], "complete")
+        self.assertIn("not_requested", render_markdown(recent))
+
+    def test_raw_grouping_constrains_existing_index_and_preserves_source_counts(self) -> None:
+        queries = []
+        self.connection.set_trace_callback(queries.append)
+        days, symbols, minutes = _raw_minute_index(self.connection, "raw_market_ticks", ["2026-05-08"])
+        self.connection.set_trace_callback(None)
+        self.assertEqual(days["2026-05-08"]["rows"], 3)
+        self.assertEqual(days["2026-05-08"]["symbol_minutes"], 2)
+        self.assertEqual(symbols["2026-05-08"]["005930"], 2)
+        self.assertEqual(minutes["2026-05-08"]["005930"], {"2026-05-08T09:00"})
+        groups = [query for query in queries if "GROUP BY" in query]
+        self.assertTrue(groups)
+        for query in groups:
+            plans = self.connection.execute("EXPLAIN QUERY PLAN " + query).fetchall()
+            self.assertTrue(any(
+                "source=? AND symbol=? AND event_time>? AND event_time<?" in row["detail"]
+                for row in plans
+            ), plans)
+
+    def test_noncontiguous_dates_empty_selection_and_missing_tables(self) -> None:
+        dates = ["2026-05-01", "2026-05-08"]
+        days, _, _ = _raw_minute_index(self.connection, "raw_market_ticks", dates)
+        self.assertEqual(sorted(days), dates)
+        self.assertEqual(_raw_minute_index(self.connection, "raw_market_ticks", []), ({}, {}, {}))
+        self.connection.execute("DROP TABLE raw_orderbook_ticks")
+        self.assertEqual(_trade_dates(self.connection, recent_days=2), ["2026-05-08", "2026-05-11"])
+        self.connection.execute("DROP TABLE raw_market_ticks")
+        self.assertEqual(_trade_dates(self.connection, recent_days=2), [])
+
+    def test_bounded_raw_values_equal_legacy_full_grouping(self) -> None:
+        dates = ["2026-05-08", "2026-05-11"]
+        legacy = _raw_minute_index(self.connection, "raw_market_ticks")
+        expected = tuple({day: value for day, value in mapping.items() if day in dates} for mapping in legacy)
+        self.assertEqual(_raw_minute_index(self.connection, "raw_market_ticks", dates), expected)
+
+    def test_cli_history_is_explicit_and_default_remains_bounded(self) -> None:
+        for flags, include_history in (([], False), (["--include-history"], True)):
+            output_dir = str(Path(self.tmp.name) / "reports")
+            with (
+                patch("sys.argv", ["summary", "--db-path", str(self.database_path), "--output-dir", output_dir, *flags]),
+                patch("scripts.summarize_kis_live_data_quality.summarize", return_value={"assessment": {}}) as mocked,
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(main(), 0)
+            self.assertEqual(mocked.call_args.kwargs["include_history"], include_history)
+
+    def test_zero_recent_days_explicitly_requests_full_history(self) -> None:
+        result = summarize(self.database_path, recent_days=0)
+        self.assertEqual(result["history_summary"]["status"], "complete")
+        self.assertEqual(len(result["recent_days"]), 5)
 
 
 class KisLiveSessionObservabilityTests(unittest.TestCase):

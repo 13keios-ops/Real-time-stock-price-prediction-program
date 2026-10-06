@@ -17,6 +17,13 @@
 - 9/28 WebSocket reconnect `9`, storm `0`이다. 원인은 `no close frame received or sent` 8건, 재구독 뒤 30초 무수신 1건이다. 수집 정상과 연결 주의를 분리하고, 과거 storm 이력은 별도로 보존한다.
 - 수신 queue 분리는 broker REST sync가 socket frame 소비를 막지 않게 한다. 정각 disconnect의 upstream/KIS/네트워크 원천은 저장 증거만으로 확정하지 않으며 retry 정책이나 전략은 변경하지 않는다.
 
+## 10/7 최근 품질 집계 성능 검증
+
+- 장외 runtime 정지/should-run false 상태에서 일일 품질 집계를 최근 관측 10일 제한 조회로 분리했다. 전체 이력 합계는 `--include-history` 명시 실행에만 생성하며, 미요청값을 0이나 최근 합계로 대체하지 않는다.
+- 약 30GiB 동일 운영 DB 검증은 `78.662초`였다. 10/6 기존 전체 이력 포함 실행의 약 13분과 비교한 측정이며 캐시/동시 부하가 고정된 반복 벤치마크는 아니다. 최근 일별 raw/derived/label, 최신 종목 집계, lineage/reconnect/gap, assessment는 기존 공식 보고서와 모두 일치했다. 실행 시각에 따라 변하는 raw lag만 비교에서 제외했다.
+- 검증 결과는 `.tmp-tests/kis-quality-bounded-20261007.json`에 격리했고 공식 운영 report, DB/인덱스, Phase 0/E7 기준은 변경하지 않았다. 기존 장후 wrapper 명령은 유지하므로 다음 실행부터 제한 조회가 적용된다.
+- 관련 테스트 28건 통과. 전체 unittest는 720건 실행 중 기존 `tests/test_paper_reconciliation.py`의 `RuntimeWrite` import 오류 1건으로 실패했다. HEAD에도 같은 오타가 있으며 이번 변경에서 해당 파일은 수정하지 않았다. 전체 회귀가 통과했다고 해석하지 않는다.
+
 ## 프로젝트 목표 정합성
 
 - 현재 운영 목표는 실전 자동매매가 아니라 `paper` 기준으로 `수집 -> 특징 -> 예측 -> 판단 -> 모의주문/체결 -> KIS 모의계좌 정합 -> 비용 후 포트폴리오 검증`을 증거로 연결하는 것이다.
