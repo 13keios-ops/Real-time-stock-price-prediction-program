@@ -5,6 +5,14 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] source-acceptance 공식 경계 구현 준비
+
+- 워밍업 보호 중 D드라이브 WSL `.tmp-tests/e7-source-acceptance` worktree에서만 구현했다. root 코드/DB/API/runtime/자동화/과거 보고서/사전등록/manifest/전략/비용은 변경하지 않았다. 네이티브 Windows worktree는 UNC Git 소유권/경로 문제로 사용할 수 없어 WSL Git 격리 공간을 사용했다. 전역 safe.directory 예외는 추가하지 않았다.
+- legacy/진단 실패 package가 통과하는 테스트 2건의 실제 실패를 확인한 뒤 source proof/승인 계약/실제 입력 hash 검사를 추가했다. 재스탬프와 구간 본문/결과 identity 변조도 실패 우선 회귀로 차단했다. 합성 normal/double replay는 기존 v2 모든 결과값과 같고 random-control 1,000회도 두 비용 조건에서 검사했다. 원천 validator/manifest 불변 회귀를 포함하며 실제 수익성 계산이나 공식 활성화는 아니다.
+- 장외 전체 suite/root 통합은 미완료다. contract 생성이나 self-reported passed/Boolean만으로 공식 허가하지 않으며 trusted producer의 원천 검증/운영자 승인 연동은 별도 확정 범위다.
+- 독립 리뷰에서 다른 입력으로 계산한 결과에 정상 context/proof를 붙여 stamp하는 공백을 재현했다. 실제 실패 회귀 후 계산 시점의 모집단/가격 fingerprint metadata와 공식 결과-proof 일치를 추가했다. hash는 context 생성 때 한 번 계산하며 시뮬레이션마다 전체 가격을 다시 해시하지 않는다. focused 평가/원천 검증 73건 통과; 전체 suite는 보호 해제 뒤 수행한다.
+- 2차 독립 리뷰에서 이전 재현 거부와 random-control 선행 차단을 확인했고 추가 Critical/Important는 없었다. `git diff --check` 통과, 운영 root는 clean이다. 사용하지 못한 무변경 C드라이브 작업 공간은 force 없이 제거했고 D드라이브 구현 worktree만 보존했다. 운영 main 적용/푸시는 아직 하지 않았다.
+
 ## [2026-10-08] 공식 증거 사용 조건 및 실제 세션 관측 절차 검토
 
 - 가격뷰/조각 예측 재현과 공식 증거 허용을 구분하고 historical-capture 개정 또는 복구 후 사전 고정 구간이라는 대안을 정리했다. 두 대안 모두 아직 활성화하지 않았으며 사전등록, manifest/validator, 기간/제외 기준, 과거 파일은 변경하지 않았다. source-acceptance envelope와 동일 구간 모집단/가격 입력 hash의 강제 검증을 다음 우선 작업으로 분리했다.

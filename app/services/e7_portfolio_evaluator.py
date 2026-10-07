@@ -22,11 +22,16 @@ from app.services.portfolio_replay_v2 import (
     assert_replay_results_compatible,
     build_v2_replay_context,
     portfolio_random_control_v2,
+    replay_context_price_fingerprint,
     replay_long_only_v2,
 )
 
 
 KST = ZoneInfo("Asia/Seoul")
+E7_SOURCE_ACCEPTANCE_VERSION = "e7-source-acceptance-v1"
+E7_ACCEPTANCE_CONTRACT_VERSION = "e7-source-acceptance-contract-v1"
+E7_SOURCE_VALIDATOR_VERSION = "e7-shadow-lineage-v2-exact-id"
+E7_OFFICIAL_PRICE_INPUT_VERSION = "e7-stored-minute-price-input-v1"
 E7_FUTURE_INTERVAL_IDS = ("future_interval_1", "future_interval_2")
 E7_OFFICIAL_RESULT_ROLES = (
     "baseline",
@@ -144,6 +149,155 @@ def e7_random_control_stratum(
     return local_time.date().isoformat(), decision.symbol, bucket
 
 
+def _acceptance_digest(value: object) -> str:
+    try:
+        encoded = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ReplayCompatibilityError("invalid E7 acceptance JSON") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class E7EvidenceAcceptanceContract:
+    """Caller-supplied contract; construction is not operator approval."""
+
+    future_intervals: tuple[E7FutureInterval, E7FutureInterval]
+    version: str = E7_ACCEPTANCE_CONTRACT_VERSION
+    validator_version: str = E7_SOURCE_VALIDATOR_VERSION
+    price_input_version: str = E7_OFFICIAL_PRICE_INPUT_VERSION
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "version": self.version,
+            "manifest_hash": E7_PORTFOLIO_REPLAY_MANIFEST.sha256,
+            "validator_version": self.validator_version,
+            "price_input_version": self.price_input_version,
+            "source_scope": "fixed_e7_future_interval",
+            "future_intervals": [
+                item.to_dict()
+                for item in validate_e7_future_intervals(self.future_intervals)
+            ],
+        }
+
+    @property
+    def sha256(self) -> str:
+        return _acceptance_digest(self.to_dict())
+
+
+def e7_context_price_fingerprint(context: PortfolioReplayV2Context) -> str:
+    """Bind proof to the immutable prices/timeline actually used by replay."""
+    return replay_context_price_fingerprint(context)
+
+
+def _validate_acceptance_contract(
+    contract: E7EvidenceAcceptanceContract | None,
+    approved_contract_hash: str | None,
+) -> E7EvidenceAcceptanceContract:
+    if not isinstance(contract, E7EvidenceAcceptanceContract):
+        raise ReplayCompatibilityError("E7 acceptance contract is required")
+    if (
+        contract.version != E7_ACCEPTANCE_CONTRACT_VERSION
+        or contract.validator_version != E7_SOURCE_VALIDATOR_VERSION
+        or contract.price_input_version != E7_OFFICIAL_PRICE_INPUT_VERSION
+    ):
+        raise ReplayCompatibilityError("unsupported E7 acceptance contract")
+    if approved_contract_hash != contract.sha256:
+        raise ReplayCompatibilityError("E7 acceptance contract approval hash mismatch")
+    return contract
+
+
+def _validate_source_acceptance(
+    proof: Mapping[str, object] | None,
+    *,
+    future_interval: E7FutureInterval,
+    acceptance_contract: E7EvidenceAcceptanceContract | None,
+    approved_contract_hash: str | None,
+    context: PortfolioReplayV2Context | None = None,
+) -> dict[str, object]:
+    contract = _validate_acceptance_contract(acceptance_contract, approved_contract_hash)
+    if future_interval not in contract.future_intervals:
+        raise ReplayCompatibilityError("E7 acceptance interval mismatch")
+    if not isinstance(proof, Mapping):
+        raise ReplayCompatibilityError("E7 source acceptance proof is required")
+    payload = dict(proof)
+    expected = {
+        "version": E7_SOURCE_ACCEPTANCE_VERSION,
+        "contract_hash": contract.sha256,
+        "manifest_hash": E7_PORTFOLIO_REPLAY_MANIFEST.sha256,
+        "source_scope": "fixed_e7_future_interval",
+        "future_interval_definition_hash": future_interval.sha256,
+        "validator_version": contract.validator_version,
+        "price_input_version": contract.price_input_version,
+    }
+    if any(payload.get(key) != value for key, value in expected.items()):
+        raise ReplayCompatibilityError("E7 source acceptance identity mismatch")
+    if (
+        payload.get("passed") is not True
+        or payload.get("official_evaluation_permitted") is not True
+        or payload.get("reason_counts") != {}
+    ):
+        raise ReplayCompatibilityError("E7 source acceptance evidence failed")
+    for key in (
+        "ledger_fingerprint", "prediction_fingerprint",
+        "population_fingerprint", "price_input_fingerprint",
+    ):
+        value = payload.get(key)
+        if (
+            not isinstance(value, str) or len(value) != 64
+            or any(char not in "0123456789abcdef" for char in value)
+        ):
+            raise ReplayCompatibilityError("invalid E7 source acceptance fingerprint")
+    proof_hash = payload.pop("proof_hash", None)
+    if proof_hash != _acceptance_digest(payload):
+        raise ReplayCompatibilityError("E7 source acceptance proof hash mismatch")
+    payload["proof_hash"] = proof_hash
+    if context is not None and (
+        context.manifest_hash != E7_PORTFOLIO_REPLAY_MANIFEST.sha256
+        or not context.coverage.valid
+        or payload["population_fingerprint"] != context.decision_fingerprint
+        or payload["price_input_fingerprint"] != e7_context_price_fingerprint(context)
+        or payload["price_input_fingerprint"] != context.price_input_fingerprint
+    ):
+        raise ReplayCompatibilityError("E7 source acceptance replay input mismatch")
+    return payload
+
+
+def _validate_result_input_lineage(
+    result: Mapping[str, object], proof: Mapping[str, object]
+) -> None:
+    lineage = result.get("lineage")
+    if not isinstance(lineage, Mapping) or (
+        lineage.get("input_binding_version") != "portfolio-replay-input-binding-v1"
+        or lineage.get("decision_fingerprint") != proof["population_fingerprint"]
+        or lineage.get("price_input_fingerprint") != proof["price_input_fingerprint"]
+    ):
+        raise ReplayCompatibilityError("E7 acceptance result input lineage mismatch")
+
+
+def _reject_diagnostic_metadata(
+    result: Mapping[str, object],
+    source_acceptance: Mapping[str, object] | None = None,
+) -> None:
+    if result.get("official_evaluation_permitted", True) is not True:
+        raise ReplayCompatibilityError("diagnostic E7 acceptance is forbidden")
+    health = result.get("source_evidence_health")
+    if health is not None and (
+        not isinstance(health, Mapping) or health.get("passed") is not True
+        or health.get("reasons", []) != []
+    ):
+        raise ReplayCompatibilityError("failed E7 source acceptance metadata")
+    proof = source_acceptance if source_acceptance is not None else result.get("source_acceptance")
+    proof = proof if isinstance(proof, Mapping) else {}
+    for alias, field in (
+        ("input_source_version", "price_input_version"),
+        ("input_fingerprint", "price_input_fingerprint"),
+    ):
+        if alias in result and result[alias] != proof.get(field):
+            raise ReplayCompatibilityError("mixed E7 source acceptance metadata")
+
+
 
 def _validate_one_e7_future_interval(
     future_interval: E7FutureInterval,
@@ -191,6 +345,9 @@ def run_e7_portfolio_replay(
     cost_scenario: str,
     policy_veto_ids: Sequence[str] = (),
     respect_decision_avoid: bool,
+    source_acceptance: Mapping[str, object] | None = None,
+    acceptance_contract: E7EvidenceAcceptanceContract | None = None,
+    approved_contract_hash: str | None = None,
 ) -> dict[str, object]:
     """Run one official non-random role without changing policy inputs."""
 
@@ -201,6 +358,13 @@ def run_e7_portfolio_replay(
     }:
         raise ReplayCompatibilityError("unsupported E7 portfolio replay role")
     _validate_one_e7_future_interval(future_interval)
+    proof = _validate_source_acceptance(
+        source_acceptance, future_interval=future_interval,
+        acceptance_contract=acceptance_contract,
+        approved_contract_hash=approved_contract_hash, context=context,
+    )
+    if any(not future_interval.start <= item.signal_time < future_interval.end for item in decisions):
+        raise ReplayCompatibilityError("E7 acceptance decision outside interval")
     result = replay_long_only_v2(
         decisions,
         context=context,
@@ -215,6 +379,9 @@ def run_e7_portfolio_replay(
         result,
         result_role=result_role,
         future_interval=future_interval,
+        context=context, source_acceptance=proof,
+        acceptance_contract=acceptance_contract,
+        approved_contract_hash=approved_contract_hash,
     )
 
 
@@ -226,10 +393,29 @@ def run_e7_random_control(
     context: PortfolioReplayV2Context,
     future_interval: E7FutureInterval,
     cost_scenario: str,
+    source_acceptance: Mapping[str, object] | None = None,
+    acceptance_contract: E7EvidenceAcceptanceContract | None = None,
+    approved_contract_hash: str | None = None,
 ) -> dict[str, object]:
     """Run the fixed 1,000-simulation E7 control on the shared context."""
 
     _validate_one_e7_future_interval(future_interval)
+    proof = _validate_source_acceptance(
+        source_acceptance, future_interval=future_interval,
+        acceptance_contract=acceptance_contract,
+        approved_contract_hash=approved_contract_hash, context=context,
+    )
+    _reject_diagnostic_metadata(actual_policy_result)
+    _validate_result_input_lineage(actual_policy_result, proof)
+    if (
+        actual_policy_result.get("source_acceptance") != proof
+        or actual_policy_result.get("future_interval_definition_hash") != future_interval.sha256
+        or actual_policy_result.get("result_role") != "e7_policy"
+        or actual_policy_result.get("cost_model", {}).get("scenario") != cost_scenario
+    ):
+        raise ReplayCompatibilityError("E7 random-control source acceptance mismatch")
+    if any(not future_interval.start <= item.signal_time < future_interval.end for item in decisions):
+        raise ReplayCompatibilityError("E7 acceptance decision outside interval")
     result = portfolio_random_control_v2(
         decisions,
         actual_policy_result=actual_policy_result,
@@ -240,10 +426,15 @@ def run_e7_random_control(
         future_interval_id=future_interval.interval_id,
         stratum_key=e7_random_control_stratum,
     )
+    if result.get("status") != "ok":
+        return {**result, "source_acceptance": proof, "official_evaluation_permitted": False}
     return stamp_e7_result(
         result,
         result_role="random_control",
         future_interval=future_interval,
+        context=context, source_acceptance=proof,
+        acceptance_contract=acceptance_contract,
+        approved_contract_hash=approved_contract_hash,
     )
 
 def stamp_e7_result(
@@ -251,7 +442,31 @@ def stamp_e7_result(
     *,
     result_role: str,
     future_interval: E7FutureInterval,
+    context: PortfolioReplayV2Context | None = None,
+    source_acceptance: Mapping[str, object] | None = None,
+    acceptance_contract: E7EvidenceAcceptanceContract | None = None,
+    approved_contract_hash: str | None = None,
 ) -> dict[str, object]:
+    proof = _validate_source_acceptance(
+        source_acceptance, future_interval=future_interval,
+        acceptance_contract=acceptance_contract,
+        approved_contract_hash=approved_contract_hash, context=context,
+    )
+    if context is None:
+        raise ReplayCompatibilityError("E7 acceptance stamping requires replay context")
+    if "source_acceptance" in result and result["source_acceptance"] != proof:
+        raise ReplayCompatibilityError("cannot restamp a different E7 source acceptance")
+    _reject_diagnostic_metadata(result, proof)
+    _validate_result_input_lineage(result, proof)
+    if (
+        result.get("status") != "ok"
+        or result.get("result_role") != result_role
+        or result.get("evaluator_version") != E7_PORTFOLIO_REPLAY_MANIFEST.evaluator_version
+        or result.get("valuation_method") != E7_PORTFOLIO_REPLAY_MANIFEST.valuation_method
+        or result.get("mark_price_basis") != E7_PORTFOLIO_REPLAY_MANIFEST.mark_price_basis
+        or result.get("bar_timestamp_semantics") != E7_PORTFOLIO_REPLAY_MANIFEST.bar_timestamp_semantics
+    ):
+        raise ReplayCompatibilityError("cannot stamp invalid E7 acceptance result identity")
     if result_role not in E7_OFFICIAL_RESULT_ROLES:
         raise ReplayCompatibilityError("unsupported E7 official result role")
     if future_interval.interval_id not in E7_FUTURE_INTERVAL_IDS:
@@ -266,6 +481,7 @@ def stamp_e7_result(
             "result_role": result_role,
             "future_interval_definition": future_interval.to_dict(),
             "future_interval_definition_hash": future_interval.sha256,
+            "source_acceptance": proof,
         }
     )
     return stamped
@@ -275,10 +491,16 @@ def validate_e7_official_result_set(
     results: Sequence[Mapping[str, object]],
     *,
     future_intervals: Sequence[E7FutureInterval],
+    acceptance_contract: E7EvidenceAcceptanceContract | None = None,
+    approved_contract_hash: str | None = None,
 ) -> dict[str, object]:
     """Fail closed unless every official comparison has one exact identity."""
 
     ordered_intervals = validate_e7_future_intervals(future_intervals)
+    contract = _validate_acceptance_contract(acceptance_contract, approved_contract_hash)
+    if tuple(sorted(contract.future_intervals, key=lambda item: item.start)) != ordered_intervals:
+        raise ReplayCompatibilityError("E7 acceptance package intervals mismatch")
+    interval_proofs: dict[str, dict[str, object]] = {}
     intervals_by_id = {item.interval_id: item for item in ordered_intervals}
     expected_keys = {
         (interval_id, cost_scenario, role)
@@ -306,7 +528,19 @@ def validate_e7_official_result_set(
         if key not in expected_keys:
             raise ReplayCompatibilityError("unexpected official E7 result identity")
         interval = intervals_by_id[interval_id]
-        if result.get("future_interval_definition_hash") != interval.sha256:
+        _reject_diagnostic_metadata(result)
+        proof = _validate_source_acceptance(
+            result.get("source_acceptance"), future_interval=interval,
+            acceptance_contract=contract, approved_contract_hash=approved_contract_hash,
+        )
+        _validate_result_input_lineage(result, proof)
+        if interval_id in interval_proofs and interval_proofs[interval_id] != proof:
+            raise ReplayCompatibilityError("mixed E7 source acceptance within interval")
+        interval_proofs[interval_id] = proof
+        if (
+            result.get("future_interval_definition_hash") != interval.sha256
+            or result.get("future_interval_definition") != interval.to_dict()
+        ):
             raise ReplayCompatibilityError("official E7 interval definition mismatch")
         expected_cost = E7_PORTFOLIO_REPLAY_MANIFEST.cost_parameters(cost_scenario)
         expected_cost_model = {
@@ -379,6 +613,8 @@ def validate_e7_official_result_set(
     )
     package_rows = [
         "|".join(key) + ":" + str(actual[key].get("manifest_hash"))
+        + ":" + intervals_by_id[key[0]].sha256
+        + ":" + str(interval_proofs[key[0]]["proof_hash"])
         for key in sorted(actual)
     ]
     return {
@@ -387,6 +623,8 @@ def validate_e7_official_result_set(
         "manifest_hash": E7_PORTFOLIO_REPLAY_MANIFEST.sha256,
         "evaluator_version": PORTFOLIO_REPLAY_V2_VERSION,
         "result_count": len(actual),
+        "source_acceptance_version": E7_SOURCE_ACCEPTANCE_VERSION,
+        "acceptance_contract_hash": contract.sha256,
         "package_identity_hash": hashlib.sha256(
             "\n".join(package_rows).encode("utf-8")
         ).hexdigest(),

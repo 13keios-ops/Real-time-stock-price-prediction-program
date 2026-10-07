@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from bisect import bisect_right
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta
 import hashlib
 import json
@@ -247,6 +247,32 @@ class PortfolioReplayV2Context:
     decision_fingerprint: str
     coverage: MarkCoverage
     manifest_hash: str
+    price_input_fingerprint: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        # Cache once; simulations reuse the same immutable prices.
+        object.__setattr__(
+            self, "price_input_fingerprint", replay_context_price_fingerprint(self)
+        )
+
+
+def replay_context_price_fingerprint(context: PortfolioReplayV2Context) -> str:
+    payload = {
+        "prices": [
+            [symbol, at.isoformat(), price]
+            for (symbol, at), price in sorted(context.mark_index.prices.items())
+        ],
+        "times_by_symbol": {
+            symbol: [at.isoformat() for at in times]
+            for symbol, times in sorted(context.mark_index.times_by_symbol.items())
+        },
+        "source_bar_count": context.mark_index.source_bar_count,
+        "timeline": [at.isoformat() for at in context.timeline],
+    }
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _stable_id_hash(values: Iterable[str]) -> str:
@@ -884,6 +910,8 @@ def replay_long_only_v2(
         "counters": counters,
         "lineage": {
             "decision_fingerprint": context.decision_fingerprint,
+            "input_binding_version": "portfolio-replay-input-binding-v1",
+            "price_input_fingerprint": context.price_input_fingerprint,
             "policy_veto_ids_hash": _stable_id_hash(effective_veto_ids),
             "policy_veto_count": len(effective_veto_ids),
             "source_bar_count": context.mark_index.source_bar_count,
@@ -1080,5 +1108,10 @@ def portfolio_random_control_v2(
         "passed": verdict == "policy_better_than_random_p95",
         "simulation_returns_hash": _stable_id_hash(replay_hash_rows),
         "shared_precomputed_mark_context": True,
+        "lineage": {
+            "decision_fingerprint": context.decision_fingerprint,
+            "input_binding_version": "portfolio-replay-input-binding-v1",
+            "price_input_fingerprint": context.price_input_fingerprint,
+        },
         "random_control_strata": list(manifest.random_control_strata),
     }

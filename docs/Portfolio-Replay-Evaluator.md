@@ -162,6 +162,15 @@ daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`�
 - 더 보수적인 대안은 원래 미래 시작과 과거 이력을 그대로 보존하고, 복구 후의 사전에 고정한 두 비중복 구간을 별도 acceptance 계약으로 평가하는 것이다. 구간별 strict 원천 검증과 동일 최소 표본을 다시 만족해야 하며, 그 구간이 깨지면 임의로 시작일을 옮기거나 수익이 나쁜 날만 제외하지 않는다. 전체 누적 구간을 검증하는 현행 daily loader에는 구간별 계약이 없으므로 오늘 정상 수집만으로 과거 차단이 자동 해소되지 않는다. 아직 두 대안 중 어느 것도 활성화하거나 구간 경계를 변경하지 않았다.
 - 최소 회귀: 진단/허가 없음/실패 proof/구버전/변조 hash 거부, 같은 구간의 source/price 혼합 거부, 역할별 선택과 두 구간의 합법적인 차이 허용, 16개 비교의 동일 입력 유지, 과거 원본 해시 보존, 정상 입력의 기존 수학/비용/threshold 불변이다.
 
+### Source Acceptance Guard Implementation (Prepared, Not Activated)
+
+- `E7EvidenceAcceptanceContract`는 두 고정 구간, 현행 exact-ID validator, stored-minute 가격 입력 버전과 기존 manifest를 묶는다. 계약 객체 생성은 운영자 승인이 아니다. 공식 함수는 신뢰된 호출자가 별도로 전달한 `approved_contract_hash`와 계약 hash가 일치해야 하며 기본값은 승인 없음이다. 이번 작업은 운영 승인 파일이나 구간을 생성하지 않는다.
+- `e7-source-acceptance-v1` proof는 구간/scope, validator 통과와 빈 reason_counts, ledger/prediction/모집단/가격 fingerprint, 공식 허가 및 proof hash를 요구한다. 실제 immutable context의 모집단과 가격 index/timeline을 실행 전 대조한다. 원천 ledger/prediction hash와 통과 판정의 진위는 trusted producer에서 원천 validator로 확인해야 한다. hash는 데이터 식별/변조 탐지이지 자체 승인 또는 전자서명이 아니다.
+- 공식 replay/random-control/stamp/package는 진단·누락·구버전·실패·변조와 동일 구간 입력 혼합을 거부한다. 결과 구간 본문과 hash를 함께 검사하고 기존 출처의 다른 proof로 재스탬프하지 않는다. 표본 부족 random-control은 비공식 상태로 반환하고 공식 stamp/package로 승격하지 않는다. 역할별 선택과 두 구간 간 원천 차이는 유지한다.
+- 계산 결과 lineage에 `portfolio-replay-input-binding-v1`, 실제 모집단과 context 가격 fingerprint를 기록한다. 공식 stamp/package/random-control 선행 검사는 계산 lineage와 proof의 일치를 요구하므로 다른 입력으로 계산한 결과에 정상 proof만 붙일 수 없다. 가격 fingerprint는 context 생성 때 한 번 계산해 1,000회 시뮬레이션이 같은 불변 값을 재사용한다. 이는 v2 결과 metadata의 추가이며 수익/비용/MTM 수학 변경이 아니다.
+- package identity에는 구간과 source proof/계약 identity가 포함된다. 기존 result package와 혼합하지 않는다. generic v2 계산/진단 가격뷰/daily 원천 validator 및 E7 threshold/model/manifest/비용은 불변이다. 운영 경로에 승인 proof를 자동 주입하거나 과거 차단을 해제하지 않는다.
+- 10/8 워밍업 보호 중 별도 WSL worktree에서 구현·focused test만 수행했다. 루트 반영과 전체 unittest는 장외 보호 해제 뒤 남아 있다. 운영 root의 현재 guard는 아직 이전 버전이다.
+
 ### Next-Session Observation Contract
 
 - 당일 runtime이 watchdog의 정상 워밍업으로 시작했는지 읽기 전용 상태/로그로 확인한다. 시작 전 당일 산출물 없음은 수집 실패나 재발 방지 성공으로 해석하지 않는다. 수집기를 임의로 켜거나 재시작하지 않는다.

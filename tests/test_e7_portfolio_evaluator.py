@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import hashlib
+import json
 import unittest
 
 from app.services.e7_portfolio_evaluator import (
@@ -7,6 +9,9 @@ from app.services.e7_portfolio_evaluator import (
     E7_OFFICIAL_RESULT_ROLES,
     E7_PORTFOLIO_REPLAY_MANIFEST,
     E7FutureInterval,
+    E7EvidenceAcceptanceContract,
+    E7_SOURCE_ACCEPTANCE_VERSION,
+    e7_context_price_fingerprint,
     build_e7_interval_context,
     run_e7_portfolio_replay,
     stamp_e7_result,
@@ -45,6 +50,39 @@ def _constraints() -> dict[str, object]:
     }
 
 
+def _contract_kwargs():
+    contract = E7EvidenceAcceptanceContract(_intervals())
+    return {
+        "acceptance_contract": contract,
+        "approved_contract_hash": contract.sha256,
+    }
+
+
+def _proof(context, interval, **overrides):
+    contract = _contract_kwargs()["acceptance_contract"]
+    proof = {
+        "version": E7_SOURCE_ACCEPTANCE_VERSION,
+        "contract_hash": contract.sha256,
+        "manifest_hash": E7_PORTFOLIO_REPLAY_MANIFEST.sha256,
+        "source_scope": "fixed_e7_future_interval",
+        "future_interval_definition_hash": interval.sha256,
+        "validator_version": contract.validator_version,
+        "price_input_version": contract.price_input_version,
+        "passed": True,
+        "official_evaluation_permitted": True,
+        "reason_counts": {},
+        "ledger_fingerprint": hashlib.sha256((interval.interval_id + "ledger").encode()).hexdigest(),
+        "prediction_fingerprint": hashlib.sha256((interval.interval_id + "predictions").encode()).hexdigest(),
+        "population_fingerprint": context.decision_fingerprint,
+        "price_input_fingerprint": e7_context_price_fingerprint(context),
+    }
+    proof.update(overrides)
+    proof["proof_hash"] = hashlib.sha256(json.dumps(
+        proof, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()).hexdigest()
+    return proof
+
+
 def _fake_result(
     role: str,
     interval: E7FutureInterval,
@@ -77,10 +115,18 @@ def _fake_result(
                 "random_control_strata": list(manifest.random_control_strata),
             }
         )
+    context = build_e7_interval_context([], {}, future_interval=interval)
+    result["lineage"] = {
+        "decision_fingerprint": context.decision_fingerprint,
+        "price_input_fingerprint": e7_context_price_fingerprint(context),
+        "input_binding_version": "portfolio-replay-input-binding-v1",
+    }
     return stamp_e7_result(
         result,
         result_role=role,
         future_interval=interval,
+        context=context, source_acceptance=_proof(context, interval),
+        **_contract_kwargs(),
     )
 
 
@@ -145,6 +191,7 @@ class E7PortfolioEvaluatorTests(unittest.TestCase):
         result = validate_e7_official_result_set(
             _complete_package(),
             future_intervals=_intervals(),
+            **_contract_kwargs(),
         )
 
         self.assertEqual(result["status"], "compatible")
@@ -161,6 +208,7 @@ class E7PortfolioEvaluatorTests(unittest.TestCase):
             validate_e7_official_result_set(
                 package[:-1],
                 future_intervals=_intervals(),
+                **_contract_kwargs(),
             )
 
         drifted = [dict(item) for item in package]
@@ -169,6 +217,7 @@ class E7PortfolioEvaluatorTests(unittest.TestCase):
             validate_e7_official_result_set(
                 drifted,
                 future_intervals=_intervals(),
+                **_contract_kwargs(),
             )
 
     def test_cost_constraints_interval_and_random_config_drift_fail(self) -> None:
@@ -207,6 +256,7 @@ class E7PortfolioEvaluatorTests(unittest.TestCase):
                     validate_e7_official_result_set(
                         package,
                         future_intervals=_intervals(),
+                        **_contract_kwargs(),
                     )
 
 
@@ -252,6 +302,8 @@ class E7PortfolioEvaluatorTests(unittest.TestCase):
             result_role="baseline",
             cost_scenario="normal",
             respect_decision_avoid=False,
+            source_acceptance=_proof(context, future_interval),
+            **_contract_kwargs(),
         )
 
         self.assertEqual(result["status"], "ok")

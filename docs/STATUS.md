@@ -12,6 +12,8 @@
 
 ## 10/8 E7 원천 계보 검증 (공식 평가 차단)
 
+- source-acceptance guard는 `codex/e7-source-acceptance` / `.tmp-tests/e7-source-acceptance` 격리 worktree에서 준비했다. 08:10 확인 시 runtime은 08:00:38부터 paper 워밍업 중이고 watchdog fresh/should-run true/오류 없음이다. 보호 규칙에 따라 root 코드·운영 DB/API/runtime은 건드리지 않았다. 승인 계약 없음은 기본 fail-closed이며 과거 증거와 E7 공식 평가는 계속 차단한다. 장외 전체 회귀와 root 통합 전까지 운영 적용 완료로 보지 않는다. 계약/원천 proof 및 구현 한계는 `docs/Portfolio-Replay-Evaluator.md`가 소유한다.
+
 - 현행 evidence validator는 `e7-shadow-lineage-v2-exact-id`, daily schema `3`다. shadow JSON의 유일 prediction ID를 primary-key 배치 조회하고 종목/시각/horizon, model/run/artifact/hash/3종 확률을 대조한다. 누락·동일 분봉 다중 판단·prediction 재사용·잘못된 확률·active 계보 부재는 `invalid_evidence`로 fail-closed한다. evaluator/manifest, threshold, episode grouping/진입/청산/비용 계산은 변경하지 않았다. 앞선 schema 2/validator v1 결과는 별도 보존한다.
 - 미래 판단 원천 `76,002`건의 기존 tuple join은 `76,006`행이었다. 9/28 `005930` 14:42/14:43에 각 판단 2건과 prediction 2건이 있어 시각/종목/horizon/model join에서 각각 2x2 교차 연결됐다. 각 판단의 shadow JSON은 정확한 prediction ID 1개와 일치하므로 모델 artifact 자체가 훼손됐다고 단정하지 않는다. 영향은 distinct 판단 4건, join 중 모호한 8행/ID·점수 불일치 4행이다.
 - 앞선 v1 읽기 전용 검증은 evaluator/manifest·24거래일·모집단 11,708 episode·공식 episode/symbol 0/0·mark 수치가 기존 증거와 같음을 확인했으나 원천 계보 검증은 실패했다. 따라서 공식 수익성 평가는 차단한다. 수집과 Phase 0은 계속하며 수익성 실패로 해석하지 않는다. 근거: `.tmp-tests/e7-lineage-validation-20261008.json`.
