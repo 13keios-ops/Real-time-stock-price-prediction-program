@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.config.settings import load_settings
 from app.services.e7_daily_evidence import (
     build_e7_daily_evidence,
+    validate_e7_evidence_for_reuse,
     write_e7_daily_evidence_once,
 )
 from app.utils.time import (
@@ -129,12 +130,14 @@ def main() -> int:
 
     dated_path = report_dir / f"{through_day.isoformat()}.json"
     if dated_path.exists():
-        payload = json.loads(dated_path.read_text(encoding="utf-8"))
+        payload = validate_e7_evidence_for_reuse(
+            json.loads(dated_path.read_text(encoding="utf-8"))
+        )
         output = dict(payload)
         output["idempotent_reuse"] = True
         output["report_written"] = False
         print(json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
+        return 1 if payload["evidence_health"]["status"] == "invalid" else 0
 
     payload = build_e7_daily_evidence(
         database_path,

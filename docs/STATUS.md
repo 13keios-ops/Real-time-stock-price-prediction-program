@@ -2,13 +2,21 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-10-07 KST, 장후 운영 산출물 및 장외 수동 회귀 검증
-- 장 상태: post-close
+- 확인 시각: 2026-10-08 KST, 장외 E7 원천 계보 수동 검증
+- 장 상태: overnight
 - live runtime: 정지, `paper`; 장외에 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat fresh, 오류 없음; should-run false
 - dashboard: 실행 중, 포트 8765 HTTP/API 응답 정상
 - Windows startup launcher: 설치 및 정상
-- 아래 날짜가 붙은 과거 수치는 이력이다. 최신 운영 판정은 다음 10/7 요약을 기준으로 한다.
+- 최신 서비스 확인은 위 기준 시각, 수집/Phase 0 누적은 10/7 공식 장후 증거, E7 원천 계보 판정은 다음 10/8 수동 검증을 기준으로 한다.
+
+## 10/8 E7 원천 계보 검증 (공식 평가 차단)
+
+- 새 evidence validator `e7-shadow-lineage-v1`, daily schema `2`가 shadow JSON의 prediction ID/model/run/artifact/hash/3종 확률을 실제 prediction 원장과 대조한다. 누락·모호한 연결·prediction 재사용·잘못된 확률·active 계보 부재는 `invalid_evidence`로 fail-closed한다. evaluator/manifest, threshold, episode grouping/진입/청산/비용 계산은 변경하지 않았다.
+- 미래 판단 원천 `76,002`건의 기존 tuple join은 `76,006`행이었다. 9/28 `005930` 14:42/14:43에 각 판단 2건과 prediction 2건이 있어 시각/종목/horizon/model join에서 각각 2x2 교차 연결됐다. 각 판단의 shadow JSON은 정확한 prediction ID 1개와 일치하므로 모델 artifact 자체가 훼손됐다고 단정하지 않는다. 영향은 distinct 판단 4건, join 중 모호한 8행/ID·점수 불일치 4행이다.
+- 실제 읽기 전용 검증은 evaluator/manifest·24거래일·모집단 11,708 episode·공식 episode/symbol 0/0·mark 수치가 기존 증거와 같음을 확인했으나 원천 계보 검증은 실패했다. 따라서 공식 수익성 평가는 차단한다. 수집과 Phase 0은 계속하며 수익성 실패로 해석하지 않는다. 근거: `.tmp-tests/e7-lineage-validation-20261008.json`.
+- 10/7 이하 immutable daily/latest artifact는 바이트 해시를 보존했고 소급 작성하지 않았다. schema 1 보고서의 `valid_collecting`은 당시 검증 범위의 이력이지 새 계보 검증 통과가 아니다. 구버전 재사용은 파일을 고치지 않고 실행 결과에서 `shadow_lineage_validation_not_available`로 차단한다.
+- 남은 작업은 9/28 동일 분봉의 중복 판단 생성 경로 진단과 exact prediction ID 기반 연결 계약 검토다. 원장 삭제/임의 dedup/첫 행 선택이나 미래 threshold 조정은 하지 않는다. 연결 또는 평가 입력 계약 수정이 필요하면 기존 결과와 버전을 분리해 비교한다.
 
 ## 10/7 장후 운영 확인 (수집 정상 / 연결 주의)
 
@@ -65,7 +73,7 @@
 - 기존 `portfolio-replay-v1-entry-mark`는 보존했다. 공식 `portfolio-replay-v2-minute-mtm`과 manifest `1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa`는 일치한다.
 - E7은 9/28 장후 artifact 기준 미래 거래일 `18일`, 실행 가능 모집단 episode `8,861`, official policy episode/symbol `0/0`, mark observation 및 missing/stale/invalid mark 모두 `0`이다. `valid_collecting`, normal/2x cost 및 random control·두 비중복 구간은 최소 표본 대기다. mark 0은 평가 대상이 없다는 뜻이지 가격 품질 통과 증거가 아니다.
 - read-only 원장 재집계: 미래 join `53,101`행, 적격 `26,863`행, threshold 통과 적격 행 1건, 최초 판단 유지 grouping 후 선택 episode 0건이다. 9/3 `086520` 12:29 점수 `0.552476`은 12:25 최초 점수 `0.369073`인 같은 episode에 묶인다. 현재 구현 결과와 일치하며 사후 grouping/threshold 변경으로 표본을 만들지 않는다.
-- 미래 join 전체에서 shadow prediction ID·training run·artifact·hash·score를 독립 교차검사해 누락/중복/불일치 0건을 확인했다. 다만 daily writer 자체는 active lineage 존재 여부만 검사하므로 공식 평가 전 shadow identity·중복의 fail-closed 검증을 보강해야 한다. 평가 계약 변경이 필요하면 기존 공식 결과와 버전을 분리한다.
+- 과거 독립 교차검사에서는 당시 검사 범위의 누락/중복/불일치 0건을 보고했다. 10/8 강화 검증에서는 9/28 두 분봉의 교차 join을 발견했고 daily writer에 shadow identity·중복 fail-closed 검증을 추가했다. 과거 검사 결과를 현재 검증 통과로 재사용하지 않으며 현재 공식 평가 차단과 후속 작업은 위 10/8 단락을 따른다.
 
 ## 외부 shadow의 실제 상태
 

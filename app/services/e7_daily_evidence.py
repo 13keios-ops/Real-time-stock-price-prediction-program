@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterable
@@ -23,7 +25,8 @@ from app.services.portfolio_replay_v2 import (
 )
 
 
-E7_DAILY_EVIDENCE_SCHEMA_VERSION = 1
+E7_DAILY_EVIDENCE_SCHEMA_VERSION = 2
+E7_EVIDENCE_VALIDATION_VERSION = "e7-shadow-lineage-v1"
 E7_DAILY_EVIDENCE_STATUS_COLLECTING = "collecting_future_sample"
 E7_EXPECTED_EVALUATOR_VERSION = "portfolio-replay-v2-minute-mtm"
 E7_EXPECTED_MANIFEST_SHA256 = (
@@ -73,6 +76,30 @@ def _load_future_decisions(
     *,
     through_trading_day: date,
 ) -> tuple[list[_FutureDecisionRow], dict[str, Any]]:
+    required_columns = {
+        "serving_decision_ledger": {"shadow_predictions_json"},
+        "serving_predictions": {"training_run_id", "artifact_id", "artifact_sha256"},
+    }
+    missing_columns = sorted(
+        f"{table}.{column}"
+        for table, required in required_columns.items()
+        for column in required.difference({
+            str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")
+        })
+    )
+    if missing_columns:
+        return [], {
+            "joined_future_rows": 0,
+            "future_decision_rows": 0,
+            "eligible_population_rows": 0,
+            "incomplete_lineage_rows": 0,
+            "shadow_lineage_validation": {
+                "version": E7_EVIDENCE_VALIDATION_VERSION,
+                "passed": False,
+                "reason_counts": {"required_lineage_columns_missing": 1},
+                "missing_columns": missing_columns,
+            },
+        }
     start = E7_PORTFOLIO_REPLAY_MANIFEST.future_evaluation_start
     end = datetime.combine(
         through_trading_day + timedelta(days=1),
@@ -95,9 +122,17 @@ def _load_future_decisions(
             d.active_training_run_id,
             d.active_artifact_id,
             d.active_artifact_sha256,
-            p.probability_up
+            d.shadow_predictions_json,
+            p.prediction_id,
+            p.model_version,
+            p.training_run_id,
+            p.artifact_id,
+            p.artifact_sha256,
+            p.probability_up,
+            p.probability_flat,
+            p.probability_down
         FROM serving_decision_ledger AS d
-        JOIN serving_predictions AS p
+        LEFT JOIN serving_predictions AS p
           ON p.symbol = d.symbol
          AND p.event_time = d.event_time
          AND p.horizon_min = d.horizon_min
@@ -117,15 +152,30 @@ def _load_future_decisions(
     loaded: list[_FutureDecisionRow] = []
     incomplete_lineage_rows = 0
     eligible_rows = 0
-    for row in rows:
-        lineage_complete = all(
-            str(row[key] or "").strip()
-            for key in (
-                "active_training_run_id",
-                "active_artifact_id",
-                "active_artifact_sha256",
-            )
+    decision_counts = Counter(str(row["decision_id"]) for row in rows)
+    checks = [_shadow_lineage_errors(row) for row in rows]
+    shadow_ids_by_decision = {
+        str(row["decision_id"]): shadow_id
+        for row, (_, shadow_id) in zip(rows, checks)
+        if shadow_id
+    }
+    prediction_counts = Counter(shadow_ids_by_decision.values())
+    reason_counts: Counter[str] = Counter()
+    failed_decisions: set[str] = set()
+    lineage_digest = hashlib.sha256()
+    for row, (reasons, shadow_id) in zip(rows, checks):
+        if decision_counts[str(row["decision_id"])] > 1:
+            reasons.add("shadow_prediction_rows_ambiguous")
+        if shadow_id and prediction_counts[shadow_id] > 1:
+            reasons.add("shadow_prediction_reused")
+        reason_counts.update(reasons)
+        if reasons:
+            failed_decisions.add(str(row["decision_id"]))
+        lineage_digest.update(
+            json.dumps(dict(row), sort_keys=True, separators=(",", ":")).encode("utf-8")
         )
+        lineage_digest.update(b"\n")
+        lineage_complete = not reasons
         if not lineage_complete:
             incomplete_lineage_rows += 1
         baseline_did_not_buy = (
@@ -148,16 +198,77 @@ def _load_future_decisions(
                 decision_id=str(row["decision_id"]),
                 symbol=str(row["symbol"]),
                 event_time=_parse_datetime(row["event_time"]),
-                probability_up=float(row["probability_up"]),
+                probability_up=(
+                    float(row["probability_up"]) if lineage_complete else 0.0
+                ),
                 eligible_population=eligible,
                 lineage_complete=lineage_complete,
             )
         )
     return loaded, {
         "joined_future_rows": len(loaded),
+        "future_decision_rows": len(decision_counts),
         "eligible_population_rows": eligible_rows,
         "incomplete_lineage_rows": incomplete_lineage_rows,
+        "shadow_lineage_validation": {
+            "version": E7_EVIDENCE_VALIDATION_VERSION,
+            "passed": not reason_counts,
+            "checked_decision_rows": len(decision_counts),
+            "failed_decision_rows": len(failed_decisions),
+            "reason_count_scope": "joined_rows",
+            "reason_counts": dict(sorted(reason_counts.items())),
+            "source_lineage_fingerprint": lineage_digest.hexdigest(),
+        },
     }
+
+
+def _shadow_lineage_errors(row: sqlite3.Row) -> tuple[set[str], str | None]:
+    reasons: set[str] = set()
+    if not all(
+        isinstance(row[key], str) and row[key].strip()
+        for key in ("active_training_run_id", "active_artifact_id", "active_artifact_sha256")
+    ):
+        reasons.add("active_lineage_incomplete")
+    if not row["prediction_id"]:
+        reasons.add("shadow_prediction_row_missing")
+    if not all(
+        isinstance(row[key], str) and row[key].strip()
+        for key in ("training_run_id", "artifact_id", "artifact_sha256")
+    ):
+        reasons.add("shadow_lineage_incomplete")
+    try:
+        shadows = json.loads(row["shadow_predictions_json"])
+    except (TypeError, ValueError):
+        return reasons | {"shadow_predictions_malformed"}, None
+    if not isinstance(shadows, list) or any(not isinstance(item, dict) for item in shadows):
+        return reasons | {"shadow_predictions_malformed"}, None
+    selected = [
+        item for item in shadows
+        if item.get("model_version") == E7_PORTFOLIO_REPLAY_MANIFEST.model_version
+    ]
+    if not selected:
+        return reasons | {"shadow_prediction_missing"}, None
+    if len(selected) != 1:
+        return reasons | {"shadow_predictions_ambiguous"}, None
+    shadow = selected[0]
+    identity_fields = ("prediction_id", "model_version", "training_run_id", "artifact_id", "artifact_sha256")
+    if not all(isinstance(shadow.get(key), str) and shadow[key].strip() for key in identity_fields):
+        reasons.add("shadow_lineage_incomplete")
+    if any(shadow.get(key) != row[key] for key in identity_fields):
+        reasons.add("shadow_prediction_mismatch")
+    for key in ("probability_up", "probability_flat", "probability_down"):
+        values = (shadow.get(key), row[key])
+        if any(
+            type(value) not in (int, float)
+            or not math.isfinite(value)
+            or not 0 <= value <= 1
+            for value in values
+        ):
+            reasons.add("shadow_probability_invalid")
+        elif values[0] != values[1]:
+            reasons.add("shadow_prediction_mismatch")
+    shadow_id = shadow.get("prediction_id")
+    return reasons, shadow_id if isinstance(shadow_id, str) and shadow_id.strip() else None
 
 
 def _load_bars(
@@ -279,9 +390,12 @@ def build_e7_daily_evidence(
     if E7_PORTFOLIO_REPLAY_MANIFEST.sha256 != E7_EXPECTED_MANIFEST_SHA256:
         identity_reasons.append("manifest_definition_drift")
     mark_reasons = list(context.coverage.invalid_reasons)
-    evidence_reasons = [*identity_reasons, *mark_reasons]
+    lineage_validation = source["shadow_lineage_validation"]
+    lineage_reasons = list(lineage_validation["reason_counts"])
+    evidence_reasons = [*identity_reasons, *lineage_reasons, *mark_reasons]
     mark_valid = context.coverage.valid
     identity_valid = not identity_reasons
+    lineage_valid = bool(lineage_validation["passed"])
 
     requirements = {
         "trading_days": _requirement(
@@ -306,13 +420,13 @@ def build_e7_daily_evidence(
                 / len(rows)
             ),
             "required": 1.0,
-            "passed": int(source["incomplete_lineage_rows"]) == 0,
+            "passed": lineage_valid,
         },
     }
     minimums_passed = all(
         bool(item["passed"]) for item in requirements.values()
     )
-    if not identity_valid or not mark_valid:
+    if not identity_valid or not mark_valid or not lineage_valid:
         evidence_health = "invalid"
         official_status = "invalid_evidence"
     elif not rows:
@@ -334,6 +448,7 @@ def build_e7_daily_evidence(
     source_fingerprint = _source_fingerprint(rows, bars)
     return {
         "schema_version": E7_DAILY_EVIDENCE_SCHEMA_VERSION,
+        "evidence_validation_version": E7_EVIDENCE_VALIDATION_VERSION,
         "generated_at": created_at.isoformat(),
         "evaluator_version": observed_evaluator_version,
         "expected_evaluator_version": E7_EXPECTED_EVALUATOR_VERSION,
@@ -358,7 +473,7 @@ def build_e7_daily_evidence(
         "invalid_mark_reasons": mark_reasons,
         "evidence_health": {
             "status": evidence_health,
-            "passed": identity_valid and mark_valid,
+            "passed": identity_valid and mark_valid and lineage_valid,
             "reasons": evidence_reasons,
         },
         "profitability_assessment": {
@@ -373,6 +488,7 @@ def build_e7_daily_evidence(
             "prerequisites": {
                 "identity_valid": identity_valid,
                 "marks_valid": mark_valid,
+                "shadow_lineage_valid": lineage_valid,
                 "minimum_sample_passed": minimums_passed,
             },
         },
@@ -385,6 +501,7 @@ def build_e7_daily_evidence(
             "prerequisites": {
                 "identity_valid": identity_valid,
                 "marks_valid": mark_valid,
+                "shadow_lineage_valid": lineage_valid,
                 "minimum_sample_passed": minimums_passed,
             },
         },
@@ -401,7 +518,9 @@ def build_e7_daily_evidence(
         },
         "future_intervals": {
             "interval_1_status": prerequisite_status,
-            "interval_2_status": "waiting_first_interval",
+            "interval_2_status": (
+                "blocked_invalid_evidence" if evidence_reasons else "waiting_first_interval"
+            ),
             "boundaries_fixed": False,
         },
         "minimum_requirements": {
@@ -483,6 +602,7 @@ def _unavailable_report(
 ) -> dict[str, Any]:
     return {
         "schema_version": E7_DAILY_EVIDENCE_SCHEMA_VERSION,
+        "evidence_validation_version": E7_EVIDENCE_VALIDATION_VERSION,
         "generated_at": generated_at.isoformat(),
         "evaluator_version": observed_evaluator_version,
         "expected_evaluator_version": E7_EXPECTED_EVALUATOR_VERSION,
@@ -550,6 +670,62 @@ def _unavailable_report(
     }
 
 
+def validate_e7_evidence_for_reuse(payload: dict[str, Any]) -> dict[str, Any]:
+    """Do not promote immutable legacy artifacts to the new evidence validator."""
+    source = payload.get("source")
+    validation = source.get("shadow_lineage_validation") if isinstance(source, dict) else None
+    validation = validation if isinstance(validation, dict) else {}
+    reuse_reasons = []
+    if (
+        payload.get("schema_version") == E7_DAILY_EVIDENCE_SCHEMA_VERSION
+        and payload.get("evidence_validation_version") == E7_EVIDENCE_VALIDATION_VERSION
+        and validation.get("version") == E7_EVIDENCE_VALIDATION_VERSION
+    ):
+        health = payload.get("evidence_health", {})
+        proof_consistent = (
+            validation.get("passed") is True
+            and validation.get("reason_counts") == {}
+            and health.get("passed") is True
+        ) or (
+            health.get("passed") is False
+            and health.get("status") == "invalid"
+            and payload.get("official_evaluation_status") == "invalid_evidence"
+        )
+        if not proof_consistent:
+            reuse_reasons.append("shadow_lineage_validation_inconsistent")
+        if (
+            PORTFOLIO_REPLAY_V2_VERSION != E7_EXPECTED_EVALUATOR_VERSION
+            or any(payload.get(key) != E7_EXPECTED_EVALUATOR_VERSION for key in (
+                "evaluator_version", "expected_evaluator_version"
+            ))
+        ):
+            reuse_reasons.append("evaluator_version_drift")
+        if (
+            E7_PORTFOLIO_REPLAY_MANIFEST.sha256 != E7_EXPECTED_MANIFEST_SHA256
+            or any(payload.get(key) != E7_EXPECTED_MANIFEST_SHA256 for key in (
+                "manifest_hash", "current_manifest_hash", "expected_manifest_hash"
+            ))
+        ):
+            reuse_reasons.append("manifest_hash_drift")
+    else:
+        reuse_reasons.append("shadow_lineage_validation_not_available")
+    if not reuse_reasons:
+        return payload
+    result = dict(payload)
+    reasons = list(payload.get("evidence_health", {}).get("reasons", []))
+    reasons.extend(reuse_reasons)
+    result["evidence_health"] = {"status": "invalid", "passed": False, "reasons": sorted(set(reasons))}
+    result["official_evaluation_status"] = "invalid_evidence"
+    result["profitability_assessment"] = {"status": "not_evaluated", "strategy_failure": False}
+    for key in ("normal_cost", "double_cost", "random_control"):
+        result[key] = {**payload.get(key, {}), "status": "blocked_invalid_evidence",
+                       "prerequisite_status": "blocked_invalid_evidence"}
+    result["future_intervals"] = {**payload.get("future_intervals", {}),
+                                  "interval_1_status": "blocked_invalid_evidence",
+                                  "interval_2_status": "blocked_invalid_evidence"}
+    return result
+
+
 def write_e7_daily_evidence_once(
     payload: dict[str, Any],
     *,
@@ -565,7 +741,7 @@ def write_e7_daily_evidence_once(
             != payload.get("through_trading_day")
         ):
             raise ValueError("dated E7 artifact trading day mismatch")
-        return existing, False
+        return validate_e7_evidence_for_reuse(existing), False
     encoded = (
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     )

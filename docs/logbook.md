@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] E7 shadow 원천 계보 fail-closed 검증
+
+- daily writer의 tuple join이 prediction 누락을 제외하고 shadow identity/중복을 검증하지 않는 실패를 재현했다. LEFT JOIN 관측과 JSON-원장 ID/model/run/artifact/hash/3종 확률 대조, distinct decision 기준 ID 재사용 검증을 추가했다. 실패는 전체 공식 평가 전제를 차단하며 정상 평가 계산/전략/manifest는 유지한다.
+- daily schema 2와 evidence validator 버전을 분리했다. immutable 구버전/invalid 보고서 재사용의 성공 exit를 차단하고 검증 proof와 evaluator/manifest identity를 재확인한다. 독립 리뷰의 cache identity 누락 지적은 실패 재현 후 수정했고 재리뷰에서 해소를 확인했다.
+- focused 42건 및 전체 unittest 740건(43.286초), diff check 통과; 구조 audit 오류 0/기존 경고 3건이다. 전체 로그는 `.tmp-tests/e7-lineage-full-tests-20261008.log`이다.
+- 실제 DB는 읽기 전용으로 검증해 기존 평가 진행 수치 보존과 원천 계보 차단을 확인했다. 원인·현재 수치·후속 작업은 STATUS가 소유한다. 공식 dated/latest artifact 해시는 보존했고 운영 DB/스키마/과거 원장/Phase 0/계좌/전략/자동화/NAS는 변경하지 않았으며 KIS API 호출은 0회다.
+
 ## [2026-10-07] 정합 테스트 discovery 복구 및 운영 상태 문서 동기화
 
 - 정합 테스트가 존재하지 않는 `RuntimeWrite`를 import해 모듈의 8개 테스트가 discovery에서 제외되는 실패를 재현했다. 기존 구현명 `RuntimeWriter`로 import 한 줄만 수정했다.

@@ -126,4 +126,16 @@ v2 evaluator 구현은 E7 전략 변경이 아니다.
 artifact는 evaluator/manifest identity, 미래 거래일·episode·종목, mark 관측과 missing/stale/invalid, normal/2x cost 전제, random control, 두 미래구간, 최소 표본 진행률을 기록한다.
 `evidence_health`와 `profitability_assessment`는 별도다. 최소 10거래일/100 episode/5종목 전에는 `collecting_future_sample`이며 전략 성공/실패를 만들지 않는다.
 공식 evaluator 또는 manifest 상수, 비용·제약·random·구간 identity, mark coverage가 다르면 `invalid_evidence`로 fail-closed한다.
+
+### Shadow lineage validation
+
+daily schema `2`와 `evidence_validation_version=e7-shadow-lineage-v1`은 원천 계보 검증의 버전이다. 공식 replay evaluator/manifest와 별개이며 전략, threshold, episode grouping 또는 평가 계산을 변경하지 않는다.
+
+- 미래 h15 판단을 LEFT JOIN으로 관측해 prediction 누락을 조용히 제외하지 않는다.
+- 판단의 `shadow_predictions_json`에서 manifest 모델 항목이 정확히 1개여야 하고 prediction ID/model/run/artifact/hash 및 up/flat/down 확률이 SQLite 원장과 정확히 같아야 한다. 확률은 유한한 0~1 숫자여야 한다.
+- 같은 판단의 다중 prediction 연결, 서로 다른 판단의 동일 shadow ID 재사용, malformed JSON/계보 schema 부재와 active 계보 부재를 차단한다. 오류가 있는 행만 제외해 공식 pass를 만들지 않으며 전체 `evidence_health`와 normal/2x/random/두 구간 전제를 차단한다.
+- `source.shadow_lineage_validation`에 distinct 판단 검사/실패 건수, join 행 기준 reason counts, 원천 계보 fingerprint를 기록한다. 기존 `source_fingerprint`는 평가 입력용이며 새 계보 fingerprint와 역할이 다르다.
+- 기존 immutable artifact는 재작성하지 않는다. 구버전 또는 검증 proof가 없는 보고서 재사용은 읽기 결과에서 `shadow_lineage_validation_not_available`로 차단하고 CLI exit 1을 반환한다. 현행 invalid artifact 재사용도 exit 1이며 잘못된 성공/검증 proof 조합은 `shadow_lineage_validation_inconsistent`다. 캐시의 observed/expected evaluator, observed/current/expected manifest와 현재 코드 상수도 다시 대조해 누락·drift를 차단한다.
+- 정상 원천 입력에서는 기존 진행률과 평가 입력 의미를 유지한다. 모호한 tuple join을 발견해도 임의 dedup/추정 ID 연결로 구제하지 않는다. exact ID 기반 입력 계약을 변경할 때는 별도의 버전과 비교 검증이 필요하다.
+
 2026-08-31 첫 미래 거래일 데이터는 수집됐지만 당시 daily ops에는 writer가 없어 공식 artifact가 없었다. 과거 evidence는 소급 작성하지 않고 다음 안전한 post-close부터 immutable 일일 증적을 축적한다.
