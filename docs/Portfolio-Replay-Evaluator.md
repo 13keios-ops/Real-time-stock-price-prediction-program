@@ -149,3 +149,22 @@ daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`�
 - 증명된 요청 분봉의 모든 보존 체결을 event time/capture rowid 순으로 합쳐 open/close만 별도 불변 mapping에 덮어 놓는다. 기존 입력, DB, 과거 JSONL/예측은 바꾸지 않는다. 보존 feed 전체 집계이지 거래소 feed 완전성 또는 정본 feature/예측 복구가 아니다.
 - proof는 입력 버전, 원래/교정 가격 fingerprint, raw capture 구간 해시, 생성 파일 해시, evaluator/manifest 및 `official_evaluation_permitted=false`를 기록한다. 진단 결과는 이 입력 버전과 fingerprint를 함께 보존해야 한다. 같은 evaluator/manifest라도 기존 공식 결과와 합산하거나 공식 pass 근거로 사용할 수 없다. 일반 replay compatibility guard만으로 입력뷰 호환성을 보장하지 않는다.
 - 영향 회귀는 고정 episode ID/시각/avoid와 비용/제약을 유지한다. 가격 민감도 확인을 위해 모집단 episode의 avoid를 무시한 단일 진단 실행은 공식 rescue policy 또는 random-control simulation과 구분한다. 중복 판단 차단을 풀거나 과거 판단을 삭제·선택·재생성하는 권한은 이 입력뷰에 없다.
+
+### Official Evidence Acceptance Review (2026-10-08, Not Activated)
+
+이 절은 공식 사용 조건의 검토 결과이며 현행 사전등록/manifest/validator 변경이나 과거 증거 사용 승인 자체가 아니다.
+
+- 보존 조각의 예측 재현, 보존 raw 가격 재구성, 공식 원천 증거 통과는 별개의 주장이다. 가격뷰만으로 통합 정본의 당시 feature/예측 또는 전역 수신 순서를 복구하지 못한다. 고정 모집단 밖 중복 판단이어도 random-control 청산 가격에 영향이 있으므로 4행 삭제나 첫/마지막 행 선택으로 통과시키지 않는다.
+- `run_e7_portfolio_replay`, `stamp_e7_result`, `validate_e7_official_result_set`와 일반 `assert_replay_results_compatible`는 현재 원천 증거/가격 입력 버전/공식 사용 허가를 강제하는 경계가 아니다. 테스트 fixture `_complete_package`의 16개 결과에 `official_evaluation_permitted=false`, 원천 실패 및 서로 다른 `input_source_version/input_fingerprint`를 넣어도 package guard가 `compatible`을 반환하는 것을 메모리에서 재현했다. 실제 공식 artifact가 잘못 통과했다는 증거는 아니며 현행 daily 경로의 원천 차단은 유지한다.
+- 다음 안전 구현은 별도 source-acceptance envelope와 공식 entrypoint/package guard다. 검증 버전/통과 상태/판정 구간, 원천 ledger·prediction·모집단 fingerprint, 가격 입력 버전/fingerprint, 공식 사용 허가와 승인된 acceptance 계약 hash가 필수다. 진단 전용·누락·원천 실패·입력 혼합은 수익 계산/공식 stamp 전에 차단해야 한다. 단순 Boolean 허가 필드만으로 승격하지 않는다.
+- 같은 구간 안의 baseline/policy/actual/random 및 두 비용 조건은 동일 원천 모집단과 가격 입력을 사용해야 한다. 역할별 선택 episode fingerprint는 정책 차이를 반영할 수 있으므로 모집단 fingerprint와 구분한다. 서로 다른 두 구간의 원천 fingerprint까지 같게 요구하지 않는다. 공식 package identity에도 구간/acceptance/입력 identity를 포함하며 기존 결과와 직접 합산하지 않는다.
+- 과거 구간을 살리는 경로는 별도 historical-capture acceptance 개정이다. 수정 분봉의 raw/생성본 proof, 고정 모든 모집단의 진입·청산·mark 영향, 정확한 원래 prediction 연결과 미복구 한계, 제외 규칙을 결과와 무관하게 고정해야 한다. 현재 증거는 무조건 허용을 뒷받침하지 못한다. 기존 원장/보고서/원래 사전등록 결과를 덮지 않고 운영자 승인된 새 계약의 별도 결과로만 다룬다.
+- 더 보수적인 대안은 원래 미래 시작과 과거 이력을 그대로 보존하고, 복구 후의 사전에 고정한 두 비중복 구간을 별도 acceptance 계약으로 평가하는 것이다. 구간별 strict 원천 검증과 동일 최소 표본을 다시 만족해야 하며, 그 구간이 깨지면 임의로 시작일을 옮기거나 수익이 나쁜 날만 제외하지 않는다. 전체 누적 구간을 검증하는 현행 daily loader에는 구간별 계약이 없으므로 오늘 정상 수집만으로 과거 차단이 자동 해소되지 않는다. 아직 두 대안 중 어느 것도 활성화하거나 구간 경계를 변경하지 않았다.
+- 최소 회귀: 진단/허가 없음/실패 proof/구버전/변조 hash 거부, 같은 구간의 source/price 혼합 거부, 역할별 선택과 두 구간의 합법적인 차이 허용, 16개 비교의 동일 입력 유지, 과거 원본 해시 보존, 정상 입력의 기존 수학/비용/threshold 불변이다.
+
+### Next-Session Observation Contract
+
+- 당일 runtime이 watchdog의 정상 워밍업으로 시작했는지 읽기 전용 상태/로그로 확인한다. 시작 전 당일 산출물 없음은 수집 실패나 재발 방지 성공으로 해석하지 않는다. 수집기를 임의로 켜거나 재시작하지 않는다.
+- 실제 세션의 append-only 분봉/feature/h15 decision을 종목·분별로 확인해 분봉 재생성/중복 판단 0건을 검사한다. prediction은 서로 다른 모델/horizon이 공존하므로 단순 분별 행 수로 중복을 판단하지 않고 decision의 정확한 prediction ID/계보를 검사한다.
+- late 발생 시 raw 보존과 `late_trade_events` 증가, 파생 분봉/판단 재생성 없음까지 대조한다. late가 없으면 정상 세션 무중복만 관측한 것이며 late 경로 실증은 미관측으로 표시한다. 이미 통과한 격리 회귀를 실수집 검증으로 바꿔 부르지 않는다.
+- 마감 후 보호 해제 상태에서 당일 품질과 계보 검증을 확인한다. 과거 전체 누적 실패와 당일 원천 건강을 분리하며 공식 허용 상태는 자동 승격하지 않는다. watermark는 메모리 범위라 restart 간 idempotency는 별도 검증 대상이다.

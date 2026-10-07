@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] 공식 증거 사용 조건 및 실제 세션 관측 절차 검토
+
+- 가격뷰/조각 예측 재현과 공식 증거 허용을 구분하고 historical-capture 개정 또는 복구 후 사전 고정 구간이라는 대안을 정리했다. 두 대안 모두 아직 활성화하지 않았으며 사전등록, manifest/validator, 기간/제외 기준, 과거 파일은 변경하지 않았다. source-acceptance envelope와 동일 구간 모집단/가격 입력 hash의 강제 검증을 다음 우선 작업으로 분리했다.
+- 기존 `_complete_package` 메모리 fixture에 진단 허가 false/원천 실패/혼합 가격 입력을 넣어도 공식 package guard가 compatible으로 반환하는 공백을 assertion으로 재현했다. 실제 공식 보고서 통과나 수익성 계산은 실행하지 않았다. 코드 변경이 없어 이미 같은 코드로 완료한 전체 759건 검증은 반복하지 않는다.
+- 오늘 세션은 아직 시작 전이므로 재발 방지 관측을 완료로 표시하지 않았다. raw/late counter/종목별 분봉·feature·h15 decision exact-ID 계보와 restart 범위를 확인할 기준만 명시했다. DB/API/runtime/자동화/NAS 조작 없이 문서만 정리했다.
+
 ## [2026-10-08] 별도 버전 진단 가격 입력뷰 및 영향 회귀
 
 - `e7-captured-raw-price-view-v1` 불변 가격 mapping과 proof를 추가했다. 읽기 전용 snapshot으로 요청 분봉의 raw 조각/보존 JSONL/SQLite baseline을 정확히 대조하고, 모든 반환 가격을 검증한다. 원래 원장/예측/공식 평가 경로는 수정하지 않는다. 입력뷰는 공식 평가 불허이며 당시 통합 정본 예측 복구를 주장하지 않는다.
