@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] late tick 분봉 역행 방지와 E7 exact-ID 계보 연결
+
+- raw 삽입 순서의 분 경계 역전과 기존 처리 코드의 분봉 재생성을 확인하고 격리 테스트에서 3개 분봉이 5번 생성되는 실패를 재현했다. 종목별 현재/마감 watermark와 late counter를 추가해 과거/flush 이후 마감 분봉을 다시 처리하지 않고 원본 체결을 보존한다. 열린 분봉 내부 순서 역전, 다음 분봉 진행, 종목별 독립성과 local paper 판단 생성도 검증했다. 보호는 프로세스 메모리 범위이며 restart 간 idempotency를 주장하지 않는다.
+- 저장된 유일 shadow prediction ID를 500건 배치 PK 조회하고 tuple/model/계보/확률을 검증한다. 단일 read-only snapshot으로 다중 조회의 시점 혼합을 막고, distinct ID여도 같은 분봉의 다중 판단은 차단한다. validator v2-exact-id/schema 3으로 이전 결과와 분리하며 evaluator 수학/manifest/전략은 유지한다. 독립 리뷰의 다중 배치 테스트 공백을 502개 ID 정상/누락/점수/metadata 회귀 검증으로 보강했다.
+- focused 76건과 추가 배치 경계 1건, 전체 unittest 748건(40.133초), diff check 통과; 구조 audit 오류 0/기존 경고 3건이다. 전체 로그: `.tmp-tests/e7-minute-full-tests-20261008.log`. 실제 DB 읽기 전용 비교의 진행률/모집단/mark 수치는 앞선 검증과 같고 연결 버전별 fingerprint는 다르다. 현재 오류와 수치는 STATUS가 소유한다.
+- 공식 E7 artifact 24개 바이트 해시를 보존했다. 과거 원장/분봉/feature/보고서, 운영 DB/schema, Phase 0/계좌/기준선/전략/자동화/NAS를 수정하지 않았고 KIS API 호출은 0회다. 과거 중복 분봉을 임의 dedup하거나 새 연결만으로 공식 평가 통과로 만들지 않는다.
+
 ## [2026-10-08] E7 shadow 원천 계보 fail-closed 검증
 
 - daily writer의 tuple join이 prediction 누락을 제외하고 shadow identity/중복을 검증하지 않는 실패를 재현했다. LEFT JOIN 관측과 JSON-원장 ID/model/run/artifact/hash/3종 확률 대조, distinct decision 기준 ID 재사용 검증을 추가했다. 실패는 전체 공식 평가 전제를 차단하며 정상 평가 계산/전략/manifest는 유지한다.

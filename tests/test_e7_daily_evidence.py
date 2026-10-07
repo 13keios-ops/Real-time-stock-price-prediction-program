@@ -11,12 +11,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.e7_daily_evidence import (
+    E7_DAILY_EVIDENCE_SCHEMA_VERSION,
+    E7_EVIDENCE_VALIDATION_VERSION,
     E7_EXPECTED_MANIFEST_SHA256,
     build_e7_daily_evidence,
     validate_e7_evidence_for_reuse,
     write_e7_daily_evidence_once,
 )
 from app.services.e7_portfolio_evaluator import E7_PORTFOLIO_REPLAY_MANIFEST
+from app.services import e7_daily_evidence as evidence_service
 from scripts import generate_e7_daily_evidence as daily_cli
 
 
@@ -154,8 +157,8 @@ class E7DailyEvidenceTests(unittest.TestCase):
         self.assertEqual(report["random_control"]["completed_simulations"], 0)
         self.assertEqual(report["minimum_requirements"]["status"], "not_met")
         self.assertEqual(report["manifest_hash"], E7_EXPECTED_MANIFEST_SHA256)
-        self.assertEqual(report["evidence_validation_version"], "e7-shadow-lineage-v1")
-        self.assertEqual(report["schema_version"], 2)
+        self.assertEqual(report["evidence_validation_version"], "e7-shadow-lineage-v2-exact-id")
+        self.assertEqual(report["schema_version"], 3)
         self.assertTrue(report["source"]["shadow_lineage_validation"]["passed"])
 
     def _assert_lineage_blocked(self, report: dict, reason: str) -> None:
@@ -183,7 +186,9 @@ class E7DailyEvidenceTests(unittest.TestCase):
                         (json.dumps(shadow),),
                     )
                 report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
-                reason = "shadow_prediction_missing" if key == "model_version" else "shadow_prediction_mismatch"
+                reason = ("shadow_prediction_missing" if key == "model_version" else
+                          "shadow_prediction_row_missing" if key == "prediction_id" else
+                          "shadow_prediction_mismatch")
                 self._assert_lineage_blocked(report, reason)
 
     def test_missing_prediction_is_not_silently_dropped_by_join(self) -> None:
@@ -196,22 +201,13 @@ class E7DailyEvidenceTests(unittest.TestCase):
         self._assert_lineage_blocked(report, "shadow_prediction_row_missing")
         self.assertEqual(report["source"]["future_decision_rows"], 1)
 
-    def test_duplicate_prediction_rows_and_shadow_entries_fail_closed(self) -> None:
-        for duplicate in ("prediction_row", "shadow_entry", "decision"):
+    def test_duplicate_shadow_entries_and_prediction_reuse_fail_closed(self) -> None:
+        for duplicate in ("shadow_entry", "decision"):
             with self.subTest(duplicate=duplicate), tempfile.TemporaryDirectory() as tmp:
                 db_path = Path(tmp) / "runtime.db"
                 _create_db(db_path, event_times=[START])
                 with sqlite3.connect(db_path) as connection:
-                    if duplicate == "prediction_row":
-                        connection.execute("""
-                            INSERT INTO serving_predictions
-                            SELECT 'duplicate', symbol, event_time, horizon_min, model_version,
-                                   probability_up, probability_flat, probability_down,
-                                   training_run_id, artifact_id, artifact_sha256
-                            FROM serving_predictions
-                        """)
-                        reason = "shadow_prediction_rows_ambiguous"
-                    elif duplicate == "shadow_entry":
+                    if duplicate == "shadow_entry":
                         shadow = json.loads(connection.execute(
                             "SELECT shadow_predictions_json FROM serving_decision_ledger"
                         ).fetchone()[0])
@@ -232,6 +228,96 @@ class E7DailyEvidenceTests(unittest.TestCase):
                         reason = "shadow_prediction_reused"
                 report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
                 self._assert_lineage_blocked(report, reason)
+
+    def test_exact_id_ignores_unreferenced_prediction_at_same_minute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "runtime.db"
+            _create_db(db_path, event_times=[START])
+            with sqlite3.connect(db_path) as connection:
+                connection.execute("""
+                    INSERT INTO serving_predictions
+                    SELECT 'unreferenced', symbol, event_time, horizon_min, model_version,
+                           0.1, probability_flat, probability_down,
+                           training_run_id, artifact_id, artifact_sha256
+                    FROM serving_predictions
+                """)
+            report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+        self.assertTrue(report["source"]["shadow_lineage_validation"]["passed"])
+        self.assertEqual(report["source"]["joined_future_rows"], 1)
+        self.assertEqual(report["episodes"], 1)
+
+    def test_exact_id_checks_prediction_tuple(self) -> None:
+        for key, value in (("symbol", "000660"), ("event_time", (START + timedelta(minutes=1)).isoformat()),
+                           ("horizon_min", 60)):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                db_path = Path(tmp) / "runtime.db"
+                _create_db(db_path, event_times=[START])
+                with sqlite3.connect(db_path) as connection:
+                    connection.execute(f"UPDATE serving_predictions SET {key} = ?", (value,))
+                report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+                self._assert_lineage_blocked(report, "shadow_prediction_tuple_mismatch")
+
+    def test_exact_id_reads_decisions_and_predictions_from_one_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "runtime.db"
+            _create_db(db_path, event_times=[START])
+            with sqlite3.connect(db_path) as connection:
+                connection.execute("PRAGMA journal_mode=WAL")
+            original = evidence_service._stored_shadow_prediction_id
+            def concurrent_change(payload):
+                with sqlite3.connect(db_path) as connection:
+                    connection.execute("UPDATE serving_predictions SET probability_up = 0.1")
+                return original(payload)
+            with patch.object(evidence_service, "_stored_shadow_prediction_id", side_effect=concurrent_change):
+                report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+        self.assertTrue(report["source"]["shadow_lineage_validation"]["passed"])
+        self.assertEqual(report["episodes"], 1)
+
+    def test_exact_id_multiple_batches_keep_second_batch_fail_closed(self) -> None:
+        count = 502
+        last_id = sorted(f"prediction-{index}" for index in range(count))[-1]
+        for failure, reason in (("missing", "shadow_prediction_row_missing"),
+                                ("score", "shadow_prediction_mismatch"),
+                                ("metadata", "shadow_prediction_mismatch")):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                db_path = Path(tmp) / "runtime.db"
+                _create_db(db_path, event_times=[START + timedelta(minutes=index) for index in range(count)],
+                           probability_up=0.4)
+                valid = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+                self.assertTrue(valid["source"]["shadow_lineage_validation"]["passed"])
+                self.assertEqual(valid["source"]["joined_future_rows"], count)
+                with sqlite3.connect(db_path) as connection:
+                    if failure == "missing":
+                        connection.execute("DELETE FROM serving_predictions WHERE prediction_id = ?", (last_id,))
+                    elif failure == "score":
+                        connection.execute("UPDATE serving_predictions SET probability_up = 0.1 WHERE prediction_id = ?", (last_id,))
+                    else:
+                        connection.execute("UPDATE serving_predictions SET artifact_id = 'different' WHERE prediction_id = ?", (last_id,))
+                report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+                self._assert_lineage_blocked(report, reason)
+                self.assertEqual(report["source"]["future_decision_rows"], count)
+                self.assertEqual(report["source"]["shadow_lineage_validation"]["failed_decision_rows"], 1)
+
+    def test_tuple_validator_artifact_is_not_promoted_to_exact_id_validator(self) -> None:
+        payload = {"schema_version": 2, "evidence_validation_version": "e7-shadow-lineage-v1",
+                   "official_evaluation_status": "collecting_future_sample",
+                   "evidence_health": {"passed": True, "status": "valid_collecting", "reasons": []},
+                   "source": {"shadow_lineage_validation": {"version": "e7-shadow-lineage-v1", "passed": True,
+                                                            "reason_counts": {}}}}
+        self._assert_lineage_blocked(validate_e7_evidence_for_reuse(payload),
+                                     "shadow_lineage_validation_not_available")
+        self.assertTrue(payload["evidence_health"]["passed"])
+
+    def test_distinct_predictions_link_once_but_duplicate_decision_minute_stays_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "runtime.db"
+            _create_db(db_path, event_times=[START, START])
+            report = build_e7_daily_evidence(db_path, through_trading_day=START.date())
+        self.assertEqual(report["source"]["joined_future_rows"], 2)
+        self.assertEqual(report["source"]["future_decision_rows"], 2)
+        self._assert_lineage_blocked(report, "duplicate_decision_minute")
+        self.assertEqual(report["source"]["shadow_lineage_validation"]["reason_counts"],
+                         {"duplicate_decision_minute": 2})
 
     def test_malformed_missing_and_nonfinite_shadow_values_fail_closed(self) -> None:
         for value, reason in (
@@ -291,10 +377,10 @@ class E7DailyEvidenceTests(unittest.TestCase):
 
     def test_prediction_tuple_and_invalid_score_fail_closed(self) -> None:
         for column, value, reason in (
-            ("symbol", "000000", "shadow_prediction_row_missing"),
-            ("horizon_min", 60, "shadow_prediction_row_missing"),
-            ("event_time", (START + timedelta(minutes=1)).isoformat(), "shadow_prediction_row_missing"),
-            ("model_version", "other-model", "shadow_prediction_row_missing"),
+            ("symbol", "000000", "shadow_prediction_tuple_mismatch"),
+            ("horizon_min", 60, "shadow_prediction_tuple_mismatch"),
+            ("event_time", (START + timedelta(minutes=1)).isoformat(), "shadow_prediction_tuple_mismatch"),
+            ("model_version", "other-model", "shadow_prediction_mismatch"),
             ("probability_up", float("inf"), "shadow_probability_invalid"),
             ("probability_flat", -0.1, "shadow_probability_invalid"),
         ):
@@ -353,10 +439,10 @@ class E7DailyEvidenceTests(unittest.TestCase):
         self._assert_lineage_blocked(stored, "shadow_lineage_validation_not_available")
 
     def test_current_validation_cannot_claim_success_with_failed_proof(self) -> None:
-        payload = {"schema_version": 2, "evidence_validation_version": "e7-shadow-lineage-v1",
+        payload = {"schema_version": E7_DAILY_EVIDENCE_SCHEMA_VERSION, "evidence_validation_version": E7_EVIDENCE_VALIDATION_VERSION,
                    "official_evaluation_status": "collecting_future_sample",
                    "evidence_health": {"passed": True, "status": "valid_collecting", "reasons": []},
-                   "source": {"shadow_lineage_validation": {"version": "e7-shadow-lineage-v1", "passed": False,
+                   "source": {"shadow_lineage_validation": {"version": E7_EVIDENCE_VALIDATION_VERSION, "passed": False,
                                                             "reason_counts": {"shadow_prediction_missing": 1}}}}
         self._assert_lineage_blocked(
             validate_e7_evidence_for_reuse(payload), "shadow_lineage_validation_inconsistent"
@@ -393,10 +479,10 @@ class E7DailyEvidenceTests(unittest.TestCase):
                 payload = {"through_trading_day": "2026-08-31", "schema_version": 1,
                            "evidence_health": {"status": "valid_collecting", "passed": True, "reasons": []}}
                 if current:
-                    payload.update(schema_version=2, evidence_validation_version="e7-shadow-lineage-v1",
+                    payload.update(schema_version=E7_DAILY_EVIDENCE_SCHEMA_VERSION, evidence_validation_version=E7_EVIDENCE_VALIDATION_VERSION,
                                    official_evaluation_status="invalid_evidence",
                                    evidence_health={"status": "invalid", "passed": False, "reasons": ["shadow_prediction_missing"]},
-                                   source={"shadow_lineage_validation": {"version": "e7-shadow-lineage-v1", "passed": False,
+                                   source={"shadow_lineage_validation": {"version": E7_EVIDENCE_VALIDATION_VERSION, "passed": False,
                                                                          "reason_counts": {"shadow_prediction_missing": 1}}})
                 dated.write_text(json.dumps(payload))
                 before = dated.read_bytes()
@@ -488,14 +574,14 @@ class E7DailyEvidenceTests(unittest.TestCase):
         first = {
             "through_trading_day": "2026-08-31",
             "generated_at": "first",
-            "schema_version": 2,
-            "evidence_validation_version": "e7-shadow-lineage-v1",
+            "schema_version": E7_DAILY_EVIDENCE_SCHEMA_VERSION,
+            "evidence_validation_version": E7_EVIDENCE_VALIDATION_VERSION,
             "evaluator_version": E7_PORTFOLIO_REPLAY_MANIFEST.evaluator_version,
             "expected_evaluator_version": E7_PORTFOLIO_REPLAY_MANIFEST.evaluator_version,
             "manifest_hash": E7_EXPECTED_MANIFEST_SHA256,
             "current_manifest_hash": E7_EXPECTED_MANIFEST_SHA256,
             "expected_manifest_hash": E7_EXPECTED_MANIFEST_SHA256,
-            "source": {"shadow_lineage_validation": {"version": "e7-shadow-lineage-v1", "passed": True, "reason_counts": {}}},
+            "source": {"shadow_lineage_validation": {"version": E7_EVIDENCE_VALIDATION_VERSION, "passed": True, "reason_counts": {}}},
             "evidence_health": {"passed": True, "status": "valid_collecting", "reasons": []},
         }
         second = {

@@ -12,11 +12,13 @@
 
 ## 10/8 E7 원천 계보 검증 (공식 평가 차단)
 
-- 새 evidence validator `e7-shadow-lineage-v1`, daily schema `2`가 shadow JSON의 prediction ID/model/run/artifact/hash/3종 확률을 실제 prediction 원장과 대조한다. 누락·모호한 연결·prediction 재사용·잘못된 확률·active 계보 부재는 `invalid_evidence`로 fail-closed한다. evaluator/manifest, threshold, episode grouping/진입/청산/비용 계산은 변경하지 않았다.
+- 현행 evidence validator는 `e7-shadow-lineage-v2-exact-id`, daily schema `3`다. shadow JSON의 유일 prediction ID를 primary-key 배치 조회하고 종목/시각/horizon, model/run/artifact/hash/3종 확률을 대조한다. 누락·동일 분봉 다중 판단·prediction 재사용·잘못된 확률·active 계보 부재는 `invalid_evidence`로 fail-closed한다. evaluator/manifest, threshold, episode grouping/진입/청산/비용 계산은 변경하지 않았다. 앞선 schema 2/validator v1 결과는 별도 보존한다.
 - 미래 판단 원천 `76,002`건의 기존 tuple join은 `76,006`행이었다. 9/28 `005930` 14:42/14:43에 각 판단 2건과 prediction 2건이 있어 시각/종목/horizon/model join에서 각각 2x2 교차 연결됐다. 각 판단의 shadow JSON은 정확한 prediction ID 1개와 일치하므로 모델 artifact 자체가 훼손됐다고 단정하지 않는다. 영향은 distinct 판단 4건, join 중 모호한 8행/ID·점수 불일치 4행이다.
-- 실제 읽기 전용 검증은 evaluator/manifest·24거래일·모집단 11,708 episode·공식 episode/symbol 0/0·mark 수치가 기존 증거와 같음을 확인했으나 원천 계보 검증은 실패했다. 따라서 공식 수익성 평가는 차단한다. 수집과 Phase 0은 계속하며 수익성 실패로 해석하지 않는다. 근거: `.tmp-tests/e7-lineage-validation-20261008.json`.
+- 앞선 v1 읽기 전용 검증은 evaluator/manifest·24거래일·모집단 11,708 episode·공식 episode/symbol 0/0·mark 수치가 기존 증거와 같음을 확인했으나 원천 계보 검증은 실패했다. 따라서 공식 수익성 평가는 차단한다. 수집과 Phase 0은 계속하며 수익성 실패로 해석하지 않는다. 근거: `.tmp-tests/e7-lineage-validation-20261008.json`.
 - 10/7 이하 immutable daily/latest artifact는 바이트 해시를 보존했고 소급 작성하지 않았다. schema 1 보고서의 `valid_collecting`은 당시 검증 범위의 이력이지 새 계보 검증 통과가 아니다. 구버전 재사용은 파일을 고치지 않고 실행 결과에서 `shadow_lineage_validation_not_available`로 차단한다.
-- 남은 작업은 9/28 동일 분봉의 중복 판단 생성 경로 진단과 exact prediction ID 기반 연결 계약 검토다. 원장 삭제/임의 dedup/첫 행 선택이나 미래 threshold 조정은 하지 않는다. 연결 또는 평가 입력 계약 수정이 필요하면 기존 결과와 버전을 분리해 비교한다.
+- 원인 확정: raw 체결 삽입 순서에서 9/28 `005930`의 `14:43:00 → 14:42:59` 역전 1건을 확인했다. 기존 `process_trade_record`가 다른 분봉이면 현재 분봉을 마감하고 시각을 되돌려 14:42/14:43을 재생성했다. 종목별 단조 증가/마감 watermark로 재생성을 차단했고 늦은 원본 체결은 보존하며 `late_trade_events`로 센다. 열린 분봉 내 순서 역전은 집계하고, flush 이후 마감 분봉 재입력도 차단한다. 보호는 프로세스 메모리 범위다.
+- exact-ID 읽기 전용 검증은 `76,002`판단을 `76,002`행으로 연결해 교차 연결/ID·점수 불일치를 해소했다. 남은 실패는 `duplicate_decision_minute=4`뿐이다. 24거래일, 적격 38,896행, 모집단 11,708 episode, 공식 episode/symbol 0/0 및 mark 수치는 앞선 검증과 동일하다. 입력/계보 fingerprint는 연결 버전 차이로 변경됐고 혼합하지 않는다. 근거: `.tmp-tests/e7-exact-id-validation-20261008.json`; 공식 artifact 24개 바이트 해시는 보존했다.
+- 남은 작업: 다음 정상 세션에서 분봉 재생성 방지와 late 원본 보존을 관측하고, 과거 두 분봉의 원본/feature 생성 증거를 별도 검토한다. 과거 중복 판단과 덮어쓴 분봉을 삭제·재작성하거나 첫 행 선택으로 정상화하지 않는다. 확정 가능한 과거 평가 입력 복구 계약이 마련되기 전까지 공식 E7 평가는 차단하며, 기준 변경이 필요하면 별도 운영자 판단과 버전 분리가 필요하다.
 
 ## 10/7 장후 운영 확인 (수집 정상 / 연결 주의)
 

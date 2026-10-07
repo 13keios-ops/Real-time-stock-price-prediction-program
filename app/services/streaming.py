@@ -75,6 +75,7 @@ def _broker_submission_outcome_unknown(failure: BrokerPaperFailure | None) -> bo
 class OnlineSymbolState:
     symbol: str
     current_minute: datetime | None = None
+    finalized_minute: datetime | None = None
     ticks: list[MarketTickEvent] = field(default_factory=list)
     latest_orderbook: OrderbookSnapshot | None = None
 
@@ -91,6 +92,7 @@ class OnlinePipelineResult:
     orders_written: int
     runtime_root: Path
     invalid_orderbook_events: int = 0
+    late_trade_events: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -99,6 +101,7 @@ class OnlinePipelineResult:
             "raw_trade_events": self.raw_trade_events,
             "raw_orderbook_events": self.raw_orderbook_events,
             "invalid_orderbook_events": self.invalid_orderbook_events,
+            "late_trade_events": self.late_trade_events,
             "minute_bars_written": self.minute_bars_written,
             "predictions_written": self.predictions_written,
             "signals_written": self.signals_written,
@@ -156,6 +159,7 @@ class OnlinePipelineProcessor:
         self.raw_trade_events = 0
         self.raw_orderbook_events = 0
         self.invalid_orderbook_events = 0
+        self.late_trade_events = 0
         self.minute_bars_written = 0
         self.predictions_written = 0
         self.signals_written = 0
@@ -435,10 +439,19 @@ class OnlinePipelineProcessor:
 
         state = self._state(tick.symbol)
         minute = self._minute_floor(tick.event_time)
+        # Preserve raw ticks, but never reopen a closed minute or regress event time.
+        if (
+            state.current_minute is not None and minute < state.current_minute
+        ) or (
+            state.finalized_minute is not None and minute <= state.finalized_minute
+        ):
+            self.late_trade_events += 1
+            return
         if state.current_minute is None:
             state.current_minute = minute
         elif minute != state.current_minute:
             self._finalize_symbol_minute(state)
+            state.finalized_minute = state.current_minute
             state.current_minute = minute
             state.ticks.clear()
         state.ticks.append(tick)
@@ -838,6 +851,7 @@ class OnlinePipelineProcessor:
     def flush(self) -> OnlinePipelineResult:
         for state in self.states.values():
             self._finalize_symbol_minute(state)
+            state.finalized_minute = state.current_minute
             state.ticks.clear()
         if self.broker_paper_mirror.enabled:
             self._run_broker_sync(bar_time=now_local(self.settings.timezone), force=True)
@@ -847,6 +861,7 @@ class OnlinePipelineProcessor:
             raw_trade_events=self.raw_trade_events,
             raw_orderbook_events=self.raw_orderbook_events,
             invalid_orderbook_events=self.invalid_orderbook_events,
+            late_trade_events=self.late_trade_events,
             minute_bars_written=self.minute_bars_written,
             predictions_written=self.predictions_written,
             signals_written=self.signals_written,

@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from app.brokers.kis_auth import KisApiError
 from app.brokers.kis_quote_ws import DOMESTIC_ORDERBOOK_TR_ID, DOMESTIC_TRADE_TR_ID
+from app.brokers.kis_quote_ws import parse_kis_ws_frame
 from app.collectors.market_data import event_time_from_kis_ws_record
 from app.config.settings import load_settings
 from app.services.broker_paper import BROKER_ACCOUNT_NOT_ORDERABLE_MESSAGE
@@ -28,6 +29,67 @@ from app.storage.runtime_writer import RuntimeWriter, get_sqlite_store
 
 
 class StreamingPipelineTests(unittest.TestCase):
+    def test_minute_watermark_is_per_symbol(self) -> None:
+        processor = object.__new__(OnlinePipelineProcessor)
+        processor.states = {}
+        processor.writer = Mock()
+        processor.raw_source = "test"
+        processor.raw_trade_events = 0
+        processor.late_trade_events = 0
+        processor._finalize_symbol_minute = Mock()
+        trade = parse_kis_ws_frame(build_sample_ws_frames()[1])["records"][0]
+        start = datetime.fromisoformat("2026-09-28T14:42:00+09:00")
+        processor.process_trade_record(trade, event_time=start)
+        processor.process_trade_record(trade, event_time=start + timedelta(minutes=2))
+        processor.process_trade_record(trade, event_time=start + timedelta(minutes=1))
+        processor.process_trade_record({**trade, "MKSC_SHRN_ISCD": "000660"}, event_time=start)
+        self.assertEqual(processor.raw_trade_events, 4)
+        self.assertEqual(processor.writer.write_market_tick.call_count, 4)
+        self.assertEqual(processor.late_trade_events, 1)
+        self.assertEqual(len(processor.states["000660"].ticks), 1)
+        self.assertEqual(processor.states["000660"].current_minute, start)
+        self.assertEqual(processor._finalize_symbol_minute.call_count, 1)
+
+    def test_late_ticks_and_post_flush_ticks_preserve_raw_without_repeating_decisions(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        runtime_root = root / ".tmp-tests" / "streaming-minute-watermark" / str(uuid.uuid4())
+        runtime_root.mkdir(parents=True)
+        database_path = runtime_root / "test.db"
+        env = {
+            "RUNTIME_DATA_DIR": str(runtime_root),
+            "DATABASE_URL": f"sqlite:///{database_path}",
+            "ENABLE_BROKER_PAPER_MIRRORING": "false",
+        }
+        frames = build_sample_ws_frames("005930")
+        trade = parse_kis_ws_frame(frames[1])["records"][0]
+        orderbook = parse_kis_ws_frame(frames[0])["records"][0]
+        start = datetime.fromisoformat("2026-09-28T14:42:00+09:00")
+        with patch.dict(os.environ, env, clear=False):
+            settings = load_settings(project_root=root)
+            processor = OnlinePipelineProcessor(settings, prediction_horizons=(15,))
+            processor.process_orderbook_record(orderbook, event_time=start)
+            for seconds in (59, 58, 60, 59, 61, 120):
+                processor.process_trade_record(trade, event_time=start + timedelta(seconds=seconds))
+            first = processor.flush()
+            processor.process_trade_record(trade, event_time=start + timedelta(seconds=121))
+            second = processor.flush()
+            processor.process_trade_record(trade, event_time=start + timedelta(minutes=3))
+            third = processor.flush()
+            store = get_sqlite_store(settings)
+            with store._connect() as connection:
+                raw = connection.execute("SELECT COUNT(*) FROM raw_market_ticks").fetchone()[0]
+                decisions = connection.execute("SELECT event_time FROM serving_decision_ledger ORDER BY event_time").fetchall()
+                bars = connection.execute("SELECT bar_time, trade_count FROM curated_minute_bars ORDER BY bar_time").fetchall()
+        self.assertEqual(raw, 8)
+        self.assertEqual(first.minute_bars_written, 3)
+        self.assertEqual(second.minute_bars_written, 3)
+        self.assertEqual(second.late_trade_events, 2)
+        self.assertEqual(second.to_dict()["late_trade_events"], 2)
+        self.assertEqual(third.minute_bars_written, 4)
+        self.assertEqual(len(decisions), 4)
+        self.assertEqual(len({row[0] for row in decisions}), 4)
+        self.assertEqual([row[1] for row in bars], [2, 2, 1, 1])
+
     def test_stream_handler_skips_invalid_kis_timestamp_and_keeps_processing(self) -> None:
         class RecordingProcessor:
             def __init__(self) -> None:

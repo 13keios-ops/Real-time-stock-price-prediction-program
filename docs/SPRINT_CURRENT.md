@@ -100,7 +100,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] KRX finalized EOD short-sale/optional net-position을 E7과 분리한 descriptive shadow 계약과 no-look-ahead report 추가
 - [ ] 외부 shadow의 공식 export 입력 확보와 실제 표본 축적 확인 (평가 코드 구현과 수집 가동을 구분)
 - [x] 공식 E7 평가 전 shadow prediction identity/중복 fail-closed 검증 보강; evidence validator/schema와 legacy 재사용 경계 분리
-- [ ] E7 9/28 동일 분봉 중복 판단의 생성 경로 진단 및 exact prediction ID 연결 계약 검토; 원장 보존/결과 버전 분리
+- [x] E7 9/28 late tick 분봉 역행 원인 확정, raw 보존/마감 watermark 및 exact prediction ID 연결 구현; 원장 보존/validator v2·schema 3 분리
+- [ ] 다음 정상 세션의 분봉 재생성 방지/late raw 보존 관측 및 과거 중복 분봉 평가 입력의 별도 증거 검토; 공식 평가 차단 유지
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정

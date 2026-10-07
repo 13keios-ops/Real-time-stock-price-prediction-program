@@ -129,13 +129,15 @@ artifact는 evaluator/manifest identity, 미래 거래일·episode·종목, mark
 
 ### Shadow lineage validation
 
-daily schema `2`와 `evidence_validation_version=e7-shadow-lineage-v1`은 원천 계보 검증의 버전이다. 공식 replay evaluator/manifest와 별개이며 전략, threshold, episode grouping 또는 평가 계산을 변경하지 않는다.
+daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`는 원천 연결/계보 검증의 버전이다. schema 2의 tuple join validator `e7-shadow-lineage-v1` 결과와 구분한다. 공식 replay evaluator/manifest와 별개이며 전략, threshold, episode grouping 또는 평가 계산을 변경하지 않는다.
 
-- 미래 h15 판단을 LEFT JOIN으로 관측해 prediction 누락을 조용히 제외하지 않는다.
+- 미래 h15 판단을 모두 읽고 shadow JSON에 저장된 유일 prediction ID를 primary-key 제한 배치 조회로 연결한다. 누락을 제외하거나 시각/종목 tuple로 대체 연결하지 않는다. 판단/예측/분봉 조회는 같은 읽기 전용 SQLite snapshot을 사용한다.
 - 판단의 `shadow_predictions_json`에서 manifest 모델 항목이 정확히 1개여야 하고 prediction ID/model/run/artifact/hash 및 up/flat/down 확률이 SQLite 원장과 정확히 같아야 한다. 확률은 유한한 0~1 숫자여야 한다.
-- 같은 판단의 다중 prediction 연결, 서로 다른 판단의 동일 shadow ID 재사용, malformed JSON/계보 schema 부재와 active 계보 부재를 차단한다. 오류가 있는 행만 제외해 공식 pass를 만들지 않으며 전체 `evidence_health`와 normal/2x/random/두 구간 전제를 차단한다.
+- prediction의 종목/시각/horizon도 판단과 같아야 한다. 같은 분봉의 다중 판단은 `duplicate_decision_minute`, 서로 다른 판단의 동일 shadow ID 재사용은 `shadow_prediction_reused`로 차단한다. 참조하지 않은 별도 prediction이 같은 시각에 있다는 이유만으로 잘못된 교차 연결을 만들지 않는다. malformed JSON/계보 schema 부재와 active 계보 부재도 차단한다. 오류가 있는 행만 제외해 공식 pass를 만들지 않으며 전체 `evidence_health`와 normal/2x/random/두 구간 전제를 차단한다.
 - `source.shadow_lineage_validation`에 distinct 판단 검사/실패 건수, join 행 기준 reason counts, 원천 계보 fingerprint를 기록한다. 기존 `source_fingerprint`는 평가 입력용이며 새 계보 fingerprint와 역할이 다르다.
 - 기존 immutable artifact는 재작성하지 않는다. 구버전 또는 검증 proof가 없는 보고서 재사용은 읽기 결과에서 `shadow_lineage_validation_not_available`로 차단하고 CLI exit 1을 반환한다. 현행 invalid artifact 재사용도 exit 1이며 잘못된 성공/검증 proof 조합은 `shadow_lineage_validation_inconsistent`다. 캐시의 observed/expected evaluator, observed/current/expected manifest와 현재 코드 상수도 다시 대조해 누락·drift를 차단한다.
-- 정상 원천 입력에서는 기존 진행률과 평가 입력 의미를 유지한다. 모호한 tuple join을 발견해도 임의 dedup/추정 ID 연결로 구제하지 않는다. exact ID 기반 입력 계약을 변경할 때는 별도의 버전과 비교 검증이 필요하다.
+- 정상 원천 입력에서는 기존 진행률과 평가 입력 의미를 유지한다. 과거 중복 판단/덮어쓴 분봉은 임의 dedup/첫 행 선택으로 구제하지 않는다. 연결 버전이 다르면 source/lineage fingerprint도 직접 혼합하지 않는다. 원본과 구버전 artifact를 보존하고 버전별 진단 비교를 분리한다.
+
+실시간 분봉의 원본 체결은 모두 보존한다. `OnlinePipelineProcessor`는 종목별 분봉 시각을 역행하지 않으며 마감한 분봉을 다시 열지 않는다. `late_trade_events`는 과거/이미 마감한 분봉이라 파생 처리에서 제외한 원본 체결 수다. 아직 열린 분봉 안에서 초 단위 순서가 바뀐 체결은 계속 집계한다. 이 watermark는 프로세스 메모리 범위이며 재시작 간 중복 방지를 보장하지 않는다.
 
 2026-08-31 첫 미래 거래일 데이터는 수집됐지만 당시 daily ops에는 writer가 없어 공식 artifact가 없었다. 과거 evidence는 소급 작성하지 않고 다음 안전한 post-close부터 immutable 일일 증적을 축적한다.

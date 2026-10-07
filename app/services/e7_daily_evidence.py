@@ -25,8 +25,8 @@ from app.services.portfolio_replay_v2 import (
 )
 
 
-E7_DAILY_EVIDENCE_SCHEMA_VERSION = 2
-E7_EVIDENCE_VALIDATION_VERSION = "e7-shadow-lineage-v1"
+E7_DAILY_EVIDENCE_SCHEMA_VERSION = 3
+E7_EVIDENCE_VALIDATION_VERSION = "e7-shadow-lineage-v2-exact-id"
 E7_DAILY_EVIDENCE_STATUS_COLLECTING = "collecting_future_sample"
 E7_EXPECTED_EVALUATOR_VERSION = "portfolio-replay-v2-minute-mtm"
 E7_EXPECTED_MANIFEST_SHA256 = (
@@ -50,6 +50,7 @@ def _connect_readonly(database_path: Path) -> sqlite3.Connection:
         uri=True,
     )
     connection.row_factory = sqlite3.Row
+    connection.execute("BEGIN")
     return connection
 
 
@@ -112,6 +113,7 @@ def _load_future_decisions(
             d.decision_id,
             d.symbol,
             d.event_time,
+            d.horizon_min,
             d.signal_side,
             d.signal_allowed,
             d.time_gate_allowed,
@@ -122,37 +124,50 @@ def _load_future_decisions(
             d.active_training_run_id,
             d.active_artifact_id,
             d.active_artifact_sha256,
-            d.shadow_predictions_json,
-            p.prediction_id,
-            p.model_version,
-            p.training_run_id,
-            p.artifact_id,
-            p.artifact_sha256,
-            p.probability_up,
-            p.probability_flat,
-            p.probability_down
+            d.shadow_predictions_json
         FROM serving_decision_ledger AS d
-        LEFT JOIN serving_predictions AS p
-          ON p.symbol = d.symbol
-         AND p.event_time = d.event_time
-         AND p.horizon_min = d.horizon_min
-         AND p.model_version = ?
         WHERE d.horizon_min = ?
           AND d.event_time >= ?
           AND d.event_time < ?
         ORDER BY d.event_time, d.symbol, d.decision_id
         """,
         (
-            E7_PORTFOLIO_REPLAY_MANIFEST.model_version,
             E7_PORTFOLIO_REPLAY_MANIFEST.horizon_min,
             start.isoformat(),
             end.isoformat(),
         ),
     ).fetchall()
+    # Use the recorded identity, never a Cartesian symbol/minute/model join.
+    references = [_stored_shadow_prediction_id(row["shadow_predictions_json"]) for row in rows]
+    selected_ids = sorted({reference for reference in references if reference})
+    predictions: dict[str, dict[str, Any]] = {}
+    prediction_fields = (
+        "prediction_id", "model_version", "training_run_id", "artifact_id", "artifact_sha256",
+        "probability_up", "probability_flat", "probability_down",
+        "prediction_symbol", "prediction_event_time", "prediction_horizon_min",
+    )
+    for offset in range(0, len(selected_ids), 500):
+        batch = selected_ids[offset:offset + 500]
+        placeholders = ",".join("?" for _ in batch)
+        for prediction in connection.execute(
+            f"""SELECT prediction_id, model_version, training_run_id, artifact_id, artifact_sha256,
+                       probability_up, probability_flat, probability_down,
+                       symbol AS prediction_symbol, event_time AS prediction_event_time,
+                       horizon_min AS prediction_horizon_min
+                FROM serving_predictions WHERE prediction_id IN ({placeholders})""",
+            batch,
+        ):
+            predictions[str(prediction["prediction_id"])] = dict(prediction)
+    rows = [
+        {**dict(row), **predictions.get(reference, dict.fromkeys(prediction_fields))}
+        for row, reference in zip(rows, references)
+    ]
     loaded: list[_FutureDecisionRow] = []
     incomplete_lineage_rows = 0
     eligible_rows = 0
     decision_counts = Counter(str(row["decision_id"]) for row in rows)
+    minute_keys = [(row["symbol"], _parse_datetime(row["event_time"]).replace(second=0, microsecond=0)) for row in rows]
+    minute_counts = Counter(minute_keys)
     checks = [_shadow_lineage_errors(row) for row in rows]
     shadow_ids_by_decision = {
         str(row["decision_id"]): shadow_id
@@ -163,9 +178,11 @@ def _load_future_decisions(
     reason_counts: Counter[str] = Counter()
     failed_decisions: set[str] = set()
     lineage_digest = hashlib.sha256()
-    for row, (reasons, shadow_id) in zip(rows, checks):
+    for row, minute_key, (reasons, shadow_id) in zip(rows, minute_keys, checks):
         if decision_counts[str(row["decision_id"])] > 1:
             reasons.add("shadow_prediction_rows_ambiguous")
+        if minute_counts[minute_key] > 1:
+            reasons.add("duplicate_decision_minute")
         if shadow_id and prediction_counts[shadow_id] > 1:
             reasons.add("shadow_prediction_reused")
         reason_counts.update(reasons)
@@ -222,7 +239,21 @@ def _load_future_decisions(
     }
 
 
-def _shadow_lineage_errors(row: sqlite3.Row) -> tuple[set[str], str | None]:
+def _stored_shadow_prediction_id(payload: Any) -> str | None:
+    try:
+        shadows = json.loads(payload)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(shadows, list) or any(not isinstance(item, dict) for item in shadows):
+        return None
+    selected = [item for item in shadows if item.get("model_version") == E7_PORTFOLIO_REPLAY_MANIFEST.model_version]
+    if len(selected) != 1:
+        return None
+    reference = selected[0].get("prediction_id")
+    return reference if isinstance(reference, str) and reference.strip() else None
+
+
+def _shadow_lineage_errors(row: dict[str, Any]) -> tuple[set[str], str | None]:
     reasons: set[str] = set()
     if not all(
         isinstance(row[key], str) and row[key].strip()
@@ -231,6 +262,8 @@ def _shadow_lineage_errors(row: sqlite3.Row) -> tuple[set[str], str | None]:
         reasons.add("active_lineage_incomplete")
     if not row["prediction_id"]:
         reasons.add("shadow_prediction_row_missing")
+    elif any(row[f"prediction_{key}"] != row[key] for key in ("symbol", "event_time", "horizon_min")):
+        reasons.add("shadow_prediction_tuple_mismatch")
     if not all(
         isinstance(row[key], str) and row[key].strip()
         for key in ("training_run_id", "artifact_id", "artifact_sha256")
