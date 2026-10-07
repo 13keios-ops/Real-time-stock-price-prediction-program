@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] 별도 버전 진단 가격 입력뷰 및 영향 회귀
+
+- `e7-captured-raw-price-view-v1` 불변 가격 mapping과 proof를 추가했다. 읽기 전용 snapshot으로 요청 분봉의 raw 조각/보존 JSONL/SQLite baseline을 정확히 대조하고, 모든 반환 가격을 검증한다. 원래 원장/예측/공식 평가 경로는 수정하지 않는다. 입력뷰는 공식 평가 불허이며 당시 통합 정본 예측 복구를 주장하지 않는다.
+- 독립 리뷰의 DB 증거 변경 감지, 요청 밖 비유한 가격, 큰 시각 역전의 조각 경계 소실을 각각 실패 재현 후 보강했다. rowid 범위 안의 모든 같은 종목/소스 경계를 유지하고 새 snapshot에서 raw/저장 분봉을 재확인한다. 성공/실패 모두 연결을 닫고 JSONL 변경도 차단한다. 재리뷰에서 기존 지적 해소를 확인했다.
+- 집중 11건, 전체 unittest 759건(42.276초), diff check 통과; 구조 audit 오류 0/기존 경고 3건이다. 전체 로그: `.tmp-tests/e7-price-view-full-tests-20261008.log`. 실제 고정 모집단/가격 민감도 검증은 `runtime-data/reports/codex/e7-price-input-view-reviewed-20261008.json`에 분리했고 원래 공식 파일을 포함한 29개 증거 파일 해시와 DB 가격 행을 보존했다. 현재 수치는 STATUS가 소유한다.
+- 공식 E7 evaluator/manifest/threshold/판단/주문 정책, Phase 0/계좌/기준선/자동화/NAS는 변경하지 않았고 KIS API 호출은 0회다. 과거 중복 판단의 공식 차단 유지와 다음 정상 세션 관측은 남아 있다. 이번 진단에만 사용한 임시 script는 제거하고 결과 및 테스트 로그는 보존했다.
+
 ## [2026-10-08] 과거 중복 분봉의 보존 입력 및 가격 의존성 검증
 
 - 날짜별 append-only 분봉/feature/판단의 순서 정합을 확인하고 raw 연속 구간으로 문제 조각들을 정확히 재현했다. 당시 해시 일치 모델과 보존 feature로 active/shadow의 확률·계보를 재현해 JSONL/SQLite prediction 일치와 SQLite 마지막 조각 덮어쓰기를 확인했다. 직접 feature ID/전역 수신 순서 없는 이력은 인과 연결의 추가 한계로 구분한다.

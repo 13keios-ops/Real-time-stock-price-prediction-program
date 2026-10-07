@@ -102,6 +102,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 공식 E7 평가 전 shadow prediction identity/중복 fail-closed 검증 보강; evidence validator/schema와 legacy 재사용 경계 분리
 - [x] E7 9/28 late tick 분봉 역행 원인 확정, raw 보존/마감 watermark 및 exact prediction ID 연결 구현; 원장 보존/validator v2·schema 3 분리
 - [x] 과거 중복 분봉의 raw/보존 feature/당시 모델/예측 출력 교차검증; 조각 예측 재현과 통합 정본 예측 부재 구분, 공식 평가 차단 유지
+- [x] 원장 보존/원천 검증을 갖춘 별도 버전 진단 가격 입력뷰와 고정 episode·비용 조건 영향 회귀; 공식 평가와 분리
 - [ ] 다음 정상 세션의 분봉 재생성 방지/late raw 보존 관측; 과거 입력 또는 평가 허용 계약 변경은 별도 범위·버전 분리
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행

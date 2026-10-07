@@ -141,3 +141,11 @@ daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`�
 실시간 분봉의 원본 체결은 모두 보존한다. `OnlinePipelineProcessor`는 종목별 분봉 시각을 역행하지 않으며 마감한 분봉을 다시 열지 않는다. `late_trade_events`는 과거/이미 마감한 분봉이라 파생 처리에서 제외한 원본 체결 수다. 아직 열린 분봉 안에서 초 단위 순서가 바뀐 체결은 계속 집계한다. 이 watermark는 프로세스 메모리 범위이며 재시작 간 중복 방지를 보장하지 않는다.
 
 2026-08-31 첫 미래 거래일 데이터는 수집됐지만 당시 daily ops에는 writer가 없어 공식 artifact가 없었다. 과거 evidence는 소급 작성하지 않고 다음 안전한 post-close부터 immutable 일일 증적을 축적한다.
+
+### Diagnostic Captured-Raw Price View
+
+- `app/services/e7_price_input_view.py`의 `build_verified_price_input_view`는 `e7-captured-raw-price-view-v1` 입력뷰만 만든다. 공식 daily writer나 원장 수정 경로에 연결하지 않는다.
+- 반환할 전체 ReplayBar의 종목/분 시각/유한 양수 가격을 검증하고, 명시한 미래 분봉의 기존 open/close가 SQLite와 같아야 한다. 단일 읽기 전용 snapshot에서 해당 분봉의 첫~마지막 `kis-ws` capture rowid 사이 같은 종목/소스의 모든 분 경계를 유지한다. 조각별 OHLC/volume/count가 보존 JSONL 생성본과 정확히 일치해야 하며 마지막 생성본도 저장 분봉과 같아야 한다. 새 읽기 전용 snapshot으로 관련 raw/저장 분봉을 재확인한 뒤 JSONL을 재확인한다. 원천 누락·불일치·잘못된 가격/시각·검증 중 관련 DB/파일 변경은 `PriceInputViewError`다. DB 연결은 성공/실패 모두 닫는다. 증거는 검증 시점의 snapshot이며 반환 뒤 원본의 영구 불변성을 보장하지 않는다.
+- 증명된 요청 분봉의 모든 보존 체결을 event time/capture rowid 순으로 합쳐 open/close만 별도 불변 mapping에 덮어 놓는다. 기존 입력, DB, 과거 JSONL/예측은 바꾸지 않는다. 보존 feed 전체 집계이지 거래소 feed 완전성 또는 정본 feature/예측 복구가 아니다.
+- proof는 입력 버전, 원래/교정 가격 fingerprint, raw capture 구간 해시, 생성 파일 해시, evaluator/manifest 및 `official_evaluation_permitted=false`를 기록한다. 진단 결과는 이 입력 버전과 fingerprint를 함께 보존해야 한다. 같은 evaluator/manifest라도 기존 공식 결과와 합산하거나 공식 pass 근거로 사용할 수 없다. 일반 replay compatibility guard만으로 입력뷰 호환성을 보장하지 않는다.
+- 영향 회귀는 고정 episode ID/시각/avoid와 비용/제약을 유지한다. 가격 민감도 확인을 위해 모집단 episode의 avoid를 무시한 단일 진단 실행은 공식 rescue policy 또는 random-control simulation과 구분한다. 중복 판단 차단을 풀거나 과거 판단을 삭제·선택·재생성하는 권한은 이 입력뷰에 없다.
