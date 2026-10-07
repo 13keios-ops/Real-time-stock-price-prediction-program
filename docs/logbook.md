@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-08] 과거 중복 분봉의 보존 입력 및 가격 의존성 검증
+
+- 날짜별 append-only 분봉/feature/판단의 순서 정합을 확인하고 raw 연속 구간으로 문제 조각들을 정확히 재현했다. 당시 해시 일치 모델과 보존 feature로 active/shadow의 확률·계보를 재현해 JSONL/SQLite prediction 일치와 SQLite 마지막 조각 덮어쓰기를 확인했다. 직접 feature ID/전역 수신 순서 없는 이력은 인과 연결의 추가 한계로 구분한다.
+- 4개 조각 판단이 E7 비적격이어도 가격 영향은 별개였다. 고정 모집단/episode helper의 의존성 검증에서 다른 episode의 청산/보유 가격 입력에 문제가 있음을 확인했다. raw 가격 재구성은 별도 진단 산출물이며 공식 입력 교정이나 random-control 실행으로 취급하지 않는다. 수치와 남은 입력 계약은 STATUS가 소유한다.
+- `runtime-data/reports/codex/`에 forensics/impact/price-provenance 증적 3개를 생성했다. 원본 JSONL·당시 모델·공식 E7 artifact 해시를 보존했고 DB/API/전략/manifest/evaluator/validator는 변경하지 않았다. 진단 내부의 재구성·확률·계보·순서 assertions와 문서 diff check를 검증했다. production 코드가 직전 748건 통과 상태와 같으므로 전체 테스트를 불필요하게 반복하지 않는다. 다음 정상 세션은 아직 도래하지 않아 실수집 관측을 완료로 표시하지 않는다.
+
 ## [2026-10-08] late tick 분봉 역행 방지와 E7 exact-ID 계보 연결
 
 - raw 삽입 순서의 분 경계 역전과 기존 처리 코드의 분봉 재생성을 확인하고 격리 테스트에서 3개 분봉이 5번 생성되는 실패를 재현했다. 종목별 현재/마감 watermark와 late counter를 추가해 과거/flush 이후 마감 분봉을 다시 처리하지 않고 원본 체결을 보존한다. 열린 분봉 내부 순서 역전, 다음 분봉 진행, 종목별 독립성과 local paper 판단 생성도 검증했다. 보호는 프로세스 메모리 범위이며 restart 간 idempotency를 주장하지 않는다.
