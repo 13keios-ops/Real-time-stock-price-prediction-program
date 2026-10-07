@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-07] 정합 테스트 discovery 복구 및 운영 상태 문서 동기화
+
+- 정합 테스트가 존재하지 않는 `RuntimeWrite`를 import해 모듈의 8개 테스트가 discovery에서 제외되는 실패를 재현했다. 기존 구현명 `RuntimeWriter`로 import 한 줄만 수정했다.
+- 정합 모듈 8건 및 전체 unittest 727건(53.198초)이 통과했다. 전체 로그는 `.tmp-tests/reconciliation-import-full-tests-20261007.log`이며 앞선 품질 집계 작업의 720건 실패 기록은 당시 이력으로 보존한다.
+- stale 주말 상태를 최신 장후 산출물과 서비스 확인에 맞춰 STATUS에 동기화했다. 정각 WebSocket 단절의 원천과 허용 오차 내 비용 차이는 미확정으로 남겼으며 production 코드, DB, KIS API, 계좌 기준, E7 정책, 자동화와 NAS는 변경하지 않았다.
+
 ## [2026-10-07] 일일 KIS 품질 집계의 전체 이력 스캔 분리
 
 - `source`와 날짜만 제한하면 기존 인덱스의 중간 `symbol` 키가 비어 전체 raw 이력을 훑는 실행 계획이었다. 소스별 종목을 ordered seek로 열거하고 종목별 최신 날짜/시간 범위를 조회해 기존 인덱스 세 키를 모두 사용한다. 전체 이력 날짜/소스 합계는 `--include-history` 또는 nonpositive `--recent-days` 명시 요청에만 계산한다.

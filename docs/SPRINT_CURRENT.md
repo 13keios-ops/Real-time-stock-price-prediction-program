@@ -51,7 +51,7 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 ## 활성 체크리스트
 
 - [x] 일일 data-quality 최근 관측 집계와 명시 전체 이력 합계 분리; 기존 인덱스 제한 조회 및 운영 판정 보존 검증
-- [ ] 기존 `test_paper_reconciliation`의 `RuntimeWrite` import 오타를 별도 수정하고 전체 회귀 재검증
+- [x] 기존 `test_paper_reconciliation`의 `RuntimeWrite` import 오타 수정; 정합 모듈 8건 및 전체 회귀 727건 통과
 - [x] order-fill GET timeout/network 실패의 최신 보고와 batch 실패 종료, 기존 수집 백오프 보존
 - [x] 장후 확정 체결 동기화 안전 검사, 당일 중복 조회 방지와 잔여 mismatch 원인 진단
 - [ ] 현재 장부 보정 후 정상 거래일 정합을 축적해 Phase 0 최근 10거래일 기준 충족 (최신 수치는 STATUS)

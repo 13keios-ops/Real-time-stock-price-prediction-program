@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from app.config.settings import load_settings
 from app.services.paper_reconciliation import reconcile_paper_accounts
 from app.storage.contracts import BrokerOrderSubmission, Fill, PaperOrder, PaperPosition, PortfolioSnapshot
-from app.storage.runtime_writer import RuntimeWrite
+from app.storage.runtime_writer import RuntimeWriter
 
 
 class PaperReconciliationTests(unittest.TestCase):
