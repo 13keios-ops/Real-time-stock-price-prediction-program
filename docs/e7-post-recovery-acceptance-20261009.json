@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_id": "e7-post-recovery-20261009",
+  "prepared_on_kst": "2026-10-09",
+  "approval_scope": "prepare_separate_post_recovery_future_contract",
+  "approval_basis": "operator_selected_recommended_future_contract_on_2026_10_09",
+  "activation_status": "not_activated_trusted_producer_pending",
+  "contract_hash": "16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740",
+  "contract": {
+    "version": "e7-source-acceptance-contract-v1",
+    "manifest_hash": "1d61b288a715d3cde63f6ccf1e4dcc42d6affebd14fe9d4beaf3319a9e0dd3fa",
+    "validator_version": "e7-shadow-lineage-v2-exact-id",
+    "price_input_version": "e7-stored-minute-price-input-v1",
+    "source_scope": "fixed_e7_future_interval",
+    "future_intervals": [
+      {
+        "interval_id": "future_interval_1",
+        "start": "2026-10-12T09:15:00+09:00",
+        "end": "2026-10-24T00:00:00+09:00"
+      },
+      {
+        "interval_id": "future_interval_2",
+        "start": "2026-10-26T09:15:00+09:00",
+        "end": "2026-11-07T00:00:00+09:00"
+      }
+    ]
+  },
+  "evaluation_policy": {
+    "original_future_start_preserved": "2026-08-31T09:15:00+09:00",
+    "evaluator_version": "portfolio-replay-v2-minute-mtm",
+    "threshold": 0.55,
+    "minimum_trading_days_per_interval": 10,
+    "minimum_policy_episodes_per_interval": 100,
+    "minimum_policy_symbols_per_interval": 5,
+    "random_control_simulations": 1000,
+    "cost_scenarios": ["normal", "double"],
+    "strategy_costs_constraints_and_model_changes_permitted": false,
+    "insufficient_sample": "observe_more_without_moving_fixed_boundaries",
+    "merge_with_original_cumulative_results_permitted": false,
+    "historical_evidence_repair_permitted": false,
+    "automatic_official_permission": false
+  }
+}

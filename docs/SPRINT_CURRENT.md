@@ -105,8 +105,11 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 원장 보존/원천 검증을 갖춘 별도 버전 진단 가격 입력뷰와 고정 episode·비용 조건 영향 회귀; 공식 평가와 분리
 - [x] 공식 증거 acceptance 계약 및 결과 비교 경계 검토; 진단 전용/원천 실패/가격 입력 혼합의 package guard 공백 메모리 재현 (정책 활성화 없음)
 - [x] 별도 worktree에 공식 entrypoint/package source-acceptance proof와 가격 입력 버전/hash 강제 구현; 수학/전략 불변 focused 회귀 (운영 계약 미활성)
-- [ ] source-acceptance guard 장외 전체 unittest 및 root 반영; trusted producer 승인/원천 proof 연동은 별도 계약 확정 뒤 수행
-- [ ] 다음 정상 세션의 분봉 재생성 방지/late raw 보존 관측; 과거 교정 계약 또는 복구 후 고정 구간 계약은 운영자 결정 뒤 별도 범위·버전 분리
+- [x] source-acceptance guard 장외 전체 unittest 779건 및 root main 통합; 운영 승인 proof 자동 주입 없음
+- [x] 10/8 실제 세션 append-only 분봉/feature/decision 중복 및 분 시각 역행 0건 확인 (late counter 실증과 restart idempotency는 별도 미확인)
+- [x] 운영자 권장안 승인에 따라 복구 후 두 미래 구간의 별도 계약을 사전 고정; 정본은 `docs/e7-post-recovery-acceptance-20261009.json`, 운영 활성화 없음
+- [ ] 고정 구간별 trusted producer 원천 validator/불변 입력 proof와 승인 hash 연동 및 별도 진행 리포트 구현; 원래 누적 E7 차단 유지
+- [ ] 실제 late 이벤트의 raw 보존/counter/파생 재생성 방지 대조 및 restart 간 idempotency 검증
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행
 - [ ] E7 2배 비용, 일별 일관성, 집중도, 최대 낙폭, 비중복 두 번째 구간 판정

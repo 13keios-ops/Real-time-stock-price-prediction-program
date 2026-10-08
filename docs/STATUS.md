@@ -2,17 +2,25 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-10-08 KST, 장외 E7 원천 계보 수동 검증
-- 장 상태: overnight
+- 확인 시각: 2026-10-09 KST, 휴장 장외 후속 조치
+- 장 상태: overnight / 한글날 휴장
 - live runtime: 정지, `paper`; 장외에 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat fresh, 오류 없음; should-run false
 - dashboard: 실행 중, 포트 8765 HTTP/API 응답 정상
 - Windows startup launcher: 설치 및 정상
-- 최신 서비스 확인은 위 기준 시각, 수집/Phase 0 누적은 10/7 공식 장후 증거, E7 원천 계보 판정은 다음 10/8 수동 검증을 기준으로 한다.
+- 최신 서비스 확인은 위 기준 시각, 수집/Phase 0/E7 누적은 10/8 공식 장후 증거를 기준으로 한다. 원천 원인과 이전 상태는 날짜가 붙은 검증 이력으로 보존한다.
+
+## 10/9 수동 후속 조치
+
+- source-acceptance guard `d8f9e20`을 전체 unittest 779건(40.304초) 통과 후 root main에 통합했다. 공식 replay/random/stamp/package가 승인 계약·원천 proof·실제 입력 lineage를 강제한다. 과거 E7 차단은 해제하지 않았다.
+- 10/8 append-only 분봉/feature/decision은 각각 3,793행/3,793 유일 종목·분 key이고 중복 및 종목별 분 시각 역행은 0건이다. `late_trade_events`의 실제 counter는 보존 증거에서 확인되지 않아 late 경로 실증 또는 restart idempotency까지 통과했다고 주장하지 않는다.
+- 10/7→10/8 현금 gap 증가분은 -127.095원이다. 로컬 현금 변동 -16,685.095원은 26건 체결의 매수·매도 순대금 -2,700원, commission 1,824.495원, tax 12,160.6원과 정확히 일치한다. 기존 계좌 gap에서 역산한 브로커 변동은 -16,558원이며 대금 대비 차감/정산 잔여 합계 13,858원은 직접 조회한 실제 수수료·세금이 아니다. 단순 체결별 1원/10원 내림 가정도 잔여 차이를 설명하지 못해 비용 설정이나 장부는 변경하지 않았다. 실제 비용·정산 breakdown 확인은 남아 있다.
+- 오래된 lifecycle latest만 로컬 검사로 갱신했다. 현재 계좌/baseline compatible, 만료 12/3 및 11/3·11/26 경고 유지다. KIS 네트워크·주문·취소 0회, DB 읽기 전용, runtime/계좌 정렬/기준선/자동화/전략 조작 없음이다.
+- 운영자 승인으로 복구 후 미래 구간 10/12~10/23 및 10/26~11/6을 별도 계약으로 사전 고정했다. 정본 및 hash는 `docs/Portfolio-Replay-Evaluator.md`와 `docs/e7-post-recovery-acceptance-20261009.json`을 따른다. trusted producer/고정 구간 진행 리포트는 아직 미연동이며 기존 누적 결과와 합산하지 않는다. 근거: `runtime-data/reports/codex/manual-followup-20261009.json`.
 
 ## 10/8 E7 원천 계보 검증 (공식 평가 차단)
 
-- source-acceptance guard는 `codex/e7-source-acceptance` / `.tmp-tests/e7-source-acceptance` 격리 worktree에서 준비했다. 08:10 확인 시 runtime은 08:00:38부터 paper 워밍업 중이고 watchdog fresh/should-run true/오류 없음이다. 보호 규칙에 따라 root 코드·운영 DB/API/runtime은 건드리지 않았다. 승인 계약 없음은 기본 fail-closed이며 과거 증거와 E7 공식 평가는 계속 차단한다. 장외 전체 회귀와 root 통합 전까지 운영 적용 완료로 보지 않는다. 계약/원천 proof 및 구현 한계는 `docs/Portfolio-Replay-Evaluator.md`가 소유한다.
+- source-acceptance guard는 10/8 `codex/e7-source-acceptance` / `.tmp-tests/e7-source-acceptance` 격리 worktree에서 준비했다. 당시 워밍업 보호 중 root 코드·운영 DB/API/runtime은 건드리지 않았고 10/9 장외 전체 회귀 후 통합했다. 승인 계약 없음은 기본 fail-closed이며 과거 증거와 E7 공식 평가는 계속 차단한다. 계약/원천 proof 및 구현 한계는 `docs/Portfolio-Replay-Evaluator.md`가 소유한다.
 
 - 현행 evidence validator는 `e7-shadow-lineage-v2-exact-id`, daily schema `3`다. shadow JSON의 유일 prediction ID를 primary-key 배치 조회하고 종목/시각/horizon, model/run/artifact/hash/3종 확률을 대조한다. 누락·동일 분봉 다중 판단·prediction 재사용·잘못된 확률·active 계보 부재는 `invalid_evidence`로 fail-closed한다. evaluator/manifest, threshold, episode grouping/진입/청산/비용 계산은 변경하지 않았다. 앞선 schema 2/validator v1 결과는 별도 보존한다.
 - 미래 판단 원천 `76,002`건의 기존 tuple join은 `76,006`행이었다. 9/28 `005930` 14:42/14:43에 각 판단 2건과 prediction 2건이 있어 시각/종목/horizon/model join에서 각각 2x2 교차 연결됐다. 각 판단의 shadow JSON은 정확한 prediction ID 1개와 일치하므로 모델 artifact 자체가 훼손됐다고 단정하지 않는다. 영향은 distinct 판단 4건, join 중 모호한 8행/ID·점수 불일치 4행이다.
@@ -28,12 +36,12 @@
 - 남은 작업: 다음 정상 세션의 분봉 재생성 방지/late 원본 보존을 관측한다. 과거 중복 판단 및 통합 정본 예측 부재는 가격뷰로 해결되지 않으며 공식 평가 차단을 유지한다. 원래 조각 예측을 임의 선택·삭제·재생성하지 않는다. 공식 평가 허용 계약 변경은 별도 범위·운영자 판단이 필요하며 기존 관측/manifest/전략과 혼합하지 않는다.
 - 07:46~07:50 장전 후속 검토: runtime 정지/should-run false, watchdog fresh이며 당일 curated 산출물은 아직 없다. 오늘 세션 재발 방지 확인은 미완료다. 공식 acceptance 계약 검토는 완료했지만 활성화하지 않았다. 메모리 fixture에서 공식 package guard가 진단 전용 허가 false/원천 실패/가격 입력 혼합을 직접 거부하지 않는 경계를 확인했다. daily 원천 차단은 유지되며 실제 잘못된 공식 통과 사례를 주장하지 않는다. 다음 구현 우선순위는 공식 entrypoint/package의 source-acceptance envelope와 입력 버전/hash 강제다. 과거 교정 계약 또는 사전 고정한 복구 후 구간 계약은 별도 운영자 결정 사항이며 상세 조건은 `docs/Portfolio-Replay-Evaluator.md`가 소유한다.
 
-## 10/7 장후 운영 확인 (수집 정상 / 연결 주의)
+## 10/8 장후 운영 확인 (수집 정상 / 연결 주의 / E7 원천 차단)
 
-- 공식 data-quality(20:24:51 KST): raw market/orderbook `3,814/4,056` symbol-minute, closed feature `3,803/3,900=97.51%`, serving decision lineage `3,803/3,803=100%`. reconnect `7`, storm `0`, 재구독 및 첫 frame 복구 각 7건이다. 로그에서 매시 정각 부근 disconnect를 확인했으나 원천은 미확정이며, 기존 PINGPONG 응답 구현이 있어 설정을 추정 변경하지 않았다.
-- 공식 Phase 0 history(17:48:10 KST): 최근 유효 10거래일(9/21~10/7) matched `3`, mismatch `7`, consecutive `2`, `ready=false`. 당일 `aligned`, 수량 불일치/미확정 제출 `0`, effective cash 및 common-mark 자산 차이 각각 `-2,243.52원`이다. 이는 허용 오차 내 일치이지 정확한 0원 일치가 아니다. 구판 snapshot 자산 차이 `+9,056.48원`은 평가 시점 차이로 별도 보존한다.
-- 장후 recheck(20:23:16 KST)는 기존 증거 진단만 수행해 `aligned_with_tolerated_gaps`, 회계 변경/추가 체결 반영 0건이다. 남은 비용·정산·평가 시점 원인은 미확정이며 임의 정렬이나 baseline 재생성으로 차이를 없애지 않는다. 근거: `latest-paper-account-history.json`, `latest-paper-kis-mismatch-recheck.json`.
-- E7 daily evidence(20:25:05 KST): 공식 `portfolio-replay-v2-minute-mtm`과 사전등록 manifest hash 일치, 미래 거래일 `24`, 모집단 episode `11,708`, 공식 policy episode/symbol `0/0`, mark observation 및 missing/stale/invalid mark 모두 `0`이다. `valid_collecting`이며 normal/2x cost, random-control 및 두 비중복 구간은 최소 표본 대기다. 대상 0건을 가격 품질 또는 수익성 통과로 해석하지 않는다. 근거: `runtime-data/reports/research/e7/latest-e7-daily-evidence.json`.
+- 공식 data-quality(20:23:40 KST): raw market/orderbook `3,803/4,056` symbol-minute, closed feature `3,793/3,900=97.26%`, serving decision lineage `3,793/3,793=100%`. reconnect `7`, storm `0`, 재구독 및 첫 frame 복구 각 7건, 예상 밖 공통 gap 없음이다. reconnect 원천은 미확정이며 설정을 추정 변경하지 않았다.
+- 공식 Phase 0 history: 최근 유효 10거래일(9/22~10/8) matched `4`, mismatch `6`, consecutive `3`, `ready=false`. 당일 `aligned`, 수량 불일치/미확정 제출 `0`, effective cash 및 common-mark 자산 차이 각각 `-2,370.615원`이다. 이는 허용 오차 내 일치이지 정확한 0원 일치가 아니다. 구판 snapshot 자산 차이 `-192,370.615원`은 평가 시점 차이로 별도 보존한다. 당일 자연 broker submission 26건, 제출 실패 taxonomy 0건이다.
+- 장후 recheck(20:22:17 KST)는 기존 증거 진단만 수행해 `aligned_with_tolerated_gaps`, 회계 변경/추가 체결 반영 0건이다. 남은 실제 비용·정산 원인은 미확정이며 임의 정렬이나 baseline 재생성으로 차이를 없애지 않는다. 근거: `latest-paper-account-history.json`, `latest-paper-kis-mismatch-recheck.json`.
+- E7 daily evidence(20:22:41 KST): 공식 `portfolio-replay-v2-minute-mtm`과 사전등록 manifest hash 일치, 미래 거래일 `25`, 원천 판단/연결 `79,795/79,795`, `duplicate_decision_minute=4`, 모집단 episode `12,335`, 공식 policy episode/symbol `0/0`, mark observation 및 missing/stale/invalid mark 모두 `0`이다. `invalid_evidence`이며 normal/2x cost, random-control 및 두 비중복 구간은 원천 실패로 차단한다. 대상 0건을 가격 품질 또는 수익성 통과로 해석하지 않는다. 근거: `runtime-data/reports/research/e7/latest-e7-daily-evidence.json`.
 
 ## 9/28 수집 상태 이력 (수집 정상 / 연결 주의)
 
@@ -91,7 +99,7 @@
 - 수급은 `no_observations_file`, SNS는 `no_events_file`; 공시/공매도 최신 report는 아직 없다. 입력 확보와 실제 no-look-ahead 평가가 다음 단계이며 네트워크 collector나 새 소스는 이번 감사에서 추가하지 않았다.
 
 ## Phase 0과 readiness
-- 과거 공식 Phase 0 관측(10/2): 현재 epoch 최근 유효 10거래일 matched `1`, mismatch `9`, consecutive `0`, `ready=false`. 당시 `035420` 로컬 3주/KIS 0주와 미확정 제출 1건이 있었다. 최신 누적은 위 10/7 요약을 따르며 과거 일별 판정은 재작성하지 않는다.
+- 과거 공식 Phase 0 관측(10/2): 현재 epoch 최근 유효 10거래일 matched `1`, mismatch `9`, consecutive `0`, `ready=false`. 당시 `035420` 로컬 3주/KIS 0주와 미확정 제출 1건이 있었다. 최신 누적은 위 10/8 요약을 따르며 과거 일별 판정은 재작성하지 않는다.
 - 10/3 별도 승인 KIS 읽기 전용 1회 조회는 9/29 `035420` 주문·체결 4행/1페이지, pagination complete였다. 10:48:21 매도 3주, 주문가 194,600원, 체결 평균 194,700원/총액 584,100원 1행만 로컬 submission과 미연결이다. 로컬 10:47 `submission_unknown` 매도 3주와 종목·방향·수량·주문가가 일치하지만 timeout으로 broker ACK의 정확한 ID 연결은 없다.
 - 반복 불일치의 원인은 이 미확정 체결이 확정 ID 전용 일일 sync에서 제외된 점과, 9/29 로컬 평가 snapshot을 10/2 KIS 현재 평가액과 직접 비교한 점이다. 전자는 자동 추정 반영하지 않으며, 후자는 `paper-account-reconciliation-v2-common-mark`로 동일 KIS mark 기준 비교/구판 snapshot gap 별도 보고를 구현했다.
 - 10/3 계좌 소유자 승인 후 `recover_paper_035420_sell_once.py --execute --owner-approved`를 정확히 1회 실행했다. 원본 백업과 감사 이벤트를 남기고 현재 주문을 `externally_reconciled`, `035420` 보유를 3주에서 0주로 변경했으며 현금에 연구용 비용 가정에 따른 순매도대금 `582,844.185원`을 반영했다. 합성 fill/submission, 과거 snapshot, E7 fill 원장, Phase 0 이력은 변경하지 않았다. 직접 broker ACK ID와 실제 비용은 미확정이다.
@@ -115,8 +123,8 @@
 - 9/27 계좌 소유자는 직접 매도한 적이 없음을 확인하고 1회 로컬 보정을 승인했다. `recover_paper_timeout_sell_once.py`로 현재 `373220`만 0주로 정리하고 기존 연구용 비용 가정(commission 52.425원, sell tax 699원)의 순현금 348,748.575원을 반영했다. 현금은 7,597,135.795원, 보유 종목은 4개다. 단일 SQLite transaction에 현재 포지션 변경과 보정 이벤트/새 snapshot을 함께 저장했고, exclusive 0600 preimage backup을 먼저 보존했다. 원래 rejected 주문·실제 fill·broker submission·과거 snapshot과 9/6 baseline은 재작성하지 않았다. 주문번호 연결은 `inferred_owner_approved_not_exact`이며 합성 fill이나 submission을 만들지 않았다.
 - 9/27 보정 직후 수량은 9/25 cached KIS snapshot과 일치했고 effective cash gap 약 -1,845.205원, total asset gap 약 -6,845.205원이었다. 이는 역사 cached 비교이며 실제 KIS 비용은 미확인이다. 보정은 E7 평가 fill 원장이나 manifest를 변경하지 않았다.
 - 9/28 20:28 정기 recheck는 order-fill GET timeout으로 중단됐다. 예외 시 `latest-sync`가 이전 성공으로 남는 보고 누락을 수정하고, 별도 승인 후 21:16 장외 검증을 논리적 1회 수행했다. 1페이지/3행 모두 기존 제출에 연결됐고 추가 fill/주문 변경은 0건이다. 보고서는 `runtime-data/reports/codex/manual-recheck-20260928.json`이며 정기 실패 산출물은 보존한다.
-- 9/28 당시 공식 account sync는 `aligned`, 보유 수량 mismatch `0`, effective cash gap `-1,865.905원`, 구판 snapshot total asset gap `+8,434.095원`이었다. 기존 10,000원 미만 허용 판정의 이력이며 정확한 0원 일치를 뜻하지 않는다. 현재 판정은 위 10/7 요약과 구분한다.
-- 9/28 당시 최근 유효 10거래일(9/11~9/28)은 matched `1`, mismatch `9`, consecutive matched `1`, `ready=false`였다. 과거 불일치를 지우지 않으며 최신 누적은 위 10/7 요약을 따른다.
+- 9/28 당시 공식 account sync는 `aligned`, 보유 수량 mismatch `0`, effective cash gap `-1,865.905원`, 구판 snapshot total asset gap `+8,434.095원`이었다. 기존 10,000원 미만 허용 판정의 이력이며 정확한 0원 일치를 뜻하지 않는다. 현재 판정은 위 10/8 요약과 구분한다.
+- 9/28 당시 최근 유효 10거래일(9/11~9/28)은 matched `1`, mismatch `9`, consecutive matched `1`, `ready=false`였다. 과거 불일치를 지우지 않으며 최신 누적은 위 10/8 요약을 따른다.
 - 장후 자동화는 확정 체결만 기존 동기화로 반영한 뒤 수량/현금/평가액 원인과 남은 조사를 보고한다. 당일 유효 기록이 있으면 KIS를 다시 부르지 않고 diagnose-only로 전환한다. identity/원장/조회 완결성이 불명확하면 반영을 차단하며 임의 정렬·기준선·과거 이력 교정은 하지 않는다. 구체 절차는 daily-ops skill과 KIS runbook이 소유한다.
 - Phase 1a: 모의투자 read-only 1차 리허설 통과
 - Phase 1b: bounded live read-only 관측 1회 통과 이력은 있으나 latest readiness가 2026-07-11 생성물이라 현재 승격 증거로는 stale하다. 최신 수집 회복만으로 stale readiness를 통과 처리하지 않는다.

@@ -1,13 +1,15 @@
 from copy import deepcopy
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from app.services.e7_portfolio_evaluator import (
     E7EvidenceAcceptanceContract,
+    E7FutureInterval,
     E7_SOURCE_VALIDATOR_VERSION,
     E7_PORTFOLIO_REPLAY_MANIFEST,
     build_e7_interval_context,
@@ -62,6 +64,37 @@ def _run(decisions, context, interval, **overrides):
 
 
 class E7SourceAcceptanceTests(unittest.TestCase):
+    def test_prepared_post_recovery_contract_is_frozen_and_not_activated(self):
+        path = Path(__file__).resolve().parents[1] / "docs" / (
+            "e7-post-recovery-acceptance-20261009.json"
+        )
+        record = json.loads(path.read_text(encoding="utf-8"))
+        intervals = tuple(E7FutureInterval(
+            item["interval_id"], datetime.fromisoformat(item["start"]),
+            datetime.fromisoformat(item["end"]),
+        ) for item in record["contract"]["future_intervals"])
+        contract = E7EvidenceAcceptanceContract(intervals)
+        self.assertEqual(contract.to_dict(), record["contract"])
+        self.assertEqual(contract.sha256, record["contract_hash"])
+        self.assertEqual(contract.sha256,
+            "16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740")
+        approval_date = datetime.fromisoformat(
+            record["prepared_on_kst"] + "T00:00:00+09:00"
+        )
+        self.assertTrue(all(item.start > approval_date for item in intervals))
+        self.assertEqual(record["activation_status"],
+            "not_activated_trusted_producer_pending")
+        policy = record["evaluation_policy"]
+        self.assertFalse(policy["automatic_official_permission"])
+        self.assertFalse(policy["merge_with_original_cumulative_results_permitted"])
+        self.assertFalse(policy["historical_evidence_repair_permitted"])
+        self.assertFalse(policy["strategy_costs_constraints_and_model_changes_permitted"])
+        self.assertEqual(policy["threshold"], 0.55)
+        self.assertEqual(policy["minimum_trading_days_per_interval"], 10)
+        self.assertEqual(policy["minimum_policy_episodes_per_interval"], 100)
+        self.assertEqual(policy["minimum_policy_symbols_per_interval"], 5)
+        self.assertEqual(policy["random_control_simulations"], 1000)
+
     def test_validator_and_manifest_remain_canonical(self):
         from app.services.e7_daily_evidence import E7_EVIDENCE_VALIDATION_VERSION
         self.assertEqual(E7_SOURCE_VALIDATOR_VERSION, E7_EVIDENCE_VALIDATION_VERSION)

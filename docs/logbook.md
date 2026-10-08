@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-09] source-acceptance 통합과 복구 후 미래 계약 준비
+
+- 휴장 장외 runtime 정지/should-run false를 확인하고 격리 구현의 전체 unittest 779건(40.304초) 통과 뒤 root main에 fast-forward 통합했다. 기존 공식 artifact/manifest/전략/Phase 기준은 보존하며 guard의 통합을 과거 증거 허용 또는 수익성 통과로 해석하지 않는다.
+- 운영자가 복구 후 두 비중복 미래 구간의 별도 계약 준비를 승인했다. 원래 미래 시작과 과거 실패를 유지한 채 데이터 관측 전 고정 구간/계약 hash를 정본 JSON으로 기록했다. trusted producer와 별도 구간 진행 리포트는 미연동이며 공식 활성화는 하지 않았다. 조건은 Portfolio-Replay-Evaluator가 소유한다.
+- 10/8 append-only 분봉/특징/판단의 중복 및 종목별 시각 역행을 확인하고 cash gap 당일 증가분을 실제 local fill 합계와 대조했다. 로컬 현금 이동은 정확히 설명되지만 실제 브로커 비용·정산 분해와 late counter 실증은 미확정이다. 추정 비용 교정이나 장부 수정은 하지 않았다. lifecycle report만 로컬 검사로 갱신했으며 KIS 네트워크/주문/취소는 0회다. 현재 수치와 다음 작업은 STATUS/SPRINT가 소유한다.
+- 새 계약 고정 hash/동결/미활성 회귀를 포함한 관련 27건 통과, 구조 audit 오류 0/기존 경고 3건, diff check 통과다. 두 고정 구간은 현재 달력 기준 각 10거래일이며 원래 latest E7 및 당일 분봉/특징/판단 파일 해시를 재확인했다. production 코드는 이미 전체 779건을 통과한 동일 상태로, 문서/계약 데이터와 추가 테스트의 검증만 보완했다.
+
 ## [2026-10-08] source-acceptance 공식 경계 구현 준비
 
 - 워밍업 보호 중 D드라이브 WSL `.tmp-tests/e7-source-acceptance` worktree에서만 구현했다. root 코드/DB/API/runtime/자동화/과거 보고서/사전등록/manifest/전략/비용은 변경하지 않았다. 네이티브 Windows worktree는 UNC Git 소유권/경로 문제로 사용할 수 없어 WSL Git 격리 공간을 사용했다. 전역 safe.directory 예외는 추가하지 않았다.

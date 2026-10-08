@@ -162,14 +162,22 @@ daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`�
 - 더 보수적인 대안은 원래 미래 시작과 과거 이력을 그대로 보존하고, 복구 후의 사전에 고정한 두 비중복 구간을 별도 acceptance 계약으로 평가하는 것이다. 구간별 strict 원천 검증과 동일 최소 표본을 다시 만족해야 하며, 그 구간이 깨지면 임의로 시작일을 옮기거나 수익이 나쁜 날만 제외하지 않는다. 전체 누적 구간을 검증하는 현행 daily loader에는 구간별 계약이 없으므로 오늘 정상 수집만으로 과거 차단이 자동 해소되지 않는다. 아직 두 대안 중 어느 것도 활성화하거나 구간 경계를 변경하지 않았다.
 - 최소 회귀: 진단/허가 없음/실패 proof/구버전/변조 hash 거부, 같은 구간의 source/price 혼합 거부, 역할별 선택과 두 구간의 합법적인 차이 허용, 16개 비교의 동일 입력 유지, 과거 원본 해시 보존, 정상 입력의 기존 수학/비용/threshold 불변이다.
 
-### Source Acceptance Guard Implementation (Prepared, Not Activated)
+### Source Acceptance Guard Implementation (Integrated, Contract Not Activated)
 
-- `E7EvidenceAcceptanceContract`는 두 고정 구간, 현행 exact-ID validator, stored-minute 가격 입력 버전과 기존 manifest를 묶는다. 계약 객체 생성은 운영자 승인이 아니다. 공식 함수는 신뢰된 호출자가 별도로 전달한 `approved_contract_hash`와 계약 hash가 일치해야 하며 기본값은 승인 없음이다. 이번 작업은 운영 승인 파일이나 구간을 생성하지 않는다.
+- `E7EvidenceAcceptanceContract`는 두 고정 구간, 현행 exact-ID validator, stored-minute 가격 입력 버전과 기존 manifest를 묶는다. 계약 객체 생성은 운영자 승인이 아니다. 공식 함수는 신뢰된 호출자가 별도로 전달한 `approved_contract_hash`와 계약 hash가 일치해야 하며 기본값은 승인 없음이다. 10/9 아래 별도 미래 구간의 준비를 승인받았지만 trusted producer 연동 및 운영 활성화는 아직 하지 않았다.
 - `e7-source-acceptance-v1` proof는 구간/scope, validator 통과와 빈 reason_counts, ledger/prediction/모집단/가격 fingerprint, 공식 허가 및 proof hash를 요구한다. 실제 immutable context의 모집단과 가격 index/timeline을 실행 전 대조한다. 원천 ledger/prediction hash와 통과 판정의 진위는 trusted producer에서 원천 validator로 확인해야 한다. hash는 데이터 식별/변조 탐지이지 자체 승인 또는 전자서명이 아니다.
 - 공식 replay/random-control/stamp/package는 진단·누락·구버전·실패·변조와 동일 구간 입력 혼합을 거부한다. 결과 구간 본문과 hash를 함께 검사하고 기존 출처의 다른 proof로 재스탬프하지 않는다. 표본 부족 random-control은 비공식 상태로 반환하고 공식 stamp/package로 승격하지 않는다. 역할별 선택과 두 구간 간 원천 차이는 유지한다.
 - 계산 결과 lineage에 `portfolio-replay-input-binding-v1`, 실제 모집단과 context 가격 fingerprint를 기록한다. 공식 stamp/package/random-control 선행 검사는 계산 lineage와 proof의 일치를 요구하므로 다른 입력으로 계산한 결과에 정상 proof만 붙일 수 없다. 가격 fingerprint는 context 생성 때 한 번 계산해 1,000회 시뮬레이션이 같은 불변 값을 재사용한다. 이는 v2 결과 metadata의 추가이며 수익/비용/MTM 수학 변경이 아니다.
 - package identity에는 구간과 source proof/계약 identity가 포함된다. 기존 result package와 혼합하지 않는다. generic v2 계산/진단 가격뷰/daily 원천 validator 및 E7 threshold/model/manifest/비용은 불변이다. 운영 경로에 승인 proof를 자동 주입하거나 과거 차단을 해제하지 않는다.
-- 10/8 워밍업 보호 중 별도 WSL worktree에서 구현·focused test만 수행했다. 루트 반영과 전체 unittest는 장외 보호 해제 뒤 남아 있다. 운영 root의 현재 guard는 아직 이전 버전이다.
+- 10/8 워밍업 보호 중 별도 WSL worktree에서 구현·focused test를 수행했다. 10/9 휴장/장외 runtime 정지 상태에서 전체 unittest 779건(40.304초)을 통과하고 `d8f9e20`을 root main에 fast-forward 통합했다. 운영 승인 proof 자동 생성과 공식 평가 활성화는 하지 않았다.
+
+### Post-Recovery Future Contract (Prepared, Not Activated)
+
+- 2026-10-09 운영자가 복구 후 두 비중복 미래 구간을 별도 계약으로 준비하는 권장안을 승인했다. 원래 E7의 `2026-08-31 09:15 KST` 시작, manifest와 과거 실패 증거는 유지한다. 정본 계약은 `docs/e7-post-recovery-acceptance-20261009.json`이며 기존 누적 결과와 합산하지 않는다.
+- 구간 1은 `2026-10-12 09:15 KST <= t < 2026-10-24 00:00 KST`, 구간 2는 `2026-10-26 09:15 KST <= t < 2026-11-07 00:00 KST`다. 현재 저장소 달력 기준 각각 10거래일이며 끝 경계는 exclusive다. 데이터가 아직 관측되지 않은 구간만 사전에 고정했다.
+- 계약 본문의 canonical JSON SHA-256은 `16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740`이다. 외부 approval metadata를 포함한 파일 전체 해시와 구분한다. `approved_contract_hash`는 향후 신뢰된 실행 경로가 승인 기록과 원천 proof를 대조한 뒤 전달해야 하며 이 파일만으로 자동 활성화하지 않는다.
+- 각 구간은 원래 최소 10거래일/100 official episode/5종목과 동일 normal/2x cost, random-control 1,000회 및 16개 결과 계약을 충족해야 한다. 표본 부족은 `observe_more`이지 경계 이동, 사후 기간 연장, 나쁜 날 제외 또는 threshold 변경의 허가가 아니다. 추가 기간은 관측 전에 별도 계약으로 고정해야 한다.
+- trusted producer가 고정 구간의 exact-ID 원천을 검증하고 모집단/가격 fingerprint를 계산해 승인 hash와 연결하는 후속 구현이 남아 있다. 기존 전체 누적 daily loader를 새 구간 통과로 바꿔 부르지 않으며 원래 daily의 `invalid_evidence`를 유지한다. 새 구간 진행 리포트와 공식 proof/package는 아직 생성하지 않았다.
 
 ### Next-Session Observation Contract
 
