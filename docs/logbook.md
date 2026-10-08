@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-09] 장후 자동화의 고정 구간 관측 연결
+
+- daily ops skill에 기존 누적 E7과 독립적인 최대 1회 고정 구간 관측을 연결했다. 기존 명령 실패에도 안전 조건을 재확인해 관측하며 반환된 실제 recheck 경로/시각과 원래 실패를 분리 보고한다. 공식 승인 hash/proof/package/수익 계산은 추가하지 않았다.
+- 연결 부재/보고 혼합 경계 테스트 4건의 실패 후 관련 31건, 전체 unittest 805건(41.958초), 구조 audit 오류 0/기존 경고 3건 및 diff check를 확인했다. 전체 로그는 `.tmp-tests/e7-ops-integration-full-tests-20261009.log`다.
+- 예약 프롬프트의 skill 위임을 확인했으나 저장 설정은 PAUSED다. 프롬프트/시간/상태는 변경하지 않았으며 실제 장후 자동 실행 검증은 재개 후 남아 있다. 휴장일에 운영 명령/DB/API/runtime/원래 E7 증거/고정 계약을 변경하지 않았다.
+
 ## [2026-10-09] 고정 미래 구간의 trusted source producer와 별도 진행 리포트
 
 - 기존 exact-ID 검증/episode/저장 가격 helper를 재사용해 고정 구간과 as-of의 SQLite read-only 원천을 검증했다. ledger/prediction/전체 실행 가능 모집단/가격 fingerprint를 묶고, 구간 종료·동일 최소 표본·원천 통과·명시 승인 hash를 모두 만족할 때만 공식 source proof를 반환한다. 기본 관측 명령은 계약을 활성화하거나 proof/수익성 평가를 실행하지 않는다.

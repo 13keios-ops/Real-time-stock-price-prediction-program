@@ -26,6 +26,7 @@ class DailyOpsSkillContractTests(unittest.TestCase):
         self.assertIn("run_phase1b_readonly_observation.sh", section)
         self.assertNotIn("summarize_kis_live_data_quality.py", section)
         self.assertNotIn("generate_e7_daily_evidence.sh", section)
+        self.assertNotIn("generate_e7_post_recovery_progress.py", section)
         self.assertNotIn("recheck_paper_kis_mismatch.sh", section)
 
     def test_post_close_write_jobs_are_protected(self) -> None:
@@ -37,6 +38,44 @@ class DailyOpsSkillContractTests(unittest.TestCase):
         self.assertIn("protected post-close no write", section)
         self.assertIn("live runtime 정지", section)
         self.assertIn("generate_e7_daily_evidence.sh", section)
+
+    def test_post_recovery_observation_runs_independently_once(self) -> None:
+        section = _section(
+            self.text, "## 3. Post-close procedure", "## 4. Phase 0 check",
+        )
+        command = "python3 scripts/generate_e7_post_recovery_progress.py"
+        self.assertEqual(section.count(command), 1)
+        self.assertIn("각 항목을 최대 1회", section)
+        self.assertIn("기존 E7 명령이 실패해도", section)
+        self.assertIn("자동 재시도하지 않는다", section)
+        self.assertNotIn("&&", section)
+
+    def test_post_recovery_contract_does_not_activate_official_evaluation(self) -> None:
+        section = _section(self.text, "## 5. E7 check", "## 6. KIS paper")
+        self.assertIn("e7-post-recovery-progress-v1", section)
+        self.assertIn(
+            "16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740",
+            section,
+        )
+        self.assertIn("approved_contract_hash를 전달하지 않는다", section)
+        self.assertIn("official_evaluation_permitted=false", section)
+        self.assertIn("waiting_explicit_activation", section)
+        self.assertIn("not_started", section)
+        self.assertIn("not_run", section)
+
+    def test_fresh_recheck_is_reported_without_hiding_original_failure(self) -> None:
+        section = _section(self.text, "## 5. E7 check", "## 6. KIS paper")
+        self.assertIn("report_path", section)
+        self.assertIn("rechecks/", section)
+        self.assertIn("기존 E7의 CRITICAL을 낮추지 않는다", section)
+        self.assertIn("invalid_evidence", section)
+        self.assertIn("generated_at", section)
+        self.assertIn("ATTENTION", section)
+
+    def test_final_report_separates_original_and_fixed_interval_evidence(self) -> None:
+        section = self.text.split("## 11. Final report", 1)[1]
+        self.assertIn("복구 후 고정 구간 E7 관측", section)
+        self.assertIn("기존 누적 E7과 별도 줄", section)
 
     def test_phase0_same_day_duplicate_is_forbidden(self) -> None:
         section = _section(

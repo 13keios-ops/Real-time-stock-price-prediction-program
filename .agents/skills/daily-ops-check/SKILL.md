@@ -77,11 +77,15 @@ protected post-close no write: 보호 조건이나 runtime 실행이 남아 있�
 python3 scripts/summarize_kis_live_data_quality.py --recent-days 10
 ```
 
-3. E7 일일 증적 생성.
+3. 기존 누적 E7 일일 증적과 복구 후 고정 구간 진행 관측을 각각 실행한다.
 
 ```bash
 ./scripts/generate_e7_daily_evidence.sh
+python3 scripts/generate_e7_post_recovery_progress.py
 ```
+
+두 명령은 독립 실행한다. 기존 E7 명령이 실패해도 안전 조건이 유지되면 새 구간 관측을 수행한다.
+각 exit code와 반환 증거를 기록하고 자동 재시도하지 않는다. 새 명령은 관측 전용이며 승인 인자나 공식 평가 실행을 추가하지 않는다.
 
 4. model overlay와 hold-rescue paper-only 진단.
 
@@ -171,6 +175,16 @@ evidence health와 profitability result를 섞지 않는다.
 evaluator/manifest/cost/constraint/random/interval identity drift, invalid mark, incompatible result mixing은 공식 평가를 fail-closed하고 `CRITICAL`로 올린다.
 E7 미래 데이터로 threshold 0.55, model, feature, signal/gate, allocator, portfolio, horizon, exit, symbol, cost, manifest를 변경하거나 재탐색하지 않는다.
 상세 기준은 `docs/Portfolio-Replay-Evaluator.md`와 `docs/Model-Research-PreRegistration.md`를 따른다.
+
+### 복구 후 고정 구간 관측 (공식 평가 미활성)
+
+- 정본은 `docs/e7-post-recovery-acceptance-20261009.json`, contract hash는 `16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740`, progress version은 `e7-post-recovery-progress-v1`이다. 구간 경계와 최소 표본은 정본을 따르며 사후 이동하지 않는다.
+- 장후 명령이 반환한 `report_path`의 증거와 `generated_at`을 보고한다. 기본 경로는 `runtime-data/reports/research/e7/post-recovery/<contract_hash>/<KST 날짜>.json`이고 변경 원천은 `rechecks/` 아래 별도 증거다. 최초 날짜 파일만 읽어 새 실패를 숨기지 않는다. 전일/캐시 증거는 시각을 명시하고 오늘 실행 성공으로 보고하지 않는다.
+- contract/evaluator/manifest identity와 각 `future_interval`의 ID/경계/status, `future_trading_days`, episodes, symbols, mark observation/missing/stale/invalid, `blocking_reasons` 및 원천 validator/계보 판정을 기존 누적 E7과 분리해 보고한다. 없는 값은 추정하지 않고 `not available yet`로 둔다.
+- 기본 관측은 `official_evaluation_permitted=false`, normal/double cost 및 random control은 `not_run`이어야 한다. approved_contract_hash를 전달하지 않는다. 공식 source proof/package 생성, 평가 활성화와 수익 계산은 예약 자동화 범위가 아니다.
+- `not_started`의 0건은 시작 전 상태이고, `collecting_future_sample`/`observe_more`는 표본 축적이다. `waiting_explicit_activation`도 자동 승인하지 않는다. 원천 통과와 수익성 통과를 구분한다.
+- 새 구간이 정상이더라도 기존 E7의 CRITICAL을 낮추지 않는다. 원래 latest/daily 결과 및 과거 `invalid_evidence`는 보존하며 새 결과와 합산하거나 교체하지 않는다.
+- contract/evaluator/manifest/구간 drift, `invalid_evidence`, 원천 계보 또는 mark 실패, 승인/결과 혼합은 `CRITICAL`이다. 명령 exit 1은 원천 실패로 보고한다. exit 2의 안전 차단/증거 unavailable이나 누락은 `ATTENTION`으로 보고하되, 이미 확인된 무결성 오류나 보호 모드 위반은 CRITICAL을 유지한다. 차단 시 이전 정상 증거로 통과시키지 않는다.
 
 ## 6. KIS paper account lifecycle and orderability
 
@@ -262,6 +276,7 @@ E1/E5와 과거 Phase 0 recovery를 자동 재실행하지 않는다.
 - Phase 0 최근 10 유효 거래일 누적, 오늘 broker submission/failure taxonomy, reconciliation
 - 장후 `remediation`의 확정 체결 반영 여부, 수량/현금/평가액 차이, 증거 차단 이유와 남은 원인 조사
 - E7 progress와 evaluator/manifest/evidence health
+- 복구 후 고정 구간 E7 관측은 기존 누적 E7과 별도 줄: contract/구간 진행·원천 건강·공식 미활성·실제 증거 경로/시각
 - 장후 ML과 buy-avoid/buy-rescue/hold-rescue
 - 자동화가 실제 조치한 것
 - 사람이 검토할 남은 조치
