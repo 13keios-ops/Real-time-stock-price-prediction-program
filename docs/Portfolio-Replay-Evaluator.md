@@ -177,7 +177,14 @@ daily schema `3`와 `evidence_validation_version=e7-shadow-lineage-v2-exact-id`�
 - 구간 1은 `2026-10-12 09:15 KST <= t < 2026-10-24 00:00 KST`, 구간 2는 `2026-10-26 09:15 KST <= t < 2026-11-07 00:00 KST`다. 현재 저장소 달력 기준 각각 10거래일이며 끝 경계는 exclusive다. 데이터가 아직 관측되지 않은 구간만 사전에 고정했다.
 - 계약 본문의 canonical JSON SHA-256은 `16a22ce5801cd1f38d21aee98bfe806fa809a3c4061d2f61e4bdb5b16b20e740`이다. 외부 approval metadata를 포함한 파일 전체 해시와 구분한다. `approved_contract_hash`는 향후 신뢰된 실행 경로가 승인 기록과 원천 proof를 대조한 뒤 전달해야 하며 이 파일만으로 자동 활성화하지 않는다.
 - 각 구간은 원래 최소 10거래일/100 official episode/5종목과 동일 normal/2x cost, random-control 1,000회 및 16개 결과 계약을 충족해야 한다. 표본 부족은 `observe_more`이지 경계 이동, 사후 기간 연장, 나쁜 날 제외 또는 threshold 변경의 허가가 아니다. 추가 기간은 관측 전에 별도 계약으로 고정해야 한다.
-- trusted producer가 고정 구간의 exact-ID 원천을 검증하고 모집단/가격 fingerprint를 계산해 승인 hash와 연결하는 후속 구현이 남아 있다. 기존 전체 누적 daily loader를 새 구간 통과로 바꿔 부르지 않으며 원래 daily의 `invalid_evidence`를 유지한다. 새 구간 진행 리포트와 공식 proof/package는 아직 생성하지 않았다.
+- 10/9 `app/services/e7_interval_evidence.py`의 trusted producer와 별도 진행 명령을 구현했다. 준비 당시 정본 파일의 미활성/pending metadata는 승인 이력으로 보존하고 현재 구현 상태는 STATUS가 소유한다. 기존 전체 누적 daily loader를 새 구간 통과로 바꿔 부르지 않으며 원래 daily의 `invalid_evidence`를 유지한다. 실제 공식 proof/package 및 수익성 평가는 아직 생성하지 않았다.
+
+### Fixed-Interval Source Producer and Progress
+
+- `produce_interval_evidence`는 고정 계약 hash와 구간을 검사하고 하나의 SQLite read-only snapshot에서 해당 구간/관측 시각까지의 exact-ID 원천과 저장 분봉을 읽는다. ledger/prediction fingerprint를 별도로 계산하고 전체 실행 가능 모집단의 MTM context/가격 fingerprint에 결합한다. 원천 실패, validator drift, 모집단 가격 누락/stale/invalid와 진입·청산 가격 누락을 차단한다. 주말/휴일 원천은 유효 거래일로 세지 않으며 공식 proof를 허용하지 않는다.
+- 구간 시작 전에는 DB를 열지 않는다. 종료 전은 `collecting_future_sample`, 종료 후 최소 표본 부족은 `observe_more`, 표본과 원천이 충족돼도 별도로 전달한 승인 hash 없이는 `waiting_explicit_activation`이다. 종료/표본/원천/승인 모두 충족했을 때만 실제 context와 연결된 source-acceptance proof를 반환한다. 준비 계약을 읽었다는 이유로 승인을 자동 전달하지 않는다.
+- 수동 관측 명령은 `python3 scripts/generate_e7_post_recovery_progress.py`다. 기본 경로는 공식 허가/계약 활성화/수익 계산 없이 두 구간의 진행만 기록한다. 장중 또는 runtime 실행 중에는 DB 조회/산출물 생성을 차단하며 고정 계약의 거래일은 장후에만 기록해 장전 불완전 산출물이 당일 장후 보고를 선점하지 못하게 한다. KIS 네트워크/주문/취소는 호출하지 않는다. 기존 자동화 프롬프트, skill 또는 장후 wrapper에는 아직 이 명령을 추가하지 않았다.
+- 별도 파일은 `runtime-data/reports/research/e7/post-recovery/<contract_hash>/<KST 날짜>.json`이다. 날짜별 immutable artifact의 내부 날짜/계약/구간/evaluator/manifest/report hash를 검사하고 같은 원천의 재실행은 재사용한다. 새 원천 결과가 달라지면 `rechecks/<KST 시각>.json`에 별도 보존하며 새 실패를 이전 정상 캐시로 숨기지 않는다. 가격 조회도 SQL 단계에서 정확한 구간/as-of를 제한하며 `cross_day_bar`를 포함한 가격 누락으로 모집단을 축소해 통과시키지 않는다. 원래 `daily/`와 `latest-e7-daily-evidence.json`을 갱신하거나 새 계약 결과로 덮지 않는다. 자동화 관측 연결과 실제 공식 실행 활성화는 별도 다음 작업이다.
 
 ### Next-Session Observation Contract
 

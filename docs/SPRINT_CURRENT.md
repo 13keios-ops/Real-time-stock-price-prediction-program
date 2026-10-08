@@ -108,7 +108,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] source-acceptance guard 장외 전체 unittest 779건 및 root main 통합; 운영 승인 proof 자동 주입 없음
 - [x] 10/8 실제 세션 append-only 분봉/feature/decision 중복 및 분 시각 역행 0건 확인 (late counter 실증과 restart idempotency는 별도 미확인)
 - [x] 운영자 권장안 승인에 따라 복구 후 두 미래 구간의 별도 계약을 사전 고정; 정본은 `docs/e7-post-recovery-acceptance-20261009.json`, 운영 활성화 없음
-- [ ] 고정 구간별 trusted producer 원천 validator/불변 입력 proof와 승인 hash 연동 및 별도 진행 리포트 구현; 원래 누적 E7 차단 유지
+- [x] 고정 구간별 trusted producer 원천 validator/불변 입력 proof와 명시 승인 hash 검사 및 별도 진행 리포트 구현; 원래 누적 E7 차단 유지, 운영 활성화 없음
+- [ ] 별도 구간 진행 관측을 장후 자동화에 연결; 공식 proof/평가 활성화와 구분
 - [ ] 실제 late 이벤트의 raw 보존/counter/파생 재생성 방지 대조 및 restart 간 idempotency 검증
 - [ ] E7 거래일 기준은 충족; official policy 최소 100 episode/5종목 확보
 - [ ] E7 decision-episode portfolio replay와 층화 same-count random control 1,000회 실행

@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-09] 고정 미래 구간의 trusted source producer와 별도 진행 리포트
+
+- 기존 exact-ID 검증/episode/저장 가격 helper를 재사용해 고정 구간과 as-of의 SQLite read-only 원천을 검증했다. ledger/prediction/전체 실행 가능 모집단/가격 fingerprint를 묶고, 구간 종료·동일 최소 표본·원천 통과·명시 승인 hash를 모두 만족할 때만 공식 source proof를 반환한다. 기본 관측 명령은 계약을 활성화하거나 proof/수익성 평가를 실행하지 않는다.
+- 최초 기능 부재, validator drift, 장전 보고 선점의 실패를 확인하고 회귀를 추가했다. 독립 리뷰가 재현한 cross-day 가격 누락 모집단 축소, 정상 캐시에 숨는 새 실패, 구간 밖 가격 SQL 조회도 각각 실패 재현 후 차단했다. 변경 원천은 기존 일일 파일을 보존한 별도 recheck로 기록하며 날짜/구간/계약/hash를 검증한다. 2차 독립 리뷰의 추가 Critical/Important는 없었다.
+- 관련 73건 및 전체 unittest 801건(40.972초) 통과, 구조 audit 오류 0/기존 경고 3건, diff check 통과다. 전체 로그는 `.tmp-tests/e7-interval-full-tests-20261009.log`에 보존했다. 휴장일 실제 명령은 미래 구간 시작 전 DB를 열지 않고 별도 진행 파일을 생성했으며 재실행은 동일 산출물을 재사용했다.
+- 원래 E7 latest와 10/8 append-only 수집 파일의 해시를 재확인했다. 사전등록/manifest/threshold/모델/전략/계좌/Phase 0/운영 DB/자동화/NAS는 변경하지 않았고 KIS 네트워크/주문/취소는 0회다. 자동화 관측 연결과 실제 공식 활성화는 별도 후속 작업이며 최신 수치는 STATUS가 소유한다.
+
 ## [2026-10-09] source-acceptance 통합과 복구 후 미래 계약 준비
 
 - 휴장 장외 runtime 정지/should-run false를 확인하고 격리 구현의 전체 unittest 779건(40.304초) 통과 뒤 root main에 fast-forward 통합했다. 기존 공식 artifact/manifest/전략/Phase 기준은 보존하며 guard의 통합을 과거 증거 허용 또는 수익성 통과로 해석하지 않는다.

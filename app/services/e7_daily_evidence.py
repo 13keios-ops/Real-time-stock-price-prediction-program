@@ -12,7 +12,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Iterable
 
-from app.services.e7_portfolio_evaluator import E7_PORTFOLIO_REPLAY_MANIFEST
+from app.services.e7_portfolio_evaluator import E7_PORTFOLIO_REPLAY_MANIFEST, E7FutureInterval
 from app.services.portfolio_replay import (
     DecisionPoint,
     ReplayBar,
@@ -76,6 +76,8 @@ def _load_future_decisions(
     connection: sqlite3.Connection,
     *,
     through_trading_day: date,
+    future_interval: E7FutureInterval | None = None,
+    observed_until: datetime | None = None,
 ) -> tuple[list[_FutureDecisionRow], dict[str, Any]]:
     required_columns = {
         "serving_decision_ledger": {"shadow_predictions_json"},
@@ -107,6 +109,11 @@ def _load_future_decisions(
         time.min,
         tzinfo=start.tzinfo,
     )
+    if future_interval is not None:
+        start = future_interval.start
+        end = min(end, future_interval.end)
+        if observed_until is not None:
+            end = min(end, observed_until.astimezone(start.tzinfo))
     rows = connection.execute(
         """
         SELECT
@@ -178,6 +185,8 @@ def _load_future_decisions(
     reason_counts: Counter[str] = Counter()
     failed_decisions: set[str] = set()
     lineage_digest = hashlib.sha256()
+    ledger_digest = hashlib.sha256()
+    prediction_digest = hashlib.sha256()
     for row, minute_key, (reasons, shadow_id) in zip(rows, minute_keys, checks):
         if decision_counts[str(row["decision_id"])] > 1:
             reasons.add("shadow_prediction_rows_ambiguous")
@@ -192,6 +201,13 @@ def _load_future_decisions(
             json.dumps(dict(row), sort_keys=True, separators=(",", ":")).encode("utf-8")
         )
         lineage_digest.update(b"\n")
+        if future_interval is not None:
+            for digest, payload in (
+                (ledger_digest, {key: value for key, value in row.items() if key not in prediction_fields}),
+                (prediction_digest, {key: row[key] for key in prediction_fields}),
+            ):
+                digest.update(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+                digest.update(b"\n")
         lineage_complete = not reasons
         if not lineage_complete:
             incomplete_lineage_rows += 1
@@ -227,6 +243,9 @@ def _load_future_decisions(
         "future_decision_rows": len(decision_counts),
         "eligible_population_rows": eligible_rows,
         "incomplete_lineage_rows": incomplete_lineage_rows,
+        **({"ledger_fingerprint": ledger_digest.hexdigest(),
+            "prediction_fingerprint": prediction_digest.hexdigest()}
+           if future_interval is not None else {}),
         "shadow_lineage_validation": {
             "version": E7_EVIDENCE_VALIDATION_VERSION,
             "passed": not reason_counts,
@@ -310,6 +329,8 @@ def _load_bars(
     symbols: Iterable[str],
     start_day: date,
     end_day: date,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
 ) -> dict[str, list[ReplayBar]]:
     selected = sorted(set(symbols))
     if not selected:
@@ -317,6 +338,10 @@ def _load_bars(
     placeholders = ",".join("?" for _ in selected)
     start = f"{start_day.isoformat()}T00:00:00"
     end = f"{(end_day + timedelta(days=1)).isoformat()}T00:00:00"
+    if start_at is not None:
+        start = start_at.isoformat()
+    if end_at is not None:
+        end = end_at.isoformat()
     rows = connection.execute(
         f"""
         SELECT symbol, bar_time, open, close

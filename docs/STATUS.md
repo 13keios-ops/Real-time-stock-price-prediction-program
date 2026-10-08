@@ -16,7 +16,9 @@
 - 10/8 append-only 분봉/feature/decision은 각각 3,793행/3,793 유일 종목·분 key이고 중복 및 종목별 분 시각 역행은 0건이다. `late_trade_events`의 실제 counter는 보존 증거에서 확인되지 않아 late 경로 실증 또는 restart idempotency까지 통과했다고 주장하지 않는다.
 - 10/7→10/8 현금 gap 증가분은 -127.095원이다. 로컬 현금 변동 -16,685.095원은 26건 체결의 매수·매도 순대금 -2,700원, commission 1,824.495원, tax 12,160.6원과 정확히 일치한다. 기존 계좌 gap에서 역산한 브로커 변동은 -16,558원이며 대금 대비 차감/정산 잔여 합계 13,858원은 직접 조회한 실제 수수료·세금이 아니다. 단순 체결별 1원/10원 내림 가정도 잔여 차이를 설명하지 못해 비용 설정이나 장부는 변경하지 않았다. 실제 비용·정산 breakdown 확인은 남아 있다.
 - 오래된 lifecycle latest만 로컬 검사로 갱신했다. 현재 계좌/baseline compatible, 만료 12/3 및 11/3·11/26 경고 유지다. KIS 네트워크·주문·취소 0회, DB 읽기 전용, runtime/계좌 정렬/기준선/자동화/전략 조작 없음이다.
-- 운영자 승인으로 복구 후 미래 구간 10/12~10/23 및 10/26~11/6을 별도 계약으로 사전 고정했다. 정본 및 hash는 `docs/Portfolio-Replay-Evaluator.md`와 `docs/e7-post-recovery-acceptance-20261009.json`을 따른다. trusted producer/고정 구간 진행 리포트는 아직 미연동이며 기존 누적 결과와 합산하지 않는다. 근거: `runtime-data/reports/codex/manual-followup-20261009.json`.
+- 운영자 승인으로 복구 후 미래 구간 10/12~10/23 및 10/26~11/6을 별도 계약으로 사전 고정했다. 정본 및 hash는 `docs/Portfolio-Replay-Evaluator.md`와 `docs/e7-post-recovery-acceptance-20261009.json`을 따른다. 후속 trusted producer와 수동 진행 리포트를 구현했으며 기존 누적 결과와 합산하지 않는다. 이전 조치 근거: `runtime-data/reports/codex/manual-followup-20261009.json`.
+- 새 진행 리포트는 `e7-post-recovery-progress-v1`, 두 구간 모두 `not_started`, 날짜/episode/symbol/mark 0, 공식 허가 false다. 미래 시작 전이어서 운영 DB도 열지 않았다. `runtime-data/reports/research/e7/post-recovery/<contract_hash>/2026-10-09.json`에 분리 보존한다. 기존 자동화/장후 wrapper와 공식 실행 활성화는 아직 연결하지 않았으며 원래 E7 `invalid_evidence`는 그대로다.
+- 후속 구현의 관련 테스트 73건, 전체 unittest 801건(40.972초), 구조 audit 오류 0/기존 경고 3건 및 diff check를 통과했다. 독립 리뷰의 원천 가격 누락/캐시 실패 은폐/구간 밖 조회 지적을 회귀로 차단하고 재검토했다.
 
 ## 10/8 E7 원천 계보 검증 (공식 평가 차단)
 
