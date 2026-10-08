@@ -3,7 +3,7 @@
 ## 기준 시각
 
 - 확인 시각: 2026-10-09 KST, 휴장 장외 후속 조치
-- 장 상태: overnight / 한글날 휴장
+- 장 상태: holiday (한글날 휴장)
 - live runtime: 정지, `paper`; 장외에 시작하지 않음
 - runtime watchdog: 실행 중, heartbeat fresh, 오류 없음; should-run false
 - dashboard: 실행 중, 포트 8765 HTTP/API 응답 정상
