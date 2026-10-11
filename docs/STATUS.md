@@ -2,13 +2,19 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-10-09 KST, 휴장 장외 후속 조치
-- 장 상태: holiday (한글날 휴장)
+- 확인 시각: 2026-10-12 KST 00:04경, 미장 병행 계획의 읽기 전용 운영 확인
+- 장 상태: overnight
 - live runtime: 정지, `paper`; 장외에 시작하지 않음
-- runtime watchdog: 실행 중, heartbeat fresh, 오류 없음; should-run false
-- dashboard: 실행 중, 포트 8765 HTTP/API 응답 정상
-- Windows startup launcher: 설치 및 정상
-- 최신 서비스 확인은 위 기준 시각, 수집/Phase 0/E7 누적은 10/8 공식 장후 증거를 기준으로 한다. 원천 원인과 이전 상태는 날짜가 붙은 검증 이력으로 보존한다.
+- runtime watchdog: status stale, process_running=false; 마지막 체크는 10/9 09:39 KST holiday다. 오래된 should-run/heartbeat 필드를 현재 정상으로 쓰지 않는다.
+- dashboard: 10/9 실행/HTTP/API 정상 확인 이력; 이번 계획에서는 현재 상태 재확인하지 않음
+- Windows startup launcher: 10/9 설치/정상 확인 이력; 이번 계획에서는 현재 상태 재확인하지 않음
+- 최신 runtime/watchdog 확인은 위 기준 시각, 수집/Phase 0/E7 누적은 10/8 공식 장후 증거를 기준으로 한다. 아직 10/12 국장 시작 전이며 당일 수집 단절을 확정하지 않는다. watchdog 원인 확인/안전 복구는 별도 선행 조치다.
+
+## 10/12 미장 병행 계획
+
+- 운영자가 Alpaca 무료 데이터 + 로컬 모의운용 방향을 선택했다. 계획은 `docs/US-Market-Implementation-Plan.md`에 기록했으며 국장과 별도 DB/USD 원장/시간대/모델/검증 계약을 사용한다.
+- 구현 순서는 국장 운영 보호 확인 → US 격리 → 시세 수집 → 과거 연구 → 비용/MTM → 미래 shadow/paper → 운영 보고다. 첫 구현은 credential 없이 가능한 격리/달력 회귀다.
+- 이번 작업은 문서 작성뿐이다. application code/국장 전략·설정/DB/계좌/원본 E7 및 고정 계약/credential/예약을 변경하지 않았으며 인증 시세·주문·취소 호출은 0회다.
 
 ## 10/9 수동 후속 조치
 

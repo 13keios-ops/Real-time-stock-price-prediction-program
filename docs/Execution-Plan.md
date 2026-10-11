@@ -838,6 +838,12 @@ NAS 백업은 용량과 시간이 크고, 너무 자주 실행하면 운영 부�
 `docs/Production-Transition-Progress.md`,
 `runtime-data/reports/challengers/`
 
+## 미장 병행 연구 계획
+
+국장 수집/Phase 0/E7을 유지하면서 Alpaca 무료 데이터와 별도 USD 로컬 paper 연구를 준비한다.
+구현 순서/파일/테스트/격리 및 승인 경계는 [US-Market-Implementation-Plan.md](US-Market-Implementation-Plan.md)가 소유한다.
+현재는 계획 검토 단계이며 credential/API/프로세스/예약 또는 국장 설정을 변경하지 않았다.
+
 ## 20. 작업 종료 기준
 
 각 작업은 아래 조건을 만족해야 끝난 것으로 본다.

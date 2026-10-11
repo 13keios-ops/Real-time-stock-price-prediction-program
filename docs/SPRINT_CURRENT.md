@@ -50,6 +50,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 ## 활성 체크리스트
 
+- [x] 국장 유지 + 미장 병행의 구현 계획 작성; Alpaca 무료 데이터/로컬 paper 방향 선택, 구현·연결 미실행
+- [ ] 미장 U0 운영 안전 확인 뒤 U1 시간/통화/저장 격리 구현 (세부 순서는 `docs/US-Market-Implementation-Plan.md`)
 - [x] 일일 data-quality 최근 관측 집계와 명시 전체 이력 합계 분리; 기존 인덱스 제한 조회 및 운영 판정 보존 검증
 - [x] 기존 `test_paper_reconciliation`의 `RuntimeWrite` import 오타 수정; 정합 모듈 8건 및 전체 회귀 727건 통과
 - [x] order-fill GET timeout/network 실패의 최신 보고와 batch 실패 종료, 기존 수집 백오프 보존
