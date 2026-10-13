@@ -295,6 +295,16 @@ class DailyProfitMission:
                                     close=bar.close, volume=bar.volume))
         history["bars"] = history["bars"][-20:]
 
+    def _entry_reason(self, bar, bars, atr):
+        past_high = max(b["high"] for b in bars)
+        mean_volume = sum(b["volume"] for b in bars) / 20
+        extension = bar.close - past_high
+        minute_return = (bar.close / bar.open - 1) * 100
+        if (0.25 * atr <= extension <= 3 * atr and 0 < minute_return <= 3
+                and bar.volume >= mean_volume * 1.5):
+            return "price_volume_breakout"
+        return None
+
     def _step(self, state, bar, observed, spread):
         book = self._book(state)
         self._begin_day(state, bar.bar_time.date().isoformat(), book)
@@ -342,12 +352,9 @@ class DailyProfitMission:
             if spread is None or not 0 <= spread <= 30:
                 reason = "quote_unavailable_or_wide"
             elif len(bars) == 20 and atr > 0:
-                past_high = max(b["high"] for b in bars)
                 mean_volume = sum(b["volume"] for b in bars) / 20
-                extension = bar.close - past_high
-                minute_return = (bar.close / bar.open - 1) * 100
-                if not (0.25 * atr <= extension <= 3 * atr and 0 < minute_return <= 3
-                        and bar.volume >= mean_volume * 1.5):
+                entry_reason = self._entry_reason(bar, bars, atr)
+                if not entry_reason:
                     reason = "breakout_volume_or_chase_filter"
                 else:
                     stop_distance = max(2 * atr, bar.close * 0.006)
@@ -362,8 +369,8 @@ class DailyProfitMission:
                               int(mean_volume * 0.01))
                     if qty > 0:
                         rows.append(self._order(state, bar, observed, "buy", qty,
-                                                "price_volume_breakout", stop_distance=stop_distance))
-                        reason = "price_volume_breakout"
+                                                entry_reason, stop_distance=stop_distance))
+                        reason = entry_reason
                     else:
                         reason = "capital_risk_or_volume_zero"
         if len(rows) == 1 or reason != "price_volume_breakout":

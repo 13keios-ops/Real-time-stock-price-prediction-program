@@ -1,5 +1,11 @@
 # 현재 상태
 
+## 10/14 장중 격리 구현 (운영 미적용)
+
+- root runtime은 08:00 warmup으로 실행 중이므로 root 코드/구독/DB를 변경하지 않았다. 이 worktree는 D드라이브의 `worktrees/kr-intraday-runtime-20261014`, branch `codex/kr-intraday-runtime-20261014`, base `6baef34`의 격리 준비다. 아래 기존 활성 미션 수치는 root 운영 이력이며 이 새 비교 계좌의 성과와 섞지 않는다.
+- `kr-intraday-comparison-v1`: 돌파/눌림목 각각 독립 wallet와 불변 비용·universe 계약, 계좌별 30만원, 최상위 신호/기존 95%·일손실·거래량 sizing·ATR 청산을 재사용한다. decision→candidate/capture hash→future fill을 연결했고 가용 시각 이후 체결/비용/재시작/중복/종목 간 pending 격리를 검증했다. network/order 0회, root dev.db 미접근, 기존 미션의 계약 필드/hash·기본 진입 조건 유지다.
+- 초기 관련 77건 및 경계 보완 후 신규 비교 계좌 11건 통과. 전체 suite는 보호 상태에서 실행하지 않았다. 실제 collector/경보·업종 지표 공급원/추가 API·WS 한도 검증 및 루트 통합은 미완료; `runtime_attached=false`로 남긴다. 실제 장중 활성화나 자동 수익 발생을 주장하지 않는다.
+
 ## 10/14 당일 강세 종목 후보 선정 확장
 
 - `kr-intraday-candidate-scan-v1`의 오프라인 선정기/CLI를 추가했다. 2~3만원 보통주, 거래대금 10억원 이상, 시장/업종 대비 +0.5%p 이상, volume ratio 1.5 이상, 호가 spread 30bp 이하의 최대 5개 후보를 정렬한다. 수치는 검증 전 연구 가정이며 수익성 통과가 아니다.

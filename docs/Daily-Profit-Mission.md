@@ -65,6 +65,18 @@ python3 scripts/run_daily_profit_mission.py --status
 
 ## 검증 순서
 
+### 두 후보 가상계좌 연결 준비 (격리 worktree)
+
+`app/paper_trading/candidate_comparison.py`의 `CandidateComparison(folder, MissionContract(...))`는 돌파/눌림목에 각각 별도 `mission.db`/현금/보유/보고서를 둔다. 공통 계약과 두 전략의 버전은 `comparison.json`으로 고정하며 임의 종목 교체, 자본 초기화, 다른 계좌 폴더 재사용, symlink를 거부한다. 비교 지갑의 현금을 합쳐 단일 투자금이나 수익률로 보고하지 않는다.
+
+- `observe(MinuteBar, observed_at=..., quote_spread_bps=..., capture=...)`: signal 판단에는 검증된 KIS capture가 필요하며 마지막 완료 분봉의 시간/OHLCV를 직접 대조한다. capture 없이 전달된 실제 시장 분봉은 warmup/기존 보유 mark·청산 및 이미 결정한 미래 모의체결에만 쓰고 새 entry를 만들지 않는다. `trade_count`를 포함한 실제 MinuteBar 공급은 아직 연결하지 않았다. 부재한 trade_count나 과거 provider 날짜를 합성하지 않는다.
+- 각 전략은 선정기 순위 중 해당 신호가 있는 계약 내 최고 순위 종목만 고른다. 도착 순서에 따라 낮은 순위 후보를 먼저 매수하지 않는다. 진입은 기존 accounting engine의 20분 warmup/Wilder ATR/가용 시각 다음 분 체결/비용/손실 예산/volume 제한을 그대로 통과해야 한다. 선정기의 ATR SMA는 admission signal, 계좌의 Wilder ATR은 공통 sizing·청산이므로 평가 manifest에서 구분한다.
+- core 기존 `_step`의 진입 판정을 `_entry_reason` hook으로 분리했다. 기존 DailyProfitMission의 기본 조건·계약 직렬화는 유지하고 비교 지갑만 검증된 외부 signal을 사용한다. 루트 코드에는 아직 이 refactor를 적용하지 않았다.
+- comparison/strategy prefix가 있는 decision ID에 candidate_id/capture_hash를 저장하고 fill은 같은 decision ID로 연결한다. 지갑별 기존 SQLite transaction/CAS/중복 bar 처리를 재사용한다. 두 DB 사이의 원자적 동시 commit을 주장하지 않으며 source count 차이는 `partial_wallet_processing`으로 보고한다. 부분 처리 후 같은 입력을 재생하면 완료 지갑은 중복 처리하지 않는다.
+- `report(as_of=...)`는 두 지갑의 cost/pnl/mark health를 각각 보여준다. `runtime_attached=false`, `profitability_validated=false`, `real_trading_enabled=false`다. 초기화와 fixture 테스트는 worktree `.tmp-tests`만 사용했고 운영 지갑을 켠 것이 아니다.
+
+수집 연결의 다음 경계: 공식 source에서 당일 market/sector 수익률과 경보/보통주 metadata를 보존하고, 기존 paper REST/WS 예산과 충돌하지 않는 호출·subscription 한도를 확정한다. 기존 1회 승인으로 상시 polling을 켜지 않는다. 선정/구독 교체 시 보유·pending 종목 feed를 잃지 않아야 하며 별도 collector 장애는 기존 수집을 중단시키지 않아야 한다. 보호 세션에서는 새 network/구독/루트 적용 없이 구현만 준비한다.
+
 ### 당일 강세 종목 확장 (오프라인 단계)
 
 기존 활성 계약을 바꾸지 않고 별도 후보 선정기를 구현했다. `app/universe/intraday_candidates.py`와 `scripts/scan_intraday_candidates.py`는 네트워크/DB/가상체결에 접근하지 않는다. 후보와 신호는 실행 주문이 아니며 `execution_enabled=false`다.
