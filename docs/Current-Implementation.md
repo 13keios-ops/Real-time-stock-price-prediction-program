@@ -4,6 +4,14 @@
 
 ## 현재 요약
 
+### 독립 일일 수익 가상 서브미션
+
+- `app/paper_trading/daily_mission.py`는 완료 분봉의 가격/거래량 돌파와 ATR 추적 청산을 사용하는 별도 cash-only 모의계좌다. 공개 지표의 검증된 수익성을 주장하지 않는다.
+- 기존 `kis-ws`/`paper` pipeline에 명시 계약이 있을 때만 연결되며 primary decision/order/fill을 기록한 뒤 새 폴더에 관측한다. live/synthetic source, 계약 부재·오류는 별도 진입을 차단한다.
+- 신규 SQLite 장부, 거래 비용 모델, 입력/판단/가상 체결 ID, 일별 손익은 기존 dev.db/Phase 0/E7과 분리한다. 스레드 lock/CAS/rollback과 실패 격리로 원장 중복·덮어쓰기 및 primary 중단을 막는다.
+- `python3 scripts/run_daily_profit_mission.py --initialize --start-date 2026-10-14`로 장외 명시 초기화하고 `--status`로 저장 보고서를 조회한다. 같은 계약 재실행은 자본을 다시 채우지 않는다.
+- 실제 계좌 수수료와 fill calibration은 미확인이며, 상세 고정 규칙·비용·시간 의미·운영 경계는 `docs/Daily-Profit-Mission.md`가 소유한다. 현재 값은 STATUS를 따른다.
+
 ### 2026-09-04 운영 스냅샷
 
 - 현재 통과한 수익 후보는 `0개`, 수익화 판정은 `no_profitable_candidate`다. active `baseline-h15-v1`과 주문 정책은 유지되며 자동 승격은 없다.

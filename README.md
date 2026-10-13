@@ -45,6 +45,7 @@ KIS 데이터 품질의 일일 점검은 `python3 scripts/summarize_kis_live_dat
 - `docs/Execution-Plan.md`: 현재 상태에서 다음 작업을 어떤 순서와 방법으로 진행할지 정리한 실행 계획판
 - `docs/Model-Research-PreRegistration.md`: Cybos-KIS 격차, orderbook 피처 가설, h60 트랙 사전등록 기준
 - `docs/Portfolio-Replay-Evaluator.md`: portfolio replay v1/v2 시간 의미, MTM, E7 evaluator manifest와 호환성 기준
+- `docs/Daily-Profit-Mission.md`: 30만원·일 순이익 최소 1만원 도전의 독립 모멘텀 가상계좌, 비용/체결 가정과 운영 경계
 - `docs/Social-Signal-Shadow-Plan.md`: SNS/공개 영향력 이벤트를 Phase 1 shadow 로 관측·평가하는 기준
 - `docs/Investor-Flow-Shadow-Plan.md`: 외국인·기관 EOD 수급을 E7과 분리해 관측·평가하는 기준
 - `docs/DART-Disclosure-Shadow-Plan.md`: OpenDART 공시 이벤트의 no-look-ahead shadow 관측 기준

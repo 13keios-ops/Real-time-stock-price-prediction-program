@@ -5,6 +5,14 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-14] 30만원 독립 모멘텀 가상 서브미션
+
+- 운영자 요청으로 기존 수집 10개 종목의 가격/거래량 돌파·ATR 추적 청산 후보를 독립 가상계좌로 구현했다. RSI/스토캐스틱/그리드 소개는 그대로 복제하지 않았다. 하루 최소 순이익 1만원은 보장·이익 상한이 아니며 손실도 실제 계산대로 남긴다.
+- 수수료/매도세/스프레드/슬리피지, 정수 주/현금/유동성/일손실, 실제 판단 가용 시각 이후 분봉 시가 proxy, 계약 불변 및 재시작 입력 identity를 명시했다. 원장·가상 fill·보고서는 새 폴더만 사용하고 기존 계좌·E7 결과와 섞지 않는다.
+- missing implementation 및 비용/스레드/동시 writer/원천 경계 실패를 먼저 확인한 뒤 신규 32건과 전체 unittest 837건(65.108초)을 통과했다. 전체 증거: `.tmp-tests/daily-profit-mission-unittest-20261014.log`. PowerShell→bash wrapper 종료부의 CRLF 오류는 Python의 OK 결과와 분리했으며 성공한 전체 테스트를 중복 실행하지 않았다.
+- 구조 audit 오류 0/기존 경고 3건이다. legacy decision/order/fill 및 counter 동일, 새 트랙 장애 시 primary 수집 지속을 격리 fixture로 확인했다. 별도 독립 reviewer 도구를 쓰지 않았으며 diff/시간·회계 경계 self-review를 수행했다.
+- 01:58 KST 명시 초기화로 `awaiting_first_bar`, 현금 300,000원, 가상 체결/보유 0건을 확인했다. 실제 KIS 호출·주문·취소, 장외 runtime 시작, 기존 전략/flag/기준선/manifest/예약 변경은 없다. 첫 미래 세션의 관측 확인은 남겨 둔다.
+
 ## [2026-10-09] 장후 자동화의 고정 구간 관측 연결
 
 - daily ops skill에 기존 누적 E7과 독립적인 최대 1회 고정 구간 관측을 연결했다. 기존 명령 실패에도 안전 조건을 재확인해 관측하며 반환된 실제 recheck 경로/시각과 원래 실패를 분리 보고한다. 공식 승인 hash/proof/package/수익 계산은 추가하지 않았다.

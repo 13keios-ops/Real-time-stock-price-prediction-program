@@ -34,6 +34,7 @@ from app.features.minute_bars import aggregate_ticks_to_minute_bar, build_featur
 from app.models.loader import load_latest_lightgbm_shadow_model, load_prediction_model
 from app.observability.logging import configure_logging
 from app.paper_trading.book import PaperPortfolioBook
+from app.paper_trading.daily_mission import load_enabled_mission
 from app.paper_trading.engine import PaperTradingEngine
 from app.paper_trading.signals import SignalPolicy
 from app.portfolio.allocator import PositionAllocator
@@ -50,7 +51,7 @@ from app.services.paper_alignment import (
     apply_alignment_baseline,
     filter_rows_after_alignment,
 )
-from app.storage.contracts import MarketTickEvent, OrderEvent, OrderbookSnapshot, RiskEvent, ServingDecision
+from app.storage.contracts import MarketTickEvent, MinuteBar, OrderEvent, OrderbookSnapshot, RiskEvent, ServingDecision
 from app.storage.runtime_writer import RuntimeWriter
 from app.universe.watchlist import load_watchlist
 from app.utils.time import now_local, parse_hhmm
@@ -185,6 +186,13 @@ class OnlinePipelineProcessor:
         self._broker_sync_consecutive_failures = 0
         self._restore_pending_order_state()
         self._restore_close_retry_block_state()
+        self.daily_profit_mission = None
+        try:
+            self.daily_profit_mission = load_enabled_mission(
+                settings.runtime_data_dir, source=self.raw_source, trading_mode=settings.trading_mode,
+            )
+        except Exception:
+            LOGGER.exception("Separate daily-profit mission could not start; primary pipeline is unchanged.")
 
     def _build_live_id_namespace(self) -> str:
         timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
@@ -748,6 +756,33 @@ class OnlinePipelineProcessor:
                 fill_id=decision_fill_id,
             )
         )
+
+        self._observe_daily_profit_mission(bar, state.latest_orderbook)
+
+    def _observe_daily_profit_mission(self, bar: MinuteBar, quote: OrderbookSnapshot | None) -> None:
+        mission = self.daily_profit_mission
+        if mission is None:
+            return
+        try:
+            observed = now_local(self.settings.timezone)
+            spread = None
+            if quote is not None and quote.event_time.tzinfo is not None and quote.is_valid_for_trading:
+                age = (observed - quote.event_time).total_seconds()
+                if 0 <= age <= 20:
+                    spread = quote.spread_bps
+            mission.observe(bar, observed_at=observed, quote_spread_bps=spread)
+        except Exception:
+            LOGGER.exception("Separate daily-profit mission failed closed; primary pipeline continues.")
+            try:
+                mission.mark_failed()
+            except Exception:
+                LOGGER.exception("Could not persist separate mission failure; inspect the runtime error log.")
+            finally:
+                try:
+                    mission.close()
+                except Exception:
+                    LOGGER.exception("Could not close separate mission storage.")
+                self.daily_profit_mission = None
 
     def _maybe_close_position(self, symbol: str, mark_price: float, event_time: datetime) -> str | None:
         state = self.portfolio_book.positions.get(symbol)

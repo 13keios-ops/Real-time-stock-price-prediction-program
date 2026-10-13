@@ -2,13 +2,17 @@
 
 ## 기준 시각
 
-- 확인 시각: 2026-10-12 KST 00:04경, 미장 병행 계획의 읽기 전용 운영 확인
-- 장 상태: overnight
-- live runtime: 정지, `paper`; 장외에 시작하지 않음
-- runtime watchdog: status stale, process_running=false; 마지막 체크는 10/9 09:39 KST holiday다. 오래된 should-run/heartbeat 필드를 현재 정상으로 쓰지 않는다.
-- dashboard: 10/9 실행/HTTP/API 정상 확인 이력; 이번 계획에서는 현재 상태 재확인하지 않음
-- Windows startup launcher: 10/9 설치/정상 확인 이력; 이번 계획에서는 현재 상태 재확인하지 않음
-- 최신 runtime/watchdog 확인은 위 기준 시각, 수집/Phase 0/E7 누적은 10/8 공식 장후 증거를 기준으로 한다. 아직 10/12 국장 시작 전이며 당일 수집 단절을 확정하지 않는다. watchdog 원인 확인/안전 복구는 별도 선행 조치다.
+- 확인 시각: 2026-10-14 KST 01:58경, 독립 가상 서브미션 준비
+- 장 상태 overnight; live runtime 정지/`paper`, watchdog running/heartbeat fresh/should-run=false. 기존 정상 아침 시작 경로를 유지하며 장외 runtime은 시작하지 않음
+- dashboard HTTP/API와 Windows startup launcher는 정상 확인했고 이번 작업에서 재시작·예약 프롬프트/시간/상태 변경 없음
+- 수집/Phase 0/E7 최신 장후 증거는 10/13 기준이며, 10/14 실제 세션은 아직 시작 전이다. 과거 수치와 새 가상계좌 결과를 혼합하지 않는다.
+
+## 10/14 독립 가상 수익 서브미션
+
+- 운영자 수동 요청으로 `kr-volume-breakout-atr-trailing-v1`을 구현하고 10/14 시작 계약을 활성화했다. 최초 가상 현금 300,000원, 일 비용 후 최소 목표 10,000원, loss soft limit 6,000원이다. 목표는 이익 상한이나 수익 보장이 아니다.
+- 현재 `awaiting_first_bar`, 현금 300,000원, 가상 체결/보유/pending 0건이다. 입력은 기존 10개 종목만이며 watchdog의 정상 시작을 이용한다. 계약 hash `00712ca37a1fa7388ce6fd5c74898187b2f34c08eaccfb98a793ba6e639d684c`, 장부/리포트는 `runtime-data/paper-missions/krw-300k-daily-10k/`에 격리하며 자본 재충전은 없다.
+- 공시 일반 온라인 수수료 0.147%/편도, ordinary-stock 매도세 0.20%, 스프레드 allowance 15bp/편도 및 슬리피지 3bp/편도를 가정해 약 왕복 0.854%를 반영한다. 실제 계좌 요율·실측 체결 비용은 미확인이다. 기존 E7 비용 0.29%를 바꾼 것이 아니다.
+- 신규 32건과 전체 unittest 837건(65.108초), 구조 audit 오류 0/기존 경고 3건이다. worker/CAS/rollback/비용/목표 초과 보유/legacy 원장 불변/실패 격리를 검증했다. 모델/gate/allocator/KIS/Phase 0/E7/기준선/예약/실전 flag 유지, KIS 호출·주문·취소 및 장외 runtime 시작 0회다. 첫 미래 세션 확인은 남으며 상세 계약은 `docs/Daily-Profit-Mission.md`를 따른다. 미장 구현 완료를 주장하지 않는다.
 
 ## 10/12 미장 병행 계획
 
