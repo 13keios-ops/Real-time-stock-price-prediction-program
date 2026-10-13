@@ -5,7 +5,9 @@
 - `kr-intraday-candidate-scan-v1`의 오프라인 선정기/CLI를 추가했다. 2~3만원 보통주, 거래대금 10억원 이상, 시장/업종 대비 +0.5%p 이상, volume ratio 1.5 이상, 호가 spread 30bp 이하의 최대 5개 후보를 정렬한다. 수치는 검증 전 연구 가정이며 수익성 통과가 아니다.
 - 정상 시장 상태가 명시되지 않거나 경보/거래정지, 오래된/미래 호가, benchmark 누락, 분봉 공백/미완료/미래 가용 시각이면 차단한다. 후보 입력 hash와 정책 hash/ID, 선정 제외 이유, 돌파/눌림목 신호를 남긴다. 테마 분류는 아직 없으며 작전주 판별을 주장하지 않는다.
 - 실제 순위 snapshot 수집, 추가 종목 분봉/호가 구독, 독립 가상계좌 체결 연결은 아직 미구현/비활성이다. `execution_enabled=false`; 기존 10종목 미션/E7/수집 watchlist/계약은 그대로다. KIS 인증·조회·주문 호출 및 runtime 재시작 없이 구현했다. 후속 연결 조건은 `docs/Daily-Profit-Mission.md`를 따른다.
-- 신규 고유 테스트 20건 및 전체 unittest 857건(45.243초) 통과. 로그: `.tmp-tests/intraday-candidates-unittest-20261014.log`. 실제 KIS 제한 조회 승인을 요청했으며 답변 전 수집·체결 활성화는 보류한다.
+- 신규 고유 테스트 20건 및 전체 unittest 857건(45.243초) 통과. 로그: `.tmp-tests/intraday-candidates-unittest-20261014.log`.
+- 03:07 KST 사용자 승인 제한 조회 완료: paper 프로필의 `FHPST01710000` 거래금액순/2~3만원/보통주 조회 1회가 30행 반환, `001440` 대한전선 25,200원 및 `006800` 미래에셋증권 26,700원의 가격/호가 각 1회도 `MCA00000` 정상이다. 총 GET 5회, cached token 사용/auth 0회, 재시도/주문/취소 0회. 근거: `runtime-data/reports/codex/kis-intraday-candidates-probe-20261014-once.json`. 두 종목은 API 연결 검사용 표본이지 강세 조건 통과/매수 추천이 아니다.
+- 장외 호가 시각은 둘 다 `200000`이며 수신 시각을 장중 가격 가용 시각으로 바꿔 사용하지 않는다. mask 요청 성공은 실제 경보 제외 완전성이나 API 구독 한도 통과를 증명하지 않는다. 응답에는 `0009K0`처럼 영문 포함 종목코드도 있어 현재 숫자 6자리 scanner와의 입력 호환 정책을 수집 adapter에서 확정해야 한다. volume ratio 기준/경보 metadata/시장·업종 benchmark/실제 분봉 및 추가 구독 한도는 아직 미검증이며 자동 수집·가상체결 활성화는 보류한다.
 
 ## 기준 시각
 
