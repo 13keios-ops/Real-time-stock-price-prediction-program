@@ -84,7 +84,17 @@ python3 scripts/scan_intraday_candidates.py --snapshot /path/to/sanitized-snapsh
 
 후속 연결 순서: (1) 공식 KIS 거래대금 순위의 실제 지원 환경과 입력/제외 필드 검증, market/sector/경보 metadata provenance 고정 (2) 기존 10종목 WS 구독을 보존하며 별도 bounded 시세 수집 및 지연·단절·한도 검사 (3) 당일 선정 시각/유효기간/교체 규칙 고정, 돌파·눌림목 각각 새 30만원 가상계좌/원장에 연결 (4) 동일 비용/체결/손실 예산의 독립 미래 비교. 현금·손익을 계좌끼리 합치지 않고 기존 미션/E7을 변경하지 않는다. 풀매수를 강제하지 않으며 sizing/청산에는 기존 비용·손실 위험 검사를 재사용한다.
 
-공식 API 검토 근거: https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/volume_rank/volume_rank.py (`FHPST01710000`, `FID_BLNG_CLS_CODE=3` 거래금액순). 공식 예제에는 대상 mask 길이 설명과 구현 불일치 주석이 있어 문서만 보고 지원/실제 제외 동작을 확정하지 않는다. 실제 KIS API 실행은 아직 없다.
+`kis-intraday-snapshot-adapter-v1`은 (1)의 오프라인 입력 경계를 구현한 것이다. `scan_intraday_candidates.py --format kis-capture --snapshot ... --as-of ...`로 실행한다. 자동 API 조회/WS 구독/가상 체결을 켜는 옵션은 없다.
+
+- capture envelope: `source=kis-volume-rank-krx-v1`, 검증된 `trade_date`, timezone-aware `received_at`, 원래 순위 `rows`, symbol-keyed `observations`다. rows의 `mksc_shrn_iscd/acml_vol/prdy_vol`을 사용한다. `0009K0`처럼 숫자형 기존 계약 밖의 코드는 한 행만 제외하며 전체 숫자형 모집단을 중단하지 않는다. 같은 코드가 중복이면 원천 전체를 차단한다.
+- observations[symbol]은 price(`received_at/trade_date/output`), orderbook(`received_at/provider_at/output1`), metadata(`observed_at/trade_date/market/instrument_type/flags`), benchmark(`observed_at/trade_date/market_return_pct/sector_return_pct`), bars를 요구한다. bars의 동일 종목 연결은 envelope 생산자의 책임이며 실제 수집기는 direct source identity를 보존해야 한다. 완전한 fixture는 `tests/test_kis_candidate_snapshot.py`에 있다.
+- 경보 flags는 investment_caution/warning/risk, management, liquidation, trading_halt, short_term_overheat가 모두 실제 bool false여야 한다. margin/종목 상태 코드 `55`, 제외 mask 성공, 임의 기본값 N/0은 정상 거래 가능 증거가 아니다. 경보/분류의 독립적인 실제 공급원 연결은 아직 없다.
+- 거래량 배수의 고정 기준은 `acml_vol / prdy_vol`(당일 누적/전일 전체 거래량)이며 같은 시각 대비 또는 분봉 평균 대비 증가율이 아니다. KIS `vol_inrt` 보고 숫자는 사용하지 않고, 전일 분모 누락/0이면 차단한다. scanner 1.5 조건은 이 기준으로 평가하며 장초반에 충족하기 어려울 수 있다. 지표의 수익성을 검증한 것이 아니다.
+- price/ranking/metadata/benchmark는 같은 검증 거래일에 60초 이내, quote provider/received는 20초 이내이고 provider가 receipt보다 미래이면 차단한다. HHMMSS만으로 거래일을 임의 조립하지 않는다. `holidays`는 Python entrypoint에서 공급할 수 있고 실제 collector는 기존 달력을 적용해야 한다; CLI는 검증용이며 거래일 운용 서비스를 대신하지 않는다.
+- adapter source_hash는 버전/volume basis/정규화 입력/가용 시각/실제 flags/제외 taxonomy의 hash다. 임의 원본 응답 전체 hash 또는 공급원 인증 서명이 아니다. 비밀값/임의 추가 필드는 출력과 정규화 hash에서 제외한다. 원본 파일의 보존 hash는 별도 capture 호환 보고가 소유한다.
+- 앞선 장외 연결 capture는 envelope를 충족하지 않으며 새로운 입력으로 가장하지 않는다. 원천 날짜·분모·경보·benchmark·분봉·호가 날짜 누락을 모두 별도 남겼다. 기존 1회 조회 승인을 반복 API 호출이나 상시 collector 승인으로 확대하지 않는다.
+
+공식 API 검토 근거: https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/volume_rank/volume_rank.py (`FHPST01710000`, `FID_BLNG_CLS_CODE=3` 거래금액순). 공식 예제에는 대상 mask 길이 설명과 구현 불일치 주석이 있어 문서만 보고 지원/실제 제외 동작을 확정하지 않는다. 사용자 승인 1회 연결 조회는 성공했지만 상시 수집이나 mask의 실제 안전 분류 검증은 아니며 현재 결과는 STATUS와 보존 capture를 따른다.
 
 1. 신규 회계/시각/비용/재시작/동시성/원천 경계 focused tests.
 2. 활성화 전후 기존 decision/order/fill 원장 및 pipeline counter 불변 비교.
