@@ -2,6 +2,9 @@
 
 ## 10/14 장중 격리 구현 (운영 미적용)
 
+- `kr-bounded-capture-cycle-v1` 수집 cycle 골격과 두 계좌 연결 검증 추가: default dry-run/명시 budget authorization, 최대 5종목·11 requests, 응답 완료 후 1.1초 대기, 종료 후 300초 cooldown, 18초 soft deadline 및 3초 transport timeout 요구다. 같은 ScanPolicy 사전 필터로 약세/부적격 종목에 quote 예산을 쓰지 않고 실패 시 cycle 중단/무재시도다. 실제 KIS transport·경보/benchmark/bar 공급원은 미연결이며 메모리 단일 instance 예산을 기존 계정의 공유 rate-limit 검증으로 해석하지 않는다.
+- 수집 신규 17건 및 adapter/scanner 관련 52건 통과(이후 추가된 통합 1건은 신규 17건에 포함). fake reader만 사용해 capture→adapter→별도 30만원 두 wallet의 독립 판단을 검증했고 실제 KIS 호출·주문·root DB 접근은 0회다. 승인된 기존 1회 조회를 상시 수집 승인으로 확대하지 않았다.
+
 - root runtime은 08:00 warmup으로 실행 중이므로 root 코드/구독/DB를 변경하지 않았다. 이 worktree는 D드라이브의 `worktrees/kr-intraday-runtime-20261014`, branch `codex/kr-intraday-runtime-20261014`, base `6baef34`의 격리 준비다. 아래 기존 활성 미션 수치는 root 운영 이력이며 이 새 비교 계좌의 성과와 섞지 않는다.
 - `kr-intraday-comparison-v1`: 돌파/눌림목 각각 독립 wallet와 불변 비용·universe 계약, 계좌별 30만원, 최상위 신호/기존 95%·일손실·거래량 sizing·ATR 청산을 재사용한다. decision→candidate/capture hash→future fill을 연결했고 가용 시각 이후 체결/비용/재시작/중복/종목 간 pending 격리를 검증했다. network/order 0회, root dev.db 미접근, 기존 미션의 계약 필드/hash·기본 진입 조건 유지다.
 - 초기 관련 77건 및 경계 보완 후 신규 비교 계좌 11건 통과. 전체 suite는 보호 상태에서 실행하지 않았다. 실제 collector/경보·업종 지표 공급원/추가 API·WS 한도 검증 및 루트 통합은 미완료; `runtime_attached=false`로 남긴다. 실제 장중 활성화나 자동 수익 발생을 주장하지 않는다.

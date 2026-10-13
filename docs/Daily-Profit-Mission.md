@@ -77,6 +77,17 @@ python3 scripts/run_daily_profit_mission.py --status
 
 수집 연결의 다음 경계: 공식 source에서 당일 market/sector 수익률과 경보/보통주 metadata를 보존하고, 기존 paper REST/WS 예산과 충돌하지 않는 호출·subscription 한도를 확정한다. 기존 1회 승인으로 상시 polling을 켜지 않는다. 선정/구독 교체 시 보유·pending 종목 feed를 잃지 않아야 하며 별도 collector 장애는 기존 수집을 중단시키지 않아야 한다. 보호 세션에서는 새 network/구독/루트 적용 없이 구현만 준비한다.
 
+### Bounded capture cycle 골격 (실연결 미완료)
+
+`app/collectors/candidate_capture_cycle.py`의 `CaptureCycle(reader=None)`은 scheduler나 background process를 만들지 않는다. `collect(evidence=..., execute=False)`가 기본이며 실제 실행 요청에는 `execute=True, budget_authorized=True`를 둘 다 요구한다. 코드의 bool은 외부 권한 승인 증거가 아니므로 운영 launcher는 별도 승인된 budget 계약을 확인해야 한다. 현재 실제 reader와 launcher는 연결하지 않았다.
+
+- 승인된 reader port는 GET 역할의 `get(path, tr_id, params, timeout_seconds=3, allow_retry=False)`만 호출한다. path/TR allowlist는 ranking/current-price/orderbook 세 개이며 account/order/cancel/auth/WS 호출은 없다. response는 raw rt_cd/output뿐 아니라 독립 검증된 거래일과 호가 provider_at을 제공해야 한다. KIS raw 응답에 날짜가 없으면 로컬 receipt 날짜로 가장하지 않는다. 이 verified envelope를 만드는 실 transport adapter는 아직 없다.
+- 1 cycle당 ranking 1회, 최대 5종목의 price/quote 각 1회로 최대 11 requests다. 응답 완료 후 최소 1.1초 대기하며 cycle 종료 후 300초 동안 같은 instance의 새 실행을 막는다. 18초 soft deadline은 요청 전과 응답 후에 검사하고 초과 응답은 버린다; 진행 중인 요청을 강제 interrupt하는 보장은 아니며 실 reader의 3초 timeout 준수가 필요하다.
+- 기존 root 계정과의 global rate coordinator, restart-persistent cooldown, 연속 polling, 추가 WS 구독은 아직 없다. 이 메모리 단일-instance 예산만으로 기존 collector와 동시 운용이 안전하다고 판단하지 않는다. 실제 활성화 전 이 경계를 검증하고 승인해야 한다.
+- 경보/market/sector/21개 연속 실제 분봉 context가 미검증이면 ranking 이후 price/quote 호출을 생략한다. 실제 trade_count도 요구하며 1을 넣어 합성하지 않는다. ranking의 숫자 필드로 동일 ScanPolicy 가격/거래대금/상대강도/전일 분모 volume ratio를 먼저 확인한다. 정규화 이후 price/quote와 최종 시각으로 다시 평가한다.
+- 오류 메시지/원본 exception은 출력하지 않고 rate/auth/network/unknown 또는 capture evidence/budget taxonomy만 보고한다. 실패 시 남은 cycle을 중단하고 retry/token refresh/pagination을 하지 않는다. response extra fields와 credentials는 capture allowlist에 포함하지 않는다.
+- 검증된 sanitized capture는 CandidateComparison.observe의 입력으로 쓸 수 있지만 actual MinuteBar는 실제 수신 공급원에서 별도로 와야 한다. fixture의 성공은 공급원 정확성·진짜 체결·수익성·운영 readiness를 증명하지 않는다.
+
 ### 당일 강세 종목 확장 (오프라인 단계)
 
 기존 활성 계약을 바꾸지 않고 별도 후보 선정기를 구현했다. `app/universe/intraday_candidates.py`와 `scripts/scan_intraday_candidates.py`는 네트워크/DB/가상체결에 접근하지 않는다. 후보와 신호는 실행 주문이 아니며 `execution_enabled=false`다.
