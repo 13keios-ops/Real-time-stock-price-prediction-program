@@ -65,6 +65,27 @@ python3 scripts/run_daily_profit_mission.py --status
 
 ## 검증 순서
 
+### 당일 강세 종목 확장 (오프라인 단계)
+
+기존 활성 계약을 바꾸지 않고 별도 후보 선정기를 구현했다. `app/universe/intraday_candidates.py`와 `scripts/scan_intraday_candidates.py`는 네트워크/DB/가상체결에 접근하지 않는다. 후보와 신호는 실행 주문이 아니며 `execution_enabled=false`다.
+
+- 초기 정책: 주가 20,000~30,000원, 당일 누적 거래대금 10억원 이상, 양의 수익률 및 시장/업종 수익률 중 큰 값보다 +0.5%p 이상, volume ratio 1.5 이상, spread 30bp 이하, 최대 5종목. 동일 입력은 상대강도/거래량 비율/거래대금/종목코드 순으로 결정적으로 정렬한다. 수치는 최적화나 수익성 검증 결과가 아니다.
+- 입력: JSON 배열의 각 행에 `symbol`, `market`(KOSPI/KOSDAQ), `instrument_type=common_stock`, `market_status=normal`, `price/bid/ask/trading_value/return_pct/market_return_pct/sector_return_pct/volume_ratio`, timezone-aware `observed_at/quote_at`, `bars` 21개를 요구한다. 정상 상태는 실제 공급자의 검증된 eligibility를 매핑해야 하며 누락을 정상으로 채우지 않는다. volume_ratio의 기준 기간은 실제 수집 adapter 계약에서 고정해야 한다.
+- bars는 동일 당일의 연속 완료 분봉이며 각각 `bar_time/available_at/open/high/low/close/volume`을 가진다. 데이터 가용 시각 이후에만 사용한다. 입력 시각 60초/호가 20초 이내, 마지막 완료 분봉 120초 이내를 요구한다. 평일 09:30~14:45 창만 지원하며 실제 거래일 판정은 향후 collector에서 기존 달력을 적용해야 한다.
+- 신호 비교: 돌파는 직전 20분 최고가를 0.25~3 ATR 초과/1분 상승 3% 이하/분 거래량 1.5배 조건이다. 눌림목은 최근 10분 고점이 앞선 10분보다 높고, 직전 종가 조정 후 양봉 회복, 최근 고점에서 0.25~2 ATR 이내, 분 거래량 평균 이상 및 closed-bar VWAP proxy 위를 요구한다. 후보 선정과 진입 신호는 별개여서 후보의 신호가 0개일 수 있다.
+- 여기서 ATR은 현재 분봉 전 14개 true range의 단순 평균 `atr14_sma`이며 기존 미션의 Wilder ATR과 동일하다고 주장하지 않는다. VWAP은 21개 완료 분봉 typical-price/volume proxy이지 실제 체결별/당일 VWAP이 아니다. 양 전략의 손익 비교는 아직 실행하지 않았다.
+- 출력은 allowlist 숫자/종목/시각 및 정규화 입력 hash/정책 hash/안정 ID와 제외 taxonomy다. 임의 응답/자격정보/테마명을 출력하지 않는다. `theme_classification=not_available`; 테마/작전주 식별 기능은 없다.
+
+읽기 전용 실행 (자격정보 불필요):
+
+```bash
+python3 scripts/scan_intraday_candidates.py --snapshot /path/to/sanitized-snapshot.json --as-of 2026-10-14T10:00:00+09:00
+```
+
+후속 연결 순서: (1) 공식 KIS 거래대금 순위의 실제 지원 환경과 입력/제외 필드 검증, market/sector/경보 metadata provenance 고정 (2) 기존 10종목 WS 구독을 보존하며 별도 bounded 시세 수집 및 지연·단절·한도 검사 (3) 당일 선정 시각/유효기간/교체 규칙 고정, 돌파·눌림목 각각 새 30만원 가상계좌/원장에 연결 (4) 동일 비용/체결/손실 예산의 독립 미래 비교. 현금·손익을 계좌끼리 합치지 않고 기존 미션/E7을 변경하지 않는다. 풀매수를 강제하지 않으며 sizing/청산에는 기존 비용·손실 위험 검사를 재사용한다.
+
+공식 API 검토 근거: https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/volume_rank/volume_rank.py (`FHPST01710000`, `FID_BLNG_CLS_CODE=3` 거래금액순). 공식 예제에는 대상 mask 길이 설명과 구현 불일치 주석이 있어 문서만 보고 지원/실제 제외 동작을 확정하지 않는다. 실제 KIS API 실행은 아직 없다.
+
 1. 신규 회계/시각/비용/재시작/동시성/원천 경계 focused tests.
 2. 활성화 전후 기존 decision/order/fill 원장 및 pipeline counter 불변 비교.
 3. 기존 전체 unittest 및 구조 audit.
