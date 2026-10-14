@@ -7,6 +7,10 @@
 
 ## [2026-10-14] 승인된 공급원 GET 6회 연결 확인
 
+- 후속 격리 작업에서 공식 master 고정 폭 parser와 동일 종목 dated-minute proof를 TDD로 준비하고 관련 33건을 통과했다. 공개 master 두 파일은 TLS 검증 유지 상태로 D에 보존했으며 root 코드/계좌/E7/자동 수집은 변경하지 않았다. 실제 빈 ETP 값과 유효 기준일 미확정을 차단 상태로 유지한다. 별도 당일분봉 1회 조회 승인은 요청 중이며 인증 API를 추가 실행하지 않았다.
+- 격리 worktree 첫 전체 934건에서 신규 paper reader의 direct REST constructor 경계 테스트 1건 실패를 발견해 기존 readonly factory/wrapper 경계를 재사용하도록 수정했다. 기존 isolation allowlist는 유지했고 수정 관련 37건 통과를 확인했다. root에 이 코드를 적용하지 않았다.
+- 이후 wrapper의 주문 표면/비시세 endpoint 차단 검증을 추가하고 최종 전체 935건(469.514초), subprocess exit 0을 확인했다. 격리 로그 `.tmp-tests/provenance-full-unittest-final-20261014.log`를 보존하며 코드 통합/실제 dated verifier 활성화를 주장하지 않는다.
+
 - 장후 runtime 정지/should-run=false를 확인하고 paper 현재가 2/호가 2/시장지수 2를 응답 완료 뒤 1.1초 간격으로 실행했다. 모두 성공했으며 유효 cached token만 사용, auth/retry/order/cancel 0이다. 원문이나 비밀값 없이 경보/코드/날짜·시각 필드와 sanitized 응답 코드를 보존했다.
 - 네트워크 실행 전 mock self-test로 6회 한도, 첫 오류 중단, secret redaction과 expired cache 차단을 확인했다. one-off artifact를 첫 GET 전에 예약해 중단된 시도를 재실행하지 않도록 했으며 실행 완료 후 임시 helper는 정리한다. 기존 원천/계좌/E7/자동화/구독/모델/정책은 변경하지 않았다.
 - 현재가와 index의 고저가 날짜는 현재 거래일 증명이 아니며 호가는 HHMMSS만 있다. 실제 거래일 anchor/종목 마스터/업종 매핑이 없으므로 자동 수집/두 가상계좌의 운영 통합은 아직 보류한다. 현재 결과와 남은 작업은 STATUS/SPRINT가 소유한다.
