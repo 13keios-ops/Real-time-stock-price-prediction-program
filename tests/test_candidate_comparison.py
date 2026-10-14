@@ -105,6 +105,12 @@ class CandidateComparisonTests(unittest.TestCase):
         self.assertNotIn("strategy", known.to_dict())
         self.assertTrue(callable(getattr(DailyProfitMission, "_entry_reason", None)))
 
+    def test_old_source_contract_is_not_mixed_into_new_wallets(self):
+        self.capture['source_binding_version']='old-source-version'
+        bar=self.bar(self.capture['observations']['123456']['bars'][-1])
+        with self.assertRaises(ValueError):self.comparison.observe(bar,observed_at=self.now,capture=self.capture)
+        self.assertTrue(all(w.state['source_bar_count']==0 for w in self.comparison.wallets.values()))
+
     def test_other_symbol_cannot_cancel_pending_entry(self):
         wallet = self.comparison.wallets["breakout"]
         wallet.context = dict(blocked=True, signals=[])

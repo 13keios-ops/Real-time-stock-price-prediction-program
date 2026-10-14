@@ -67,21 +67,21 @@ python3 scripts/run_daily_profit_mission.py --status
 
 ### 공식 source 연결 준비 (실제 공급원 미활성)
 
-`kis_candidate_provenance.parse_stock_master`는 공식 고정 폭 tail(KOSPI 227/KOSDAQ 221 byte)에서 필요한 분류/경보/업종/전일 거래량만 읽는다. 공개 ZIP snapshot 원본 hash를 보존하고 압축파일의 경로를 추출하지 않았다. 로컬 download/ZIP 시각을 유효 기준일로 쓰지 않으므로 reference_date=None 상태의 결과는 기존 metadata 검사를 통과하지 않는다. 실제 ST/보통주에 빈 ETP 값이 확인됐지만 문서상 0으로 자동 변환하지 않는다.
+`kis_candidate_provenance.parse_stock_master`는 공식 고정 폭 tail(KOSPI 227/KOSDAQ 221 byte)을 읽는다. v2 source 계약은 raw hash/layout이 검증된 당일 획득 snapshot(8시간 이내)과 최신 현재가 경보를 묶는다. `reference_date=None`, `master_effective_day_verified=false`를 유지하며 획득 시각을 공급원 유효일로 가장하지 않는다. 파싱된 ST/보통주0/SPAC N의 실제 빈 ETP 값은 raw 그대로 허용하고, 다른 코드·누락·legacy 빈 값은 차단한다. 이 변경은 별도 비교 계좌만 사용하며 기존 E7 계약은 변경하지 않는다.
 
-`build_minute_day_anchor`는 당일분봉 응답의 stck_bsop_date/stck_cntg_hour와 요청 종목을 묶는다. receipt 20초/provider 180초 이내의 같은 거래일·시장 시간·중복 없는 행만 허용하고 과거/미래/공휴일/오염된 종목을 차단한다. scope는 same_symbol_minute_response_only이며 시장지수/다른 종목의 freshness나 호가 날짜를 자동 인증하지 않는다. 함수는 네트워크를 호출하지 않고 실제 reader verifier는 아직 미연결이다.
+`build_minute_day_anchor`는 당일분봉의 실제 날짜·시각·요청 종목을 묶고 receipt 20초/provider 180초 이내만 허용한다. `DatedMinuteVerifier`를 reader 앞뒤에 연결했다. 가격/호가는 동일 종목 원천을 요구하고 호가 HHMMSS도 대조한다. 순위는 시장 거래일 context, 지수는 `index_market_day_context_only`이며 지수 provider timestamp를 합성하지 않는다. stale/다른 종목 anchor는 HTTP 이전에 차단한다.
 
-CandidateRestReader는 기존 kis_readonly 모듈의 paper-only cached factory와 read-only wrapper를 사용한다. wrapper의 candidate GET은 세 시세 endpoint/TR 조합만 허용하고 retry=False를 고정한다. 실제 REST constructor는 기존 broker 경계 안에 두며 생성 예외 allowlist를 확대하지 않는다. 일반 read-only factory의 기존 계좌·live 계약은 변경하지 않는다.
+CandidateRestReader는 기존 kis_readonly 경계의 paper-only cached factory를 사용한다. ranking/price/book/index의 명시 GET/TR/query만 허용하고 retry/토큰 재발급/주문은 차단한다. 비밀값은 allowlist 출력에 포함되지 않는다. 기존 일반 계좌·live 계약은 유지한다.
 
 공식 스키마: [KOSPI parser](https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kospi_code_mst.py), [KOSDAQ parser](https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kosdaq_code_mst.py), [당일분봉](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py). 공식 예제의 TLS 검증 해제나 pandas/Excel 저장 흐름은 재사용하지 않았다.
 
-`kis_candidate_sources.build_metadata`는 공식 master의 source/동일 유효 기준일, 단축코드, ST/보통주0/ETP0/SPAC N, 업종 대분류4자리와 현재가 symbol을 대조한다. master 경고 00/01/02/03과 단기과열 0/1/2/3은 공식 header 의미를 사용한다. live REST의 mrkt_warn_cls_code는 master의 mrkt_alrm_cls_code와 이름이 다르므로 양수 값의 의미를 추측해 번역하지 않고 명시 00 외를 차단한다. 모든 필수 Y/N을 읽으며 누락을 N으로 채우지 않는다. master/live의 halt·관리·정리매매·단기과열 제한은 보수적으로 합치고 코스닥 환기 flag도 반영한다.
+`build_metadata`는 v2 snapshot 분류/종목/실제 업종과 최신 현재가의 명시 경보를 대조한다. 필수 Y/N 누락을 N으로 채우지 않으며 master/live 제한을 보수적으로 합친다. 이전 명시 reference_date 입력은 동일 날짜/ETP0 계약을 유지한다.
 
-`build_benchmark`는 KOSPI=0001/KOSDAQ=1001 시장지수와 master에 연결된 실제 sector code의 dated index 응답을 대조한다. sector를 시장 또는 KOSPI200으로 대신하지 않는다. metadata/source hash와 유효 시각을 남기며 이 hash는 외부 공급원 인증 서명이 아니다. 실제 파일 master loader/유효 기준일 확인과 업종 index provider는 아직 연결하지 않았다.
+`build_benchmark`는 KOSPI=0001/KOSDAQ=1001과 실제 업종 코드의 지수 응답을 대조한다. sector를 KOSPI200으로 대신하지 않는다. `prepare_candidate_context`가 성공 envelope의 실제 수신 시각과 metadata/hash를 연결한다. hash는 추적용이며 외부 인증 서명이 아니다.
 
-`CandidateRestReader`는 별도의 공식 paper endpoint client를 만들고 cached token만 읽는다. live/profile/host mismatch, query 확장/CANO 삽입, order/account/auth 경로, retry/refresh를 거부한다. 신규 token issuance/save/revoke나 기존 공유 client/token manager 변경은 없다. capture cycle의 세 GET path만 지원하며 index 조회를 기존 11회 cycle 예산 밖에서 자동 추가하지 않는다.
+`make_capture_cycle`은 검증기→cached-token reader→bounded capture를 조립한다. 지수와 dated-minute/master context 획득은 capture의 최대 11회 ranking/price/book 예산에 포함되지 않는다. 상위 공급원의 별도 호출 예산과 기존 수집과의 전역 pacing은 활성화 전에 확정해야 한다. 자동 조회·구독·scheduler는 없다.
 
-읽기 결과를 dated capture로 쓰려면 별도 verifier callback이 `kis-exchange-day-anchor-v1`의 실제 거래일·검증 시각·원천 hash를 제공해야 한다. 호가 HHMMSS가 dated provider_at과 정확히 맞아야 한다. 현재 그 verifier의 실제 원천 획득은 미구현이다. callback fixture의 성공은 실제 trading-date 입증이나 reader 활성화를 뜻하지 않으며 로컬 오늘 날짜/server Date를 provider 거래일로 대신하지 않는다. 경보 필드의 실제 값과 날짜 제공 여부는 별도 승인된 제한 조회로 확인해야 한다.
+실제 공급원 필드와 당일분봉 날짜는 승인된 장외 제한 조회로 확인했다. 장외 stale 증거는 장중 입력으로 재사용하지 않는다. 검증기는 trusted producer의 explicit 증거를 소비하며 임의 JSON의 진위를 인증하지 않는다. 실제 장중 수집·통합 예산 검증은 별도 활성화 경계다.
 
 공식 검토 근거:
 - https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/%EC%A2%85%EB%AA%A9%EB%A7%88%EC%8A%A4%ED%84%B0%EC%A0%95%EB%B3%B4(%EC%BD%94%EC%8A%A4%ED%94%BC).h
@@ -89,23 +89,23 @@ CandidateRestReader는 기존 kis_readonly 모듈의 paper-only cached factory�
 - https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/chk_inquire_price.py
 - https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_index_price/inquire_index_price.py (`FHPUP02100000`, U/actual index code)
 
-### 두 후보 가상계좌 연결 준비 (격리 worktree)
+### 두 후보 가상계좌 연결 (자동 운용 비활성)
 
 `app/paper_trading/candidate_comparison.py`의 `CandidateComparison(folder, MissionContract(...))`는 돌파/눌림목에 각각 별도 `mission.db`/현금/보유/보고서를 둔다. 공통 계약과 두 전략의 버전은 `comparison.json`으로 고정하며 임의 종목 교체, 자본 초기화, 다른 계좌 폴더 재사용, symlink를 거부한다. 비교 지갑의 현금을 합쳐 단일 투자금이나 수익률로 보고하지 않는다.
 
 - `observe(MinuteBar, observed_at=..., quote_spread_bps=..., capture=...)`: signal 판단에는 검증된 KIS capture가 필요하며 마지막 완료 분봉의 시간/OHLCV를 직접 대조한다. capture 없이 전달된 실제 시장 분봉은 warmup/기존 보유 mark·청산 및 이미 결정한 미래 모의체결에만 쓰고 새 entry를 만들지 않는다. `trade_count`를 포함한 실제 MinuteBar 공급은 아직 연결하지 않았다. 부재한 trade_count나 과거 provider 날짜를 합성하지 않는다.
 - 각 전략은 선정기 순위 중 해당 신호가 있는 계약 내 최고 순위 종목만 고른다. 도착 순서에 따라 낮은 순위 후보를 먼저 매수하지 않는다. 진입은 기존 accounting engine의 20분 warmup/Wilder ATR/가용 시각 다음 분 체결/비용/손실 예산/volume 제한을 그대로 통과해야 한다. 선정기의 ATR SMA는 admission signal, 계좌의 Wilder ATR은 공통 sizing·청산이므로 평가 manifest에서 구분한다.
-- core 기존 `_step`의 진입 판정을 `_entry_reason` hook으로 분리했다. 기존 DailyProfitMission의 기본 조건·계약 직렬화는 유지하고 비교 지갑만 검증된 외부 signal을 사용한다. 루트 코드에는 아직 이 refactor를 적용하지 않았다.
+- core 기존 `_step`의 진입 판정을 `_entry_reason` hook으로 분리했다. 기존 DailyProfitMission의 기본 조건·계약 직렬화는 유지하고 비교 지갑만 검증된 외부 signal을 사용한다.
 - comparison/strategy prefix가 있는 decision ID에 candidate_id/capture_hash를 저장하고 fill은 같은 decision ID로 연결한다. 지갑별 기존 SQLite transaction/CAS/중복 bar 처리를 재사용한다. 두 DB 사이의 원자적 동시 commit을 주장하지 않으며 source count 차이는 `partial_wallet_processing`으로 보고한다. 부분 처리 후 같은 입력을 재생하면 완료 지갑은 중복 처리하지 않는다.
 - `report(as_of=...)`는 두 지갑의 cost/pnl/mark health를 각각 보여준다. `runtime_attached=false`, `profitability_validated=false`, `real_trading_enabled=false`다. 초기화와 fixture 테스트는 worktree `.tmp-tests`만 사용했고 운영 지갑을 켠 것이 아니다.
 
 수집 연결의 다음 경계: 공식 source에서 당일 market/sector 수익률과 경보/보통주 metadata를 보존하고, 기존 paper REST/WS 예산과 충돌하지 않는 호출·subscription 한도를 확정한다. 기존 1회 승인으로 상시 polling을 켜지 않는다. 선정/구독 교체 시 보유·pending 종목 feed를 잃지 않아야 하며 별도 collector 장애는 기존 수집을 중단시키지 않아야 한다. 보호 세션에서는 새 network/구독/루트 적용 없이 구현만 준비한다.
 
-### Bounded capture cycle 골격 (실연결 미완료)
+### Bounded capture cycle (reader 연결 완료)
 
-`app/collectors/candidate_capture_cycle.py`의 `CaptureCycle(reader=None)`은 scheduler나 background process를 만들지 않는다. `collect(evidence=..., execute=False)`가 기본이며 실제 실행 요청에는 `execute=True, budget_authorized=True`를 둘 다 요구한다. 코드의 bool은 외부 권한 승인 증거가 아니므로 운영 launcher는 별도 승인된 budget 계약을 확인해야 한다. 현재 실제 reader와 launcher는 연결하지 않았다.
+`CaptureCycle`은 기본 dry-run이며 명시 실행/budget 허용을 모두 요구한다. reader 연결은 완료됐지만 bool 자체는 운영 권한 증거가 아니며 상시 launcher는 비활성이다.
 
-- 승인된 reader port는 GET 역할의 `get(path, tr_id, params, timeout_seconds=3, allow_retry=False)`만 호출한다. path/TR allowlist는 ranking/current-price/orderbook 세 개이며 account/order/cancel/auth/WS 호출은 없다. response는 raw rt_cd/output뿐 아니라 독립 검증된 거래일과 호가 provider_at을 제공해야 한다. KIS raw 응답에 날짜가 없으면 로컬 receipt 날짜로 가장하지 않는다. 이 verified envelope를 만드는 실 transport adapter는 아직 없다.
+- capture는 ranking/current-price/orderbook GET만 호출하며, reader의 별도 index 경로도 정확한 U/4자리 코드를 요구한다. account/order/cancel/auth/WS 호출은 없다. verified envelope는 거래일/호가 provider 시각/source hash를 보존하며 receipt 날짜로 공급원 날짜를 가장하지 않는다.
 - 1 cycle당 ranking 1회, 최대 5종목의 price/quote 각 1회로 최대 11 requests다. 응답 완료 후 최소 1.1초 대기하며 cycle 종료 후 300초 동안 같은 instance의 새 실행을 막는다. 18초 soft deadline은 요청 전과 응답 후에 검사하고 초과 응답은 버린다; 진행 중인 요청을 강제 interrupt하는 보장은 아니며 실 reader의 3초 timeout 준수가 필요하다.
 - 기존 root 계정과의 global rate coordinator, restart-persistent cooldown, 연속 polling, 추가 WS 구독은 아직 없다. 이 메모리 단일-instance 예산만으로 기존 collector와 동시 운용이 안전하다고 판단하지 않는다. 실제 활성화 전 이 경계를 검증하고 승인해야 한다.
 - 경보/market/sector/21개 연속 실제 분봉 context가 미검증이면 ranking 이후 price/quote 호출을 생략한다. 실제 trade_count도 요구하며 1을 넣어 합성하지 않는다. ranking의 숫자 필드로 동일 ScanPolicy 가격/거래대금/상대강도/전일 분모 volume ratio를 먼저 확인한다. 정규화 이후 price/quote와 최종 시각으로 다시 평가한다.
@@ -135,7 +135,7 @@ python3 scripts/scan_intraday_candidates.py --snapshot /path/to/sanitized-snapsh
 
 - capture envelope: `source=kis-volume-rank-krx-v1`, 검증된 `trade_date`, timezone-aware `received_at`, 원래 순위 `rows`, symbol-keyed `observations`다. rows의 `mksc_shrn_iscd/acml_vol/prdy_vol`을 사용한다. `0009K0`처럼 숫자형 기존 계약 밖의 코드는 한 행만 제외하며 전체 숫자형 모집단을 중단하지 않는다. 같은 코드가 중복이면 원천 전체를 차단한다.
 - observations[symbol]은 price(`received_at/trade_date/output`), orderbook(`received_at/provider_at/output1`), metadata(`observed_at/trade_date/market/instrument_type/flags`), benchmark(`observed_at/trade_date/market_return_pct/sector_return_pct`), bars를 요구한다. bars의 동일 종목 연결은 envelope 생산자의 책임이며 실제 수집기는 direct source identity를 보존해야 한다. 완전한 fixture는 `tests/test_kis_candidate_snapshot.py`에 있다.
-- 경보 flags는 investment_caution/warning/risk, management, liquidation, trading_halt, short_term_overheat가 모두 실제 bool false여야 한다. margin/종목 상태 코드 `55`, 제외 mask 성공, 임의 기본값 N/0은 정상 거래 가능 증거가 아니다. 경보/분류의 독립적인 실제 공급원 연결은 아직 없다.
+- 경보 flags는 investment_caution/warning/risk, management, liquidation, trading_halt, short_term_overheat가 모두 실제 bool false여야 한다. margin 코드 `55`, 제외 mask 성공, 임의 N/0은 정상 거래 가능 증거가 아니다. v2 metadata/source hash와 benchmark의 metadata hash 연결을 검사한다.
 - 거래량 배수의 고정 기준은 `acml_vol / prdy_vol`(당일 누적/전일 전체 거래량)이며 같은 시각 대비 또는 분봉 평균 대비 증가율이 아니다. KIS `vol_inrt` 보고 숫자는 사용하지 않고, 전일 분모 누락/0이면 차단한다. scanner 1.5 조건은 이 기준으로 평가하며 장초반에 충족하기 어려울 수 있다. 지표의 수익성을 검증한 것이 아니다.
 - price/ranking/metadata/benchmark는 같은 검증 거래일에 60초 이내, quote provider/received는 20초 이내이고 provider가 receipt보다 미래이면 차단한다. HHMMSS만으로 거래일을 임의 조립하지 않는다. `holidays`는 Python entrypoint에서 공급할 수 있고 실제 collector는 기존 달력을 적용해야 한다; CLI는 검증용이며 거래일 운용 서비스를 대신하지 않는다.
 - adapter source_hash는 버전/volume basis/정규화 입력/가용 시각/실제 flags/제외 taxonomy의 hash다. 임의 원본 응답 전체 hash 또는 공급원 인증 서명이 아니다. 비밀값/임의 추가 필드는 출력과 정규화 hash에서 제외한다. 원본 파일의 보존 hash는 별도 capture 호환 보고가 소유한다.
@@ -148,3 +148,13 @@ python3 scripts/scan_intraday_candidates.py --snapshot /path/to/sanitized-snapsh
 3. 기존 전체 unittest 및 구조 audit.
 4. 실제 계약 초기화와 장외 status 확인.
 5. 첫 미래 세션의 실제 실행 확인. 모의 수익 목표는 실전 승격 조건이 아니다.
+
+### 독립 비교 replay 실행
+
+`scripts/run_candidate_comparison.py`는 명시 event JSON을 검증한다. 기본값은 계좌를 만들지 않는 validation-only이며 네트워크·주문 0회다. `--execute-paper --output-dir`를 명시하면 장외 보호 검사 후 두 독립 가상계좌만 갱신한다. events에는 실제 `trade_count`와 완료 분봉/가용 시각을 제공해야 하며 누락값을 합성하지 않는다. 잘못된 이벤트는 계좌 쓰기 전에 차단한다.
+
+```bash
+python3 scripts/run_candidate_comparison.py --events-file /path/to/events.json --symbols 001440,006800 --start-date 2026-10-15
+```
+
+표본 종목은 실행 예시일 뿐 추천이 아니다. `kr-intraday-comparison-v2-source-bound`는 source binding 버전을 manifest에 고정하며 기존 v1 계좌와 혼합하거나 초기화하지 않는다. 상시 수집/자동 가상운용은 아직 활성화하지 않았다. dated-minute/index/master 상위 공급원과 실제 체결 수 입력, 기존 수집과의 전역 API budget 검증·승인이 그 활성화의 필수 조건이다.

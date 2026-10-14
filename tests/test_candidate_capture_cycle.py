@@ -96,6 +96,18 @@ class CaptureCycleTests(unittest.TestCase):
         self.assertEqual(len(self.reader.calls), 1)
         self.assertEqual(result["scan"]["scanner"]["selected"], [])
 
+    def test_new_price_warning_stops_before_book_call(self):
+        self.capture['observations']['123456']['price']['output']['mrkt_warn_cls_code']='02'
+        r=self.collect(execute=True,budget_authorized=True)
+        self.assertEqual(r['status'],'failed_no_retry')
+        self.assertEqual(len(self.reader.calls),2)
+
+    def test_missing_source_chain_stops_price_call(self):
+        self.capture['observations']['123456']['metadata'].pop('source_version')
+        r=self.collect(execute=True,budget_authorized=True)
+        self.assertEqual(r['status'],'blocked_missing_evidence')
+        self.assertEqual(len(self.reader.calls),1)
+
     def test_cooldown_after_failure(self):
         self.reader.failure = "EGW00201"
         self.collect(execute=True, budget_authorized=True)

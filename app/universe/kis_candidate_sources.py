@@ -4,7 +4,7 @@ import re
 from app.universe.intraday_candidates import KST, _hash
 from app.universe.kis_candidate_snapshot import _fresh, _numeric, _same_day
 
-VERSION = "kis-candidate-source-binding-v1"
+VERSION = "kis-candidate-source-binding-v2-reference-snapshot"
 MASTER_MARKETS = {"kis-stock-master-kospi-v1": ("KOSPI", "0001"),
                   "kis-stock-master-kosdaq-v1": ("KOSDAQ", "1001")}
 
@@ -17,8 +17,16 @@ def _metadata(master, quote, *, as_of):
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError("Aware timestamp required")
     as_of = as_of.astimezone(KST)
-    if master.get("source") not in MASTER_MARKETS or master.get("reference_date") != as_of.date().isoformat():
-        raise ValueError("Master source/effective date unverified")
+    if master.get("source") not in MASTER_MARKETS:
+        raise ValueError("Master source unverified")
+    acquired_reference = master.get('reference_date') is None
+    if acquired_reference:
+        if (master.get('layout_version') != 'kis-fixed-width-stock-master-v1'
+                or not re.fullmatch(r'[0-9a-f]{64}', master.get('source_hash', ''))):
+            raise ValueError('Parsed acquisition reference required')
+        _fresh(master['acquired_at'], as_of, 8*60*60)
+    elif master['reference_date'] != as_of.date().isoformat():
+        raise ValueError('Master reference date mismatch')
     _same_day(quote, as_of)
     observed = _fresh(quote["observed_at"], as_of, 60)
     row, live = master["output"], quote["output"]
@@ -26,7 +34,8 @@ def _metadata(master, quote, *, as_of):
     if not isinstance(symbol, str) or not re.fullmatch(r"[0-9]{6}", symbol) or live["stck_shrn_iscd"] != symbol:
         raise ValueError("Symbol identity mismatch")
     if (row["scrt_grp_cls_code"] != "ST" or row["prst_cls_code"] != "0"
-            or row["etp_prod_cls_code"] != "0" or _yn(row["etpr_undt_objt_co_yn"])):
+            or row["etp_prod_cls_code"] not in (('0', '') if acquired_reference else ('0',))
+            or _yn(row["etpr_undt_objt_co_yn"])):
         raise ValueError("Not an ordinary non-SPAC stock")
     market, market_index = MASTER_MARKETS[master["source"]]
     sector = row["bstp_larg_div_code"]
@@ -54,12 +63,18 @@ def _metadata(master, quote, *, as_of):
                  short_term_overheat=overheat != "0" or live_flags["short_over_yn"])
     evidence = dict(version=VERSION, symbol=symbol, master_source=master["source"],
                     reference_date=master["reference_date"], observed_at=observed.isoformat(),
+                    master_reference_basis='same_day_acquired_snapshot' if acquired_reference else 'explicit_reference_date',
+                    master_source_hash=master.get('source_hash'), master_acquired_at=master.get('acquired_at'),
+                    master_etp_raw=row['etp_prod_cls_code'],
                     master_warning=warning, master_overheat=overheat,
                     master_flags=master_flags, live_flags=live_flags,
                     market=market, sector_index_code=sector)
     return dict(observed_at=observed.isoformat(), trade_date=as_of.date().isoformat(),
                 market=market, instrument_type="common_stock", flags=flags,
                 market_index_code=market_index, sector_index_code=sector,
+                master_reference_basis=evidence['master_reference_basis'],
+                master_etp_raw=row['etp_prod_cls_code'],
+                master_effective_day_verified=bool(master.get('effective_day_verified', False)),
                 source_version=VERSION, source_hash=_hash(evidence))
 
 def _benchmark(metadata, market_quote, sector_quote, *, as_of):

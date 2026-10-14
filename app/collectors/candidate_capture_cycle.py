@@ -6,6 +6,7 @@ from threading import RLock
 import time as wall_time
 
 from app.universe.intraday_candidates import KST, ScanPolicy, _bar_evidence
+from app.universe.kis_candidate_sources import VERSION as SOURCE_BINDING_VERSION
 from app.universe.kis_candidate_snapshot import (
     BLOCKING_FLAGS, _fresh, _numeric, _same_day, scan_kis_snapshot,
 )
@@ -77,6 +78,11 @@ class CaptureCycle:
         for item in (metadata, benchmark):
             _same_day(item, now)
             _fresh(item["observed_at"], now, 60)
+            if (item.get('source_version') != SOURCE_BINDING_VERSION
+                    or not re.fullmatch(r'[0-9a-f]{64}', item.get('source_hash', ''))):
+                raise ValueError('Source chain unverified')
+        if benchmark.get('metadata_source_hash') != metadata['source_hash']:
+            raise ValueError('Benchmark classification chain mismatch')
         flags = metadata["flags"]
         if (not isinstance(flags, dict) or any(type(flags.get(k)) is not bool or flags[k] for k in BLOCKING_FLAGS)
                 or metadata.get("market") not in ("KOSPI", "KOSDAQ")
@@ -93,7 +99,9 @@ class CaptureCycle:
                                   flags={k: flags[k] for k in BLOCKING_FLAGS}),
                     benchmark=dict(observed_at=benchmark["observed_at"], trade_date=benchmark["trade_date"],
                                    market_return_pct=_numeric(benchmark["market_return_pct"]),
-                                   sector_return_pct=_numeric(benchmark["sector_return_pct"])), bars=bars)
+                                   sector_return_pct=_numeric(benchmark["sector_return_pct"])), bars=bars,
+                    source_chain=dict(metadata_version=metadata['source_version'],metadata_hash=metadata['source_hash'],
+                        benchmark_version=benchmark['source_version'],benchmark_hash=benchmark['source_hash']))
 
     def collect(self, *, evidence, execute=False, budget_authorized=False):
         with self._lock:
@@ -130,6 +138,7 @@ class CaptureCycle:
                 if any(not isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
                     raise CaptureFailure()
                 capture = dict(source="kis-volume-rank-krx-v1", trade_date=ranking["trade_date"],
+                               source_binding_version=SOURCE_BINDING_VERSION,
                                received_at=received.isoformat(), rows=[], observations={})
                 for row in rows:
                     if len(capture["observations"]) >= 5:
@@ -160,6 +169,10 @@ class CaptureCycle:
                         continue
                     query = dict(FID_COND_MRKT_DIV_CODE="J", FID_INPUT_ISCD=symbol)
                     price, price_at = self._get(PRICE_PATH, query, report, now)
+                    output = price['output']
+                    if (output.get('mrkt_warn_cls_code') != '00' or any(output.get(k) != 'N' for k in
+                            ('temp_stop_yn','sltr_yn','mang_issu_cls_code','invt_caful_yn','short_over_yn'))):
+                        raise CaptureFailure('', 'capture_current_market_flags_blocked')
                     quote, quote_at = self._get(QUOTE_PATH, query, report, now)
                     provider_at = _fresh(quote["provider_at"], quote_at, 20)
                     output, book = price["output"], quote["output1"]
@@ -168,6 +181,10 @@ class CaptureCycle:
                                                     ("stck_prpr", "prdy_ctrt", "acml_tr_pbmn")})
                     context["orderbook"] = dict(received_at=quote_at.isoformat(), provider_at=provider_at.isoformat(),
                                                 output1={k: _numeric(book[k]) for k in ("askp1", "bidp1")})
+                    chain = context.pop('source_chain')
+                    context['metadata'].update(source_version=chain['metadata_version'],source_hash=chain['metadata_hash'])
+                    context['benchmark'].update(source_version=chain['benchmark_version'],source_hash=chain['benchmark_hash'],
+                        metadata_source_hash=chain['metadata_hash'])
                     capture["rows"].append(dict(mksc_shrn_iscd=symbol, acml_vol=volume, prdy_vol=previous))
                     capture["observations"][symbol] = context
                 scan = scan_kis_snapshot(capture, as_of=self._now(), holidays=self.holidays)

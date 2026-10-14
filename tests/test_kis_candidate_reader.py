@@ -95,3 +95,12 @@ class CandidateReaderTests(unittest.TestCase):
     def test_business_error_has_no_raw_message(self):
         self.payload = dict(rt_cd="1", msg_cd="EGW00201", msg1="SECRET_FIXTURE")
         self.assertEqual(self.quote(), dict(rt_cd="1", msg_cd="EGW00201"))
+
+    def test_index_quote_has_explicit_code_and_sanitized_rate(self):
+        self.payload=dict(rt_cd='0',msg_cd='MCA00000',output={'bstp_nmix_prdy_ctrt':'1.2','appsecret':'SECRET_FIXTURE'})
+        self.proof['verification_scope']='index_market_day_context_only'
+        r=self.reader.get('/uapi/domestic-stock/v1/quotations/inquire-index-price','FHPUP02100000',
+            {'FID_COND_MRKT_DIV_CODE':'U','FID_INPUT_ISCD':'0027'},timeout_seconds=3,allow_retry=False)
+        self.assertEqual(r['index_code'],'0027')
+        self.assertEqual(r['output'],{'bstp_nmix_prdy_ctrt':'1.2'})
+        self.assertEqual(r['verification_scope'],'index_market_day_context_only')

@@ -8,9 +8,10 @@ from threading import RLock
 from app.paper_trading.daily_mission import DailyProfitMission, MissionContract, _json
 from app.universe.intraday_candidates import VERSION as SCANNER_VERSION, _hash
 from app.universe.kis_candidate_snapshot import VERSION as ADAPTER_VERSION, scan_kis_snapshot
+from app.universe.kis_candidate_sources import VERSION as SOURCE_BINDING_VERSION
 
 
-VERSION = "kr-intraday-comparison-v1"
+VERSION = "kr-intraday-comparison-v2-source-bound"
 STRATEGIES = ("breakout", "trend_pullback")
 
 
@@ -75,6 +76,7 @@ class CandidateComparison:
         self.contract = contract
         self.manifest = dict(version=VERSION, strategies=list(STRATEGIES),
                              scanner_version=SCANNER_VERSION, adapter_version=ADAPTER_VERSION,
+                             source_binding_version=SOURCE_BINDING_VERSION,
                              wallet_contract=contract.to_dict(), sizing="cash95_daily_loss_and_volume_limited",
                              universe_changes="forbidden", runtime_attached=False)
         self.comparison_hash = _hash(self.manifest)
@@ -108,6 +110,8 @@ class CandidateComparison:
             context = None
             spread = quote_spread_bps
             if capture is not None:
+                if capture.get('source_binding_version') != SOURCE_BINDING_VERSION:
+                    raise ValueError('Comparison source contract mismatch')
                 result = scan_kis_snapshot(capture, as_of=observed_at, holidays=self.contract.holidays)
                 raw_bar = capture.get("observations", {}).get(bar.symbol, {}).get("bars", [])
                 if (not raw_bar or datetime.fromisoformat(raw_bar[-1]["bar_time"]) != bar.bar_time

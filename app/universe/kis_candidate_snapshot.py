@@ -57,6 +57,10 @@ def scan_kis_snapshot(snapshot, *, as_of: datetime, holidays=()):
         raise ValueError("Closed trading date")
     if not isinstance(snapshot, dict) or snapshot.get("source") != "kis-volume-rank-krx-v1":
         raise ValueError("Unsupported capture source")
+    from app.universe.kis_candidate_sources import VERSION as SOURCE_VERSION
+    source_bound = snapshot.get('source_binding_version') is not None
+    if source_bound and snapshot['source_binding_version'] != SOURCE_VERSION:
+        raise ValueError('Unsupported declared source contract')
     _same_day(snapshot, as_of)
     received = _fresh(snapshot.get("received_at"), as_of, 60)
     rows, observations = snapshot.get("rows"), snapshot.get("observations", {})
@@ -76,6 +80,15 @@ def scan_kis_snapshot(snapshot, *, as_of: datetime, holidays=()):
             observation = observations[symbol]
             price, quote = observation["price"], observation["orderbook"]
             metadata, benchmark = observation["metadata"], observation["benchmark"]
+            source_chain = None
+            if source_bound:
+                for item in (metadata, benchmark):
+                    if (not isinstance(item, dict) or item.get('source_version') != SOURCE_VERSION
+                            or not re.fullmatch(r'[0-9a-f]{64}', item.get('source_hash', ''))):
+                        raise EvidenceError('source_chain_unverified')
+                if benchmark.get('metadata_source_hash') != metadata['source_hash']:
+                    raise EvidenceError('source_chain_mismatch')
+                source_chain = dict(version=SOURCE_VERSION,metadata_hash=metadata['source_hash'],benchmark_hash=benchmark['source_hash'])
             for record in (price, metadata, benchmark):
                 _same_day(record, as_of)
             times = dict(price=_fresh(price["received_at"], as_of, 60),
@@ -109,10 +122,13 @@ def scan_kis_snapshot(snapshot, *, as_of: datetime, holidays=()):
                              observed_at=min(received, times["price"], times["metadata"], times["benchmark"]).isoformat(),
                              quote_at=times["quote_provider"].isoformat(), bars=bars)
             normalized.append(candidate)
-            provenance.append(dict(symbol=symbol, times={k: v.isoformat() for k, v in times.items()},
+            entry = dict(symbol=symbol, times={k: v.isoformat() for k, v in times.items()},
                                    flags={key: flags[key] for key in BLOCKING_FLAGS},
                                    accumulated_volume=volume, previous_day_volume=previous_volume,
-                                   normalized_input=candidate))
+                                   normalized_input=candidate)
+            if source_bound:
+                entry['source_chain'] = source_chain
+            provenance.append(entry)
         except EvidenceError as exc:
             rejections.append(dict(symbol=safe_symbol, reason=str(exc)))
         except (KeyError, TypeError, ValueError, OverflowError):
@@ -121,9 +137,12 @@ def scan_kis_snapshot(snapshot, *, as_of: datetime, holidays=()):
     provenance.sort(key=lambda row: row["symbol"])
     rejections.sort(key=lambda row: (row["symbol"] or "", row["reason"]))
     # Fingerprint only explicit normalized evidence, never arbitrary provider secrets.
-    fingerprint = _hash(dict(adapter_version=VERSION, volume_basis=VOLUME_BASIS,
+    fingerprint_input = dict(adapter_version=VERSION, volume_basis=VOLUME_BASIS,
                              source=snapshot["source"], trade_date=snapshot["trade_date"],
-                             received_at=received.isoformat(), provenance=provenance, rejections=rejections))
+                             received_at=received.isoformat(), provenance=provenance, rejections=rejections)
+    if source_bound:
+        fingerprint_input['source_binding_version'] = SOURCE_VERSION
+    fingerprint = _hash(fingerprint_input)
     return dict(adapter_version=VERSION, source_hash=fingerprint,
                 source_hash_scope="normalized_supported_evidence_and_rejection_taxonomy",
                 volume_ratio_basis=VOLUME_BASIS, execution_enabled=False,

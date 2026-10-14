@@ -34,6 +34,7 @@ class KisReadOnlyClient:
 
     def get_candidate_response(self, *, path, tr_id, query_params):
         allowed = {
+            '/uapi/domestic-stock/v1/quotations/inquire-index-price': 'FHPUP02100000',
             '/uapi/domestic-stock/v1/quotations/volume-rank': 'FHPST01710000',
             '/uapi/domestic-stock/v1/quotations/inquire-price': 'FHKST01010100',
             '/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn': 'FHKST01010200',

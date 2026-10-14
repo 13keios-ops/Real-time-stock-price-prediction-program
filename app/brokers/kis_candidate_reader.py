@@ -20,6 +20,7 @@ def _fresh(value, now, seconds=20):
 
 
 PATHS = {
+    "/uapi/domestic-stock/v1/quotations/inquire-index-price": "FHPUP02100000",
     "/uapi/domestic-stock/v1/quotations/volume-rank": "FHPST01710000",
     "/uapi/domestic-stock/v1/quotations/inquire-price": "FHKST01010100",
     "/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn": "FHKST01010200",
@@ -63,10 +64,13 @@ class CandidateRestReader:
             if params != RANK_QUERY:
                 raise ValueError("Ranking query outside approved capture scope")
         elif (set(params) != {"FID_COND_MRKT_DIV_CODE", "FID_INPUT_ISCD"}
-              or params["FID_COND_MRKT_DIV_CODE"] != "J"
+              or params["FID_COND_MRKT_DIV_CODE"] != ("U" if path.endswith("inquire-index-price") else "J")
               or not isinstance(params["FID_INPUT_ISCD"], str)
-              or not re.fullmatch(r"[0-9]{6}", params["FID_INPUT_ISCD"])):
+              or not re.fullmatch(r"[0-9]{4}" if path.endswith("inquire-index-price") else r"[0-9]{6}", params["FID_INPUT_ISCD"])):
             raise ValueError("Only explicit KRX stock quote queries allowed")
+        preflight = getattr(self._verifier, 'preflight', None)
+        if callable(preflight):
+            preflight(path, params)
         try:
             payload, _ = self._client.get_candidate_response(path=path, tr_id=tr_id, query_params=params)
         except Exception:
@@ -78,7 +82,8 @@ class CandidateRestReader:
         result = dict(rt_cd=str(payload.get("rt_cd", ""))[:4], msg_cd=code)
         if result["rt_cd"] != "0":
             return result
-        key, fields = (("output", RANK_FIELDS) if path.endswith("volume-rank") else
+        key, fields = (("output", ("bstp_nmix_prdy_ctrt",)) if path.endswith("inquire-index-price") else
+                       ("output", RANK_FIELDS) if path.endswith("volume-rank") else
                        ("output", PRICE_FIELDS) if path.endswith("inquire-price") else ("output1", QUOTE_FIELDS))
         output = payload.get(key)
         def filtered(row):
@@ -109,6 +114,12 @@ class CandidateRestReader:
                     raise ValueError("Provider HHMMSS does not match dated evidence")
                 result["provider_at"] = provider.isoformat()
             result["provider_source_hash"] = proof["source_hash"]
+            result["received_at"] = now.isoformat()
+            scope = proof.get("verification_scope")
+            if scope in ("market_trading_day_context_only", "same_symbol_dated_minute", "index_market_day_context_only"):
+                result["verification_scope"] = scope
+            if path.endswith("inquire-index-price"):
+                result["index_code"] = params["FID_INPUT_ISCD"]
         except Exception:
             raise ValueError("Provider date/time evidence unverified") from None
         return result
