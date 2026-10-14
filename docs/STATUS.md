@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 10/14 장후 수집 중단 원인 조사
+
+- 20:53 KST 수동 확인: runtime은 15:30:09 장후 종료 상태이며 watchdog/heartbeat와 dashboard는 정상이다. 오전 수집은 09:18:16 복구됐지만 전 종목 09:00~09:17 시세/호가 누락을 보존한다. 당일 closed feature coverage 92.56%, decision lineage 3,610/3,610, reconnect 6/storm 0이며 데이터 품질은 CRITICAL이다.
+- WSL `last -x`에 08:52 최초 종료 및 08:54~09:16 반복 boot/shutdown이 확인된다. 최초 종료 전 커널 6.18.40.1에서 이후 6.18.54.1로 바뀌었다. Windows `LastBootUpTime`은 9/22이므로 오늘 Windows 재부팅으로 단정하지 않는다. WSL 종료/갱신을 요청한 주체와 반복 종료의 직접 원인은 미확정이며 현재 boot의 dmesg만으로 이전 OOM을 배제하지 않는다.
+- 복구 공백은 확인됐다: Windows 로그인 startup launcher만 설치돼 있고 WSL user systemd service는 not-found, Linger=no이다. 기존 installer는 Windows startup 디렉터리가 있으면 즉시 반환하므로 WSL 내부 boot 복구까지 설치됐다는 뜻이 아니다. watchdog 자체도 WSL 종료 시 함께 사라져 복구할 수 없다.
+- 기존 helper를 사용하는 WSL 내부 자동복구 service 등록은 운영자 승인 요청 중이다. 계좌 조회/정렬/cleanup은 제외하고 watchdog 복구만 연결할 예정이며, 장외 수집 시작이나 검증용 WSL 재부팅은 하지 않는다. 지금 서비스 등록 완료 또는 재발 방지 완료라고 주장하지 않는다.
+- Phase 0 최근 10유효일은 matched 6/mismatch 4, 연속 matched 6이다. 오늘 제출 28건 submitted/미확정 0, 수량 mismatch 0이며 common-mark cash/asset gap 약 -2,865.09원은 허용 범위다. 비용/정산 시점 원인은 미확정이다. 기존 E7은 duplicate_decision_minute 4건으로 invalid_evidence, 복구 후 고정 1구간은 3거래일/mark 28,196/lineage 통과/공식 미활성으로 분리 보존한다.
+
 ## 10/14 당일 강세 종목 후보 선정 확장
 
 - `kr-intraday-candidate-scan-v1`의 오프라인 선정기/CLI를 추가했다. 2~3만원 보통주, 거래대금 10억원 이상, 시장/업종 대비 +0.5%p 이상, volume ratio 1.5 이상, 호가 spread 30bp 이하의 최대 5개 후보를 정렬한다. 수치는 검증 전 연구 가정이며 수익성 통과가 아니다.

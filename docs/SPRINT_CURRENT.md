@@ -50,6 +50,9 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 ## 활성 체크리스트
 
+- [x] 10/14 오전 수집 중단을 WSL 08:52 종료/반복 재부팅 및 Windows-login-only 복구 공백으로 구분; 원본 누락/E7 증거 보존
+- [ ] 운영자 승인 후 WSL 내부 watchdog 자동복구 service 등록 및 재부팅 없는 안전 검증; 종료 요청 주체는 미확정
+
 - [x] 당일 강세 종목 독립 오프라인 선정/돌파·눌림목 신호 검증기; 후보 입력·정책 hash와 거절 taxonomy
 - [x] KIS capture adapter/CLI 연결; 개별 unsupported symbol 제외, 전일 거래량 분모, 경보/benchmark/provider 시각 누락 차단과 원본 보존
 - [ ] 순위 snapshot의 실제 KIS 제공 환경/시장경보 metadata/benchmark provenance 확인; 추가 시세 호출은 별도 승인 범위
