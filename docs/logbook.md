@@ -1,5 +1,11 @@
 # 작업 기록
 
+## [2026-10-14] WS 공급 bridge와 상위 예산 차단
+
+- 기존 aggregate_ticks_to_minute_bar를 재사용해 sealed kis-ws record만 완료 분봉으로 연결했다. 실제 수신 record 수의 scope를 명시하고 REST 누적량·오염된 종목/시각/가격/분 공백을 차단했다. sealing/중복 제거/수집 완전성은 upstream 책임이며 전체 거래소 체결 수로 주장하지 않는다.
+- 무호출 budget preflight에서 metadata/datetime/index 상위 조회를 capture 예산과 분리했다. 5종목 합계 28회/최악 직렬 지연 113.7초, capture 44초로 기존 deadline/freshness에 맞지 않는다. 1종목도 dated anchor 20초 보장을 못 하므로 기존 수집 우선 shared coordinator와 stage별 context 갱신 없이 자동 활성화하지 않는다.
+- RED→GREEN 신규 10건, 관련 집중 46건, 최종 전체 966건/66.269초 및 CLI/diff 검증 통과. `.tmp-tests/candidate-supply-full-20261014.log` 보존. 신규 API·토큰·주문/취소·구독·예약/설정 변경은 없다.
+
 ## [2026-10-14] 후보 source v2·독립 비교 비활성 통합
 
 - master 획득 freshness와 유효 기준일을 구분하고 raw blank ETP/ST/common 계약을 v2로 명시했다. dated-minute 사전 검증, paper cached reader, 실제 업종 index context, bounded capture와 독립 비교 replay를 연결했다. legacy manifest 혼합·symlink 계좌·invalid event 쓰기를 차단하며 기존 미션/E7/계좌·정책은 유지했다.

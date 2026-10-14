@@ -149,7 +149,19 @@ python3 scripts/scan_intraday_candidates.py --snapshot /path/to/sanitized-snapsh
 4. 실제 계약 초기화와 장외 status 확인.
 5. 첫 미래 세션의 실제 실행 확인. 모의 수익 목표는 실전 승격 조건이 아니다.
 
-### 독립 비교 replay 실행
+### WS 완료 분봉 공급과 무호출 예산 검사
+
+`build_candidate_bars`는 producer가 명시적으로 seal한 21개 연속 분의 `MarketTickEvent(source='kis-ws')`를 기존 분봉 생성기로 집계한다. 종목·동일 분·시장일·가용 시각·유한 가격/양수 체결량을 검증하고 누적 거래량인 kis-rest snapshot, 미완료/공백/오염된 입력을 거부한다. `trade_count_scope=captured_ws_records_only`는 수신한 WS record 수이며 거래소 전체 체결 수나 수집 완전성의 증명이 아니다. upstream 중복 제거와 sealing은 producer 책임이며 누락한 분을 합성하지 않는다. 추가 WS subscription이나 runtime hook는 아직 켜지 않았다.
+
+`candidate_budget_preflight`/아래 CLI는 설정·자격정보·DB·네트워크 접근 없이 fresh-start 직렬 조회 예산을 계산한다. 5종목/2시장/5업종은 capture 11회 외 dated-minute 5/metadata-price 5/index 7의 상위 17회, 합계 28회다. 요청 timeout 3초와 응답 완료 gap 1.1초가 모두 소요되면 capture 44초/전체 113.7초로 기존 18초 deadline/60초 context freshness를 초과하고 최초 dated anchor의 20초 receipt freshness도 깨진다. 이는 실제 응답 지연 측정이나 공급원 허용 한도 판정이 아니라 현재 코드 계약의 보수적 사전 검사다. 공개 master download와 WS 운용 예산은 별도다.
+
+```bash
+python3 scripts/preflight_candidate_collection.py
+```
+
+보고서 `activation_allowed=false`는 무조건 유지한다. 기존 REST 경로는 각자 local pacing이며 계정 전체 coordinator가 없으므로 승인 bool만으로 상시 실행하지 않는다. 실제 활성화 전에는 기존 수집 우선의 공유 조정기, 별도 context 준비/즉시 갱신, deadline 내 종목별 bounded capture, WS 완료 분봉 producer를 연결해야 한다. freshness/cost/선정 정책을 느슨하게 바꿔 해결하지 않는다.
+
+### Replay CLI
 
 `scripts/run_candidate_comparison.py`는 명시 event JSON을 검증한다. 기본값은 계좌를 만들지 않는 validation-only이며 네트워크·주문 0회다. `--execute-paper --output-dir`를 명시하면 장외 보호 검사 후 두 독립 가상계좌만 갱신한다. events에는 실제 `trade_count`와 완료 분봉/가용 시각을 제공해야 하며 누락값을 합성하지 않는다. 잘못된 이벤트는 계좌 쓰기 전에 차단한다.
 

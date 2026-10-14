@@ -2,6 +2,9 @@
 
 ## 10/14 후보 source v2와 독립 비교 통합
 
+- 후속 구현: 실제 kis-ws sealed record에서 연속 완료 21분/수신 record 수를 만드는 공급 bridge와 무호출 상위 예산 CLI를 추가했다. REST 누적량을 실제 체결량·체결 수로 사용하지 않는다. 5종목 fresh-start는 capture 11+상위 17=28회이며 timeout bound 44/113.7초가 기존 deadline/freshness를 초과한다. 1종목도 최악 지연에서는 dated anchor 20초 freshness를 보장하지 못한다. 계정 전체 coordinator는 미연결이므로 상시 활성화는 차단한다. stage별 context 갱신과 공유 pacing/WS producer 연결이 다음 구현 경계다.
+- 후속 공급·예산 묶음 집중 46건 및 최종 전체 unittest 966건/66.269초 통과, CLI 실출력/diff 위생 통과. 근거: `.tmp-tests/candidate-supply-full-20261014.log`. 신규 인증/주문/취소/API/WS 구독/운영 DB 접근 없음; 기존 비용/전략/계약을 유지한다.
+
 - 당일 획득 master snapshot의 raw hash/layout/8시간 freshness와 최신 경보를 분리 검증하는 `kis-candidate-source-binding-v2-reference-snapshot`을 적용했다. 실제 ST/보통주 빈 ETP는 raw 그대로 허용하지만 유효 기준일 확인으로 주장하지 않는다. legacy 빈 값/누락/EF/우선주/경보는 차단한다.
 - 동일 종목 dated-minute verifier→cached paper reader→bounded capture 및 실제 업종 index/context assembler를 main에 비활성 통합했다. stale anchor는 HTTP 전에 차단하며 지수 proof는 시장 거래일 context일 뿐 지수 event timestamp 인증이 아니다. 신규 API 호출/구독/자동화 변경은 없다.
 - `kr-intraday-comparison-v2-source-bound`는 돌파/눌림목 각각 독립 30만원 계좌·고정 manifest·decision/candidate/capture/fill lineage를 사용한다. replay CLI 기본은 검증 전용/계좌 생성 0이며 명시 장외 paper replay만 허용한다. 기존 미션/E7/model/gate/allocator/비용/기준선은 유지한다.

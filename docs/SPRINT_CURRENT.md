@@ -63,6 +63,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 후속 진행 요청의 dated-minute GET 1회로 실제 영업일자/시각 필드 확인; 장후 stale 응답은 intraday freshness proof로 차단
 - [x] v2 acquired master 계약/실제 빈 ETP 분류와 dated-minute verifier/readonly reader/index context 연결; 유효 기준일 미확정 유지
 - [x] bounded capture 및 돌파/눌림목 독립 replay CLI를 main에 비활성 통합; 기존 미션 계약/정책 보존
+- [x] kis-ws sealed record 완료 분봉 공급 bridge 및 상위 조회 포함 무호출 예산 preflight; 누적 REST 입력·freshness/deadline 위반 차단
+- [ ] 기존 수집 우선 계정 전체 pacing, stage별 dated context 갱신/작은 capture 분할 및 WS producer runtime 연결; 정책 완화 없이 검증
 - [ ] 상위 dated-minute/index/master·실제 체결 수 공급 및 기존 collector와 전역 API 예산 검증/승인 후 상시 수집·비교 자동운용 활성화
 - [ ] 기존 구독 보호 하에 별도 선정 종목 시세 수집과 두 독립 가상계좌 연결; 비용·손실 예산/일별 종목 선정 계약 고정 후 미래 비교
 

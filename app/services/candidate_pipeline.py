@@ -1,16 +1,98 @@
 """Connect explicit source evidence, paper-only reader and independent replay."""
 from datetime import datetime, timedelta, time
 import math
+import re
 
 from app.brokers.kis_candidate_reader import CandidateRestReader
 from app.collectors.candidate_capture_cycle import CaptureCycle
 from app.paper_trading.candidate_comparison import CandidateComparison
-from app.storage.contracts import MinuteBar
+from app.storage.contracts import MinuteBar, MarketTickEvent
+from app.features.minute_bars import aggregate_ticks_to_minute_bar
 from app.universe.kis_candidate_provenance import DatedMinuteVerifier
 from app.universe.kis_candidate_snapshot import scan_kis_snapshot
 from app.universe.kis_candidate_sources import build_metadata, build_benchmark, VERSION as SOURCE_BINDING_VERSION
-from app.universe.intraday_candidates import KST
+from app.universe.intraday_candidates import KST, _bar_evidence
 from app.utils.time import now_local
+
+
+def build_candidate_bars(symbol, sealed_minutes, *, as_of, holidays=()):
+    """Aggregate trusted sealed WS records, not REST accumulated-volume snapshots.
+
+    Sealing/completeness and deduplication belong to the upstream producer. The
+    count is captured records, never a claim of all exchange executions.
+    """
+    if (not isinstance(symbol, str) or not re.fullmatch(r'[0-9]{6}', symbol)
+            or not isinstance(as_of, datetime) or as_of.tzinfo is None
+            or as_of.utcoffset() is None or not isinstance(sealed_minutes, list)
+            or len(sealed_minutes) != 21):
+        raise ValueError('Explicit symbol, aware clock and 21 sealed minutes required')
+    as_of = as_of.astimezone(KST)
+    if as_of.weekday() >= 5 or as_of.date().isoformat() in holidays:
+        raise ValueError('Actual trading day required')
+    rows = []
+    total = 0
+    for minute in sealed_minutes:
+        if not isinstance(minute, dict) or minute.get('sealed') is not True:
+            raise ValueError('Producer-sealed minute required')
+        ticks, available = minute.get('ticks'), minute.get('available_at')
+        if (not isinstance(ticks, list) or not ticks or len(ticks) > 10000
+                or not isinstance(available, datetime) or available.tzinfo is None
+                or available.utcoffset() is None):
+            raise ValueError('Bounded real WS records and aware availability required')
+        total += len(ticks)
+        if total > 50000:
+            raise ValueError('Capture record budget exceeded')
+        stamps = set()
+        normalized = []
+        for tick in ticks:
+            if (not isinstance(tick, MarketTickEvent) or tick.symbol != symbol or tick.source != 'kis-ws'
+                    or not isinstance(tick.event_time, datetime)
+                    or tick.event_time.tzinfo is None or tick.event_time.utcoffset() is None
+                    or type(tick.price) not in (int, float) or not math.isfinite(tick.price) or tick.price <= 0
+                    or type(tick.volume) is not int or tick.volume <= 0):
+                raise ValueError('Valid same-symbol execution records required')
+            stamp = tick.event_time.astimezone(KST)
+            stamps.add(stamp.replace(second=0, microsecond=0))
+            normalized.append(MarketTickEvent(symbol, stamp, tick.price, tick.volume, tick.source))
+        if len(stamps) != 1:
+            raise ValueError('Cross-minute execution records forbidden')
+        bar = aggregate_ticks_to_minute_bar(symbol, normalized)
+        rows.append({k: v for k, v in bar.to_record().items() if k != 'symbol'} | {
+            'available_at': available.astimezone(KST).isoformat(),
+            'trade_count_scope': 'captured_ws_records_only'})
+    _bar_evidence(rows, as_of)
+    return rows
+
+
+def candidate_budget_preflight(*, symbol_count, market_count, sector_count):
+    """No-I/O conservative serial request plan; never grants activation authority."""
+    if (any(type(n) is not int for n in (symbol_count, market_count, sector_count))
+            or not 1 <= symbol_count <= 5 or not 1 <= market_count <= min(2, symbol_count)
+            or not 1 <= sector_count <= symbol_count):
+        raise ValueError('Bounded explicit source counts required')
+    capture = 1 + 2*symbol_count
+    # Per stock: dated minute plus metadata price; shared distinct market/sector indices.
+    upstream = 2*symbol_count + market_count + sector_count
+    total = capture + upstream
+    capture_upper = capture*3 + (capture-1)*1.1
+    whole_upper = total*3 + (total-1)*1.1
+    blocking = ['account_wide_coordinator_not_connected', 'standing_collection_not_authorized']
+    if capture_upper > 18:
+        blocking.append('capture_timeout_budget_exceeds_deadline')
+    if whole_upper > 60:
+        blocking.append('whole_context_timeout_budget_exceeds_freshness')
+    anchor_age_upper = (total-1)*(3+1.1)
+    if anchor_age_upper > 20:
+        blocking.append('dated_anchor_timeout_budget_exceeds_freshness')
+    return dict(version='candidate-whole-source-budget-v1', status='blocked',
+        capture_requests=capture, upstream_requests=upstream, total_requests=total,
+        capture_timeout_bound_seconds=round(capture_upper, 2),
+        whole_timeout_bound_seconds=round(whole_upper, 2),
+        earliest_anchor_age_bound_seconds=round(anchor_age_upper, 2),
+        response_completion_gap_seconds=1.1, request_timeout_seconds=3,
+        public_master_downloads_included=False, token_calls=0, network_calls=0, order_calls=0,
+        execution_bar_source='existing_or_separately_approved_ws',
+        activation_allowed=False, blocking_reasons=blocking)
 
 
 def prepare_candidate_context(master, price, market_index, sector_index, bars, *, as_of):
