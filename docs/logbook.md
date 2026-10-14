@@ -7,6 +7,8 @@
 
 ## [2026-10-14] 승인된 공급원 GET 6회 연결 확인
 
+- 후속 진행 요청으로 장후 runtime 정지/should-run=false를 확인해 paper 당일분봉 GET 1회(FHKST03010200/001440/153000)를 실행했다. 실제 영업일자/HHMMSS 30행만 보존했고 auth/retry/order/cancel 0이다. 날짜 확인과 현재 freshness를 분리했으며 실제 장후 응답이 격리 anchor에서 stale로 차단됨을 검증했다. ETP blank/ST와 ETP2/EF의 공개 데이터 차이는 그대로 기록하고 현재 분류 조건을 임의 완화하지 않았다.
+
 - 후속 격리 작업에서 공식 master 고정 폭 parser와 동일 종목 dated-minute proof를 TDD로 준비하고 관련 33건을 통과했다. 공개 master 두 파일은 TLS 검증 유지 상태로 D에 보존했으며 root 코드/계좌/E7/자동 수집은 변경하지 않았다. 실제 빈 ETP 값과 유효 기준일 미확정을 차단 상태로 유지한다. 별도 당일분봉 1회 조회 승인은 요청 중이며 인증 API를 추가 실행하지 않았다.
 - 격리 worktree 첫 전체 934건에서 신규 paper reader의 direct REST constructor 경계 테스트 1건 실패를 발견해 기존 readonly factory/wrapper 경계를 재사용하도록 수정했다. 기존 isolation allowlist는 유지했고 수정 관련 37건 통과를 확인했다. root에 이 코드를 적용하지 않았다.
 - 이후 wrapper의 주문 표면/비시세 endpoint 차단 검증을 추가하고 최종 전체 935건(469.514초), subprocess exit 0을 확인했다. 격리 로그 `.tmp-tests/provenance-full-unittest-final-20261014.log`를 보존하며 코드 통합/실제 dated verifier 활성화를 주장하지 않는다.

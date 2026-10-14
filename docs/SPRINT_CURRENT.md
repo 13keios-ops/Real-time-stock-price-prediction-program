@@ -60,7 +60,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 승인된 장후 paper 현재가/호가/시장지수 GET 6회 연결과 경보 실제 필드 확인; 재시도/auth/order/cancel 0
 - [ ] 현재 거래일 anchor 및 종목 마스터/업종 매핑 실제 원천 연결; 과거 고저가 날짜/HTTP Date를 거래일로 사용하지 않음
 - [x] 공식 공개 master snapshot/TLS/hash와 실제 001440/006800 업종 code 확인; 격리 parser/datetime proof 준비
-- [ ] master 유효 기준일·빈 ETP 값 의미 확인, 별도 승인 dated-minute 1회 조회, 실제 reader verifier 연결
+- [x] 후속 진행 요청의 dated-minute GET 1회로 실제 영업일자/시각 필드 확인; 장후 stale 응답은 intraday freshness proof로 차단
+- [ ] master 유효 기준일·빈 ETP 값의 분류 계약 보완 및 실제 reader verifier 연결; 상시 수집은 미활성
 - [ ] 기존 구독 보호 하에 별도 선정 종목 시세 수집과 두 독립 가상계좌 연결; 비용·손실 예산/일별 종목 선정 계약 고정 후 미래 비교
 
 - [x] 30만원·일 비용 후 최소 1만원 도전의 독립 모멘텀 가상계좌/계약/원장/리포트 구현; 기존 E7·paper/KIS 정책 분리
