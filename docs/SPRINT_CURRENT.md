@@ -64,11 +64,13 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] v2 acquired master 계약/실제 빈 ETP 분류와 dated-minute verifier/readonly reader/index context 연결; 유효 기준일 미확정 유지
 - [x] bounded capture 및 돌파/눌림목 독립 replay CLI를 main에 비활성 통합; 기존 미션 계약/정책 보존
 - [x] kis-ws sealed record 완료 분봉 공급 bridge 및 상위 조회 포함 무호출 예산 preflight; 누적 REST 입력·freshness/deadline 위반 차단
-- [ ] 기존 수집 우선 계정 전체 pacing, stage별 dated context 갱신/작은 capture 분할 및 WS producer runtime 연결; 정책 완화 없이 검증
+- [x] 기존 수집 우선 공유 pacing와 실제 WS BSOP_DATE producer, 최대 2종목/6 GET capture runtime 연결; 정책 완화 없음
 - [x] paper opt-in 프로세스 간 HTTP coordinator/후순위 candidate 양보와 validated reader anchor refresh port; 기본 운영 미주입
-- [ ] 운영 참가자·인증/hashkey·Mirror 생성의 공유 조정 등록 및 deferred HTTP attempt=false lineage 검증; 실제 stage orchestration 미연결
-- [ ] 상위 dated-minute/index/master·실제 체결 수 공급 및 기존 collector와 전역 API 예산 검증/승인 후 상시 수집·비교 자동운용 활성화
-- [ ] 기존 구독 보호 하에 별도 선정 종목 시세 수집과 두 독립 가상계좌 연결; 비용·손실 예산/일별 종목 선정 계약 고정 후 미래 비교
+- [x] 승인 등록 기반 auth/hashkey/Mirror/fill-sync/readonly 조정과 deferred HTTP attempt=false lineage; 청산 영구 차단 방지 검증
+- [x] 실제 WS 영업일/수신 record 수·index/master source와 회차/일 예산, 두 독립 가상계좌 및 아침 기본 시작 경로 연결
+- [x] 검증 후 10/15 시작 활성화 계약 설치; 두 30만원 계좌/0체결/기존 현금·계약 보존과 정상 장전 시작 binding 확인
+- [ ] 첫 실제 세션의 추가 WS ACK/21분 warmup/원천 분모/제외 이유/조회 예산/가상체결 확인
+- [ ] 동적 종목 선정·교체는 초기 001440/006800 관측 seed 이후 별도 불변 비교 계약으로 검토; 기존 계좌 초기화 금지
 
 - [x] 30만원·일 비용 후 최소 1만원 도전의 독립 모멘텀 가상계좌/계약/원장/리포트 구현; 기존 E7·paper/KIS 정책 분리
 - [x] 스레드·CAS·rollback·수수료/세금/스프레드/슬리피지·미래 가격 사용 방지·기존 원장 불변 및 전체 837건 회귀 검증

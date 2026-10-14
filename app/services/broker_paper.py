@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 from app.brokers.kis_auth import KisApiError, KisTokenManager, get_kis_profile
+from app.brokers.kis_paper_coordinator import PaperCoordinatorBusy
 from app.brokers.kis_quote_rest import (
     KRX_INSTRUMENT_COMMON_STOCK,
     ORDER_CASH_PATH,
@@ -44,6 +45,7 @@ BROKER_FAILURE_CATEGORIES = frozenset(
         "broker_order_rejected",
         "broker_network_error",
         "broker_unknown_error",
+        "broker_request_deferred",
     }
 )
 _SENSITIVE_VALUE_PATTERN = re.compile(
@@ -128,6 +130,10 @@ def classify_broker_paper_failure(
     circuit_opened: bool = False,
     retry_after_seconds: int | None = None,
 ) -> BrokerPaperFailure:
+    if isinstance(exc, PaperCoordinatorBusy):
+        return BrokerPaperFailure(category='broker_request_deferred', message_code='',
+            message='local paper request slot unavailable; broker submission not attempted',
+            network_attempted=False, reason_code='local_shared_pacing')
     message_code, message = _extract_kis_error_fields(exc)
     lowered = message.lower()
     code = message_code.upper()
@@ -186,10 +192,12 @@ def is_kis_rate_limit_error(exc: KisApiError) -> bool:
 
 
 class BrokerPaperMirror:
-    def __init__(self, settings: AppSettings) -> None:
+    def __init__(self, settings: AppSettings, *, request_coordinator=None) -> None:
         self.settings = settings
         self.profile = get_kis_profile(settings, "paper")
-        self.client = KisRestQuoteClient(profile=self.profile, token_manager=KisTokenManager(self.profile))
+        coordination = {} if request_coordinator is None else {'request_coordinator':request_coordinator}
+        self.client = KisRestQuoteClient(profile=self.profile,
+            token_manager=KisTokenManager(self.profile, **coordination), **coordination)
         self._account_hard_rejection_until: float | None = None
 
     @property

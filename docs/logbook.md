@@ -1,5 +1,12 @@
 # 작업 기록
 
+## [2026-10-15] 승인된 제한 수집·독립 비교 runner 연결
+
+- 승인 범위에 맞춰 같은 WS의 extra 종목을 core accounting과 분리하고 actual BSOP_DATE/21분 완료 증거, TLS 공개 master 및 최대 6회 cached GET을 연결했다. 두 independent local wallets의 고정 계약/비용/미래 분봉 체결 규칙은 변경하지 않았다. 단일 owner lock, 회차/일 예산·차단 재시작 보존, 입력 journal 선행 fsync, heartbeat/warmup/제외 이유를 추가했다.
+- paper auth/hashkey/Mirror/fill-sync/readonly 자동 등록과 pre-HTTP deferred lineage를 연결했다. 슬롯 양보로 UNKNOWN 또는 영구 청산 거부를 만들던 경로를 분리했다. 실제 불확정 주문 보호는 유지한다. 미등록 외부 앱은 조정 범위 밖이다.
+- `test_kis_http_clients`가 운영 cache에 mock issued-token을 기록하던 fixture 누출을 격리 runtime으로 수정했다. 정확히 확인한 mock 파일만 제거했으며 실제 인증·credential 수정은 하지 않았다. 보완 후 root token cache 파일 부재를 확인했으며 정상 아침 주 runtime 인증에 맡긴다.
+- 새 기능 집중 31건/기존 경계 포함 67건 통과. 첫 전체에서 발견한 15건은 가벼운 미등록 profile/settings의 optional 등록 가드 호환 문제로 수정했다. 최종 전체 결과와 실제 장외 활성화 계약 설치는 STATUS가 소유한다. 실제 세션 ACK/수집/수익성은 아직 실증 전이다.
+
 ## [2026-10-15] Opt-in 공유 전송·증거 갱신 준비
 
 - POSIX 공유 lock/응답 완료 1.1초 간격/강제 중단 예약을 가진 paper coordinator를 실제 GET/POST 전송 경계에 선택 주입하도록 구현했다. 기본 HTTP 경로는 미주입/기존 동작이며 low-priority candidate는 HTTP 없이 양보하고 POST는 거부한다. live profile 변환은 인증 획득 전에 차단한다.

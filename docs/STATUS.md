@@ -1,10 +1,16 @@
 # 현재 상태
 
-## 10/15 Paper 공유 조정 준비
+## 10/15 승인된 후보 비교 런타임 연결
 
-- 명시 주입된 paper REST 클라이언트의 GET/POST를 POSIX 프로세스 간 잠금과 응답 완료 후 1.1초 간격으로 조정하는 opt-in port를 구현했다. cached candidate factory는 낮은 우선순위/GET-only이며 기존 호출 잠금·cooldown이면 HTTP 없이 양보한다. 기본 운영에는 주입하지 않았고 기존 호출/주문 정책은 그대로다.
-- crash 시 timeout 예약 보존, corrupt/symlink state fail-closed, live profile 변환 시 인증 전 차단, validated allowlist anchor 갱신 port를 검증했다. 기존 계정의 모든 참가자·인증/hashkey·BrokerPaperMirror wiring과 HTTP attempt=false lineage는 아직 운영 미통합이다. stage별 실제 context 획득/작은 capture 조립과 상시 승인도 남아 있어 account-wide 해결·자동운용 완료를 주장하지 않는다.
-- 관련 집중 75건 및 최종 전체 unittest 981건/66.398초 통과. 실제 fork/강제 종료를 포함한 lock/reservation 경계와 기본 HTTP 회귀를 검증했고 신규 API/주문/취소/서비스·예약 변경은 없다. 근거: `.tmp-tests/paper-coordinator-full-20261015.log`.
+- 운영자가 검증 후 제한 상시 읽기 수집/최대 2종목 추가 WS/돌파·눌림목 독립 로컬 가상매매 활성화를 승인했다. 기존 정상 WS 시작에서 같은 연결에 001440/006800을 추가하며 extra record는 원래 processor/DB/E7/Mirror에 전달하지 않는다. 두 초기 관측 seed는 매수 추천이나 강세 통과가 아니다. 각각 30만원의 두 계좌와 기존 10종목 미션의 현금·손익은 분리한다.
+- 실제 WS BSOP_DATE와 누적량 연속성으로 21개 완료 분/수신 record 수를 공급하고 같은 종목의 최근 날짜 증거로 호가를 묶는다. 공개 master의 실제 획득/8시간 freshness, rank prdy_vol, 경보·시장/업종 조건을 검증한다. GET 최대 6/회차, 회차 완료 후 최소 60초, 2500/일 예약 예산, 응답 완료 gap 1.1초, primary 우선 양보를 고정했다. API/source 실패 시 같은 세션 조회를 중단하고 재시작 예산/차단을 보존하되 유효한 로컬 보유 평가·청산 경로는 유지한다.
+- 승인 등록된 paper auth/승인키/hashkey/REST/Mirror/fill-sync/readonly를 같은 조정 폴더로 연결했다. pre-HTTP 양보는 broker_request_deferred/network_attempted=false이며 UNKNOWN이나 영구 청산 차단으로 바꾸지 않는다. 미등록 외부 앱/FIFO/후순위 무기아 보장은 범위 밖이다. E7/model/threshold/gate/allocator/기존 watchlist/config/실전 flag/Phase 0 baseline은 변경하지 않았다.
+- 기존 HTTP 테스트 fixture가 root token cache에 mock issued-token을 쓴 문제를 발견해 `.tmp-tests`로 완전히 격리했다. 정확히 확인된 mock 파일만 제거했고 자격정보·계좌번호는 변경하지 않았다. 실제 token을 새로 발급하지 않았으며 다음 정상 주 런타임 인증이 cache를 공급한다.
+- 관련 집중 67건 통과. 첫 전체 회귀에서 미등록 경량 프로필/mock settings 호환 오류 15건을 발견해 opt-in 기본 가드를 보완했다. 최종 전체 회귀와 실제 활성화 계약 설치 결과는 아래 완료 기록으로 확인한다. 아직 실제 추가 WS ACK/장중 수집/수익성 통과를 주장하지 않는다.
+- 아래 날짜가 붙은 미활성·미통합 설명은 이전 checkpoint 이력이다. 현재 운영 계약은 본 절과 `docs/Daily-Profit-Mission.md`의 10/15 절이 우선한다.
+- 01:36 KST 장외 설치/검수 완료: `armed_awaiting_market_session`, 두 계좌 현금 각각 300,000원/체결·보유·pending 0이다. spec hash `6f3cde77843a98f2ffa277fd6841db3a02870c3e52d393e4004a8a17b97caa76`, comparison hash `bd1271bdb1eb2931fc3f89c983e40e9efb42737f6dec58937fda784ee7237cac`다. 실제 수집은 기존 watchdog 정상 장전 시작에 연결하며 지금 runtime은 overnight/stopped, watchdog fresh/should-run=false다. 추가 API/auth/order/cancel과 장외 수집 시작은 0회다.
+- 최종 전체 unittest 1,013건/61.085초 통과 후 malformed 등록 spec 자료형 가드를 추가해 최종 관련 82건/3.343초로 재검증했다. 전체 1,014건을 실행했다고 주장하지 않는다. 구조 감사 오류 0/기존 경고 4, diff 위생 통과. 로그: `.tmp-tests/candidate-runtime-full-final-20261015.log`, `candidate-runtime-final-focused-20261015.log`, `candidate-runtime-audit-20261015.json`, `candidate-runtime-activation-20261015.json`.
+- 등록 유효/공유 paper binding을 실제 파일로 확인했고 기존 10종목 미션 cash 294,741원/contract `00712ca37a1fa7388ce6fd5c74898187b2f34c08eaccfb98a793ba6e639d684c`를 보존했다. 실제 추가 WS ACK/21분 warmup/prdy_vol/선정 제외·호가/조회 예산/가상체결과 실제 요율·수익성은 첫 세션 관측 대상이다. 한도와 원천 차단을 완화해 거래를 강제하지 않는다.
 
 ## 10/14 후보 source v2와 독립 비교 통합
 

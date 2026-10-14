@@ -124,6 +124,9 @@ class KisReadOnlyClient:
 
 
 def get_kis_paper_candidate_client(profile, token_manager, *, request_coordinator=None):
+    if request_coordinator is None:
+        from app.brokers.kis_paper_registration import coordinator_for_profile
+        request_coordinator = coordinator_for_profile(profile)
     url = urlsplit(profile.rest_url)
     if (profile.mode != 'paper' or url.scheme != 'https'
             or url.hostname != 'openapivts.koreainvestment.com' or url.port != 29443
@@ -158,8 +161,8 @@ def get_kis_readonly_client(
     if resolved_mode not in {"paper", "live"}:
         raise ValueError("KIS read-only client only supports mode='paper' or mode='live'.")
     profile = get_kis_profile(settings, resolved_mode)
-    token_manager = KisTokenManager(profile)
     coordination = {} if request_coordinator is None else {'request_coordinator':request_coordinator}
+    token_manager = KisTokenManager(profile, **coordination)
     client = KisRestQuoteClient(profile=profile, token_manager=token_manager, timeout_seconds=timeout_seconds,
                                 **coordination)
     return KisReadOnlyClient(client)

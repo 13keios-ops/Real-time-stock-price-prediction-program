@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -118,8 +119,28 @@ def get_active_kis_profile(settings: AppSettings) -> KisAuthProfile:
 
 
 class KisTokenManager:
-    def __init__(self, profile: KisAuthProfile) -> None:
+    def __init__(self, profile: KisAuthProfile, *, request_coordinator=None) -> None:
+        if request_coordinator is None:
+            from app.brokers.kis_paper_registration import coordinator_for_profile
+            request_coordinator = coordinator_for_profile(profile)
+        if request_coordinator is not None and profile.mode != 'paper':
+            raise ValueError('Shared auth coordinator supports paper only')
         self.profile = profile
+        self.request_coordinator = request_coordinator
+
+    def _check_profile(self):
+        if self.request_coordinator is not None and self.profile.mode != 'paper':
+            raise ValueError('Coordinated auth profile must remain paper')
+
+    def _slot(self, timeout_seconds):
+        self._check_profile()
+        if self.request_coordinator is None:
+            return nullcontext()
+        return self.request_coordinator.slot(timeout_seconds=timeout_seconds)
+
+    def _request_json(self, **kwargs):
+        with self._slot(kwargs.get('timeout_seconds',15)):
+            return _request_json(**kwargs)
 
     def load_cached_token(self) -> KisAccessToken | None:
         if not self.profile.token_cache_path.exists():
@@ -145,7 +166,7 @@ class KisTokenManager:
         if not self.profile.is_ready_for_quotes:
             raise KisApiError("KIS app key and secret are required before requesting a token.")
 
-        payload = _request_json(
+        payload = self._request_json(
             url=f"{self.profile.rest_url}{TOKEN_ENDPOINT}",
             payload={
                 "grant_type": "client_credentials",
@@ -162,6 +183,7 @@ class KisTokenManager:
         return token
 
     def get_access_token(self, force_refresh: bool = False) -> KisAccessToken:
+        self._check_profile()
         if not force_refresh:
             cached = self.load_cached_token()
             if cached is not None:
@@ -172,7 +194,7 @@ class KisTokenManager:
         active = token or self.load_cached_token()
         if active is None:
             raise KisApiError("No cached access token is available to revoke.")
-        payload = _request_json(
+        payload = self._request_json(
             url=f"{self.profile.rest_url}{TOKEN_REVOKE_ENDPOINT}",
             payload={
                 "appkey": self.profile.app_key,
@@ -185,7 +207,7 @@ class KisTokenManager:
     def issue_approval_key(self) -> str:
         if not self.profile.is_ready_for_quotes:
             raise KisApiError("KIS app key and secret are required before requesting an approval key.")
-        payload = _request_json(
+        payload = self._request_json(
             url=f"{self.profile.rest_url}{APPROVAL_ENDPOINT}",
             payload={
                 "grant_type": "client_credentials",
@@ -213,7 +235,7 @@ class KisTokenManager:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with self._slot(15), urlopen(request, timeout=15) as response:
                 response_payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")

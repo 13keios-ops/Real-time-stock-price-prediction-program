@@ -287,6 +287,9 @@ def _first_float(payload: dict, keys: tuple[str, ...]) -> float:
 class KisRestQuoteClient:
     def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10,
                  *, request_coordinator=None, low_priority=False) -> None:
+        if request_coordinator is None:
+            from app.brokers.kis_paper_registration import coordinator_for_profile
+            request_coordinator = coordinator_for_profile(profile)
         if request_coordinator is not None and profile.mode != 'paper':
             raise ValueError('Shared coordinator supports paper only')
         if type(low_priority) is not bool or low_priority and request_coordinator is None:

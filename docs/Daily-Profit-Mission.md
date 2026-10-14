@@ -1,5 +1,30 @@
 # 30만원 독립 일일 수익 가상 서브미션
 
+## 10/15 승인된 후보 비교 런타임
+
+- 운영자는 검증 후 상시 읽기 전용 KIS 수집, 최대 2종목 추가 WS 구독과 돌파/눌림목 독립 로컬 가상매매 활성화를 승인했다. 새 트랙은 broker 주문/취소를 구현하지 않는다. 기존 10종목 미션과 두 새 계좌는 합산하거나 재충전하지 않는다.
+- `candidate_runtime.py`가 기존 정상 `run_kis_ws_listener` 시작에 붙는다. 같은 WS 연결에 001440/006800을 추가하되 기존 종목만 원래 processor/DB/E7/Mirror로 전달한다. 두 종목은 연결이 확인된 초기 관측 seed이지 추천/강세 통과 종목이 아니다. 동적 종목 교체나 전 시장 탐색은 이번 초기 운영 범위가 아니다.
+- 추가 채널을 포함한 합계 구독 수를 보수적으로 40 이하로 검사하며 trade/book 둘 다 켜진 paper 세션에서만 붙는다. 승인 파일이 없거나 잘못됐거나 예산을 넘으면 기존 구독을 보존한다. 새 daemon/예약이나 장외 runtime 시작은 없다.
+- `CandidateLiveFeed`는 실제 H0STCNT0의 BSOP_DATE/STCK_CNTG_HOUR와 누적량 연속성을 검사한다. 최초 부분 분/중복/공백은 진입 warmup에서 제외하고 21개 완료 분을 준비한다. trade_count는 수신 record 수이지 거래소 전체 체결 수가 아니다. 호가 날짜는 같은 종목의 실제 최근 WS 영업일 증거에만 연결한다. receipt day/HTTP Date/전일 master 날짜를 시세 영업일로 합성하지 않는다.
+- 기본 진입 시간은 기존 후보 규칙대로 09:30~14:45다. 실제 정상 21분, 신선한 호가, 원천 분모/경보/시장·업종 조건이 갖춰진 경우만 진입한다. 충족하지 않으면 거래 0건이 정상일 수 있다. 정책·비용·threshold 완화로 거래를 만들지 않는다.
+- 회차는 순위 1 + 시장/업종 지수 3 + 현재가/경보 2 = 최대 GET 6회다. 응답 완료 후 1.1초 공유 간격, 회차 완료 후 최소 60초, timeout 3초, 하루 보수적 예약 GET 2500 상한을 고정한다. 후보는 primary가 잠금/cooldown을 사용하면 즉시 양보하고 HTTP를 재시도하지 않는다. 일부 회차만 완료되어도 조회 예산에 포함한다.
+- 초기 source는 실제 public KOSPI master를 TLS 검증 유지/ZIP member allowlist/크기 제한으로 최대 한 번 획득하고 raw hash·실제 획득 시각을 보존한다. 획득 당일/8시간 freshness와 유효 영업일 인증은 다르며 effective_day_verified=false를 유지한다. 공개 master 호출은 인증 GET 예산과 구분한다.
+- KIS business/transport/source 실패 시 그 세션의 신규 조회/진입을 fail-closed한다. rate limit 같은 실패도 즉시 재시도하지 않으며 재시작 후 같은 날 차단/예약 예산을 유지한다. primary 우선권 Busy는 영구 API 오류로 취급하지 않는다. 유효한 완료 분봉으로 기존 가상보유 평가·청산 판단과 이미 결정한 미래 모의체결은 계속 가능하다. 데이터 자체가 없으면 청산 가격을 합성하지 않는다.
+- 승인 등록이 있는 paper profile의 TokenManager/REST/Mirror/fill-sync/readonly는 같은 coordinator 폴더를 사용한다. 인증/승인키/hashkey도 조정한다. 후보는 cached-token GET-only이고 재발급하지 않는다. 정상 주 런타임 시작의 기존 인증이 cache를 공급한다. 외부 앱/미등록 프로그램, FIFO/후순위 무기아 보장은 범위 밖이다.
+- pre-HTTP 슬롯 양보는 broker_request_deferred/network_attempted=false로 기록한다. UNKNOWN이나 실제 hard rejection으로 분류하거나 청산을 영구 차단하지 않으며 다음 정상 판단을 기다린다. 실제 불확정 제출은 기존 UNKNOWN 보호를 유지한다.
+- 운영 루트는 `runtime-data/paper-missions/kr-intraday-candidate-runtime/`다. enabled.json에 정책/spec hash, wallets/에 각각 30만원의 고정 v2 계좌, latest-runtime.json에 heartbeat/warmup/차단 이유/선정 제외/비용·손익, events.jsonl에 계좌 처리 전 fsync한 입력 증거를 둔다. 단일 POSIX owner lock과 기존 wallet CAS를 사용하며 부분 계좌 쓰기는 자동 복구로 덮지 않는다.
+- comparison 라이브러리 리포트의 runtime_attached=false는 API 자체가 수동 관측 인터페이스라는 뜻이다. 실제 attached 상태는 상위 latest-runtime.json을 사용한다. armed_awaiting_market_session은 활성화 계약 설치이지 실제 WS ACK/수집/수익성 통과가 아니다.
+
+```bash
+python3 scripts/activate_candidate_runtime.py --initialize --execute --start-date 2026-10-15
+python3 scripts/activate_candidate_runtime.py --status
+```
+
+초기화는 장외 보호 확인 후 offline으로만 수행하며 수집을 시작하지 않는다. 이전 dated-minute REST capture/preflight 및 replay CLI는 준비/오프라인 경로로 보존한다. 아래의 과거 미활성·미통합 checkpoint 설명은 이 승인된 WS 기반 운영 경로의 현재 상태를 뜻하지 않는다. 첫 실제 세션의 ACK/원천/예산/가상 판단 검증은 따로 남아 있다.
+
+공식 WS BSOP_DATE 근거: https://github.com/koreainvestment/open-trading-api/blob/main/legacy/websocket/python/ops_ws_sample.py
+공식 master source: https://raw.githubusercontent.com/koreainvestment/open-trading-api/main/stocks_info/kis_kospi_code_mst.py
+
 ## 목적과 경계
 
 - 운영자 수동 요청(2026-10-13): 국장에서 30만원으로 거래 비용 차감 후 하루 최소 1만원을 도전한다.

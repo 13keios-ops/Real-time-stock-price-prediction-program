@@ -374,6 +374,7 @@ class BrokerPaperExecutionSync:
         portfolio_book: PaperPortfolioBook | None = None,
         engine: PaperTradingEngine | None = None,
         id_factory: Callable[[str], str] | None = None,
+        request_coordinator=None,
     ) -> None:
         self.settings = settings
         self.writer = writer or RuntimeWriter.from_settings(settings)
@@ -383,7 +384,8 @@ class BrokerPaperExecutionSync:
         )
         self.engine = engine or PaperTradingEngine(slippage_bps=settings.strategy.slippage_bps)
         self.id_factory = id_factory
-        self.broker_mirror = BrokerPaperMirror(settings)
+        coordination = {} if request_coordinator is None else {'request_coordinator':request_coordinator}
+        self.broker_mirror = BrokerPaperMirror(settings, **coordination)
         timestamp = now_local(self.settings.timezone).strftime("%Y%m%d%H%M%S")
         self._run_namespace = f"{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self._sequence = 0

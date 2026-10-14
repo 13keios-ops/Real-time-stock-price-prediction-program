@@ -121,7 +121,10 @@ class OnlinePipelineProcessor:
         trading_horizon_min: int = 15,
         id_namespace: str | None = None,
         raw_source: str = "kis-ws",
+        paper_request_coordinator=None,
     ) -> None:
+        if paper_request_coordinator is not None and settings.trading_mode != 'paper':
+            raise ValueError('Shared paper runtime coordinator cannot attach to live mode')
         self.settings = settings
         self.writer = RuntimeWriter.from_settings(settings)
         self.prediction_horizons = tuple(sorted({int(horizon) for horizon in prediction_horizons if int(horizon) > 0}))
@@ -166,7 +169,8 @@ class OnlinePipelineProcessor:
         self.signals_written = 0
         self.orders_written = 0
         self._sequence = 0
-        self.broker_paper_mirror = BrokerPaperMirror(settings)
+        coordination = {} if paper_request_coordinator is None else {'request_coordinator':paper_request_coordinator}
+        self.broker_paper_mirror = BrokerPaperMirror(settings, **coordination)
         self.broker_paper_sync = (
             BrokerPaperExecutionSync(
                 settings,
@@ -174,6 +178,7 @@ class OnlinePipelineProcessor:
                 portfolio_book=self.portfolio_book,
                 engine=self.engine,
                 id_factory=self._next_scoped_id,
+                **coordination,
             )
             if self.broker_paper_mirror.enabled
             else None
@@ -610,8 +615,12 @@ class OnlinePipelineProcessor:
                     )
                 else:
                     outcome_unknown = _broker_submission_outcome_unknown(broker_failure)
+                    deferred = broker_failure is not None and broker_failure.category == 'broker_request_deferred'
                     order.status = "submission_unknown" if outcome_unknown else "rejected"
                     decision_stage = "order_submission_unknown" if outcome_unknown else "order_rejected"
+                    if deferred:
+                        order.status = 'deferred'
+                        decision_stage = 'order_deferred'
                     if outcome_unknown:
                         self.pending_order_symbols.add(state.symbol)
                         self.pending_buy_symbols.add(state.symbol)
@@ -634,6 +643,8 @@ class OnlinePipelineProcessor:
                         decision_reason = (
                             f"{decision_reason}:{broker_failure_reason_code}"
                         )
+                    if deferred:
+                        decision_reason = 'broker_paper_submission_deferred:local_shared_pacing'
                     decision_order_status = order.status
                     self.writer.write_paper_order(order)
                     self.writer.write_order_event(
@@ -641,7 +652,8 @@ class OnlinePipelineProcessor:
                             order_event_id=self._next_scoped_id("order-event"),
                             order_id=order.order_id,
                             event_time=order.event_time,
-                            event_type=("submission_unknown" if outcome_unknown else "rejected"),
+                            event_type=('submission_deferred' if deferred else
+                                        "submission_unknown" if outcome_unknown else "rejected"),
                             detail=json.dumps(
                                 {
                                     "attempt_id": f"broker-paper-attempt-{order.order_id}",
@@ -819,6 +831,7 @@ class OnlinePipelineProcessor:
         )
         ack = self.engine.acknowledge(order, order_event_id=order_event_id)
         self.writer.write_order_event(ack)
+        deferred = False
         if self.broker_paper_mirror.enabled:
             submission, broker_failure = self._mirror_order_to_broker(order)
             if submission is not None:
@@ -827,10 +840,13 @@ class OnlinePipelineProcessor:
                 self.writer.write_paper_order(order)
             else:
                 outcome_unknown = _broker_submission_outcome_unknown(broker_failure)
+                deferred = broker_failure is not None and broker_failure.category == 'broker_request_deferred'
                 order.status = "submission_unknown" if outcome_unknown else "rejected"
+                if deferred:
+                    order.status = 'deferred'
                 if outcome_unknown:
                     self.pending_order_symbols.add(symbol)
-                else:
+                elif not deferred:
                     self.close_retry_blocked_symbols.add(symbol)
                 self.writer.write_paper_order(order)
                 self.writer.write_order_event(
@@ -838,7 +854,8 @@ class OnlinePipelineProcessor:
                         order_event_id=self._next_scoped_id("order-event-close"),
                         order_id=order.order_id,
                         event_time=event_time,
-                        event_type=("submission_unknown" if outcome_unknown else "rejected"),
+                        event_type=('submission_deferred' if deferred else
+                                    "submission_unknown" if outcome_unknown else "rejected"),
                         detail=json.dumps(
                             {
                                 "attempt_id": f"broker-paper-attempt-{order.order_id}",
@@ -881,7 +898,7 @@ class OnlinePipelineProcessor:
                 )
             )
         self.orders_written += 1
-        return "recently_closed"
+        return "broker_request_deferred" if deferred else "recently_closed"
 
     def flush(self) -> OnlinePipelineResult:
         for state in self.states.values():
@@ -1007,6 +1024,7 @@ def build_sample_ws_frames(symbol: str = "005930") -> list[str]:
 def _consume_kis_ws_frames(
     processor: OnlinePipelineProcessor,
     frame_queue: Queue[object],
+    *, candidate_runtime=None, primary_symbols=None,
 ) -> OnlinePipelineResult:
     while True:
         parsed = frame_queue.get()
@@ -1016,6 +1034,13 @@ def _consume_kis_ws_frames(
             continue
         tr_id = parsed.get("tr_id")
         for record in parsed.get("records", []):
+            if candidate_runtime is not None:
+                try:
+                    candidate_runtime.observe_record(tr_id, record)
+                except Exception:
+                    LOGGER.error('Candidate record rejected; primary pipeline continues')
+            if primary_symbols is not None and record.get('MKSC_SHRN_ISCD') not in primary_symbols:
+                continue
             _process_kis_ws_record(processor, tr_id, record)
 
 
@@ -1027,6 +1052,7 @@ async def run_kis_ws_listener(
     include_orderbook: bool = True,
     max_frames: int = 50,
     max_reconnects: int = 2,
+    paper_request_coordinator=None,
 ) -> OnlinePipelineResult:
     settings = load_settings(project_root=project_root)
     configure_logging(settings)
@@ -1037,14 +1063,32 @@ async def run_kis_ws_listener(
         raise ValueError("At least one channel must be enabled.")
 
     profile = get_active_kis_profile(settings)
-    token_manager = KisTokenManager(profile)
+    coordination = {} if paper_request_coordinator is None else {'request_coordinator':paper_request_coordinator}
+    token_manager = KisTokenManager(profile, **coordination)
     ws_client = KisWebSocketQuoteClient(profile=profile, token_manager=token_manager)
-    processor = OnlinePipelineProcessor(settings)
+    processor = (OnlinePipelineProcessor(settings) if paper_request_coordinator is None else
+                 OnlinePipelineProcessor(settings,paper_request_coordinator=paper_request_coordinator))
+    primary_symbols = set(resolved_symbols)
+    candidate_runtime = None
+    if include_trade and include_orderbook:
+        from app.services.candidate_runtime import load_candidate_runtime
+        candidate_runtime = load_candidate_runtime(settings, primary_symbols=resolved_symbols)
+    if candidate_runtime is not None:
+        try:
+            # Primary auth may populate the normal cache; candidate reads never refresh it.
+            await asyncio.to_thread(token_manager.get_access_token)
+            candidate_runtime.start()
+            resolved_symbols = list(dict.fromkeys([*resolved_symbols, *candidate_runtime.symbols]))
+        except Exception:
+            candidate_runtime.close()
+            candidate_runtime = None
+            LOGGER.error('Candidate startup blocked; primary subscriptions unchanged')
     frames_received = 0
     control_frames = 0
 
     frame_queue: Queue[object] = Queue()
-    worker = asyncio.create_task(asyncio.to_thread(_consume_kis_ws_frames, processor, frame_queue))
+    worker = asyncio.create_task(asyncio.to_thread(_consume_kis_ws_frames, processor, frame_queue,
+        primary_symbols=primary_symbols if candidate_runtime is not None else None))
 
     try:
         async for frame in ws_client.listen(
@@ -1062,11 +1106,18 @@ async def run_kis_ws_listener(
             if parsed.get("frame_type") != "pipe-delimited" or not tr_id:
                 control_frames += 1
                 continue
+            if candidate_runtime is not None:
+                # Date and receipt proof is captured before the primary accounting queue.
+                for record in parsed.get('records', []):
+                    candidate_runtime.observe_record(tr_id, record)
             frame_queue.put_nowait(parsed)
     finally:
         frame_queue.put(_PIPELINE_QUEUE_STOP)
-
-    result = await worker
+        try:
+            result = await worker
+        finally:
+            if candidate_runtime is not None:
+                await asyncio.to_thread(candidate_runtime.close)
     result.frames_received = frames_received
     result.control_frames = control_frames
     return result

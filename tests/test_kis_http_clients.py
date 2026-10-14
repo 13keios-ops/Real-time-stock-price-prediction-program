@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import unittest
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from app.brokers.kis_auth import KisAccessToken, KisApiError, KisTokenManager, get_active_kis_profile
@@ -21,11 +22,26 @@ def _mock_response(payload: dict, *, headers: dict[str, str] | None = None) -> M
 
 
 class KisHttpClientTests(unittest.TestCase):
+    def setUp(self):
+        root=Path(__file__).resolve().parents[1]/'.tmp-tests'
+        root.mkdir(exist_ok=True)
+        temp=tempfile.TemporaryDirectory(prefix='http-kis-',dir=root)
+        self.addCleanup(temp.cleanup)
+        self.runtime_root=Path(temp.name)
+
+    def test_profile_cache_is_isolated_from_operational_runtime(self):
+        profile=self._build_profile()
+        root=Path(__file__).resolve().parents[1]
+        self.assertTrue(profile.token_cache_path.is_relative_to(root/'.tmp-tests'),
+                        'HTTP fixture cache must not write operational token storage')
+
     def _build_profile(self):
         root = Path(__file__).resolve().parents[1]
         settings = load_settings(
             project_root=root,
             env={
+                "RUNTIME_DATA_DIR": str(self.runtime_root),
+                "DATABASE_URL": f"sqlite:///{self.runtime_root / 'test.db'}",
                 "KIS_APP_KEY_PAPER": "paper-key",
                 "KIS_APP_SECRET_PAPER": "paper-secret",
                 "KIS_ACCOUNT_NO_PAPER": "12345678",

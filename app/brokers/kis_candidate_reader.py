@@ -126,7 +126,7 @@ class CandidateRestReader:
             result["provider_source_hash"] = proof["source_hash"]
             result["received_at"] = now.isoformat()
             scope = proof.get("verification_scope")
-            if scope in ("market_trading_day_context_only", "same_symbol_dated_minute", "index_market_day_context_only"):
+            if scope in ("market_trading_day_context_only", "same_symbol_dated_minute", "index_market_day_context_only", "same_symbol_ws_business_day"):
                 result["verification_scope"] = scope
             if path.endswith("inquire-index-price"):
                 result["index_code"] = params["FID_INPUT_ISCD"]
