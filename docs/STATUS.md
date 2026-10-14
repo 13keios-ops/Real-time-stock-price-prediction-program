@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 10/14 후보 source v2와 독립 비교 통합
+
+- 당일 획득 master snapshot의 raw hash/layout/8시간 freshness와 최신 경보를 분리 검증하는 `kis-candidate-source-binding-v2-reference-snapshot`을 적용했다. 실제 ST/보통주 빈 ETP는 raw 그대로 허용하지만 유효 기준일 확인으로 주장하지 않는다. legacy 빈 값/누락/EF/우선주/경보는 차단한다.
+- 동일 종목 dated-minute verifier→cached paper reader→bounded capture 및 실제 업종 index/context assembler를 main에 비활성 통합했다. stale anchor는 HTTP 전에 차단하며 지수 proof는 시장 거래일 context일 뿐 지수 event timestamp 인증이 아니다. 신규 API 호출/구독/자동화 변경은 없다.
+- `kr-intraday-comparison-v2-source-bound`는 돌파/눌림목 각각 독립 30만원 계좌·고정 manifest·decision/candidate/capture/fill lineage를 사용한다. replay CLI 기본은 검증 전용/계좌 생성 0이며 명시 장외 paper replay만 허용한다. 기존 미션/E7/model/gate/allocator/비용/기준선은 유지한다.
+- 상시 수집·신규 비교 자동운용은 미활성이다. 실제 완료 분봉/체결 수와 dated-minute/index/master 상위 context 공급, 기존 수집과의 전역 API budget 및 운영 승인이 남아 있다. capture 최대 11회 예산에 상위 context 획득을 몰래 포함하거나 1회 승인을 상시 승인으로 확대하지 않는다.
+- 아래 source 미통합/빈 ETP 차단/첫 세션 대기 설명은 이전 checkpoint 이력이다. 최신 계약은 본 절과 `docs/Daily-Profit-Mission.md`가 우선한다. 통합 main 전체 unittest 956건/69.303초 통과, CLI help·diff 위생 통과, 구조 감사 오류 0/기존 경고 4(상태·이력 문서 길이와 dashboard/research 크기)다. 로그: `.tmp-tests/candidate-integration-full-20261014.log`, `candidate-integration-audit-20261014.json`.
+
 ## 10/14 장후 수집 중단 원인 조사
 
 - 20:53 KST 수동 확인: runtime은 15:30:09 장후 종료 상태이며 watchdog/heartbeat와 dashboard는 정상이다. 오전 수집은 09:18:16 복구됐지만 전 종목 09:00~09:17 시세/호가 누락을 보존한다. 당일 closed feature coverage 92.56%, decision lineage 3,610/3,610, reconnect 6/storm 0이며 데이터 품질은 CRITICAL이다.
@@ -36,7 +44,7 @@
 ## 10/14 독립 가상 수익 서브미션
 
 - 운영자 수동 요청으로 `kr-volume-breakout-atr-trailing-v1`을 구현하고 10/14 시작 계약을 활성화했다. 최초 가상 현금 300,000원, 일 비용 후 최소 목표 10,000원, loss soft limit 6,000원이다. 목표는 이익 상한이나 수익 보장이 아니다.
-- 현재 `awaiting_first_bar`, 현금 300,000원, 가상 체결/보유/pending 0건이다. 입력은 기존 10개 종목만이며 watchdog의 정상 시작을 이용한다. 계약 hash `00712ca37a1fa7388ce6fd5c74898187b2f34c08eaccfb98a793ba6e639d684c`, 장부/리포트는 `runtime-data/paper-missions/krw-300k-daily-10k/`에 격리하며 자본 재충전은 없다.
+- 10/14 첫 세션 결과: source bars 3,610, 가상 체결 6, 비용 후 일손익 -5,259원/현금 294,741원, 보유·pending 0/session_flatten, 목표 미달이다. commission 2,053원/tax 1,395원/slippage 418.5원/spread 2,092.5원을 반영했으며 실제 계좌 요율은 미확인이다. 입력은 기존 10종목, 계약 hash `00712ca37a1fa7388ce6fd5c74898187b2f34c08eaccfb98a793ba6e639d684c`와 `runtime-data/paper-missions/krw-300k-daily-10k/latest.json`을 보존한다. 새 비교 계좌와 합산하거나 손실 후 자본을 재충전하지 않는다.
 - 공시 일반 온라인 수수료 0.147%/편도, ordinary-stock 매도세 0.20%, 스프레드 allowance 15bp/편도 및 슬리피지 3bp/편도를 가정해 약 왕복 0.854%를 반영한다. 실제 계좌 요율·실측 체결 비용은 미확인이다. 기존 E7 비용 0.29%를 바꾼 것이 아니다.
 - 신규 32건과 전체 unittest 837건(65.108초), 구조 audit 오류 0/기존 경고 3건이다. worker/CAS/rollback/비용/목표 초과 보유/legacy 원장 불변/실패 격리를 검증했다. 모델/gate/allocator/KIS/Phase 0/E7/기준선/예약/실전 flag 유지, KIS 호출·주문·취소 및 장외 runtime 시작 0회다. 첫 미래 세션 확인은 남으며 상세 계약은 `docs/Daily-Profit-Mission.md`를 따른다. 미장 구현 완료를 주장하지 않는다.
 

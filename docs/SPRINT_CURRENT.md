@@ -61,13 +61,15 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [ ] 현재 거래일 anchor 및 종목 마스터/업종 매핑 실제 원천 연결; 과거 고저가 날짜/HTTP Date를 거래일로 사용하지 않음
 - [x] 공식 공개 master snapshot/TLS/hash와 실제 001440/006800 업종 code 확인; 격리 parser/datetime proof 준비
 - [x] 후속 진행 요청의 dated-minute GET 1회로 실제 영업일자/시각 필드 확인; 장후 stale 응답은 intraday freshness proof로 차단
-- [ ] master 유효 기준일·빈 ETP 값의 분류 계약 보완 및 실제 reader verifier 연결; 상시 수집은 미활성
+- [x] v2 acquired master 계약/실제 빈 ETP 분류와 dated-minute verifier/readonly reader/index context 연결; 유효 기준일 미확정 유지
+- [x] bounded capture 및 돌파/눌림목 독립 replay CLI를 main에 비활성 통합; 기존 미션 계약/정책 보존
+- [ ] 상위 dated-minute/index/master·실제 체결 수 공급 및 기존 collector와 전역 API 예산 검증/승인 후 상시 수집·비교 자동운용 활성화
 - [ ] 기존 구독 보호 하에 별도 선정 종목 시세 수집과 두 독립 가상계좌 연결; 비용·손실 예산/일별 종목 선정 계약 고정 후 미래 비교
 
 - [x] 30만원·일 비용 후 최소 1만원 도전의 독립 모멘텀 가상계좌/계약/원장/리포트 구현; 기존 E7·paper/KIS 정책 분리
 - [x] 스레드·CAS·rollback·수수료/세금/스프레드/슬리피지·미래 가격 사용 방지·기존 원장 불변 및 전체 837건 회귀 검증
 - [x] 10/14 시작 계약 활성화, 장외 runtime 정지 보존 및 초기 현금 30만원/체결 0건 확인
-- [ ] 10/14 첫 실제 세션에서 새 계좌 input/fill/비용/목표 여부 확인; 강제 거래·보장 수익 없음
+- [x] 10/14 기존 독립 미션 첫 세션 input/fill/비용/목표 여부 확인; 실제 결과는 STATUS, 강제 거래·자본 재충전 없음
 
 - [x] 국장 유지 + 미장 병행의 구현 계획 작성; Alpaca 무료 데이터/로컬 paper 방향 선택, 구현·연결 미실행
 - [ ] 미장 U0 운영 안전 확인 뒤 U1 시간/통화/저장 격리 구현 (세부 순서는 `docs/US-Market-Implementation-Plan.md`)

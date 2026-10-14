@@ -8,6 +8,7 @@ from datetime import timedelta
 import unittest
 
 from app.universe.kis_candidate_snapshot import scan_kis_snapshot
+from app.universe.kis_candidate_sources import VERSION as SOURCE_VERSION
 from tests import test_intraday_candidates as fixtures
 
 
@@ -31,6 +32,12 @@ class KisCandidateSnapshotTests(unittest.TestCase):
                                  benchmark=dict(observed_at=stamp, trade_date=self.now.date().isoformat(),
                                                 market_return_pct=1, sector_return_pct=2),
                                  bars=fixture.row["bars"])})
+        self.snapshot['source_binding_version']=SOURCE_VERSION
+        obs=self.snapshot['observations']['123456']
+        obs['metadata'].update(source_version=SOURCE_VERSION,source_hash='a'*64)
+        obs['benchmark'].update(source_version=SOURCE_VERSION,source_hash='b'*64,metadata_source_hash='a'*64)
+        obs['price']['output'].update(stck_shrn_iscd='123456',temp_stop_yn='N',sltr_yn='N',
+            mang_issu_cls_code='N',invt_caful_yn='N',short_over_yn='N',mrkt_warn_cls_code='00')
 
     def scan(self):
         return scan_kis_snapshot(self.snapshot, as_of=self.now)

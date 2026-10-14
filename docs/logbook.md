@@ -1,5 +1,10 @@
 # 작업 기록
 
+## [2026-10-14] 후보 source v2·독립 비교 비활성 통합
+
+- master 획득 freshness와 유효 기준일을 구분하고 raw blank ETP/ST/common 계약을 v2로 명시했다. dated-minute 사전 검증, paper cached reader, 실제 업종 index context, bounded capture와 독립 비교 replay를 연결했다. legacy manifest 혼합·symlink 계좌·invalid event 쓰기를 차단하며 기존 미션/E7/계좌·정책은 유지했다.
+- 격리 집중 97건 후 clean main/장외 runtime 정지/watchdog fresh를 확인해 통합했다. CLI symlink와 legacy source 입력을 쓰기 전에 차단하는 회귀도 추가했다. 통합 전체 956건/69.303초 및 CLI/diff 검사 통과, 구조 감사 오류 0/기존 경고 4다. 로그는 `.tmp-tests/candidate-integration-full-20261014.log`, `candidate-integration-audit-20261014.json`이다. 추가 KIS/토큰/주문/취소, scheduler 활성화는 없으며 상위 공급원·전역 예산 승인 없이 상시 운용 완료라고 주장하지 않는다.
+
 ## 역할
 
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
