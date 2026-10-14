@@ -57,6 +57,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 - [x] 당일 강세 종목 독립 오프라인 선정/돌파·눌림목 신호 검증기; 후보 입력·정책 hash와 거절 taxonomy
 - [x] KIS capture adapter/CLI 연결; 개별 unsupported symbol 제외, 전일 거래량 분모, 경보/benchmark/provider 시각 누락 차단과 원본 보존
 - [ ] 순위 snapshot의 실제 KIS 제공 환경/시장경보 metadata/benchmark provenance 확인; 추가 시세 호출은 별도 승인 범위
+- [x] 승인된 장후 paper 현재가/호가/시장지수 GET 6회 연결과 경보 실제 필드 확인; 재시도/auth/order/cancel 0
+- [ ] 현재 거래일 anchor 및 종목 마스터/업종 매핑 실제 원천 연결; 과거 고저가 날짜/HTTP Date를 거래일로 사용하지 않음
 - [ ] 기존 구독 보호 하에 별도 선정 종목 시세 수집과 두 독립 가상계좌 연결; 비용·손실 예산/일별 종목 선정 계약 고정 후 미래 비교
 
 - [x] 30만원·일 비용 후 최소 1만원 도전의 독립 모멘텀 가상계좌/계약/원장/리포트 구현; 기존 E7·paper/KIS 정책 분리

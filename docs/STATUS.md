@@ -10,6 +10,10 @@
 
 ## 10/14 당일 강세 종목 후보 선정 확장
 
+- 21:08:57~21:09:03 KST 승인된 장후 공급원 제한 조회를 완료했다. paper 현재가 2/호가 2/시장지수 2의 GET 6회 모두 rt_cd=0/MCA00000, cached token/auth 0/재시도 0/주문·취소 0이다. 증거: `runtime-data/reports/codex/kis-source-fields-probe-20261014-once.json`. 001440/006800은 연결 표본이며 매수 후보 통과가 아니다. 시장지수는 공식 FHPUP02100000/U의 0001/1001 연결만 확인했고 업종 매핑이나 수익성 통과를 주장하지 않는다.
+- 실제 현재가 응답의 temp_stop_yn/invt_caful_yn/short_over_yn/sltr_yn/mang_issu_cls_code=N 및 mrkt_warn_cls_code=00을 확인했다. 보존된 날짜는 d250/dryy/w52 고저가 발생일이며 현재 거래일 anchor가 아니다. 호가의 aspr_acpt_hour=200000은 날짜 없는 장외 시각이다. HTTP Date는 응답 시각이지 시세 거래일이 아니므로 임의 조합하지 않는다. 날짜/시각 이름 기반 최소 필드 검사만 수행했으므로 원본 모든 필드 부재를 단정하지 않는다.
+- 별도 실제 거래일 anchor와 유효 종목 마스터/업종 provenance, 장중 완료 분봉 연결이 남아 있다. 격리 구현의 두 가상계좌·capture/reader는 운영 미통합/자동 수집 비활성이다. 이번 6회 승인은 사용 완료됐으며 후속 API 호출은 새 승인 범위에서만 수행한다.
+
 - `kr-intraday-candidate-scan-v1`의 오프라인 선정기/CLI를 추가했다. 2~3만원 보통주, 거래대금 10억원 이상, 시장/업종 대비 +0.5%p 이상, volume ratio 1.5 이상, 호가 spread 30bp 이하의 최대 5개 후보를 정렬한다. 수치는 검증 전 연구 가정이며 수익성 통과가 아니다.
 - 정상 시장 상태가 명시되지 않거나 경보/거래정지, 오래된/미래 호가, benchmark 누락, 분봉 공백/미완료/미래 가용 시각이면 차단한다. 후보 입력 hash와 정책 hash/ID, 선정 제외 이유, 돌파/눌림목 신호를 남긴다. 테마 분류는 아직 없으며 작전주 판별을 주장하지 않는다.
 - `kis-intraday-snapshot-adapter-v1`/CLI `--format kis-capture`까지 구현했다. 숫자형 계약 밖의 `0009K0`는 개별 제외, 전일 거래량을 분모로 거래량 배수를 직접 계산하며 `vol_inrt`를 배수로 오독하지 않는다. 원천 거래일/호가 provider 시각, 실제 경보 bool flags, market/sector benchmark 및 연속 완료 분봉이 없으면 fail-closed한다. 추가 네트워크/주문 호출 0회다. 실제 수집·추가 구독·독립 가상체결 연결은 아직 비활성이며 기존 10종목/E7/계약 유지; 상세는 `docs/Daily-Profit-Mission.md`를 따른다.

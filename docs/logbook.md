@@ -5,6 +5,12 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-14] 승인된 공급원 GET 6회 연결 확인
+
+- 장후 runtime 정지/should-run=false를 확인하고 paper 현재가 2/호가 2/시장지수 2를 응답 완료 뒤 1.1초 간격으로 실행했다. 모두 성공했으며 유효 cached token만 사용, auth/retry/order/cancel 0이다. 원문이나 비밀값 없이 경보/코드/날짜·시각 필드와 sanitized 응답 코드를 보존했다.
+- 네트워크 실행 전 mock self-test로 6회 한도, 첫 오류 중단, secret redaction과 expired cache 차단을 확인했다. one-off artifact를 첫 GET 전에 예약해 중단된 시도를 재실행하지 않도록 했으며 실행 완료 후 임시 helper는 정리한다. 기존 원천/계좌/E7/자동화/구독/모델/정책은 변경하지 않았다.
+- 현재가와 index의 고저가 날짜는 현재 거래일 증명이 아니며 호가는 HHMMSS만 있다. 실제 거래일 anchor/종목 마스터/업종 매핑이 없으므로 자동 수집/두 가상계좌의 운영 통합은 아직 보류한다. 현재 결과와 남은 작업은 STATUS/SPRINT가 소유한다.
+
 ## [2026-10-14] 오전 WSL 종료와 자동복구 공백 진단
 
 - 후속 명시 승인으로 WSL 사용자 stock-runtime-autoboot.service와 사용자 linger를 활성화했다. Type=oneshot/RemainAfterExit는 부팅 시 기존 idempotent helper를 1회 호출하며 watchdog 자체 종료를 systemd가 상시 재시작하는 계약은 아니다. 기존 Windows 런처는 보존했다.
