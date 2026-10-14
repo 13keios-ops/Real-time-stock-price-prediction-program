@@ -2,6 +2,9 @@
 
 ## 10/14 장중 격리 구현 (운영 미적용)
 
+- 공식 KIS master/header와 현재가/index 예제를 검토해 `kis-candidate-source-binding-v1` 분류·benchmark 연결 및 paper-only cached-token GET reader 준비. ETF/우선주/SPAC·master/live 제한 합집합·종목/업종 identity·unknown flags·stale/hash 오염을 차단한다. REST 시장경고는 명시 00만 허용하며 종목상태 55로 정상 여부를 추정하지 않는다. 실제 master의 유효 기준일이나 거래일 anchor를 receipt 날짜로 만들지 않는다.
+- 신규 source 11건/reader 9건 및 collector/adapter/scanner 관련 총 73건 통과; fake REST만 사용해 실제 KIS·auth·주문 호출 0회다. 실제 dated anchor verifier/master loader/index provider·공유 rate coordinator는 미연결이다. 장후 runtime 정지 후 현재가2/호가2/시장지수2 최대6 GET의 별도 제한 조회 승인을 요청했으며 아직 실행하지 않았다. 상시 polling이나 root 적용은 승인된 상태가 아니다.
+
 - `kr-bounded-capture-cycle-v1` 수집 cycle 골격과 두 계좌 연결 검증 추가: default dry-run/명시 budget authorization, 최대 5종목·11 requests, 응답 완료 후 1.1초 대기, 종료 후 300초 cooldown, 18초 soft deadline 및 3초 transport timeout 요구다. 같은 ScanPolicy 사전 필터로 약세/부적격 종목에 quote 예산을 쓰지 않고 실패 시 cycle 중단/무재시도다. 실제 KIS transport·경보/benchmark/bar 공급원은 미연결이며 메모리 단일 instance 예산을 기존 계정의 공유 rate-limit 검증으로 해석하지 않는다.
 - 수집 신규 17건 및 adapter/scanner 관련 52건 통과(이후 추가된 통합 1건은 신규 17건에 포함). fake reader만 사용해 capture→adapter→별도 30만원 두 wallet의 독립 판단을 검증했고 실제 KIS 호출·주문·root DB 접근은 0회다. 승인된 기존 1회 조회를 상시 수집 승인으로 확대하지 않았다.
 

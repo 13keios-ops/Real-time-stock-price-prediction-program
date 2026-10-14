@@ -65,6 +65,22 @@ python3 scripts/run_daily_profit_mission.py --status
 
 ## 검증 순서
 
+### 공식 source 연결 준비 (실제 공급원 미활성)
+
+`kis_candidate_sources.build_metadata`는 공식 master의 source/동일 유효 기준일, 단축코드, ST/보통주0/ETP0/SPAC N, 업종 대분류4자리와 현재가 symbol을 대조한다. master 경고 00/01/02/03과 단기과열 0/1/2/3은 공식 header 의미를 사용한다. live REST의 mrkt_warn_cls_code는 master의 mrkt_alrm_cls_code와 이름이 다르므로 양수 값의 의미를 추측해 번역하지 않고 명시 00 외를 차단한다. 모든 필수 Y/N을 읽으며 누락을 N으로 채우지 않는다. master/live의 halt·관리·정리매매·단기과열 제한은 보수적으로 합치고 코스닥 환기 flag도 반영한다.
+
+`build_benchmark`는 KOSPI=0001/KOSDAQ=1001 시장지수와 master에 연결된 실제 sector code의 dated index 응답을 대조한다. sector를 시장 또는 KOSPI200으로 대신하지 않는다. metadata/source hash와 유효 시각을 남기며 이 hash는 외부 공급원 인증 서명이 아니다. 실제 파일 master loader/유효 기준일 확인과 업종 index provider는 아직 연결하지 않았다.
+
+`CandidateRestReader`는 별도의 공식 paper endpoint client를 만들고 cached token만 읽는다. live/profile/host mismatch, query 확장/CANO 삽입, order/account/auth 경로, retry/refresh를 거부한다. 신규 token issuance/save/revoke나 기존 공유 client/token manager 변경은 없다. capture cycle의 세 GET path만 지원하며 index 조회를 기존 11회 cycle 예산 밖에서 자동 추가하지 않는다.
+
+읽기 결과를 dated capture로 쓰려면 별도 verifier callback이 `kis-exchange-day-anchor-v1`의 실제 거래일·검증 시각·원천 hash를 제공해야 한다. 호가 HHMMSS가 dated provider_at과 정확히 맞아야 한다. 현재 그 verifier의 실제 원천 획득은 미구현이다. callback fixture의 성공은 실제 trading-date 입증이나 reader 활성화를 뜻하지 않으며 로컬 오늘 날짜/server Date를 provider 거래일로 대신하지 않는다. 경보 필드의 실제 값과 날짜 제공 여부는 별도 승인된 제한 조회로 확인해야 한다.
+
+공식 검토 근거:
+- https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/%EC%A2%85%EB%AA%A9%EB%A7%88%EC%8A%A4%ED%84%B0%EC%A0%95%EB%B3%B4(%EC%BD%94%EC%8A%A4%ED%94%BC).h
+- https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/%EC%A2%85%EB%AA%A9%EB%A7%88%EC%8A%A4%ED%84%B0%EC%A0%95%EB%B3%B4(%EC%BD%94%EC%8A%A4%EB%8B%A5).h
+- https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_price/chk_inquire_price.py
+- https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_index_price/inquire_index_price.py (`FHPUP02100000`, U/actual index code)
+
 ### 두 후보 가상계좌 연결 준비 (격리 worktree)
 
 `app/paper_trading/candidate_comparison.py`의 `CandidateComparison(folder, MissionContract(...))`는 돌파/눌림목에 각각 별도 `mission.db`/현금/보유/보고서를 둔다. 공통 계약과 두 전략의 버전은 `comparison.json`으로 고정하며 임의 종목 교체, 자본 초기화, 다른 계좌 폴더 재사용, symlink를 거부한다. 비교 지갑의 현금을 합쳐 단일 투자금이나 수익률로 보고하지 않는다.

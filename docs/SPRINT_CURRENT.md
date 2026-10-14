@@ -52,6 +52,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 - [x] 보호 세션의 D worktree에서 돌파·눌림목 독립 계좌 연결 준비/11개 신규 회귀; root 미적용
 - [x] bounded capture cycle 골격/수집→adapter→wallet fake 통합 17건; 실 transport·자동 polling 비활성
+- [x] 공식 master/current-price/index 기반 분류/benchmark binding 및 paper cached-only GET reader의 unit 검증
+- [ ] 장후 별도 승인된 최대6 GET으로 실제 경보·날짜·index response shape 검증; 그 전 실제 verifier/공급원 readiness 주장 금지
 - [ ] 실제 market/sector/경보 metadata 공급원 확정과 bounded collector 구현·검증
 - [ ] 장외 전체 회귀/리뷰 후 root 통합 및 별도 API budget 승인 아래 수집 활성화
 
