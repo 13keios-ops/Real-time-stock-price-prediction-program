@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
-from app.brokers.kis_quote_rest import KisRestQuoteClient
+from app.brokers.kis_readonly import get_kis_paper_candidate_client
 from app.utils.time import now_local, get_timezone
 
 KST = get_timezone("Asia/Seoul")
@@ -34,19 +34,6 @@ PRICE_FIELDS = ("stck_shrn_iscd", "stck_prpr", "prdy_ctrt", "acml_tr_pbmn", "tem
 QUOTE_FIELDS = ("askp1", "bidp1", "aspr_acpt_hour")
 
 
-class _CachedOnly:
-    def __init__(self, manager):
-        self.manager = manager
-
-    def get_access_token(self, force_refresh=False):
-        if force_refresh:
-            raise ValueError("Token refresh forbidden")
-        token = self.manager.load_cached_token()
-        if token is None or token.is_expired:
-            raise ValueError("Valid cached token required")
-        return token
-
-
 class CandidateRestReader:
     """No order/auth/account methods. A live provider-date verifier is mandatory.
 
@@ -61,7 +48,7 @@ class CandidateRestReader:
             raise ValueError("Explicit official paper endpoint required")
         if getattr(token_manager, "profile", profile) != profile:
             raise ValueError("Token profile mismatch")
-        self._client = KisRestQuoteClient(profile, _CachedOnly(token_manager), timeout_seconds=3)
+        self._client = get_kis_paper_candidate_client(profile, token_manager)
         self._verifier = verifier
         self._clock = clock or (lambda: now_local("Asia/Seoul"))
 
@@ -81,8 +68,7 @@ class CandidateRestReader:
               or not re.fullmatch(r"[0-9]{6}", params["FID_INPUT_ISCD"])):
             raise ValueError("Only explicit KRX stock quote queries allowed")
         try:
-            payload, _ = self._client._request_response(path=path, tr_id=tr_id, query_params=params,
-                                                        allow_retry=False, allow_business_error=True)
+            payload, _ = self._client.get_candidate_response(path=path, tr_id=tr_id, query_params=params)
         except Exception:
             raise ValueError("Candidate read failed; no retry or token refresh") from None
         if not isinstance(payload, dict):

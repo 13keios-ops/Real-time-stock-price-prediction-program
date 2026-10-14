@@ -5,6 +5,13 @@
 이 파일은 중요한 변경, 원인, 검증 이력을 유지한다. 최신 운영 상태와 blocker는 `docs/STATUS.md`, 현재 작업 범위는 `docs/SPRINT_CURRENT.md`가 소유한다.
 긴 과거 기록은 `docs/logbook_archive/`와 `docs/archive/`에 보관한다.
 
+## [2026-10-14] 격리된 KIS master/datetime provenance 준비
+
+- 공식 공개 parser의 byte offset을 AST로 대조하고 TLS 검증 유지 상태로 공개 master 원본 두 파일을 D드라이브에 보존했다. 공식 예제의 unverified TLS/임의 zip 추출/Excel 생성은 사용하지 않았다.
+- parser/datetime proof의 missing implementation 실패와 중복 분봉 차단 실패를 재현한 뒤 최소 구현했다. 실제 빈 ETP 필드와 reference_date 미확정은 차단 상태로 보존하며 HTTP Date/ZIP 시각을 거래일로 만들지 않는다. 추가 KIS 인증 API/주문/취소는 실행하지 않았다.
+- 신규 13건 포함 source/reader 관련 33건 통과. root 운영 코드는 변경하지 않았고 실제 거래일 검증 producer 연결 및 별도 승인 GET 1회는 남아 있다.
+- 첫 전체 934건에서 기존 direct REST constructor 격리 계약 1건 실패를 확인했다. 이전 준비 reader를 기존 kis_readonly factory/wrapper로 이동해 안전 테스트의 allowlist를 늘리지 않았으며 관련 37건을 통과했다. wrapper 표면 검증 1건을 추가한 최종 전체 935건(469.514초)/subprocess exit 0, diff check를 확인했다. 최종 로그는 `.tmp-tests/provenance-full-unittest-final-20261014.log`다.
+
 ## [2026-10-14] 30만원 독립 모멘텀 가상 서브미션
 
 - 운영자 요청으로 기존 수집 10개 종목의 가격/거래량 돌파·ATR 추적 청산 후보를 독립 가상계좌로 구현했다. RSI/스토캐스틱/그리드 소개는 그대로 복제하지 않았다. 하루 최소 순이익 1만원은 보장·이익 상한이 아니며 손실도 실제 계산대로 남긴다.

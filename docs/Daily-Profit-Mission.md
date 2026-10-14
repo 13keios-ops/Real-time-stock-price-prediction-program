@@ -67,6 +67,14 @@ python3 scripts/run_daily_profit_mission.py --status
 
 ### 공식 source 연결 준비 (실제 공급원 미활성)
 
+`kis_candidate_provenance.parse_stock_master`는 공식 고정 폭 tail(KOSPI 227/KOSDAQ 221 byte)에서 필요한 분류/경보/업종/전일 거래량만 읽는다. 공개 ZIP snapshot 원본 hash를 보존하고 압축파일의 경로를 추출하지 않았다. 로컬 download/ZIP 시각을 유효 기준일로 쓰지 않으므로 reference_date=None 상태의 결과는 기존 metadata 검사를 통과하지 않는다. 실제 ST/보통주에 빈 ETP 값이 확인됐지만 문서상 0으로 자동 변환하지 않는다.
+
+`build_minute_day_anchor`는 당일분봉 응답의 stck_bsop_date/stck_cntg_hour와 요청 종목을 묶는다. receipt 20초/provider 180초 이내의 같은 거래일·시장 시간·중복 없는 행만 허용하고 과거/미래/공휴일/오염된 종목을 차단한다. scope는 same_symbol_minute_response_only이며 시장지수/다른 종목의 freshness나 호가 날짜를 자동 인증하지 않는다. 함수는 네트워크를 호출하지 않고 실제 reader verifier는 아직 미연결이다.
+
+CandidateRestReader는 기존 kis_readonly 모듈의 paper-only cached factory와 read-only wrapper를 사용한다. wrapper의 candidate GET은 세 시세 endpoint/TR 조합만 허용하고 retry=False를 고정한다. 실제 REST constructor는 기존 broker 경계 안에 두며 생성 예외 allowlist를 확대하지 않는다. 일반 read-only factory의 기존 계좌·live 계약은 변경하지 않는다.
+
+공식 스키마: [KOSPI parser](https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kospi_code_mst.py), [KOSDAQ parser](https://github.com/koreainvestment/open-trading-api/blob/main/stocks_info/kis_kosdaq_code_mst.py), [당일분봉](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py). 공식 예제의 TLS 검증 해제나 pandas/Excel 저장 흐름은 재사용하지 않았다.
+
 `kis_candidate_sources.build_metadata`는 공식 master의 source/동일 유효 기준일, 단축코드, ST/보통주0/ETP0/SPAC N, 업종 대분류4자리와 현재가 symbol을 대조한다. master 경고 00/01/02/03과 단기과열 0/1/2/3은 공식 header 의미를 사용한다. live REST의 mrkt_warn_cls_code는 master의 mrkt_alrm_cls_code와 이름이 다르므로 양수 값의 의미를 추측해 번역하지 않고 명시 00 외를 차단한다. 모든 필수 Y/N을 읽으며 누락을 N으로 채우지 않는다. master/live의 halt·관리·정리매매·단기과열 제한은 보수적으로 합치고 코스닥 환기 flag도 반영한다.
 
 `build_benchmark`는 KOSPI=0001/KOSDAQ=1001 시장지수와 master에 연결된 실제 sector code의 dated index 응답을 대조한다. sector를 시장 또는 KOSPI200으로 대신하지 않는다. metadata/source hash와 유효 시각을 남기며 이 hash는 외부 공급원 인증 서명이 아니다. 실제 파일 master loader/유효 기준일 확인과 업종 index provider는 아직 연결하지 않았다.

@@ -1,5 +1,13 @@
 # 현재 상태
 
+## 10/14 장후 원천 provenance 준비 (격리/운영 미적용)
+
+- `kis_candidate_provenance`에 공식 고정 폭 KOSPI/KOSDAQ parser와 same-symbol dated-minute anchor를 추가했다. cp949/ASCII tail, 숫자형 symbol·중복·폭 검증, 실제 stck_bsop_date/HHMMSS·동일 거래일·최근 receipt/provider·공휴일·secret 제외를 테스트한다. HTTP Date나 고저가 날짜를 현재 거래일로 변환하지 않는다.
+- 공식 공개 master ZIP 두 파일은 TLS 검증을 유지해 D드라이브 `source-snapshots/kis-master/20261014/`에 보존했다. KOSPI 숫자형 1,774행/지원 밖 803행, KOSDAQ 1,765행/지원 밖 59행이다. 001440의 업종 code는 0027, 006800은 0021이다. ZIP 파일시각은 reference_date 입증이 아니므로 reference_date=None/effective_day_verified=false를 유지한다.
+- 실제 ST/보통주0의 ETP 필드는 KOSPI 800행/KOSDAQ 1,743행 모두 빈 문자열이었다. 문서상 0에 임의 대응하지 않았고 기존 metadata의 명시 ETP0 조건으로 현재 실제 master는 차단된다. 기준일 확인과 빈 값 의미의 근거 보완 없이 자동 활성화하지 않는다.
+- 당일분봉 GET 1회의 별도 승인을 요청했고 아직 실행하지 않았다. anchor는 오프라인 proof 준비이며 reader callback에 연결하지 않았다. 다른 종목·시장지수의 자체 freshness를 증명하거나 장외 분봉을 장중 최신 데이터로 바꾸지 않는다. root 운영 코드/DB/기존 구독/계좌/E7는 변경하지 않았다.
+- 신규 provenance 13건/reader wrapper 표면 1건과 기존 관련 회귀를 검증했다. 첫 전체 934건의 direct constructor 경계 1건 실패를 기존 readonly factory/wrapper 재사용으로 수정했고 최종 전체 unittest 935건(469.514초)이 통과했다. 증거: `.tmp-tests/provenance-full-unittest-final-20261014.log` 및 실제 subprocess exit 0. live-client isolation allowlist, 원래 미션/계좌/E7 계약은 유지한다.
+
 ## 10/14 장중 격리 구현 (운영 미적용)
 
 - 공식 KIS master/header와 현재가/index 예제를 검토해 `kis-candidate-source-binding-v1` 분류·benchmark 연결 및 paper-only cached-token GET reader 준비. ETF/우선주/SPAC·master/live 제한 합집합·종목/업종 identity·unknown flags·stale/hash 오염을 차단한다. REST 시장경고는 명시 00만 허용하며 종목상태 55로 정상 여부를 추정하지 않는다. 실제 master의 유효 기준일이나 거래일 anchor를 receipt 날짜로 만들지 않는다.
