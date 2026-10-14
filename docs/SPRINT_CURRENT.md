@@ -52,7 +52,8 @@ Phase 1 수익성 증거 원장 축적과 E7 미래 검증
 
 - [x] 공식 KOSPI/KOSDAQ master parser 및 동일 종목 dated-minute 원천 검증 구현; 공개 snapshot/TLS/hash 보존
 - [ ] master 유효 기준일과 빈 ETP 필드 의미의 근거 확정; 명시 조건을 완화하지 않음
-- [ ] 별도 승인 후 dated minute GET 1회로 실응답 거래일 필드 확인; 실제 reader verifier는 미연결
+- [x] 후속 진행 요청으로 dated minute GET 1회 실응답 거래일 확인; 장후 stale proof 차단 검증
+- [ ] 실제 reader verifier 연결과 master 기준일/분류 계약 보완; 상시 수집은 미승인/미활성
 
 - [x] 보호 세션의 D worktree에서 돌파·눌림목 독립 계좌 연결 준비/11개 신규 회귀; root 미적용
 - [x] bounded capture cycle 골격/수집→adapter→wallet fake 통합 17건; 실 transport·자동 polling 비활성
