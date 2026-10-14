@@ -123,7 +123,7 @@ class KisReadOnlyClient:
         )
 
 
-def get_kis_paper_candidate_client(profile, token_manager):
+def get_kis_paper_candidate_client(profile, token_manager, *, request_coordinator=None):
     url = urlsplit(profile.rest_url)
     if (profile.mode != 'paper' or url.scheme != 'https'
             or url.hostname != 'openapivts.koreainvestment.com' or url.port != 29443
@@ -141,8 +141,10 @@ def get_kis_paper_candidate_client(profile, token_manager):
                 raise ValueError('Valid cached token required')
             return token
 
+    coordination = {} if request_coordinator is None else {
+        'request_coordinator':request_coordinator, 'low_priority':True}
     return KisReadOnlyClient(KisRestQuoteClient(profile=profile,
-        token_manager=CachedOnly(), timeout_seconds=3))
+        token_manager=CachedOnly(), timeout_seconds=3, **coordination))
 
 
 def get_kis_readonly_client(
@@ -150,13 +152,16 @@ def get_kis_readonly_client(
     *,
     mode: str | None = None,
     timeout_seconds: int = 10,
+    request_coordinator=None,
 ) -> KisReadOnlyClient:
     resolved_mode = (mode or settings.trading_mode).strip().lower()
     if resolved_mode not in {"paper", "live"}:
         raise ValueError("KIS read-only client only supports mode='paper' or mode='live'.")
     profile = get_kis_profile(settings, resolved_mode)
     token_manager = KisTokenManager(profile)
-    client = KisRestQuoteClient(profile=profile, token_manager=token_manager, timeout_seconds=timeout_seconds)
+    coordination = {} if request_coordinator is None else {'request_coordinator':request_coordinator}
+    client = KisRestQuoteClient(profile=profile, token_manager=token_manager, timeout_seconds=timeout_seconds,
+                                **coordination)
     return KisReadOnlyClient(client)
 
 

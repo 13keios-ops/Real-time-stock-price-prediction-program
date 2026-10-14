@@ -1,5 +1,11 @@
 # 현재 상태
 
+## 10/15 Paper 공유 조정 준비
+
+- 명시 주입된 paper REST 클라이언트의 GET/POST를 POSIX 프로세스 간 잠금과 응답 완료 후 1.1초 간격으로 조정하는 opt-in port를 구현했다. cached candidate factory는 낮은 우선순위/GET-only이며 기존 호출 잠금·cooldown이면 HTTP 없이 양보한다. 기본 운영에는 주입하지 않았고 기존 호출/주문 정책은 그대로다.
+- crash 시 timeout 예약 보존, corrupt/symlink state fail-closed, live profile 변환 시 인증 전 차단, validated allowlist anchor 갱신 port를 검증했다. 기존 계정의 모든 참가자·인증/hashkey·BrokerPaperMirror wiring과 HTTP attempt=false lineage는 아직 운영 미통합이다. stage별 실제 context 획득/작은 capture 조립과 상시 승인도 남아 있어 account-wide 해결·자동운용 완료를 주장하지 않는다.
+- 관련 집중 75건 및 최종 전체 unittest 981건/66.398초 통과. 실제 fork/강제 종료를 포함한 lock/reservation 경계와 기본 HTTP 회귀를 검증했고 신규 API/주문/취소/서비스·예약 변경은 없다. 근거: `.tmp-tests/paper-coordinator-full-20261015.log`.
+
 ## 10/14 후보 source v2와 독립 비교 통합
 
 - 후속 구현: 실제 kis-ws sealed record에서 연속 완료 21분/수신 record 수를 만드는 공급 bridge와 무호출 상위 예산 CLI를 추가했다. REST 누적량을 실제 체결량·체결 수로 사용하지 않는다. 5종목 fresh-start는 capture 11+상위 17=28회이며 timeout bound 44/113.7초가 기존 deadline/freshness를 초과한다. 1종목도 최악 지연에서는 dated anchor 20초 freshness를 보장하지 못한다. 계정 전체 coordinator는 미연결이므로 상시 활성화는 차단한다. stage별 context 갱신과 공유 pacing/WS producer 연결이 다음 구현 경계다.

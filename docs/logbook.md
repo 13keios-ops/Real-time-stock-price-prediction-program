@@ -1,5 +1,11 @@
 # 작업 기록
 
+## [2026-10-15] Opt-in 공유 전송·증거 갱신 준비
+
+- POSIX 공유 lock/응답 완료 1.1초 간격/강제 중단 예약을 가진 paper coordinator를 실제 GET/POST 전송 경계에 선택 주입하도록 구현했다. 기본 HTTP 경로는 미주입/기존 동작이며 low-priority candidate는 HTTP 없이 양보하고 POST는 거부한다. live profile 변환은 인증 획득 전에 차단한다.
+- readonly/candidate/capture factory와 reader anchor refresh port를 연결했다. refresh는 검증된 날짜/종목/receipt/provider freshness만 allowlist 사본으로 교체하고 실패하면 이전 증거를 유지한다. 인증/hashkey/운영 Mirror 참가자와 실제 stage orchestrator는 미통합이며 전 계정 충돌 해결·상시 활성화를 주장하지 않는다.
+- RED→GREEN 신규 15건, 관련 집중 75건, 최종 전체 981건/66.398초 통과. `.tmp-tests/paper-coordinator-full-20261015.log` 보존, 신규 실 API·주문/취소·운영 DB·계좌/전략/설정/예약 변경 없음.
+
 ## [2026-10-14] WS 공급 bridge와 상위 예산 차단
 
 - 기존 aggregate_ticks_to_minute_bar를 재사용해 sealed kis-ws record만 완료 분봉으로 연결했다. 실제 수신 record 수의 scope를 명시하고 REST 누적량·오염된 종목/시각/가격/분 공백을 차단했다. sealing/중복 제거/수집 완전성은 upstream 책임이며 전체 거래소 체결 수로 주장하지 않는다.

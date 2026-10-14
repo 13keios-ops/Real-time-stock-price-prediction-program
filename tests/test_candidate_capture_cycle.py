@@ -68,6 +68,15 @@ class CaptureCycleTests(unittest.TestCase):
         self.assertEqual(self.collect(execute=True)["status"], "network_authorization_required")
         self.assertEqual(self.reader.calls, [])
 
+    def test_coordinator_busy_defers_without_retry(self):
+        from app.brokers.kis_paper_coordinator import PaperCoordinatorBusy
+        def busy(*args,**kwargs):raise PaperCoordinatorBusy('Busy')
+        self.reader.get=busy
+        report=self.collect(execute=True,budget_authorized=True)
+        self.assertEqual(report['status'],'deferred_existing_runtime')
+        self.assertEqual(report['retry_count'],0)
+        self.assertEqual(self.reader.calls,[])
+
     def test_complete_cycle_and_pacing(self):
         report = self.collect(execute=True, budget_authorized=True)
         self.assertEqual(report["status"], "captured")

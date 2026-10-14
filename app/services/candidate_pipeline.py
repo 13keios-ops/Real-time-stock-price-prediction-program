@@ -109,11 +109,13 @@ def prepare_candidate_context(master, price, market_index, sector_index, bars, *
     return {'metadata': metadata, 'benchmark': benchmark, 'bars': bars}
 
 
-def make_capture_cycle(profile, token_manager, *, minute_responses, market_anchor_symbol, clock=None, holidays=()):
+def make_capture_cycle(profile, token_manager, *, minute_responses, market_anchor_symbol, clock=None, holidays=(),
+                       request_coordinator=None):
     clock = clock or (lambda: now_local('Asia/Seoul'))
     verifier = DatedMinuteVerifier(minute_responses, market_anchor_symbol=market_anchor_symbol,
         clock=clock, holidays=holidays)
-    reader = CandidateRestReader(profile, token_manager, verifier=verifier, clock=clock)
+    reader = CandidateRestReader(profile, token_manager, verifier=verifier, clock=clock,
+                                request_coordinator=request_coordinator)
     return CaptureCycle(reader, clock=clock, holidays=holidays)
 
 

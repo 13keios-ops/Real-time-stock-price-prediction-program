@@ -161,7 +161,19 @@ python3 scripts/preflight_candidate_collection.py
 
 보고서 `activation_allowed=false`는 무조건 유지한다. 기존 REST 경로는 각자 local pacing이며 계정 전체 coordinator가 없으므로 승인 bool만으로 상시 실행하지 않는다. 실제 활성화 전에는 기존 수집 우선의 공유 조정기, 별도 context 준비/즉시 갱신, deadline 내 종목별 bounded capture, WS 완료 분봉 producer를 연결해야 한다. freshness/cost/선정 정책을 느슨하게 바꿔 해결하지 않는다.
 
-### Replay CLI
+### Paper 공유 조정과 날짜 증거 교체 (opt-in 준비)
+
+`PaperRequestCoordinator(folder)`는 POSIX flock으로 동일한 명시 폴더를 사용하는 프로세스들의 HTTP 전송을 직렬화하고 응답 완료 후 1.1초 간격을 보존한다. primary 호출은 우선순위 shared lock을 등록한 채 대기/전송하며 candidate는 exclusive lock/cooldown을 즉시 획득할 수 없으면 `PaperCoordinatorBusy`로 양보한다. primary lock/cooldown 대기는 15초 이내로 제한한다. FIFO·starvation-free 보장이나 아직 등록되지 않은 모든 primary 호출의 선점은 주장하지 않는다.
+
+HTTP 전송 전에 timeout+gap의 중단 예약을 저장하고 정상/실패 종료 후 완료 시각으로 교체한다. 프로세스가 강제 종료돼도 예약은 남고 OS lock은 해제된다. state에는 version/not_before만 저장하고 비밀값/주문/응답을 넣지 않는다. 임시 파일→fsync→replace→디렉터리 fsync를 사용하며 corrupt state/symlink/hardlink를 임의 삭제·초기화하지 않는다. WSL/POSIX용이며 다른 OS에서 안전하지 않은 lock fallback을 사용하지 않는다.
+
+`KisRestQuoteClient(..., request_coordinator=...)`의 GET/POST HTTP 전송, `get_kis_readonly_client`와 cached-paper candidate factory/reader/capture factory에 opt-in port를 추가했다. 미주입 기본 경로는 기존 동작 그대로다. candidate factory는 low_priority=true/GET-only이며 profile이 live로 바뀌면 인증 획득 전 차단한다. 슬롯 양보는 capture에서 `deferred_existing_runtime`으로 보고하고 네트워크 재시도를 하지 않는다.
+
+`DatedMinuteVerifier.refresh(symbol, record)`와 reader의 `refresh_minute_anchor`는 trusted producer의 새 응답을 날짜·요청 종목·receipt/provider freshness로 검증한 뒤 allowlist 사본으로 교체한다. 잘못된 갱신은 이전 증거를 덮지 않으며 같은 caller 객체의 후속 변경/secret 필드는 복사하지 않는다. 이 port 자체는 GET을 실행하거나 freshness를 늘리지 않는다.
+
+운영 기본값에는 coordinator를 주입하지 않았다. 동일 계정의 모든 REST 참가자/BrokerPaperMirror 생성, 인증·hashkey 호출, 미주입 외부 프로그램은 아직 통합되지 않았다. 따라서 계정 전체 충돌 해결/상시 수집 활성화를 주장하지 않는다. 운영 조립 전에 참가자 등록·동일 폴더 binding·busy 시 실제 HTTP attempt=false lineage·stage별 context 갱신/작은 capture 분할을 검증해야 한다. 별도 수집 승인은 여전히 필요하다.
+
+### Replay 실행
 
 `scripts/run_candidate_comparison.py`는 명시 event JSON을 검증한다. 기본값은 계좌를 만들지 않는 validation-only이며 네트워크·주문 0회다. `--execute-paper --output-dir`를 명시하면 장외 보호 검사 후 두 독립 가상계좌만 갱신한다. events에는 실제 `trade_count`와 완료 분봉/가용 시각을 제공해야 하며 누락값을 합성하지 않는다. 잘못된 이벤트는 계좌 쓰기 전에 차단한다.
 

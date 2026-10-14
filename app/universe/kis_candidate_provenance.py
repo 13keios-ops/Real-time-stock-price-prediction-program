@@ -6,6 +6,7 @@ These helpers do not authorize collection or generate cross-symbol freshness pro
 import hashlib
 import re
 from datetime import datetime, timedelta
+from threading import RLock
 
 from app.universe.intraday_candidates import KST, _hash
 
@@ -114,6 +115,24 @@ class DatedMinuteVerifier:
         self.market_anchor_symbol = market_anchor_symbol
         self.clock = clock
         self.holidays = tuple(holidays)
+        self._refresh_lock = RLock()
+
+    def refresh(self, symbol, record):
+        """Replace one trusted producer response only after full freshness validation."""
+        try:
+            if record['request_symbol'] != symbol:
+                raise ValueError('Dated refresh owner mismatch')
+            anchor = build_minute_day_anchor(record['payload'], symbol=symbol,
+                received_at=datetime.fromisoformat(record['received_at']), as_of=self.clock(), holidays=self.holidays)
+            sanitized = {'request_symbol':symbol, 'received_at':anchor['received_at'],
+                'payload':{'rt_cd':'0','output2':[
+                    {k:row[k] for k in ('stck_bsop_date','stck_cntg_hour')}
+                    for row in record['payload']['output2']]}}
+            with self._refresh_lock:
+                self.responses = {**self.responses, symbol:sanitized}
+            return anchor
+        except (KeyError, TypeError, AttributeError):
+            raise ValueError('Required dated refresh evidence missing') from None
 
     def preflight(self, path, params):
         ranking = path == '/uapi/domestic-stock/v1/quotations/volume-rank'

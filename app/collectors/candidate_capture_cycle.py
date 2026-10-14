@@ -11,6 +11,7 @@ from app.universe.kis_candidate_snapshot import (
     BLOCKING_FLAGS, _fresh, _numeric, _same_day, scan_kis_snapshot,
 )
 from app.utils.time import now_local
+from app.brokers.kis_paper_coordinator import PaperCoordinatorBusy
 
 
 VERSION = "kr-bounded-capture-cycle-v1"
@@ -190,6 +191,8 @@ class CaptureCycle:
                 scan = scan_kis_snapshot(capture, as_of=self._now(), holidays=self.holidays)
                 report.update(status="captured" if capture["observations"] else "blocked_missing_evidence",
                               capture=capture, scan=scan)
+            except PaperCoordinatorBusy:
+                report.update(status='deferred_existing_runtime', failure_taxonomy='candidate_request_deferred')
             except CaptureFailure as exc:
                 report.update(status="failed_no_retry", failure_taxonomy=exc.taxonomy, sanitized_code=exc.code)
             except (OSError, TimeoutError):

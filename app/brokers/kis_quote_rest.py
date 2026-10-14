@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from urllib.error import HTTPError, URLError
@@ -284,10 +285,17 @@ def _first_float(payload: dict, keys: tuple[str, ...]) -> float:
 
 
 class KisRestQuoteClient:
-    def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10) -> None:
+    def __init__(self, profile: KisAuthProfile, token_manager: KisTokenManager, timeout_seconds: int = 10,
+                 *, request_coordinator=None, low_priority=False) -> None:
+        if request_coordinator is not None and profile.mode != 'paper':
+            raise ValueError('Shared coordinator supports paper only')
+        if type(low_priority) is not bool or low_priority and request_coordinator is None:
+            raise ValueError('Candidate priority requires explicit coordinator')
         self.profile = profile
         self.token_manager = token_manager
         self.timeout_seconds = timeout_seconds
+        self._request_coordinator = request_coordinator
+        self._low_priority = low_priority
         self._last_response_headers: dict[str, str] = {}
         self._last_daily_order_fill_query: dict[str, object] = {}
 
@@ -297,6 +305,17 @@ class KisRestQuoteClient:
             "base_url": self.profile.rest_url,
             "status": "active",
         }
+
+    def _check_coordinator_profile(self):
+        if self._request_coordinator is not None and self.profile.mode != 'paper':
+            raise ValueError('Coordinator profile must remain paper')
+
+    def _request_slot(self):
+        if self._request_coordinator is None:
+            return nullcontext()
+        self._check_coordinator_profile()
+        return self._request_coordinator.slot(timeout_seconds=self.timeout_seconds,
+                                              low_priority=self._low_priority)
 
     @property
     def last_response_headers(self) -> dict[str, str]:
@@ -318,6 +337,7 @@ class KisRestQuoteClient:
         allow_retry: bool = True,
         allow_business_error: bool = False,
     ) -> tuple[dict, dict[str, str]]:
+        self._check_coordinator_profile()
         self._last_response_headers = {}
         token = self.token_manager.get_access_token()
         encoded_query = urlencode(query_params)
@@ -336,7 +356,7 @@ class KisRestQuoteClient:
             method="GET",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with self._request_slot(), urlopen(request, timeout=self.timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 response_headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
         except HTTPError as exc:
@@ -370,6 +390,9 @@ class KisRestQuoteClient:
         include_hashkey: bool = False,
         allow_retry: bool = True,
     ) -> tuple[dict, dict[str, str]]:
+        if self._low_priority:
+            raise ValueError('Candidate priority permits GET only')
+        self._check_coordinator_profile()
         self._last_response_headers = {}
         token = self.token_manager.get_access_token()
         headers = {
@@ -389,7 +412,7 @@ class KisRestQuoteClient:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with self._request_slot(), urlopen(request, timeout=self.timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 response_headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
         except HTTPError as exc:

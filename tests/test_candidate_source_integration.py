@@ -109,6 +109,35 @@ class SourceIntegrationTests(unittest.TestCase):
             self.assertEqual(r['status'],'failed_no_retry')
             client.return_value._request_response.assert_not_called()
 
+    def test_refresh_replaces_stale_anchor_without_mutating_caller_record(self):
+        v=self.verifier()
+        self.minute['received_at']=(self.now-timedelta(seconds=21)).isoformat()
+        with self.assertRaises(ValueError):v.preflight('/uapi/domestic-stock/v1/quotations/inquire-price',{'FID_INPUT_ISCD':'001440'})
+        self.assertTrue(hasattr(v,'refresh'), 'Validated anchor refresh port missing')
+        fresh={'request_symbol':'001440','received_at':self.now.isoformat(),
+               'payload':{'rt_cd':'0','output2':[{'stck_bsop_date':'20261014','stck_cntg_hour':'100000','appsecret':'SECRET_FIXTURE'}]}}
+        v.refresh('001440',fresh)
+        fresh['payload']['output2'][0]['stck_bsop_date']='20261013'
+        _,anchor,_=v.preflight('/uapi/domestic-stock/v1/quotations/inquire-price',{'FID_INPUT_ISCD':'001440'})
+        self.assertEqual(anchor['trade_date'],'2026-10-14')
+        self.assertNotIn('SECRET_FIXTURE',str(v.responses['001440']))
+
+    def test_failed_refresh_does_not_replace_verified_anchor(self):
+        v=self.verifier()
+        self.assertTrue(hasattr(v,'refresh'), 'Validated anchor refresh port missing')
+        with self.assertRaises(ValueError):v.refresh('001440',{'request_symbol':'006800','payload':{},'received_at':self.now.isoformat()})
+        self.assertEqual(v.preflight('/uapi/domestic-stock/v1/quotations/inquire-price',{'FID_INPUT_ISCD':'001440'})[1]['trade_date'],'2026-10-14')
+
+    def test_reader_has_validated_no_network_refresh_port(self):
+        from app.brokers.kis_candidate_reader import CandidateRestReader
+        profile=SimpleNamespace(mode='paper',rest_url='https://openapivts.koreainvestment.com:29443')
+        manager=SimpleNamespace(load_cached_token=lambda:None)
+        with patch('app.brokers.kis_readonly.KisRestQuoteClient') as network:
+            reader=CandidateRestReader(profile,manager,verifier=self.verifier(),clock=lambda:self.now)
+            self.assertTrue(hasattr(reader,'refresh_minute_anchor'),'Reader refresh port missing')
+            self.assertEqual(reader.refresh_minute_anchor('001440',self.minute)['trade_date'],'2026-10-14')
+            network.return_value._request_response.assert_not_called()
+
 
 class ComparisonReplayTests(unittest.TestCase):
     def setUp(self):

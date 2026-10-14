@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from app.brokers.kis_readonly import get_kis_paper_candidate_client
+from app.brokers.kis_paper_coordinator import PaperCoordinatorBusy
 from app.utils.time import now_local, get_timezone
 
 KST = get_timezone("Asia/Seoul")
@@ -41,7 +42,7 @@ class CandidateRestReader:
     Verification callbacks are trusted input ports, NOT implemented exchange evidence
     acquisition. Constructing this reader does not activate or approve any polling.
     """
-    def __init__(self, profile, token_manager, *, verifier=None, clock=None):
+    def __init__(self, profile, token_manager, *, verifier=None, clock=None, request_coordinator=None):
         url = urlsplit(profile.rest_url)
         if (profile.mode != "paper" or url.scheme != "https"
                 or url.hostname != "openapivts.koreainvestment.com" or url.port != 29443
@@ -49,9 +50,16 @@ class CandidateRestReader:
             raise ValueError("Explicit official paper endpoint required")
         if getattr(token_manager, "profile", profile) != profile:
             raise ValueError("Token profile mismatch")
-        self._client = get_kis_paper_candidate_client(profile, token_manager)
+        self._client = (get_kis_paper_candidate_client(profile, token_manager) if request_coordinator is None else
+            get_kis_paper_candidate_client(profile, token_manager, request_coordinator=request_coordinator))
         self._verifier = verifier
         self._clock = clock or (lambda: now_local("Asia/Seoul"))
+
+    def refresh_minute_anchor(self, symbol, record):
+        refresh = getattr(self._verifier, 'refresh', None)
+        if not callable(refresh):
+            raise ValueError('Validated refresh port not connected')
+        return refresh(symbol, record)
 
     def get(self, path, tr_id, params, *, timeout_seconds, allow_retry):
         if allow_retry is not False or timeout_seconds != 3 or PATHS.get(path) != tr_id:
@@ -73,6 +81,8 @@ class CandidateRestReader:
             preflight(path, params)
         try:
             payload, _ = self._client.get_candidate_response(path=path, tr_id=tr_id, query_params=params)
+        except PaperCoordinatorBusy:
+            raise
         except Exception:
             raise ValueError("Candidate read failed; no retry or token refresh") from None
         if not isinstance(payload, dict):
