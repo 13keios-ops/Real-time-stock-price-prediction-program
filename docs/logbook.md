@@ -7,6 +7,9 @@
 
 ## [2026-10-14] 오전 WSL 종료와 자동복구 공백 진단
 
+- 후속 명시 승인으로 WSL 사용자 stock-runtime-autoboot.service와 사용자 linger를 활성화했다. Type=oneshot/RemainAfterExit는 부팅 시 기존 idempotent helper를 1회 호출하며 watchdog 자체 종료를 systemd가 상시 재시작하는 계약은 아니다. 기존 Windows 런처는 보존했다.
+- 최종 ExecStart는 start_runtime_autoboot.sh의 계좌/정리/build/dashboard/live-runtime skip 인자로 watchdog만 시작한다. systemd-analyze verify, enabled/active 확인, 같은 명령 직접 실행 성공과 기존 watchdog PID 유지/runtime 장외 정지를 확인했다. 실제 재부팅 검증은 하지 않았으며 다음 실제 boot 확인을 남긴다.
+
 - 수동 후속 요청으로 OS lifecycle/프로세스/helper를 확인했다. wtmp는 08:52 WSL 종료와 이후 반복 boot/shutdown, 커널 버전 변경을 기록한다. 호스트 boot는 오늘이 아니며 종료 요청 주체는 미확정이다.
 - 기존 Windows 로그인 런처 설치 성공과 WSL boot 복구 준비를 구분했다. installer의 Windows 경로 조기 return, user service not-found 및 Linger=no를 확인했다. 새로운 service 등록은 승인 대기이며 기존 수집/계좌/E7 설정은 변경하지 않았다.
 - 누락 원천이나 과거 평가 증거를 채우거나 다시 쓰지 않았으며, 최신 수치와 후속 항목은 STATUS/SPRINT에 기록한다. 이번 변경은 문서만이며 네트워크/주문/취소/WSL 재부팅은 수행하지 않았다.

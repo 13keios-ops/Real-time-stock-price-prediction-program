@@ -327,6 +327,29 @@ cycle은 protected session에서 시작 전에 차단한다. 기본 결과는 `l
 
 ## 4. 해결/보류 기준
 
+### WSL 내부 부팅 복구
+
+Windows 로그인 startup launcher와 WSL 내부 boot 복구는 별개다. 2026-10-14 운영자 승인으로 사용자 `~/.config/systemd/user/stock-runtime-autoboot.service`를 등록하고 `Linger=yes`를 적용했다. 기존 installer는 Windows 환경에서 Windows 런처만 설치하므로 재설치만으로 이 서비스를 재생성하지 않는다.
+
+서비스는 `Type=oneshot`, `RemainAfterExit=yes`, `WantedBy=default.target`이며 기존 저장소를 WorkingDirectory로 사용한다. ExecStart는 `/usr/bin/bash`와 저장소 `scripts/start_runtime_autoboot.sh`에 다음 인자를 전달한다.
+
+```bash
+--skip-account-refresh --skip-runtime-cleanup --skip-dashboard-build --skip-dashboard --skip-live-runtime
+```
+
+이 경로는 기존 watchdog만 복구하고 계좌 GET/정렬/정리/직접 listener 시작을 하지 않는다. watchdog이 기존 거래일/시간대 정책으로 runtime을 관리한다. 기존 프로세스가 있으면 재시작하지 않는다. oneshot의 active(exited)는 helper 완료이며 watchdog 건강은 별도로 확인한다. 이 서비스가 WSL 자체 종료를 막거나 종료된 WSL을 Windows에서 기동하는 것은 아니다.
+
+```bash
+systemctl --user is-enabled stock-runtime-autoboot.service
+systemctl --user status stock-runtime-autoboot.service --no-pager
+loginctl show-user keios -p Linger
+./scripts/get_runtime_startup_launcher_status.sh
+./scripts/get_runtime_watchdog_status.sh
+./scripts/get_live_runtime_status.sh
+```
+
+검증을 위해 장중 WSL을 종료/재부팅하지 않는다. 다음 실제 boot에서 서비스와 heartbeat를 확인한다. 서비스 중지/재시작은 향후 서비스가 생성한 watchdog도 종료할 수 있으므로 운영 복구 승인을 받은 장외에만 수행한다.
+
 정상:
 
 - broker paper sync가 `status=ok`.
