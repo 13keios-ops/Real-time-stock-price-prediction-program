@@ -55,6 +55,124 @@ class CandidateRuntimeTests(unittest.TestCase):
         self.assertEqual(report['order_calls'],0)
         self.assertEqual(self.initialize()['spec_hash'],report['spec_hash'])
 
+    def discovery_runner(self):
+        self.initialize()
+        self.module.enable_candidate_discovery(self.settings)
+        runner=self.module.load_candidate_runtime(self.settings,primary_symbols=['005930'],clock=lambda:self.now)
+        self.assertIsNotNone(runner);self.addCleanup(runner.close)
+        self.source_fixture(runner)
+        def response(path,tr_id,params,**kwargs):
+            offset=0 if params['FID_INPUT_ISCD']=='0001' else 30
+            return dict(rt_cd='0',trade_date=self.now.date().isoformat(),received_at=self.now.isoformat(),
+                verification_scope='market_trading_day_context_only',output=[dict(mksc_shrn_iscd=f'{offset+i+1:06d}',
+                    stck_prpr='25000',prdy_ctrt='3',acml_vol='20000',prdy_vol='10000',acml_tr_pbmn='5000000000') for i in range(30)])
+        runner.reader.get.side_effect=response
+        runner.feed.bars.return_value=[];runner.feed.bars.side_effect=None
+        return runner
+
+    def test_discovery_precedes_warmup_and_uses_two_shared_budget_reads(self):
+        runner=self.discovery_runner();runner.step()
+        report=runner.report()
+        self.assertEqual(report['discovery']['inspected_count'],50)
+        self.assertEqual(report['discovery']['trade_ready_count'],0)
+        self.assertEqual(runner.request_count,2)
+        runner.step();self.assertEqual(runner.request_count,2)
+        for wallet in runner.comparison.wallets.values():
+            self.assertEqual(wallet.state['source_bar_count'],0)
+        self.assertTrue(list((runner.folder/'discovery').rglob('*.json')))
+
+    def test_actual_reader_waits_for_first_ws_without_poisoning_session(self):
+        self.initialize();self.module.enable_candidate_discovery(self.settings)
+        runner=self.module.load_candidate_runtime(self.settings,primary_symbols=['005930'],clock=lambda:self.now)
+        self.assertIsNotNone(runner);self.addCleanup(runner.close)
+        transport=Mock();runner.reader._client=transport
+        runner.step()
+        self.assertFalse(runner.http_blocked)
+        self.assertEqual(runner.request_count,0)
+        self.assertEqual(runner.report()['discovery']['status'],'awaiting_ws_date_evidence')
+        transport.get_candidate_response.assert_not_called()
+        for symbol in runner.symbols:
+            runner.observe_record('H0STCNT0',dict(MKSC_SHRN_ISCD=symbol,
+                BSOP_DATE=self.now.strftime('%Y%m%d'),STCK_CNTG_HOUR=self.now.strftime('%H%M%S'),
+                STCK_PRPR='25000',CNTG_VOL='10',ACML_VOL='1000'))
+        def response(**kwargs):
+            offset=0 if kwargs['query_params']['FID_INPUT_ISCD']=='0001' else 30
+            return dict(rt_cd='0',output=[dict(mksc_shrn_iscd=f'{offset+i+1:06d}',stck_prpr='25000',
+                prdy_ctrt='3',acml_vol='20000',prdy_vol='10000',acml_tr_pbmn='5000000000') for i in range(30)]),{}
+        transport.get_candidate_response.side_effect=response
+        runner.step()
+        self.assertEqual(runner.report()['discovery']['inspected_count'],50)
+        self.assertFalse(runner.http_blocked)
+        self.assertEqual(runner.request_count,2)
+
+    def test_reader_preflight_failure_is_not_http_failure(self):
+        runner=self.runner();transport=Mock();runner.reader._client=transport
+        with self.assertRaises(ValueError):runner.read(self.module.PREFIX+'volume-rank',dict(self.module.RANK_QUERY))
+        self.assertFalse(runner.http_blocked)
+        self.assertEqual(runner.request_count,0)
+        transport.get_candidate_response.assert_not_called()
+
+    def test_mid_capture_source_expiry_does_not_disable_local_wallets(self):
+        from app.brokers.kis_candidate_reader import CandidateSourceNotReady
+        runner=self.runner();self.source_fixture(runner)
+        runner.reader.get.side_effect=CandidateSourceNotReady('WS source pending')
+        runner.step()
+        self.assertFalse(runner.http_blocked)
+        self.assertEqual(runner.request_count,0)
+        for wallet in runner.comparison.wallets.values():self.assertGreater(wallet.state['source_bar_count'],0)
+
+    def test_discovery_error_never_retries_or_resets_wallet(self):
+        runner=self.discovery_runner();runner.reader.get.side_effect=ValueError('SECRET_SENTINEL')
+        runner.step();runner.step()
+        self.assertEqual(runner.reader.get.call_count,1)
+        self.assertTrue(runner.http_blocked)
+        self.assertEqual(runner.report()['discovery']['status'],'blocked')
+        self.assertNotIn('SECRET_SENTINEL',str(runner.report()))
+        self.assertEqual(runner.comparison.report()['wallets']['breakout']['cash_balance'],300000)
+
+    def test_discovery_priority_deferral_and_daily_budget_are_preserved(self):
+        runner=self.discovery_runner();runner.reader.get.side_effect=PaperCoordinatorBusy('priority')
+        runner.step()
+        self.assertEqual(runner.request_count,0)
+        self.assertFalse(runner.http_blocked)
+        self.assertEqual(runner.report()['discovery']['status'],'deferred_primary_priority')
+
+    def test_discovery_interval_survives_restart(self):
+        runner=self.discovery_runner();runner.step();runner.close()
+        reopened=self.module.load_candidate_runtime(self.settings,primary_symbols=['005930'],clock=lambda:self.now)
+        self.assertIsNotNone(reopened);self.addCleanup(reopened.close)
+        reopened.reader=Mock()
+        reopened.discover_if_due()
+        reopened.reader.get.assert_not_called()
+        self.assertEqual(reopened.request_count,2)
+
+    def test_discovery_cannot_exceed_daily_budget(self):
+        runner=self.discovery_runner();runner.request_count=2499;runner.step()
+        self.assertEqual(runner.reader.get.call_count,1)
+        self.assertEqual(runner.request_count,2500)
+        self.assertEqual(runner.report()['discovery']['inspected_count'],0)
+
+    def test_new_day_clears_prior_day_diagnostic_counts(self):
+        from datetime import timedelta
+        runner=self.discovery_runner();runner.record_rejections=100;runner.rejection_reasons['missing_field']=100
+        runner.step();self.now=(self.now+timedelta(days=1)).replace(hour=8)
+        runner.step()
+        report=runner.report()
+        self.assertEqual(report['record_rejections'],0)
+        self.assertEqual(report['rejection_reasons'],{})
+        self.assertEqual(report['discovery']['inspected_count'],0)
+
+    def test_discovery_registration_never_changes_existing_account_contract(self):
+        self.initialize();folder=self.runtime/self.module.SUBDIRECTORY
+        before=(folder/'wallets/comparison.json').read_bytes()
+        self.module.enable_candidate_discovery(self.settings)
+        self.assertEqual((folder/'wallets/comparison.json').read_bytes(),before)
+        from app.universe.candidate_discovery import read_discovery_registration
+        self.assertTrue(read_discovery_registration(folder))
+        flag=folder/'discovery-enabled.json';value=json.loads(flag.read_text());value['spec']['target_count']=2
+        flag.write_text(json.dumps(value))
+        self.assertFalse(read_discovery_registration(folder))
+
     def test_drift_disabled_and_subscription_limit_preserve_primary(self):
         self.assertIsNone(self.module.load_candidate_runtime(self.settings,primary_symbols=['005930']))
         self.initialize()

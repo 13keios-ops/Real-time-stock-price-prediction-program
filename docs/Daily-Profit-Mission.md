@@ -1,5 +1,19 @@
 # 30만원 독립 일일 수익 가상 서브미션
 
+## 10/15 요청 · 광역 50종목 탐색
+
+- 사용자 요청으로 `kr-rank-discovery-50-v1`을 별도 등록한다. 기존 두 종목 계좌/manifest/비용/WS 구독을 바꾸지 않고 KOSPI(0001)/KOSDAQ(1001) 거래금액순 공개 시세를 함께 탐색한다. 매수 가능 수와 순위 관측 수는 다르며 기존 두 계좌의 종목 교체·동적 매매 승격은 이 기능에 포함하지 않는다.
+- 기본값은 비활성이고 기존 paper runtime 등록이 유효할 때만 `enable_candidate_discovery(settings)`로 `discovery-enabled.json`을 생성한다. 이 함수는 인증/시세/주문 없이 별도 관측 계약만 쓴다. 잘못된 hash/자료형·외부 링크는 활성화하지 않는다. 실제 기동은 기존 정상 세션 시작 경로다.
+- 09:00~15:20에 시장별 rank GET 1회씩, 최대 2회/300초이며 기존 후보 21분 warmup 전에도 동작한다. cached-token/공유 primary 우선 coordinator/응답 완료 pacing/재시도 없음/전체 후보 하루 2,500 예약 GET 상한을 공유한다. 기존 정밀 capture 최대 6회와 같은 차례에 겹치면 합계 최대 8회다. 이는 광역 관측 추가 예산이며 기존 capture 자체의 6회 상한을 늘리지 않는다. 탐색 시각도 기존 작은 예산 파일에 저장해 재시작으로 5분 간격을 우회하지 않는다.
+- 아침 첫 WS 영업일 증거가 아직 없으면 `awaiting_ws_date_evidence`로 대기하며 네트워크/예산/영구 차단을 발생시키지 않는다. 실제 reader 전송 직전 재검증 실패도 `CandidateSourceNotReady`로 예약 수를 환불하고 임시 보류한다. 회차 중 만료도 같은 의미를 유지해 로컬 평가·청산을 이어간다. 실제 HTTP 실패나 응답 후 proof 오류의 기존 fail-closed 규칙은 유지한다.
+- 광역 조회는 가격 필터를 비워 최대한 넓게 살펴보되, 기존 2~3만원 매수 가격대를 바꾸지 않는다. 반환 자료에서 유효 숫자/고유 6자리 코드를 검증하고 거래대금순 최대 50개를 기록한다. 2~3만원 여부/가격대 밖 차단, 등락률, 거래대금, 누적/전일 거래량과 배수를 구분한다. 전일량 0이면 배수는 미확인이고 무한대로 만들지 않는다. API mask 성공을 경보 검증 완료로 보지 않는다.
+- `inspected_count`는 해당 snapshot의 실제 확인 수, `unique_returned_count`는 두 응답의 중복 제거 수다. 중복/잘못된 응답/원천 부족으로 50개가 안 되면 `insufficient_unique_symbols`다. API가 매번 50개 이상을 준다고 보장하거나 과거/가짜 종목으로 채우지 않는다.
+- proof는 최근 WS에서 얻은 시장 거래일 context이지 50개 종목 각각의 실제 체결/호가 event freshness 증명이 아니다. `rank_screen_only`, `trade_ready_count=0`을 유지하고 경보·시장/업종·호가·완료 분봉 검증을 생략해 주문 신호로 사용하지 않는다. 탐색 결과를 기존 두 종목 계좌/E7 입력에 주입하지 않는다.
+- `latest-discovery.json`과 `discovery/YYYY-MM-DD/HHMMSS.json`에 비밀값 제외 결과를 보존하고 runtime report/대시보드에 탐색 실제 수/50, 정밀 관측 수/2와 종목별 근거를 따로 표시한다. 날짜가 다른 탐색 결과는 오늘 성공으로 사용하지 않는다. day rollover는 전일 진단 수/탐색 상태를 초기화하지만 현금·계약은 초기화하지 않는다.
+- 장전/장후 Skill은 기존 증거만 읽어 이 상태를 보고한다. 새 예약/별도 daemon/수수료 변경/실전 주문은 없으며 오늘 장후에 시세 호출을 실행하지 않는다. 실제 50개 충족과 시장별 반환 형식은 다음 정상 세션에서 확인한다.
+
+공식 query/반환 필드 근거: [KIS 국내주식 volume_rank](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/volume_rank/volume_rank.py), [반환 필드 예제](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/volume_rank/chk_volume_rank.py).
+
 ## 10/15 승인된 후보 비교 런타임
 
 ### 10/15 장후 입력 보완과 상세 화면

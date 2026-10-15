@@ -30,10 +30,16 @@ RANK_QUERY = dict(FID_COND_MRKT_DIV_CODE="J", FID_COND_SCR_DIV_CODE="20171", FID
                   FID_DIV_CLS_CODE="1", FID_BLNG_CLS_CODE="3", FID_TRGT_CLS_CODE="111111111",
                   FID_TRGT_EXLS_CLS_CODE="1111111111", FID_INPUT_PRICE_1="20000", FID_INPUT_PRICE_2="30000",
                   FID_VOL_CNT="", FID_INPUT_DATE_1="")
-RANK_FIELDS = ("mksc_shrn_iscd", "stck_prpr", "prdy_ctrt", "acml_vol", "prdy_vol", "acml_tr_pbmn")
+DISCOVERY_RANK_QUERIES={market:{**RANK_QUERY,'FID_INPUT_ISCD':code,
+    'FID_INPUT_PRICE_1':'','FID_INPUT_PRICE_2':''} for market,code in [('KOSPI','0001'),('KOSDAQ','1001')]}
+RANK_FIELDS = ("mksc_shrn_iscd", "hts_kor_isnm", "stck_prpr", "prdy_ctrt", "acml_vol", "prdy_vol", "acml_tr_pbmn")
 PRICE_FIELDS = ("stck_shrn_iscd", "stck_prpr", "prdy_ctrt", "acml_tr_pbmn", "temp_stop_yn",
                 "sltr_yn", "mang_issu_cls_code", "invt_caful_yn", "mrkt_warn_cls_code", "short_over_yn")
 QUOTE_FIELDS = ("askp1", "bidp1", "aspr_acpt_hour")
+
+
+class CandidateSourceNotReady(ValueError):
+    """Local source validation failed before any HTTP dispatch."""
 
 
 class CandidateRestReader:
@@ -42,7 +48,7 @@ class CandidateRestReader:
     Verification callbacks are trusted input ports, NOT implemented exchange evidence
     acquisition. Constructing this reader does not activate or approve any polling.
     """
-    def __init__(self, profile, token_manager, *, verifier=None, clock=None, request_coordinator=None):
+    def __init__(self, profile, token_manager, *, verifier=None, clock=None, request_coordinator=None,allow_discovery=False):
         url = urlsplit(profile.rest_url)
         if (profile.mode != "paper" or url.scheme != "https"
                 or url.hostname != "openapivts.koreainvestment.com" or url.port != 29443
@@ -54,6 +60,7 @@ class CandidateRestReader:
             get_kis_paper_candidate_client(profile, token_manager, request_coordinator=request_coordinator))
         self._verifier = verifier
         self._clock = clock or (lambda: now_local("Asia/Seoul"))
+        self._allow_discovery=allow_discovery is True
 
     def refresh_minute_anchor(self, symbol, record):
         refresh = getattr(self._verifier, 'refresh', None)
@@ -69,7 +76,7 @@ class CandidateRestReader:
         if not isinstance(params, dict):
             raise ValueError("Invalid read query")
         if path.endswith("volume-rank"):
-            if params != RANK_QUERY:
+            if params != RANK_QUERY and not (self._allow_discovery and params in DISCOVERY_RANK_QUERIES.values()):
                 raise ValueError("Ranking query outside approved capture scope")
         elif (set(params) != {"FID_COND_MRKT_DIV_CODE", "FID_INPUT_ISCD"}
               or params["FID_COND_MRKT_DIV_CODE"] != ("U" if path.endswith("inquire-index-price") else "J")
@@ -78,7 +85,9 @@ class CandidateRestReader:
             raise ValueError("Only explicit KRX stock quote queries allowed")
         preflight = getattr(self._verifier, 'preflight', None)
         if callable(preflight):
-            preflight(path, params)
+            try:preflight(path, params)
+            except (ValueError,KeyError,TypeError,OverflowError):
+                raise CandidateSourceNotReady('Current WS date evidence pending') from None
         try:
             payload, _ = self._client.get_candidate_response(path=path, tr_id=tr_id, query_params=params)
         except PaperCoordinatorBusy:

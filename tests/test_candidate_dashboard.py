@@ -24,6 +24,35 @@ class CandidateDashboardTests(unittest.TestCase):
         self.assertEqual(data['status'],'not_available')
         self.assertFalse(self.folder.exists())
 
+    def test_discovery_is_visible_and_not_called_fifty_tradable_symbols(self):
+        self.write({'day':'2026-10-16','symbols':['001440','006800'],'discovery':{
+            'day':'2026-10-16','status':'screened','target_count':50,'inspected_count':50,
+            'unique_returned_count':60,'trade_ready_count':0,'candidates':[
+                {'symbol':f'{i+1:06d}','name':'sample','market':'KOSPI','price':25000,
+                 'entry_blocking_reason':'requires_fresh_quote_flags_benchmark_and_21_bars'} for i in range(50)]}})
+        data=self.module.load_candidate_dashboard(self.root)
+        html=self.module.render_candidate_dashboard(data)
+        self.assertIn('광역 탐색',html)
+        self.assertIn('000050',html)
+        self.assertIn('정밀 관측',html)
+        self.assertEqual(len(data['discovery']['candidates']),50)
+
+    def test_old_discovery_is_not_today_screening_success(self):
+        self.write({'day':'2026-10-16','discovery':{'day':'2026-10-15','inspected_count':50,'coverage_met':True}})
+        data=self.module.load_candidate_dashboard(self.root)
+        self.assertFalse(data['discovery'].get('coverage_met',False))
+
+    def test_enabled_registration_is_rendered_as_exact_active_value(self):
+        from app.universe.candidate_discovery import SPEC
+        from app.universe.intraday_candidates import _hash
+        self.write({'day':'2026-10-16'})
+        (self.folder/'discovery-enabled.json').write_text(json.dumps(dict(enabled=True,spec=SPEC,spec_hash=_hash(SPEC))))
+        data=self.module.load_candidate_dashboard(self.root)
+        self.assertIs(data['discovery_enabled'],True)
+        html=self.module.render_candidate_dashboard(data)
+        self.assertIn('<td>현재 광역 탐색 등록</td><td>활성</td>',html)
+        self.assertNotIn('<td>현재 광역 탐색 등록</td><td>비활성</td>',html)
+
     def test_failed_warmup_is_input_failure_not_strategy_loss(self):
         self.write({'day':'2026-10-15','status':'warmup','record_rejections':74836,
             'feed_gap_count':4135,'warmup_bars':{'001440':0,'006800':0},

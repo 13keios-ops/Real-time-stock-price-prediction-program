@@ -43,6 +43,8 @@ git status --short --branch
 - `runtime-data/reports/backtests/latest-cybos-rescue-proxy-h15.json`
 - `runtime-data/reports/challengers/latest-hold-rescue-paper-replay-h15.json`
 - `runtime-data/reports/dashboard/latest-dashboard.json`
+- `runtime-data/paper-missions/kr-intraday-candidate-runtime/latest-runtime.json`
+- `runtime-data/paper-missions/kr-intraday-candidate-runtime/latest-discovery.json`
 
 ## 2. Pre-open procedure
 
@@ -59,6 +61,7 @@ KST 07:20~07:40의 실제 장전 점검에만 수행한다.
 4. `latest-phase1b-readonly-preflight.json`의 `status`, `passed`, `blocking_reasons`를 보고한다.
 5. 기본 preflight의 KIS network call과 order call은 각각 0회여야 한다.
 6. live runtime이 실행 중이면 `process_memory.rss_mib`, `peak_rss_mib`를 보고한다.
+7. 아래 독립 가상매매 관측 규칙으로 기존 미션/후보 비교/광역 탐색의 등록과 전 거래일 증거를 읽는다. 장전 수집 시작 전의 0건은 실패로 단정하지 않는다.
 
 Pre-open에서는 post-close data-quality 재집계, E7 artifact 생성, hold-rescue 갱신, Phase 0 recheck, dashboard 재생성을 실행하지 않는다.
 `run_phase1b_readonly_observation.sh --execute`도 실행하지 않는다.
@@ -96,6 +99,7 @@ python3 scripts/summarize_hold_rescue_paper_replay.py --horizon-min 15
 
 5. post-close ML, label refresh, challenger, buy-avoid/buy-rescue/hold-rescue 최신 증거를 읽는다.
 6. dashboard/watchdog/startup launcher freshness를 다시 확인한다.
+7. 독립 가상매매와 광역 탐색의 당일 증거를 아래 규칙대로 읽고 별도 줄로 보고한다.
 
 E7 writer는 현재 실제 거래일 artifact가 이미 있으면 같은 파일을 재사용하며 DB는 read-only다.
 E7 artifact가 생성되지 않았다는 사실은 전략 실패가 아니다. 안전 조건, entrypoint, 원천 DB와 report 경로를 운영 주의로 분리한다.
@@ -233,6 +237,16 @@ Rescue/avoid 줄:
 세 항목은 관측용이며 주문 정책, gate, threshold, active model에 반영하지 않는다.
 과거 E1/E5는 자동 재실행하지 않는다. 역사와 결과는 `docs/logbook.md`와 사전등록 문서를 따른다.
 
+## 7a. Independent paper missions
+
+- 기존 10종목 미션은 `runtime-data/paper-missions/krw-300k-daily-10k/latest.json`, 후보 비교는 `runtime-data/paper-missions/kr-intraday-candidate-runtime/latest-runtime.json` 및 선택일 `days/YYYY-MM-DD.json`, 광역 탐색은 같은 폴더 `latest-discovery.json`과 `discovery/YYYY-MM-DD/`를 읽는다. 현재 등록은 enabled/discovery-enabled 파일과 대조하되 등록을 실제 실행 성공으로 보고하지 않는다.
+- 관측은 기존 산출물만 읽으며 추가 KIS/API/WS를 호출하지 않는다. replay/enable/원장 생성·초기화·자동 종목 교체를 실행하지 않고 기존 계좌 계약을 변경하지 않는다. 원본 증거를 고치거나 입력 부족을 거래로 채우지 않는다.
+- 계좌별 trade_date와 daily_history의 해당 날짜를 검증해 당일 분봉/가상체결/손익/목표 여부와 누적 현금·실현손익·비용을 분리한다. 전일 손익을 오늘 실적으로 복제하지 않으며 두 계좌/기존 미션을 합산하지 않는다.
+- 후보 status/reason, runtime_attached, 종목별 수신/거부 사유, warmup_bars, feed_version/volume_scope, 실제 분 공백과 누적량 차이, reserved_gets/2500, HTTP 차단을 확인한다. 장후 당일 source bar 0과 반복 거부는 원천 입력 실패(CRITICAL)이지 전략 손실이 아니다. 정상 입력 후 체결 0건은 신호 대기로 수익성 미판정이다.
+- 광역 탐색은 day/observed_at, target_count=50, inspected_count/unique_returned_count, coverage_met/status, preferred_price_count와 실제 정밀 관측 종목 수를 별도로 보고한다. 순위 관측 50개를 50개 매매 가능/구독 성공으로 해석하지 않는다. 2~3만원 밖 종목은 탐색만 하며 기존 진입 가격대가 완화된 것이 아니다.
+- 실제 거래일 장후 탐색이 50개 미만이거나 disabled/차단/누락/전일 자료이면 ATTENTION으로 구분하고 원인(등록 누락/원천 부족/우선순위 양보/HTTP 오류/날짜 불일치)을 보고한다. 부족분이나 API 미지원 여부를 추정하지 않는다. 장전에는 전 거래일 증거와 오늘 실행 전 대기를 구분한다.
+- 보호 모드에서는 이 항목도 읽기 전용이다. 장외에도 이 관측 때문에 live runtime을 켜거나 차단을 리셋하지 않는다. 정합/E7/전체 데이터 수집의 CRITICAL을 새 미션 결과로 낮추지 않는다.
+
 ## 8. Recovery policy
 
 장중 보호 모드가 아니고 원인이 명확할 때만 dashboard/watchdog/startup launcher를 기존 helper로 안전 복구할 수 있다.
@@ -278,6 +292,7 @@ E1/E5와 과거 Phase 0 recovery를 자동 재실행하지 않는다.
 - E7 progress와 evaluator/manifest/evidence health
 - 복구 후 고정 구간 E7 관측은 기존 누적 E7과 별도 줄: contract/구간 진행·원천 건강·공식 미활성·실제 증거 경로/시각
 - 장후 ML과 buy-avoid/buy-rescue/hold-rescue
+- 독립 가상매매의 당일 분봉/체결/비용 후 손익·차단 원인, 광역 탐색 실제 수/50과 정밀 관측 종목 수
 - 자동화가 실제 조치한 것
 - 사람이 검토할 남은 조치
 - 변경 금지 범위를 지켰는지

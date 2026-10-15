@@ -14,7 +14,7 @@ import zipfile
 from collections import Counter
 
 from app.brokers.kis_auth import get_kis_profile, KisTokenManager
-from app.brokers.kis_candidate_reader import CandidateRestReader, PATHS, RANK_QUERY
+from app.brokers.kis_candidate_reader import CandidateRestReader, CandidateSourceNotReady, PATHS, RANK_QUERY, DISCOVERY_RANK_QUERIES
 from app.brokers.kis_paper_coordinator import PaperCoordinatorBusy
 from app.brokers.kis_paper_registration import SUBDIRECTORY, VERSION, read_registration, coordinator_for_profile
 from app.collectors.candidate_live_feed import CandidateLiveFeed
@@ -23,6 +23,7 @@ from app.paper_trading.daily_mission import MissionContract, _json
 from app.services.candidate_pipeline import prepare_candidate_context
 from app.storage.contracts import MinuteBar
 from app.universe.intraday_candidates import _hash
+from app.universe.candidate_discovery import SPEC as DISCOVERY_SPEC,read_discovery_registration,screen_rankings
 from app.universe.kis_candidate_provenance import make_master_reference
 from app.universe.kis_candidate_sources import VERSION as SOURCE_VERSION
 from app.universe.kis_candidate_snapshot import scan_kis_snapshot
@@ -53,6 +54,14 @@ def _spec(contract):
         max_gets_per_day=2500, cycle_interval_seconds=60, broker_orders_allowed=False,
         ws_connection='existing_primary', max_additional_symbols=2,
         wallet_contract=contract.to_dict(), source_binding_version=SOURCE_VERSION)
+
+
+def enable_candidate_discovery(settings):
+    if settings.trading_mode!='paper' or read_registration(settings.runtime_data_dir) is None:
+        raise ValueError('Existing approved paper runtime required')
+    registration=dict(enabled=True,spec=DISCOVERY_SPEC,spec_hash=_hash(DISCOVERY_SPEC))
+    _store(settings.runtime_data_dir/SUBDIRECTORY/'discovery-enabled.json',registration)
+    return registration
 
 
 def initialize_candidate_runtime(settings, *, start_date):
@@ -112,6 +121,10 @@ class CandidateRuntime:
         self.clock = clock or (lambda:now_local('Asia/Seoul'))
         self.folder = settings.runtime_data_dir/SUBDIRECTORY
         self.spec = registration['spec'];self.spec_hash = registration['spec_hash']
+        self.discovery_enabled=read_discovery_registration(self.folder)
+        self.last_discovery=None
+        self.discovery=dict(version=DISCOVERY_SPEC['version'],target_count=50,inspected_count=0,
+            coverage_met=False,trade_ready_count=0,status='awaiting_market_session' if self.discovery_enabled else 'disabled')
         self.contract = MissionContract.from_dict(self.spec['wallet_contract'])
         self.symbols = self.contract.symbols
         self.feed = CandidateLiveFeed(self.symbols, clock=self.clock, holidays=self.contract.holidays)
@@ -120,7 +133,8 @@ class CandidateRuntime:
         if self.coordinator is None:raise ValueError('Shared registration required')
         self.token_manager = KisTokenManager(profile, request_coordinator=self.coordinator)
         self.reader = CandidateRestReader(profile, self.token_manager, verifier=self.feed,
-                                         clock=self.clock, request_coordinator=self.coordinator)
+                                         clock=self.clock, request_coordinator=self.coordinator,
+                                         allow_discovery=self.discovery_enabled)
         self.stop = Event();self.thread = None;self.status = 'warmup';self.reason = 'awaiting_actual_ws_evidence'
         self.http_blocked = False;self.request_count = 0;self.cycle_count = 0
         self.day = self.clock().date().isoformat();self.last_cycle = None;self.master = None
@@ -141,6 +155,11 @@ class CandidateRuntime:
                     self.request_count = stored['reserved_gets'];self.http_blocked = stored['blocked']
                     if type(self.request_count) is not int or not 0<=self.request_count<=2500 or type(self.http_blocked) is not bool:
                         raise ValueError('Invalid persisted budget')
+                    previous_attempt=stored.get('discovery_last_attempt_at')
+                    if previous_attempt is not None:
+                        stamp=datetime.fromisoformat(previous_attempt)
+                        if stamp.tzinfo is None or stamp>self.clock():raise ValueError('Invalid discovery pacing state')
+                        if stamp.date().isoformat()==self.day:self.last_discovery=stamp
             self.comparison = CandidateComparison(self.folder/'wallets', self.contract)
             if self.comparison.report()['status']!='consistent':
                 self.comparison.close()
@@ -173,7 +192,8 @@ class CandidateRuntime:
                     if k in record and re.fullmatch(r'[-+0-9.]{1,24}',str(record[k]))}
 
     def _budget(self):
-        _store(self.folder/'http-budget.json',dict(day=self.day,reserved_gets=self.request_count,blocked=self.http_blocked))
+        _store(self.folder/'http-budget.json',dict(day=self.day,reserved_gets=self.request_count,blocked=self.http_blocked,
+            discovery_last_attempt_at=self.last_discovery.isoformat() if self.last_discovery else None))
 
     def read(self, path, params):
         if self.http_blocked or self.request_count >= 2500:
@@ -187,6 +207,9 @@ class CandidateRuntime:
             return result
         except PaperCoordinatorBusy:
             self.request_count -= 1;self._budget();self.reason = 'primary_priority_deferred'
+            raise
+        except CandidateSourceNotReady:
+            self.request_count -= 1;self._budget();self.reason='source_evidence_pending'
             raise
         except Exception:
             self.http_blocked = True
@@ -233,14 +256,46 @@ class CandidateRuntime:
         self.comparison.observe(bar,observed_at=now,quote_spread_bps=quote_spread_bps,capture=capture)
         self.last_delivered[bar.symbol] = bar.bar_time.isoformat()
 
+    def discover_if_due(self):
+        now=self.clock()
+        if (not self.discovery_enabled or self.http_blocked or self.stop.is_set()
+                or not time(9)<=now.time().replace(tzinfo=None)<time(15,20)
+                or self.last_discovery is not None and (now-self.last_discovery).total_seconds()<300):return
+        report=dict(version=DISCOVERY_SPEC['version'],day=now.date().isoformat(),observed_at=now.isoformat(),
+            target_count=50,inspected_count=0,coverage_met=False,trade_ready_count=0,status='blocked')
+        try:self.feed.preflight(PREFIX+'volume-rank',dict(DISCOVERY_RANK_QUERIES['KOSPI']))
+        except (ValueError,KeyError,TypeError,OverflowError):
+            report['status']='awaiting_ws_date_evidence';self.discovery=report
+            return
+        self.last_discovery=now
+        self._budget()
+        try:
+            snapshots={}
+            for market,params in DISCOVERY_RANK_QUERIES.items():
+                if snapshots and self.stop.wait(1.12):raise ValueError('Stopping')
+                snapshots[market]=self.read(PREFIX+'volume-rank',dict(params))
+            report=screen_rankings(snapshots,as_of=self.clock())
+        except PaperCoordinatorBusy:report['status']='deferred_primary_priority'
+        except CandidateSourceNotReady:report['status']='awaiting_ws_date_evidence'
+        except Exception:report['reason']='rank_source_unavailable_or_invalid'
+        self.discovery=report
+        _store(self.folder/'latest-discovery.json',report)
+        _store(self.folder/'discovery'/now.strftime('%Y-%m-%d')/now.strftime('%H%M%S.json'),report)
+
     def step(self):
         now = self.clock();day = now.date().isoformat()
         if day != self.day:
             self.day=day;self.request_count=0;self.http_blocked=False;self.master=None;self.last_cycle=None
             self.rejection_reasons.clear();self.rejection_samples.clear()
+            self.record_rejections=0;self.cycle_count=0;self.last_scan=None;self.last_discovery=None
+            self.symbol_progress={s:{'accepted_trade_records':0,'accepted_book_records':0,'rejected_records':0} for s in self.symbols}
+            self.discovery=dict(version=DISCOVERY_SPEC['version'],day=day,target_count=50,
+                inspected_count=0,coverage_met=False,trade_ready_count=0,
+                status='awaiting_market_session' if self.discovery_enabled else 'disabled')
             self._budget()
         if now.weekday()>=5 or day in self.contract.holidays or not time(9)<=now.time().replace(tzinfo=None)<=time(15,30):
             return
+        self.discover_if_due()
         bars = {s:self.feed.bars(s) for s in self.symbols}
         new = any(rows and rows[-1]['bar_time']>self.last_delivered.get(s,'') for s,rows in bars.items())
         if not new:return
@@ -254,6 +309,7 @@ class CandidateRuntime:
                 if self.master is None:self.master=acquire_master(self.folder,self.symbols,clock=self.clock)
                 capture=self.capture();self.status='running';self.reason='observing_no_forced_trades'
             except PaperCoordinatorBusy:pass
+            except CandidateSourceNotReady:self.reason='source_evidence_pending'
             except Exception:
                 if not self.http_blocked:self.reason='source_context_blocked'
                 self.http_blocked=True;self._budget()
@@ -283,6 +339,7 @@ class CandidateRuntime:
             cumulative_jump_count=getattr(self.feed,'cumulative_jump_count',0),
             rejection_reasons=dict(self.rejection_reasons),rejection_samples=dict(self.rejection_samples),
             symbol_progress={symbol:dict(progress) for symbol,progress in self.symbol_progress.items()},
+            discovery=dict(self.discovery),
             last_scan=self.last_scan,comparison=self.comparison.report(as_of=self.clock()),
             order_calls=0,real_trading_enabled=False,fees_verified=False,profitability_validated=False)
 

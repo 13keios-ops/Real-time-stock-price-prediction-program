@@ -1,5 +1,15 @@
 # 현재 상태
 
+## 10/15 후속 · 광역 50종목 관측 등록
+
+- 사용자의 최소 50종목 요청에 따라 별도 `kr-rank-discovery-50-v1`을 등록했다. KOSPI/KOSDAQ 거래금액순을 5분마다 최대 GET 2회 읽고 중복 제거한 실제 최대 50개를 비교한다. 2~3만원 밖도 탐색하지만 기존 진입 가격대를 바꾸지 않는다. 50개 미만이면 목표 미달을 그대로 보고하며 실제 50개 반환/지원 확인은 다음 정상 세션 대상이다.
+- 기존 정밀 관측/가상매매 계약의 001440/006800 두 종목, 두 계좌의 현금·DB·manifest와 오늘 원본 보고서 hash를 보존했다. 광역 순위 관측을 50종목 WS/정밀 호가·경보 검증/매매 허용으로 표현하지 않는다. 동적 종목 교체는 이번 관측 등록에 포함하지 않는다.
+- 별도 discovery spec hash `8c882d34c42b30499094ad96691880c7eb926fea4d595f33e9f3751cb642e69f`, enabled=true다. 증거 `runtime-data/reports/codex/discovery50-activation-20261015.json`에 기존 계좌·증거 불변/network·order 0/야간 runtime 미시작을 기록했다. 기존 정밀 capture 최대 6회와 광역 관측 최대 2회는 같은 shared daily 2,500 예산/primary 우선 coordinator를 쓰며 재시작 pacing도 보존한다.
+- 독립 review에서 아침 첫 WS 날짜 증거가 없을 때 네트워크 전 대기를 HTTP 실패로 잘못 승격하는 문제를 재현·수정했다. `awaiting_ws_date_evidence`/`CandidateSourceNotReady`를 분리하고 pre-HTTP 예약을 환불한다. 실제 HTTP 실패의 기존 fail-closed는 유지하며 회차 중 만료도 로컬 관측·평가·청산을 막지 않는다.
+- 대시보드에 광역 탐색 실제 수/50·시장별 종목 근거·2~3만원 여부·매매 전 차단, 정밀 관측 2를 분리 표시한다. daily ops Skill에도 당일/전 거래일·입력 실패·실제 범위를 읽기 전용으로 보고하게 추가했다. 예약 시간/프롬프트, E7/기준선/모델·기존 signal/gate/allocator/주문 정책은 유지한다.
+- 최종 전체 unittest 1,052건/56.615초 통과. 실제 reader/WS feed에 mock transport만 사용한 cold-start 대기→수신→50종목과 중간 증거 만료, 재시작/일 예산·중복/부족·전일 혼입·비밀값 제외를 검증했다. 로그: `.tmp-tests/discovery50-full-final-20261015.log`. 실 KIS/인증·주문/취소 호출은 이번 야간 작업에서 0회다.
+- 새 서버 재시작 전 구버전 서버가 snapshot을 다시 쓴 경합을 발견해 새 서버 기준 22:00:43 캐시를 재생성했다. PC 1440px/모바일 390px에서 등록 셀의 정확한 값=활성, 실제 탐색=0/50과 본문 overflow 없음을 확인했다. 표시 회귀 13건 통과, 전체 1,053건 실행으로 합산하지 않는다. 화면 `.tmp-tests/discovery50-desktop-20261015.png`, `discovery50-mobile-20261015.png`, 구조 감사 오류 0/기존 경고 4다.
+
 ## 10/15 장후 보완 · 10/16 준비
 
 - 후보 WS 분봉의 누적 증가량과 마지막 체결량이 다를 때마다 warmup을 초기화하던 경로를 수정했다. 실제 수신 체결량/record만 집계하며 전체 거래소 분봉 완전성을 주장하지 않는다. 실제 분 공백·날짜·freshness 검사는 유지한다. `feed_version=observed-ws-minute-v2`, volume/trade_count scope=captured_ws_records_only로 구분하며 과거 자료를 재평가하지 않는다.

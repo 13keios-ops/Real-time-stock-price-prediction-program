@@ -92,6 +92,22 @@ class CandidateReaderTests(unittest.TestCase):
             self.reader.get("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100", {},
                             timeout_seconds=3, allow_retry=True)
 
+    def test_broad_rank_queries_require_explicit_discovery_opt_in(self):
+        from app.brokers.kis_candidate_reader import DISCOVERY_RANK_QUERIES
+        path='/uapi/domestic-stock/v1/quotations/volume-rank'
+        params=dict(DISCOVERY_RANK_QUERIES['KOSPI'])
+        with self.assertRaises(ValueError):
+            self.reader.get(path,'FHPST01710000',params,timeout_seconds=3,allow_retry=False)
+        self.assertEqual(self.calls,[])
+        self.reader=CandidateRestReader(self.profile,self.manager,verifier=lambda *args:self.proof,
+            clock=lambda:self.now,allow_discovery=True)
+        self.payload=dict(rt_cd='0',msg_cd='MCA00000',output=[])
+        self.reader.get(path,'FHPST01710000',params,timeout_seconds=3,allow_retry=False)
+        params['CANO']='SECRET_FIXTURE'
+        with self.assertRaises(ValueError):
+            self.reader.get(path,'FHPST01710000',params,timeout_seconds=3,allow_retry=False)
+        self.assertEqual(len(self.calls),1)
+
     def test_business_error_has_no_raw_message(self):
         self.payload = dict(rt_cd="1", msg_cd="EGW00201", msg1="SECRET_FIXTURE")
         self.assertEqual(self.quote(), dict(rt_cd="1", msg_cd="EGW00201"))

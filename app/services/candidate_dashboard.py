@@ -8,6 +8,7 @@ import sqlite3
 from time import monotonic
 
 from app.brokers.kis_paper_registration import SUBDIRECTORY
+from app.universe.candidate_discovery import read_discovery_registration
 
 READ_BUDGET_SECONDS=0.05
 
@@ -53,8 +54,11 @@ def load_candidate_dashboard(runtime_root,selected_date=None):
         latest=_read(folder/'days'/(str(selected_date)+'.json')) if re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(selected_date)) else {}
         day=_day(latest)
     data=dict(status='not_available',conclusion='운용 기록 없음',day=day,report=latest,
-              events=[],positions=[],observations=[],history=history,warnings=[],event_limit_per_wallet=200)
+              events=[],positions=[],observations=[],history=history,warnings=[],event_limit_per_wallet=200,
+              discovery_enabled=read_discovery_registration(folder),discovery={})
     if not latest:return data
+    discovery=latest.get('discovery',{})
+    if isinstance(discovery,dict) and discovery.get('day')==day:data['discovery']=discovery
     wallets={}
     for strategy,wallet in latest.get('comparison',{}).get('wallets',{}).items():
         stats=wallet.get('daily_history',{}).get(day,{})
@@ -125,6 +129,21 @@ def render_candidate_dashboard(data):
     parts=['<style>[data-tab-id="tab-candidate"]{min-width:0}[data-tab-id="tab-candidate"] td{overflow-wrap:anywhere;max-width:360px}[data-tab-id="tab-candidate"] th{white-space:nowrap}</style>',
         '<h2>새 가상매매</h2>', '<h3>'+text(data.get('conclusion'))+'</h3>',
         '<p>기준일 '+text(data.get('day'))+' · 마지막 관측 '+text(report.get('updated_at'))+' · 독립 가상계좌 · KIS 주문/취소 없음</p>']
+    discovery=data.get('discovery',{})
+    parts.append('<h3>광역 탐색 · 목표 50종목</h3>')
+    parts.append(table(['탐색 지표','값'],[
+        ['현재 광역 탐색 등록','활성' if data.get('discovery_enabled') else '비활성'],
+        ['선택일 실제 탐색 / 목표',str(discovery.get('inspected_count',0))+' / 50'],
+        ['반환 고유 종목',discovery.get('unique_returned_count')],
+        ['선택일 탐색 상태',discovery.get('status','선택일 탐색 기록 없음')],
+        ['최근 탐색 시각',discovery.get('observed_at')],
+        ['2~3만원 가격대',discovery.get('preferred_price_count')],
+        ['정밀 관측 종목',len(report.get('symbols',[]))],
+        ['순위만으로 매매 허용',0]]))
+    parts.append(table(['종목','이름','시장','가격','등락률 %','거래대금','전일 대비 누적량 배수','가격대','단계/진입 차단'],[
+        [r.get('symbol'),r.get('name'),r.get('market'),number(r.get('price')),number(r.get('return_pct')),
+         number(r.get('trading_value')),number(r.get('volume_ratio')),'2~3만원' if r.get('preferred_price_band') else '가격대 밖',
+         r.get('entry_blocking_reason')] for r in discovery.get('candidates',[])[:50]]))
     parts.append(table(['운영 지표','값'],[
         ['관측 상태',report.get('status')],['현재 차단/대기 이유',report.get('reason')],
         ['회차 / 예약 GET',str(report.get('cycle_count',0))+' / '+str(report.get('reserved_gets',0))],

@@ -108,6 +108,17 @@ class DailyOpsSkillContractTests(unittest.TestCase):
             self.text,
         )
 
+    def test_candidate_observation_reports_real_coverage_without_extra_calls(self):
+        section=_section(self.text,'## 7a. Independent paper missions','## 8. Recovery policy')
+        for required in ('latest-runtime.json','latest-discovery.json','inspected_count','50',
+                         '정밀 관측','원천 입력 실패','호출하지 않는다','계약을 변경하지 않는다'):
+            self.assertIn(required,section)
+
+    def test_final_report_contains_independent_missions(self):
+        section=self.text.split('## 11. Final report',1)[1]
+        self.assertIn('독립 가상매매',section)
+        self.assertIn('광역 탐색',section)
+
 
 if __name__ == "__main__":
     unittest.main()
