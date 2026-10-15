@@ -19,7 +19,7 @@ class CandidateLiveFeed:
             raise ValueError('One or two frozen domestic symbols required')
         self.clock=clock or (lambda:now_local('Asia/Seoul'))
         self.holidays=tuple(holidays)
-        self.states={};self.gap_count=0;self._lock=RLock()
+        self.states={};self.gap_count=0;self.cumulative_jump_count=0;self._lock=RLock()
 
     def _now(self):
         now=self.clock()
@@ -51,12 +51,17 @@ class CandidateLiveFeed:
                     self.states[symbol]=state
                 previous=state['cumulative']
                 if minute<state['minute'] or previous is not None and cumulative<=previous:return False
-                gap=previous is not None and cumulative-previous!=qty
+                # This subscription is an observed record stream, not a full exchange tape.
+                # Never fabricate missing executions from an accumulated-volume delta.
+                if previous is not None and cumulative-previous!=qty:
+                    self.cumulative_jump_count+=1
+                gap=minute>state['minute']+timedelta(minutes=1)
                 if minute>state['minute']:
                     if state['good'] and state['ticks'] and minute==state['minute']+timedelta(minutes=1) and not gap:
                         bar=aggregate_ticks_to_minute_bar(symbol,state['ticks'])
                         state['bars'].append({k:v for k,v in bar.to_record().items() if k!='symbol'} | {
-                            'available_at':now.isoformat(),'trade_count_scope':'captured_ws_records_only'})
+                            'available_at':now.isoformat(),'trade_count_scope':'captured_ws_records_only',
+                            'volume_scope':'captured_ws_records_only'})
                     else:
                         state['bars'].clear()
                     state.update(minute=minute,ticks=[],good=not gap)

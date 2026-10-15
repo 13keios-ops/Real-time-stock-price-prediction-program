@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import Event, Thread
 from urllib.request import urlopen
 import zipfile
+from collections import Counter
 
 from app.brokers.kis_auth import get_kis_profile, KisTokenManager
 from app.brokers.kis_candidate_reader import CandidateRestReader, PATHS, RANK_QUERY
@@ -124,6 +125,8 @@ class CandidateRuntime:
         self.http_blocked = False;self.request_count = 0;self.cycle_count = 0
         self.day = self.clock().date().isoformat();self.last_cycle = None;self.master = None
         self.last_delivered = {};self.record_rejections = 0;self.last_scan = None
+        self.rejection_reasons=Counter();self.rejection_samples={}
+        self.symbol_progress={s:{'accepted_trade_records':0,'accepted_book_records':0,'rejected_records':0} for s in self.symbols}
         self.owner_fd = os.open(self.folder/'runtime.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             info=os.fstat(self.owner_fd)
@@ -147,8 +150,27 @@ class CandidateRuntime:
             raise
 
     def observe_record(self, tr_id, record):
-        try:self.feed.observe_record(tr_id, record)
-        except (ValueError, KeyError, TypeError, OverflowError):self.record_rejections += 1
+        symbol=record.get('MKSC_SHRN_ISCD')
+        if symbol not in self.symbols:return
+        progress=self.symbol_progress[symbol]
+        try:
+            accepted=self.feed.observe_record(tr_id, record)
+            if accepted:
+                kind='trade' if tr_id=='H0STCNT0' else 'book'
+                progress['accepted_'+kind+'_records']+=1
+                progress['last_'+kind+'_received_at']=self.clock().isoformat()
+        except Exception as exc:
+            self.record_rejections+=1;progress['rejected_records']+=1
+            now=self.clock()
+            reason=('outside_session' if not '090000'<=now.strftime('%H%M%S')<='153000' else
+                    'missing_field' if isinstance(exc,KeyError) else
+                    'source_validation_failed')
+            self.rejection_reasons[reason]+=1;progress['last_rejection']=reason
+            if reason not in self.rejection_samples:
+                fields=('MKSC_SHRN_ISCD','BSOP_DATE','STCK_CNTG_HOUR','BSOP_HOUR','STCK_PRPR','CNTG_VOL','ACML_VOL','ASKP1','BIDP1')
+                import re
+                self.rejection_samples[reason]={k:str(record[k]) for k in fields
+                    if k in record and re.fullmatch(r'[-+0-9.]{1,24}',str(record[k]))}
 
     def _budget(self):
         _store(self.folder/'http-budget.json',dict(day=self.day,reserved_gets=self.request_count,blocked=self.http_blocked))
@@ -215,6 +237,7 @@ class CandidateRuntime:
         now = self.clock();day = now.date().isoformat()
         if day != self.day:
             self.day=day;self.request_count=0;self.http_blocked=False;self.master=None;self.last_cycle=None
+            self.rejection_reasons.clear();self.rejection_samples.clear()
             self._budget()
         if now.weekday()>=5 or day in self.contract.holidays or not time(9)<=now.time().replace(tzinfo=None)<=time(15,30):
             return
@@ -246,7 +269,7 @@ class CandidateRuntime:
                 bar=MinuteBar(symbol=symbol,bar_time=datetime.fromisoformat(row['bar_time']),
                     **{k:row[k] for k in ('open','high','low','close','volume','trade_count')})
                 self.deliver(bar,quote_spread_bps=spread,capture=capture if row is rows[-1] else None)
-        _store(self.folder/'latest-runtime.json',self.report())
+        self.write_report()
 
     def report(self):
         return dict(version=VERSION,spec_hash=self.spec_hash,status=self.status,
@@ -256,8 +279,17 @@ class CandidateRuntime:
             reserved_gets_scope='conservative_before_dispatch_includes_failed_attempts',
             cycle_count=self.cycle_count,http_blocked=self.http_blocked,record_rejections=self.record_rejections,
             feed_gap_count=self.feed.gap_count,warmup_bars={s:len(self.feed.bars(s)) for s in self.symbols},
+            feed_version='observed-ws-minute-v2',volume_scope='captured_ws_records_only',
+            cumulative_jump_count=getattr(self.feed,'cumulative_jump_count',0),
+            rejection_reasons=dict(self.rejection_reasons),rejection_samples=dict(self.rejection_samples),
+            symbol_progress={symbol:dict(progress) for symbol,progress in self.symbol_progress.items()},
             last_scan=self.last_scan,comparison=self.comparison.report(as_of=self.clock()),
             order_calls=0,real_trading_enabled=False,fees_verified=False,profitability_validated=False)
+
+    def write_report(self):
+        report=self.report()
+        _store(self.folder/'latest-runtime.json',report)
+        _store(self.folder/'days'/self.clock().strftime('%Y-%m-%d.json'),report)
 
     def start(self):
         if self.thread is not None:raise ValueError('Runtime already attached')
@@ -268,14 +300,14 @@ class CandidateRuntime:
                     self.step()
                     now=self.clock()
                     if last_report is None or (now-last_report).total_seconds()>=30:
-                        _store(self.folder/'latest-runtime.json',self.report());last_report=now
+                        self.write_report();last_report=now
             except Exception:
                 self.status='blocked';self.reason='local_runtime_failure';self.http_blocked=True
                 LOGGER.error('Isolated candidate worker stopped; primary pipeline continues')
-                try:_store(self.folder/'latest-runtime.json',self.report())
+                try:self.write_report()
                 except Exception:LOGGER.error('Candidate report unavailable')
         self.thread=Thread(target=run,name='candidate-paper',daemon=True);self.thread.start()
-        _store(self.folder/'latest-runtime.json',self.report())
+        self.write_report()
 
     def close(self):
         if self.owner_fd is None:return
@@ -286,7 +318,7 @@ class CandidateRuntime:
                 LOGGER.error('Candidate worker still stopping; wallet storage kept open')
                 return
         self.status='stopped'
-        try:_store(self.folder/'latest-runtime.json',self.report())
+        try:self.write_report()
         finally:
             self.comparison.close()
             os.close(self.owner_fd);self.owner_fd=None

@@ -1,5 +1,16 @@
 # 현재 상태
 
+## 10/15 장후 보완 · 10/16 준비
+
+- 후보 WS 분봉의 누적 증가량과 마지막 체결량이 다를 때마다 warmup을 초기화하던 경로를 수정했다. 실제 수신 체결량/record만 집계하며 전체 거래소 분봉 완전성을 주장하지 않는다. 실제 분 공백·날짜·freshness 검사는 유지한다. `feed_version=observed-ws-minute-v2`, volume/trade_count scope=captured_ws_records_only로 구분하며 과거 자료를 재평가하지 않는다.
+- 오늘 후보는 분봉/가상체결 0, record rejection 74,836/feed gap 4,135, 두 계좌 현금 각각 300,000원이다. `days/2026-10-15.json`에 원본을 보존했고 latest 바이트 불변을 확인했다. 구버전은 거부 상세 사유가 없어 74,836건 전체의 직접 원인을 확정하지 않는다. 전략 실패/수익률 0%가 아니라 입력 실패로 평가 불가다.
+- core 오늘 market 3,523/3,910(90.10%), orderbook 3,874/3,910(99.08%), feature 3,507/3,900(89.92%), ledger 3,507/lineage 100%, reconnect 7/storm 0이다. 12:39~12:52 체결/12:39~12:42 호가 공백의 직접 외부 원인은 미확정이다. paper WS에 정규 연속장 채널별 60초 침묵 감시를 추가해 heartbeat/다른 채널만 계속되면 기존 bounded reconnect를 사용한다. 종가 동시호가 제외/live 프로필 미적용이다.
+- Phase 0 최근 10유효일 matched 7/mismatch 3, 연속 matched 7; 오늘 submission/local fill 각 28, 수량 mismatch/UNKNOWN 0이다. common-mark cash gap -3,005.885원은 허용 범위다. 추가 broker 조회·정렬·기준선 변경은 없다.
+- 원본 E7 duplicate_decision_minute 4의 invalid와 복구 고정 1구간 4거래일/mark 37,359/stale·invalid mark 783의 평가 차단은 보존한다. evaluator/manifest/threshold를 완화하거나 mark를 합성하지 않는다.
+- 실제 대시보드에 새 가상매매 탭을 연결했다. 계좌별 비용 후 결과, 종목 수신/거부 진단, 선정·제외, 보유, 결정 ID별 판단→체결 및 일별 기록을 표시한다. 무입력 실패와 장전 대기를 구분하며 대시보드만 재시작했다. 야간 수집은 시작하지 않았다.
+- 내일 10/16은 달력상 거래일이다. watchdog fresh/should-run=false, Windows/WSL launcher ok, 후보 enabled/spec hash 유지, ML 17:35:49/label 18:03:52 완료다. Phase1b network-free preflight ready/passed=true/blocking 없음, network/order 0회다. 정상 warmup 시작에 새 코드가 로드되며 실제 ACK/21분 관측/예산/가상 판단 검증은 다음 세션 대상이다.
+- 검증: 전체 unittest 1,030건/56.107초 통과 후 독립 검토에서 발견한 전일 실적의 당일 혼입과 무인덱스 조회 장기화를 보완했다. daily_history/계좌 trade_date로 당일 분봉·체결·손익을 분리하고 SQLite 50ms 실행 예산/명시 연결 종료를 적용했으며 관련 54건/11.889초 통과다. PC 1440px/모바일 390px에서 실제 탭·표 내부 스크롤/본문 overflow 없음과 JS 오류 없음을 확인했다. 구조 감사 오류 0/기존 경고 4. 로그: `.tmp-tests/next-session-dashboard-full-final-20261015.log`, `candidate-dashboard-review-focused-20261015.log`.
+
 ## 10/15 승인된 후보 비교 런타임 연결
 
 - 운영자가 검증 후 제한 상시 읽기 수집/최대 2종목 추가 WS/돌파·눌림목 독립 로컬 가상매매 활성화를 승인했다. 기존 정상 WS 시작에서 같은 연결에 001440/006800을 추가하며 extra record는 원래 processor/DB/E7/Mirror에 전달하지 않는다. 두 초기 관측 seed는 매수 추천이나 강세 통과가 아니다. 각각 30만원의 두 계좌와 기존 10종목 미션의 현금·손익은 분리한다.

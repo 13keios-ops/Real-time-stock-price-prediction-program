@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from app.config.settings import load_settings
+from app.services.candidate_dashboard import load_candidate_dashboard, render_candidate_dashboard
 from app.models.lightgbm_model import LightGbmDirectionModel, find_latest_lightgbm_artifact
 from app.models.registry import ModelRegistry
 from app.observability.logging import configure_logging
@@ -2942,6 +2943,8 @@ def collect_dashboard_payload(
             "max_hold_minutes": settings.strategy.max_hold_minutes,
         },
         "runtime_summary": runtime_summary,
+        "candidate_mission": load_candidate_dashboard(
+            settings.runtime_data_dir,selected_date=period_filter.selected_date),
         "active_model": active_model_entry,
         "active_model_h60": active_model_entry_60,
         "local_account_state": local_account_state,
@@ -5009,6 +5012,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
         [
             _tab_button("tab-ops", "오늘", active=True),
             _tab_button("tab-accounts", "계좌"),
+            _tab_button("tab-candidate", "새 가상매매"),
             _tab_button("tab-ml-data", "데이터/모델"),
             _tab_button("tab-orders", "예측/주문"),
             _tab_button("tab-reports-settings", "운영"),
@@ -6005,6 +6009,7 @@ def _render_dashboard_html_v2(payload: dict[str, Any], *, refresh_seconds: int, 
       <section class="metrics">{metrics_html}</section>
       <section data-tab-id="tab-ops" class="tab-panel is-active">{operator_console_html}</section>
       <section data-tab-id="tab-accounts" class="tab-panel">{accounts_tab_html}</section>
+      <section data-tab-id="tab-candidate" class="tab-panel">{render_candidate_dashboard(payload.get('candidate_mission',{}))}</section>
       <section data-tab-id="tab-ml-data" class="tab-panel">{ml_data_tab_html}</section>
       <section data-tab-id="tab-orders" class="tab-panel">{orders_tab_html}</section>
       <section data-tab-id="tab-reports-settings" class="tab-panel">{reports_settings_tab_html}</section>

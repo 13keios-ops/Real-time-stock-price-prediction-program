@@ -132,6 +132,7 @@ class CandidateRuntimeTests(unittest.TestCase):
                     row[key]=datetime.fromisoformat(row[key]).replace(day=15).isoformat()
         runner.feed=Mock()
         runner.feed.gap_count=0
+        runner.feed.cumulative_jump_count=0
         runner.feed.bars.side_effect=lambda symbol:bars[symbol]
         runner.feed.quote.side_effect=lambda symbol:dict(rt_cd='0',trade_date=self.now.date().isoformat(),
             received_at=self.now.isoformat(),provider_at=self.now.isoformat(),output1={'askp1':25010,'bidp1':25000})
@@ -156,6 +157,44 @@ class CandidateRuntimeTests(unittest.TestCase):
         self.assertEqual(set(capture['observations']),{'001440','006800'})
         self.assertIsNotNone(runner.last_scan)
         self.assertEqual(runner.cycle_count,1)
+
+    def test_actual_sampled_feed_reaches_wallets_without_fabricating_volume(self):
+        from datetime import timedelta
+        from app.collectors.candidate_live_feed import CandidateLiveFeed
+        runner=self.runner();self.source_fixture(runner)
+        runner.feed=CandidateLiveFeed(runner.symbols,clock=lambda:self.now)
+        beginning=self.now.replace(hour=9,minute=9,second=10)
+        for minute in range(23):
+            self.now=beginning+timedelta(minutes=minute)
+            for symbol in runner.symbols:
+                runner.observe_record('H0STCNT0',dict(MKSC_SHRN_ISCD=symbol,BSOP_DATE='20261015',
+                    STCK_CNTG_HOUR=self.now.strftime('%H%M%S'),STCK_PRPR='25000',CNTG_VOL='10',ACML_VOL=str(1000+minute*100)))
+                runner.observe_record('H0STASP0',dict(MKSC_SHRN_ISCD=symbol,
+                    BSOP_HOUR=self.now.strftime('%H%M%S'),ASKP1='25010',BIDP1='25000'))
+        runner.step()
+        self.assertEqual(runner.reader.get.call_count,6)
+        self.assertEqual(runner.feed.gap_count,0)
+        self.assertGreater(runner.feed.cumulative_jump_count,0)
+        for wallet in runner.comparison.wallets.values():self.assertGreater(wallet.state['source_bar_count'],0)
+        for symbol in runner.symbols:
+            self.assertTrue(all(row['volume']==10 for row in runner.feed.bars(symbol)))
+        report=json.loads((runner.folder/'days/2026-10-15.json').read_text())
+        self.assertEqual(report['volume_scope'],'captured_ws_records_only')
+
+    def test_rejection_evidence_is_numeric_allowlisted_and_primary_continues(self):
+        runner=self.runner()
+        runner.observe_record('H0STCNT0',dict(MKSC_SHRN_ISCD='001440',BSOP_DATE='bad-date',
+            STCK_CNTG_HOUR='100010',STCK_PRPR='SECRET_SENTINEL',app_secret='SECRET_SENTINEL'))
+        runner.write_report()
+        report=json.loads((runner.folder/'days/2026-10-15.json').read_text())
+        self.assertEqual(report['rejection_reasons'],{'source_validation_failed':1})
+        self.assertNotIn('SECRET_SENTINEL',json.dumps(report))
+        self.assertFalse(runner.http_blocked)
+
+    def test_report_diagnostics_are_detached_from_receiving_thread(self):
+        runner=self.runner();report=runner.report()
+        runner.symbol_progress['001440']['accepted_trade_records']=2
+        self.assertEqual(report['symbol_progress']['001440']['accepted_trade_records'],0)
 
     def test_response_failure_stops_remaining_cycle_calls_and_survives_restart(self):
         runner=self.runner();self.source_fixture(runner)

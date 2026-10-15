@@ -9,7 +9,7 @@ from datetime import datetime
 import logging
 from typing import Any, Callable
 
-from app.brokers.kis_auth import KisApiError, KisAuthProfile, KisTokenManager
+from app.brokers.kis_auth import KisApiError, KisAuthProfile, KisTokenManager, KST
 
 
 DOMESTIC_TRADE_TR_ID = "H0STCNT0"
@@ -134,6 +134,25 @@ except ImportError:  # pragma: no cover - optional runtime dependency
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class KisWebSocketDataHealth:
+    """Heartbeat/one healthy channel must not hide regular-session data silence."""
+    def __init__(self, channels, timeout_seconds=60):
+        self.channels=tuple(dict.fromkeys(channels));self.timeout_seconds=timeout_seconds
+        self.last={};self.started=None
+
+    def observe(self, channel, now):
+        now=now.astimezone(KST)
+        if now.weekday()>=5 or not '090000'<=now.strftime('%H%M%S')<'152000':
+            self.started=None;self.last.clear();return
+        if self.started is None or self.started.date()!=now.date():
+            self.started=now;self.last.clear()
+        if channel in self.channels:self.last[channel]=now
+        for expected in self.channels:
+            age=(now-self.last.get(expected,self.started)).total_seconds()
+            if age>self.timeout_seconds:
+                raise KisApiError(f'KIS WebSocket data silence channel={expected} age_seconds={age:.0f}')
 
 
 def _now_local() -> datetime:
@@ -430,6 +449,8 @@ class KisWebSocketQuoteClient:
                             len(subscriptions),
                         )
                     first_frame_after_subscription = True
+                    health = (KisWebSocketDataHealth(tuple(s.tr_id for s in subscriptions))
+                              if getattr(self.profile,'mode',None)=='paper' else None)
                     while unbounded or frames_seen < max_frames:
                         try:
                             frame = await asyncio.wait_for(
@@ -442,6 +463,10 @@ class KisWebSocketQuoteClient:
                                 f"{self.frame_timeout_seconds}s after subscription."
                             )
                             raise KisApiError(message) from exc
+                        if health is not None:
+                            parts=frame.split('|',3)
+                            channel=parts[1] if len(parts)==4 and parts[0] in ('0','1') else None
+                            health.observe(channel,_now_local())
                         if frame.startswith("{"):
                             try:
                                 is_pingpong = json.loads(frame).get("header", {}).get("tr_id") == "PINGPONG"

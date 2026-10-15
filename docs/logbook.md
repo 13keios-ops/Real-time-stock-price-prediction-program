@@ -1,5 +1,13 @@
 # 작업 기록
 
+## [2026-10-15] 다음 장 준비와 새 가상매매 상세 탭
+
+- 사용자의 수동 일괄 진행 요청으로 장후 수집 상태를 조사하고 candidate 누적량 차이→매번 warmup reset 경로를 실제 분 공백과 분리했다. 거래량을 보충하지 않고 observed WS scope/feed version을 명시했다. 오늘 원본 latest 불변과 일별 보존을 확인했다.
+- paper WS heartbeat/다른 정상 채널이 체결 침묵을 가리던 경로에 채널별 regular-session liveness를 추가했다. 기존 bounded reconnect/backoff를 재사용하며 live 프로필/종가 동시호가는 제외한다. 12:39 공백의 정확한 외부 원인과 구버전 reject 전체 원인은 미확정이다.
+- readonly candidate dashboard loader/별도 탭을 추가했다. 계좌별 당일/누적 손익·비용, 종목 원천/거부·scanner, 보유, stable decision→fill, 일별 기록을 제공한다. 날짜 교차 fallback/원장 생성 없이 읽고 symlink/크기/allowlist/HTML escaping을 검증했다. 대량 관측이 체결을 가리지 않게 조회를 분리했다.
+- 최종 전체 1,030건/56.107초 및 PC/모바일 실제 탭·내용·표 스크롤·본문 overflow/JS 오류 검증 통과. 구조 감사 오류 0/기존 경고 4, network-free preflight ready/passed/network·order 0. 실제 snapshot 생성/대시보드만 재시작, 기존 watchdog/launcher·후보 enabled 유지, 야간 수집·KIS 호출·주문/취소·기준선/전략 변경 없음. 실제 미래 세션 검증과 실패 평가 보존은 STATUS를 따른다.
+- 독립 review의 전일 실적 혼입/무인덱스 누적 조회 2건을 재현 후 수정했다. 당일 통계와 누적 통계 분리, 계좌 날짜 불일치 손익 미평가, SQLite 50ms progress 예산/명시 close를 적용했다. 보완 관련 54건/11.889초 통과이며 전체 1,032건 실행으로 보고하지 않는다.
+
 ## [2026-10-15] 승인된 제한 수집·독립 비교 runner 연결
 
 - 승인 범위에 맞춰 같은 WS의 extra 종목을 core accounting과 분리하고 actual BSOP_DATE/21분 완료 증거, TLS 공개 master 및 최대 6회 cached GET을 연결했다. 두 independent local wallets의 고정 계약/비용/미래 분봉 체결 규칙은 변경하지 않았다. 단일 owner lock, 회차/일 예산·차단 재시작 보존, 입력 journal 선행 fsync, heartbeat/warmup/제외 이유를 추가했다.

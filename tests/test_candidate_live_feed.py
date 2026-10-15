@@ -43,16 +43,30 @@ class CandidateLiveFeedTests(unittest.TestCase):
         self.assertEqual(bars[-1]['trade_count'],1)
         self.assertEqual(bars[-1]['volume'],10)
 
-    def test_duplicate_and_missing_execution_restart_warmup(self):
+    def test_duplicate_and_missing_minute_restart_warmup(self):
         row=self.trade();self.feed.observe_record('H0STCNT0',row)
         self.assertFalse(self.feed.observe_record('H0STCNT0',row))
-        self.now+=timedelta(minutes=1)
+        self.now+=timedelta(minutes=2)
         self.feed.observe_record('H0STCNT0',self.trade())
         self.cumulative+=100
         self.now+=timedelta(minutes=1)
         self.feed.observe_record('H0STCNT0',self.trade())
         self.assertGreater(self.feed.gap_count,0)
         self.assertEqual(self.feed.bars('001440'),[])
+
+    def test_cumulative_jump_is_not_a_missing_minute_or_invented_execution(self):
+        self.feed.observe_record('H0STCNT0',self.trade())
+        for i in range(1,23):
+            self.now=datetime.fromisoformat('2026-10-15T09:00:10+09:00')+timedelta(minutes=i)
+            self.cumulative+=50
+            self.feed.observe_record('H0STCNT0',self.trade())
+        rows=self.feed.bars('001440')
+        self.assertEqual(len(rows),21)
+        self.assertEqual(rows[-1]['volume'],10)
+        self.assertEqual(rows[-1]['trade_count'],1)
+        self.assertEqual(rows[-1]['volume_scope'],'captured_ws_records_only')
+        self.assertGreater(self.feed.cumulative_jump_count,0)
+        self.assertEqual(self.feed.gap_count,0)
 
     def test_quote_day_comes_from_actual_own_ws_day(self):
         self.feed.observe_record('H0STCNT0',self.trade())
